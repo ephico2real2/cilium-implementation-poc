@@ -1,0 +1,5 @@
+# Local kubeconfigs and anything a run writes out
+*.kubeconfig
+kubeconfig-*
+.tmp/
+out/

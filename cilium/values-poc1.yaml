@@ -1,0 +1,116 @@
+# Cilium helm values for cluster poc1 (3 control-plane + 2 workers).
+#
+# Applied by scripts/install-cilium.sh, which ALSO passes --set k8sServiceHost=<ip> on the command
+# line. That value cannot live in this file because it is not known until the cluster exists — see
+# the note at the bottom.
+
+# ---------------------------------------------------------------------------------------------
+# IDENTITY — set at install time, not later.
+# ---------------------------------------------------------------------------------------------
+# ClusterMesh requires every cluster to have a unique name and a numeric id in the range 1-255.
+# Set them NOW even though the mesh is Phase 4: changing a cluster id on a running cluster changes
+# every security identity it has issued, which is disruptive. Cheap now, expensive later.
+cluster:
+  name: poc1
+  id: 1
+
+# ---------------------------------------------------------------------------------------------
+# IPAM AND IMAGES
+# ---------------------------------------------------------------------------------------------
+ipam:
+  # "kubernetes" means Cilium takes each node's podCIDR from the Kubernetes node object, which kind
+  # has already carved out of the podSubnet in clusters/poc1.yaml. The alternative ("cluster-pool")
+  # makes Cilium do its own allocation and would ignore what kind configured.
+  mode: kubernetes
+
+image:
+  # kind loads images into each node's local store. IfNotPresent stops every pod restart from going
+  # back to the registry, which on a laptop is slow and, offline, fatal.
+  pullPolicy: IfNotPresent
+
+operator:
+  # One operator replica. The chart defaults to 2 for HA; on a laptop the second one just sits
+  # Pending or evicts something that matters.
+  replicas: 1
+
+# ---------------------------------------------------------------------------------------------
+# KUBE-PROXY REPLACEMENT — the headline capability, and the reason for kubeProxyMode: none
+# ---------------------------------------------------------------------------------------------
+# With this true, Cilium implements ClusterIP / NodePort / LoadBalancer service load balancing in
+# eBPF instead of iptables. Because clusters/poc1.yaml never installed kube-proxy, this is not a
+# "replacement" running alongside anything — Cilium is the only thing doing services. If this were
+# false on a kubeProxyMode:none cluster you would have NO service networking at all.
+kubeProxyReplacement: true
+
+# Required by Gateway API (Phase 3) and by any L7 (HTTP-aware) network policy (demo 02). It starts
+# an Envoy proxy that Cilium steers selected traffic through. Enable it up front so demo 02 does not
+# need a reinstall.
+l7Proxy: true
+
+# ---------------------------------------------------------------------------------------------
+# HUBBLE — observability
+# ---------------------------------------------------------------------------------------------
+hubble:
+  enabled: true
+  relay:
+    # Relay aggregates the per-node Hubble instances into one API. Without it `hubble observe` can
+    # only see the node you happen to be port-forwarded to.
+    enabled: true
+  ui:
+    # The service map in a browser. Reached with `cilium hubble ui`.
+    enabled: true
+  metrics:
+    # These are what make the UI's service map and the flow breakdowns useful. Each entry tells
+    # Hubble to emit a Prometheus metric series; without them the UI renders a much emptier graph.
+    enabled:
+      - dns
+      - drop
+      - tcp
+      - flow
+      - port-distribution
+      - icmp
+      - "httpV2:exemplars=true;labelsContext=source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload,traffic_direction"
+
+# ---------------------------------------------------------------------------------------------
+# LOADBALANCER SERVICES WITHOUT A CLOUD — needed by Gateway API in Phase 3
+# ---------------------------------------------------------------------------------------------
+# kind has no cloud load balancer, so a Service of type LoadBalancer would sit <pending> forever and
+# Gateway API would never get an address. Rather than add MetalLB, use Cilium's own two features:
+#   - LB IPAM hands out IPs from a CiliumLoadBalancerIPPool (see cilium/lb-ippool.yaml)
+#   - L2 announcements answer ARP for those IPs so they are reachable on the docker bridge
+# One less component, and it is itself a Cilium capability worth showing.
+l2announcements:
+  enabled: true
+
+# L2 announcements lease-hammer the API server at default settings; these are the values Cilium's
+# own docs suggest for small clusters.
+k8sClientRateLimit:
+  qps: 50
+  burst: 100
+
+# ---------------------------------------------------------------------------------------------
+# NOT SET HERE, AND WHY
+# ---------------------------------------------------------------------------------------------
+# k8sServiceHost / k8sServicePort — passed by scripts/install-cilium.sh with --set.
+#   With kube-proxy gone, Cilium cannot reach the API server through the kubernetes.default Service
+#   (that Service is implemented BY Cilium, which is not running yet — a chicken and egg). It must be
+#   given a real address. On poc1 the right address is kind's external load balancer container
+#   `poc1-external-load-balancer` (Envoy on kind 0.33.0), NOT any single control-plane node, because
+#   with 3 control planes that is the only endpoint that stays valid when one goes away.
+#
+#   PASS THE DNS NAME, NOT THE IP. This was measured the hard way on this build. Installing with
+#   `--set k8sServiceHost=172.18.0.7` (the load balancer's IP) left every cilium agent Pending with
+#   its `config` init container looping on "Establishing connection to apiserver". The endpoint was
+#   NOT down: from a node, `curl -sk https://172.18.0.7:6443/version` returned 200 in 9ms. The cause
+#   is TLS. The API server certificate's SANs are
+#       DNS:kubernetes, ... DNS:poc1-control-plane2, DNS:poc1-external-load-balancer
+#       IP Address:10.11.0.1, IP Address:172.18.0.4, IP Address:127.0.0.1
+#   -- the load balancer's own IP (172.18.0.7) is absent, so verification against the cluster CA
+#   fails for the IP and succeeds for the name. Proof, from inside a node, with the real CA:
+#       by IP  https://172.18.0.7:6443/version                 -> TLS FAILED (curl exit, http 000)
+#       by DNS https://poc1-external-load-balancer:6443/version -> 200
+#   Docker's embedded DNS resolves the name from every node, so the name is both correct and
+#   available. Use it.
+#
+# encryption / bandwidthManager / gatewayAPI — deliberately off here. They are enabled per demo in
+#   Phase 3 with `helm upgrade --reuse-values`, so each demo shows its own before/after.

@@ -1,0 +1,55 @@
+# poc1 — the main PoC cluster: 3 control-plane + 2 worker nodes.
+#
+# Create with:
+#   kind create cluster --config clusters/poc1.yaml
+#
+# WHY 3 CONTROL PLANES. etcd needs a MAJORITY of its members alive to accept writes. With 3 members
+# the majority is 2, so the cluster survives losing one — that is real high availability and you can
+# demonstrate it by stopping a control-plane container. With 2 members the majority is still 2, so
+# losing either one stops the cluster: two control planes buy you no fault tolerance at all, only the
+# appearance of it. Never run an even number of etcd members.
+#
+# WHAT KIND DOES WITH >1 CONTROL PLANE. It starts an extra container,
+# `poc1-external-load-balancer`, and points every node's kubeconfig at it instead of at a single API
+# server. On kind 0.33.0 that container runs ENVOY (envoyproxy/envoy:v1.36.2) — older guides and
+# older kind releases say HAProxy; verify with `docker ps` rather than trusting either. Remember it
+# is there: Cilium has to be told about it in Step 6, and pointing Cilium at a control-plane node
+# instead of the load balancer makes its operator crash-loop.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: poc1
+
+networking:
+  # TURN OFF KINDNET, KIND'S BUILT-IN CNI. Cilium IS the CNI here, and two CNIs on one cluster fight
+  # over pod networking. Until Cilium is installed in Step 6 every node stays NotReady and pods stay
+  # Pending — that is EXPECTED, not a failure. Do not debug it; install Cilium.
+  disableDefaultCNI: true
+
+  # DO NOT INSTALL KUBE-PROXY. Cilium replaces it with eBPF (Step 6, kubeProxyReplacement=true).
+  # This is what makes demo 03 possible: you cannot demonstrate replacing something that is still
+  # running. Leaving this out is the single most common reason "kube-proxy replacement" appears
+  # half-enabled later.
+  kubeProxyMode: none
+
+  # EXPLICIT, NON-DEFAULT CIDRs. kind's defaults would overlap with poc2's, and ClusterMesh (Phase 4)
+  # requires that "PodCIDR ranges in all clusters and all nodes must be non-conflicting and unique".
+  # Setting them now avoids rebuilding both clusters later.
+  podSubnet: "10.10.0.0/16"
+  serviceSubnet: "10.11.0.0/16"
+
+nodes:
+  # THE NODE IMAGE IS PINNED BY DIGEST, AND THE VERSION IS NOT AN ACCIDENT.
+  # kind 0.33.0 defaults to Kubernetes v1.37.0, but Cilium 1.20.1 is e2e-tested only on 1.33-1.36
+  # (docs.cilium.io "Kubernetes requirements"). Taking kind's default would put the PoC on an
+  # untested combination. v1.36.4 is the newest version Cilium 1.20.1 actually supports.
+  # The @sha256 digest pins the exact image: a tag can be re-pushed, a digest cannot.
+  - role: control-plane
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  - role: control-plane
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  - role: control-plane
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  - role: worker
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  - role: worker
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed

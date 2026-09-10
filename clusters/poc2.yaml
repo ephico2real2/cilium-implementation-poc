@@ -1,0 +1,34 @@
+# poc2 — the ClusterMesh peer: 1 control-plane + 1 worker.
+#
+# Create with:
+#   kind create cluster --config clusters/poc2.yaml
+#
+# WHY THIS CLUSTER EXISTS AT ALL. ClusterMesh joins two or more clusters so a Service in one can be
+# backed by pods in another. You cannot demonstrate that with one cluster. poc2 exists only to be the
+# far side of the mesh, so it is deliberately the smallest cluster that can host a workload:
+# one control plane to run the API, one worker to schedule pods on.
+#
+# Only ONE control plane here, on purpose. This cluster is not demonstrating HA, and a single control
+# plane also means kind creates NO external load balancer — so Cilium's k8sServiceHost for poc2 is
+# simply the control-plane node, which is the simpler of the two cases you will see in Step 6.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: poc2
+
+networking:
+  disableDefaultCNI: true
+  kubeProxyMode: none
+
+  # NON-OVERLAPPING WITH poc1. This is the hard requirement for ClusterMesh, not a style choice:
+  # poc1 uses 10.10.0.0/16 (pods) and 10.11.0.0/16 (services); poc2 uses 10.20/16 and 10.21/16.
+  # If these overlapped, a pod IP would be ambiguous across the mesh and routing would be undefined.
+  podSubnet: "10.20.0.0/16"
+  serviceSubnet: "10.21.0.0/16"
+
+nodes:
+  # Same pinned image as poc1 — both sides of a mesh should run the same Kubernetes version unless
+  # you are deliberately testing a version skew.
+  - role: control-plane
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  - role: worker
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
