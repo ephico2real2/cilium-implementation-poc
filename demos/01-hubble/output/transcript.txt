@@ -1,0 +1,44 @@
+### 2026-09-10T20:06:43Z
+$ bash -c hubble status -P 2>&1 | grep -v level=WARN
+Healthcheck (via 127.0.0.1:4245): Ok
+Current/Max Flows: 20,305/20,475 (99.17%)
+Flows/s: 29.78
+Connected Nodes: 5/5
+
+### 2026-09-10T20:06:43Z
+$ bash -c kubectl --context kind-poc1 exec tiefighter -- curl -s -o /dev/null -XPOST --max-time 8 deathstar.default.svc.cluster.local/v1/request-landing; hubble observe --last 6 -P --protocol http 2>&1 | grep -v level=WARN
+Sep 10 20:02:35.781: default/tiefighter:37832 (ID:66741) -> default/deathstar-6cdb68dc9f-mxjhs:80 (ID:86276) http-request FORWARDED (HTTP/1.1 POST http://deathstar.default.svc.cluster.local/v1/request-landing)
+Sep 10 20:02:35.785: default/tiefighter:37832 (ID:66741) <- default/deathstar-6cdb68dc9f-mxjhs:80 (ID:86276) http-response FORWARDED (HTTP/1.1 200 4ms (POST http://deathstar.default.svc.cluster.local/v1/request-landing))
+Sep 10 20:05:55.461: default/tiefighter:46152 (ID:66741) -> default/deathstar-6cdb68dc9f-mxjhs:80 (ID:86276) http-request FORWARDED (HTTP/1.1 POST http://deathstar.default.svc.cluster.local/v1/request-landing)
+Sep 10 20:05:55.464: default/tiefighter:46152 (ID:66741) <- default/deathstar-6cdb68dc9f-mxjhs:80 (ID:86276) http-response FORWARDED (HTTP/1.1 200 2ms (POST http://deathstar.default.svc.cluster.local/v1/request-landing))
+Sep 10 20:05:55.675: default/tiefighter:50882 (ID:66741) -> default/deathstar-6cdb68dc9f-xqvqg:80 (ID:86276) http-request FORWARDED (HTTP/1.1 POST http://deathstar.default.svc.cluster.local/v1/request-landing)
+Sep 10 20:05:55.678: default/tiefighter:50882 (ID:66741) <- default/deathstar-6cdb68dc9f-xqvqg:80 (ID:86276) http-response FORWARDED (HTTP/1.1 200 2ms (POST http://deathstar.default.svc.cluster.local/v1/request-landing))
+Sep 10 20:05:55.890: default/tiefighter:46722 (ID:66741) -> default/deathstar-6cdb68dc9f-xqvqg:80 (ID:86276) http-request FORWARDED (HTTP/1.1 POST http://deathstar.default.svc.cluster.local/v1/request-landing)
+Sep 10 20:05:55.893: default/tiefighter:46722 (ID:66741) <- default/deathstar-6cdb68dc9f-xqvqg:80 (ID:86276) http-response FORWARDED (HTTP/1.1 200 3ms (POST http://deathstar.default.svc.cluster.local/v1/request-landing))
+Sep 10 20:05:56.117: default/tiefighter:46724 (ID:66741) -> default/deathstar-6cdb68dc9f-xqvqg:80 (ID:86276) http-request FORWARDED (HTTP/1.1 POST http://deathstar.default.svc.cluster.local/v1/request-landing)
+Sep 10 20:05:56.119: default/tiefighter:46724 (ID:66741) <- default/deathstar-6cdb68dc9f-xqvqg:80 (ID:86276) http-response FORWARDED (HTTP/1.1 200 2ms (POST http://deathstar.default.svc.cluster.local/v1/request-landing))
+Sep 10 20:06:44.336: default/tiefighter:57898 (ID:66741) -> default/deathstar-6cdb68dc9f-mxjhs:80 (ID:86276) http-request FORWARDED (HTTP/1.1 POST http://deathstar.default.svc.cluster.local/v1/request-landing)
+Sep 10 20:06:44.339: default/tiefighter:57898 (ID:66741) <- default/deathstar-6cdb68dc9f-mxjhs:80 (ID:86276) http-response FORWARDED (HTTP/1.1 200 2ms (POST http://deathstar.default.svc.cluster.local/v1/request-landing))
+
+### 2026-09-10T20:06:52Z
+$ bash -c hubble observe --last 4 -P --protocol dns 2>&1 | grep -v level=WARN
+[exit code: 1]
+
+### 2026-09-10T20:06:52Z
+$ bash -c hubble observe --last 6 -P --verdict DROPPED 2>&1 | grep -v level=WARN
+Sep 10 20:01:53.116: fe80::ec54:64ff:fe99:b486 (ID:78115) <> ff02::2 (unknown) Unsupported L3 protocol DROPPED (ICMPv6 RouterSolicitation)
+Sep 10 20:02:40.347: default/xwing:51338 (ID:99365) <> default/deathstar-6cdb68dc9f-xqvqg:80 (ID:86276) Policy denied DROPPED (TCP Flags: SYN)
+Sep 10 20:02:41.371: default/xwing:51338 (ID:99365) <> default/deathstar-6cdb68dc9f-xqvqg:80 (ID:86276) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
+Sep 10 20:02:41.371: default/xwing:51338 (ID:99365) <> default/deathstar-6cdb68dc9f-xqvqg:80 (ID:86276) Policy denied DROPPED (TCP Flags: SYN)
+Sep 10 20:02:50.460: fe80::80f8:8ff:fedf:1b55 (ID:86276) <> ff02::2 (unknown) Unsupported L3 protocol DROPPED (ICMPv6 RouterSolicitation)
+Sep 10 20:02:58.652: fe80::6464:beff:feea:cd83 (ID:99365) <> ff02::2 (unknown) Unsupported L3 protocol DROPPED (ICMPv6 RouterSolicitation)
+Sep 10 20:03:03.713: default/tiefighter:38990 (ID:66741) -> default/deathstar-6cdb68dc9f-xqvqg:80 (ID:86276) http-request DROPPED (HTTP/1.1 PUT http://deathstar.default.svc.cluster.local/v1/exhaust-port)
+Sep 10 20:03:06.843: fe80::74c8:b5ff:fef7:853a (ID:86276) <> ff02::2 (unknown) Unsupported L3 protocol DROPPED (ICMPv6 RouterSolicitation)
+Sep 10 20:03:19.120: fe80::e822:86ff:fe2f:707e (ID:66741) <> ff02::2 (unknown) Unsupported L3 protocol DROPPED (ICMPv6 RouterSolicitation)
+Sep 10 20:04:32.821: fe80::80f8:8ff:fedf:1b55 (ID:86276) <> ff02::2 (unknown) Unsupported L3 protocol DROPPED (ICMPv6 RouterSolicitation)
+Sep 10 20:04:49.205: fe80::6464:beff:feea:cd83 (ID:99365) <> ff02::2 (unknown) Unsupported L3 protocol DROPPED (ICMPv6 RouterSolicitation)
+Sep 10 20:05:09.684: fe80::74c8:b5ff:fef7:853a (ID:86276) <> ff02::2 (unknown) Unsupported L3 protocol DROPPED (ICMPv6 RouterSolicitation)
+Sep 10 20:05:38.356: fe80::e822:86ff:fe2f:707e (ID:66741) <> ff02::2 (unknown) Unsupported L3 protocol DROPPED (ICMPv6 RouterSolicitation)
+Sep 10 20:05:42.452: fe80::bc:e1ff:fe32:e4dd (ID:108114) <> ff02::2 (unknown) Unsupported L3 protocol DROPPED (ICMPv6 RouterSolicitation)
+Sep 10 20:06:15.221: fe80::a094:91ff:fe73:2594 (ID:108114) <> ff02::2 (unknown) Unsupported L3 protocol DROPPED (ICMPv6 RouterSolicitation)
+

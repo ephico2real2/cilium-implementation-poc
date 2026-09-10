@@ -382,6 +382,75 @@ p.write_text(json.dumps(d, indent=2)); print('memoryMiB ->', d['memoryMiB'])
 "
 ```
 
+### Step 2.3b — enable kernel networking for UDP (macOS PREREQUISITE for routable container IPs)
+
+**Do this now, in the same edit as Step 2.3, so one restart applies both.**
+
+**Why this exists.** On macOS, Docker containers run inside a Linux VM and **the container network is
+not reachable from the host**. That is not a misconfiguration, it is the architecture. Measured on
+this machine before the change:
+
+```bash
+curl -sk -o /dev/null -w '%{http_code}\n' --max-time 6 https://172.18.0.3:6443/version
+```
+
+```
+000
+```
+
+```bash
+netstat -rn -f inet | grep 172.18
+```
+
+```
+(no output — there is no route to the kind network at all)
+```
+
+**Why it matters for this PoC.** Cilium's LB IPAM will hand LoadBalancer Services an address out of
+the `kind` docker subnet (`172.18.0.0/16`), and the Gateway API demo depends on that. Those
+addresses are perfectly reachable *inside* the cluster — but without this setting you cannot open
+one in a browser on the laptop. Note carefully: **no in-cluster load balancer can fix this.**
+kube-vip, MetalLB and Cilium LB IPAM would all allocate a `172.18.x` address and all be equally
+unreachable, because the blocker is the host↔VM boundary, not the load balancer. The fix has to
+happen on the Docker Desktop side.
+
+**The feature.** Docker Desktop **4.26+** has a setting called *"kernel networking for UDP"*
+(`kernelForUDP` in `settings.json`). With it on, Docker Desktop creates a `bridge101` interface on
+macOS and an `eth1` interface inside the VM, which together make the container networks routable
+from the host once you add a route.
+
+**Check your version first** — below 4.26 this option does not exist:
+
+```bash
+defaults read /Applications/Docker.app/Contents/Info.plist CFBundleShortVersionString
+```
+
+```
+4.27.2
+```
+
+**Enable it.** The supported route is the GUI: **Docker Desktop → Settings → Resources → Network →
+"Enable kernel networking for UDP"**. Or, in the same settings file as Step 2.3:
+
+```bash
+python3 -c "
+import json, pathlib
+p = pathlib.Path.home() / 'Library/Group Containers/group.com.docker/settings.json'
+d = json.loads(p.read_text()); d['kernelForUDP'] = True
+p.write_text(json.dumps(d, indent=2)); print('kernelForUDP ->', d['kernelForUDP'])
+"
+```
+
+```
+kernelForUDP -> True
+```
+
+The route itself is added **after** the restart, in Step 2.6 — the `bridge101` interface and the
+VM's `eth1` address do not exist until Docker has come back up with the setting on.
+
+**Linux users: skip this step entirely.** Docker bridge networks are already routable from a Linux
+host; this whole section exists only because of the macOS VM boundary.
+
 ### Step 2.4 — restart Docker, and WAIT FOR IT TO FULLY EXIT
 
 **This is where this build went wrong, so read it before you act.**

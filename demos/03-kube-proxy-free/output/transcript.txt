@@ -1,0 +1,57 @@
+### 2026-09-10T20:05:32Z
+$ kubectl --context kind-poc1 -n kube-system get daemonset
+NAME           DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+cilium         5         5         5       5            5           kubernetes.io/os=linux   40m
+cilium-envoy   5         5         5       5            5           kubernetes.io/os=linux   40m
+
+### 2026-09-10T20:05:33Z
+$ kubectl --context kind-poc1 -n kube-system get pods -l k8s-app=kube-proxy
+No resources found in kube-system namespace.
+
+### 2026-09-10T20:05:43Z
+$ kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --brief
+E0910 15:05:44.074996   63149 websocket.go:296] Unknown stream id 1, discarding message
+OK
+
+### 2026-09-10T20:05:44Z
+$ bash -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E 'KubeProxyReplacement|Routing:|Device'
+KubeProxyReplacement:    True   [eth0    172.18.0.4 fc00:f853:ccd:e793::4 fe80::42:acff:fe12:4 (Direct Routing)]
+Routing:                 Network: Tunnel [vxlan]   Host: Legacy
+Device Mode:             veth
+
+### 2026-09-10T20:05:44Z
+$ bash -c docker exec poc1-worker iptables-save 2>/dev/null | grep -c 'KUBE-SVC' || echo 0
+0
+0
+
+### 2026-09-10T20:05:54Z
+$ bash -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | head -12
+ID   Frontend               Service Type   Backend                              
+1    10.11.48.229:443/TCP   ClusterIP      1 => 172.18.0.4:4244/TCP (active)    
+2    10.11.8.14:80/TCP      ClusterIP      1 => 10.10.3.134:4245/TCP (active)   
+3    10.11.114.88:80/TCP    ClusterIP      1 => 10.10.3.142:8081/TCP (active)   
+4    10.11.0.10:53/TCP      ClusterIP      1 => 10.10.1.31:53/TCP (active)      
+                                           2 => 10.10.1.206:53/TCP (active)     
+5    10.11.0.10:53/UDP      ClusterIP      1 => 10.10.1.31:53/UDP (active)      
+                                           2 => 10.10.1.206:53/UDP (active)     
+6    10.11.0.10:9153/TCP    ClusterIP      1 => 10.10.1.31:9153/TCP (active)    
+                                           2 => 10.10.1.206:9153/TCP (active)   
+7    10.11.0.1:443/TCP      ClusterIP      1 => 172.18.0.3:6443/TCP (active)    
+                                           2 => 172.18.0.4:6443/TCP (active)    
+
+### 2026-09-10T20:05:55Z
+$ kubectl --context kind-poc1 get svc deathstar
+NAME        TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+deathstar   ClusterIP   10.11.224.170   <none>        80/TCP    4m55s
+
+### 2026-09-10T20:05:55Z
+$ bash -c for i in 1 2 3 4; do kubectl --context kind-poc1 exec tiefighter -- curl -s -XPOST --max-time 8 deathstar.default.svc.cluster.local/v1/request-landing; echo; done
+Ship landed
+
+Ship landed
+
+Ship landed
+
+Ship landed
+
+

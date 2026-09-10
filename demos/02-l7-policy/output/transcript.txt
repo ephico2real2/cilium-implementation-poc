@@ -1,0 +1,26 @@
+### 2026-09-10T20:07:48Z
+$ bash -c echo '--- STAGE 0: no policy ---'; kubectl --context kind-poc1 exec tiefighter -- curl -s -XPOST --max-time 8 deathstar.default.svc.cluster.local/v1/request-landing; echo; kubectl --context kind-poc1 exec xwing -- curl -s -XPOST --max-time 8 deathstar.default.svc.cluster.local/v1/request-landing; echo
+--- STAGE 0: no policy ---
+Ship landed
+
+command terminated with exit code 28
+
+
+### 2026-09-10T20:07:57Z
+$ kubectl --context kind-poc1 apply -f demos/02-l7-policy/01-l3-l4-policy.yaml
+./scripts/record.sh: line 33: kubectl --context kind-poc1: command not found
+[exit code: 127]
+
+### 2026-09-10T20:08:00Z
+$ bash -c echo '--- STAGE 1: L3/L4 ---'; echo -n 'tiefighter POST /v1/request-landing : '; kubectl --context kind-poc1 exec tiefighter -- curl -s -XPOST --max-time 8 deathstar.default.svc.cluster.local/v1/request-landing; echo; echo -n 'xwing POST /v1/request-landing : '; kubectl --context kind-poc1 exec xwing -- curl -s -XPOST --max-time 8 -w 'http=%{http_code}' deathstar.default.svc.cluster.local/v1/request-landing; echo
+--- STAGE 1: L3/L4 ---
+tiefighter POST /v1/request-landing : Ship landed
+
+xwing POST /v1/request-landing : http=000command terminated with exit code 28
+
+
+### 2026-09-10T20:08:09Z
+$ bash -c echo '--- STAGE 1: the gap ---'; kubectl --context kind-poc1 exec tiefighter -- curl -s -XPUT --max-time 8 deathstar.default.svc.cluster.local/v1/exhaust-port
+--- STAGE 1: the gap ---
+Access denied
+
