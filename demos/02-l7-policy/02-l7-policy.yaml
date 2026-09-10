@@ -1,0 +1,42 @@
+# STAGE 2 — L7 policy: the same two pods, now filtered by HTTP METHOD and PATH.
+#
+# Apply with:
+#   kubectl apply -f demos/02-l7-policy/02-l7-policy.yaml
+#
+# THIS IS THE DEMO. Stage 1 already restricted deathstar to org=empire on TCP 80, and tiefighter
+# passed that test -- then used its allowed connection to call PUT /v1/exhaust-port and destroy the
+# target ("Panic: deathstar exploded"). Nothing at L3/L4 could have prevented that, because a port
+# rule cannot see a URL.
+#
+# The only addition below is the `rules.http` block: POST /v1/request-landing is permitted and
+# EVERYTHING ELSE ON THE SAME PORT is refused. Same client, same destination, same TCP port, same
+# security identity -- a different verb and path get a different answer.
+#
+# HOW IT IS ENFORCED. `l7Proxy: true` in the Cilium values starts an Envoy proxy on each node.
+# Cilium redirects only the flows a policy marks as needing L7 inspection into that proxy, so the
+# HTTP parse cost is paid on the matched traffic and nowhere else. A denied request is answered
+# with 403 by the proxy rather than dropped, which is why the failure below is instant and
+# explicit, not a timeout like the L3 denial in stage 1. That difference is itself a useful
+# diagnostic: a timeout smells like L3/L4, a 403 like L7.
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: "rule1"
+spec:
+  description: "L7 policy to restrict access to specific HTTP call"
+  endpointSelector:
+    matchLabels:
+      org: empire
+      class: deathstar
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            org: empire
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+          rules:
+            http:
+              - method: "POST"
+                path: "/v1/request-landing"

@@ -1,0 +1,36 @@
+# STAGE 1 — L3/L4 policy: identity-based, but blind to HTTP.
+#
+# Apply with:
+#   kubectl apply -f demos/02-l7-policy/01-l3-l4-policy.yaml
+#
+# WHAT THIS DOES. Only pods labelled org=empire may talk to deathstar on TCP 80. xwing is labelled
+# org=alliance, so it is denied. Note what the match is made on: a LABEL, not an IP. Cilium turns
+# the label set into a numeric security identity and enforces on that, so the rule keeps working
+# when the pod is rescheduled onto another node with a different IP. An iptables/CIDR rule cannot
+# do that -- it would have to be rewritten every time a pod moved.
+#
+# WHAT IT STILL CANNOT DO. Once tiefighter is allowed on port 80, it may call ANY HTTP path,
+# including PUT /v1/exhaust-port. L3/L4 sees a TCP connection; it has no idea what is inside it.
+# Stage 2 (02-l7-policy.yaml) closes exactly that gap, and the difference between the two files is
+# the whole argument for L7-aware policy.
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: "rule1"
+spec:
+  description: "L3-L4 policy to restrict deathstar access to empire ships only"
+  # endpointSelector picks the pods this policy PROTECTS (the destination).
+  endpointSelector:
+    matchLabels:
+      org: empire
+      class: deathstar
+  ingress:
+    # fromEndpoints picks who is ALLOWED IN. Anything not matched here is denied, because attaching
+    # any ingress rule to an endpoint switches it from default-allow to default-deny.
+    - fromEndpoints:
+        - matchLabels:
+            org: empire
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
