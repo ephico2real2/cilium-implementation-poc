@@ -1,0 +1,18 @@
+### 2026-09-10T20:24:38Z
+$ kubectl --context kind-poc1 get ciliumloadbalancerippool
+NAME               DISABLED   CONFLICTING   IPS AVAILABLE   AGE
+kind-docker-pool   false      False         50              52s
+
+### 2026-09-10T20:24:38Z
+$ kubectl --context kind-poc1 -n kube-system get svc hubble-ui
+NAME        TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE
+hubble-ui   LoadBalancer   10.11.186.239   172.18.255.200   80:32537/TCP   2m56s
+
+### 2026-09-10T20:24:38Z
+$ bash -c docker run --rm --network kind curlimages/curl:latest -s -o /dev/null -w 'http://172.18.255.200/ -> http_code=%{http_code} time=%{time_total}s\n' --max-time 10 http://172.18.255.200/
+http://172.18.255.200/ -> http_code=200 time=0.003746s
+
+### 2026-09-10T20:24:39Z
+$ bash -c netstat -rn -f inet | grep '^172.18' || echo 'no host route yet (needs: sudo route -n add -net 172.18.0.0/16 192.168.64.2)'
+no host route yet (needs: sudo route -n add -net 172.18.0.0/16 192.168.64.2)
+

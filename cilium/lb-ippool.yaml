@@ -1,0 +1,59 @@
+# LoadBalancer addresses for kind, carved out of the DOCKER NETWORK.
+#
+# Apply with:
+#   kubectl apply -f cilium/lb-ippool.yaml
+#
+# WHY THIS EXISTS. kind has no cloud provider, so a Service of type LoadBalancer would sit
+# <pending> forever and a Gateway would never be programmed with an address. The usual answers are
+# MetalLB or kube-vip. Neither is used here: Cilium 1.20 ships BOTH halves of the job itself --
+# LB IPAM (hands out the address) and L2 announcements (answers ARP for it so it is reachable) --
+# so using Cilium means one less component to install, and the capability is itself worth demoing.
+#
+# WHY THIS RANGE. The nodes live on the `kind` docker bridge, 172.18.0.0/16. A LoadBalancer address
+# must be on that same L2 segment for the ARP replies from L2 announcements to reach anything.
+# Docker's own IPAM allocates container addresses from the BOTTOM of the subnet upward
+# (172.18.0.2, .3, .4 ...), so this pool takes a slice from the far TOP of the range. That
+# separation is the whole design: Docker will never allocate up here, so a container and a service
+# can never be handed the same address.
+#
+# CHECK BEFORE YOU CHANGE IT. Confirm the subnet on your machine rather than assuming 172.18/16:
+#   docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}'
+#
+# MACOS: THIS IS ONLY HALF THE STORY. These addresses are reachable from inside the cluster and
+# from other containers on the docker network immediately. They are NOT reachable from the macOS
+# host until Docker Desktop's "kernel networking for UDP" is on AND a route is added -- see
+# SETUP.md Step 2.3b. That is a host/VM boundary problem; no in-cluster load balancer, Cilium's or
+# anyone else's, can solve it.
+# apiVersion note: CiliumLoadBalancerIPPool graduated to cilium.io/v2 in Cilium 1.20 and the
+# v2alpha1 form now warns "is deprecated; use cilium.io/v2". The L2 announcement policy below is
+# still v2alpha1-only in this release -- check with `kubectl api-resources | grep -i cilium` rather
+# than assuming both moved together.
+apiVersion: "cilium.io/v2"
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: kind-docker-pool
+spec:
+  blocks:
+    # 51 addresses, far above anything Docker will hand a container.
+    - start: "172.18.255.200"
+      stop: "172.18.255.250"
+---
+# L2 ANNOUNCEMENTS: make the addresses above actually answerable.
+#
+# LB IPAM only ASSIGNS an address; on its own, nothing on the network knows where to send traffic
+# for it. This policy makes Cilium answer ARP requests for those addresses on the node interfaces,
+# so a client on the same L2 segment can reach them. One node is elected the announcer per service
+# via a Kubernetes lease, and election moves if that node goes away.
+apiVersion: "cilium.io/v2alpha1"
+kind: CiliumL2AnnouncementPolicy
+metadata:
+  name: kind-l2-announce
+spec:
+  # Announce on the node's primary interface. In a kind node that is eth0, the interface attached
+  # to the docker bridge -- the same segment the pool above is carved from.
+  interfaces:
+    - ^eth0$
+  # Announce LoadBalancer service IPs. externalIPs is left false: this PoC only assigns addresses
+  # through LB IPAM, and announcing arbitrary externalIPs is a wider claim than intended.
+  externalIPs: false
+  loadBalancerIPs: true

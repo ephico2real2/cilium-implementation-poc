@@ -856,3 +856,200 @@ Step 3: services are being load-balanced in eBPF, and there is no kube-proxy any
 instead.
 
 ---
+
+## Step 2.6 — route the docker network from macOS (after the restart)
+
+**Only meaningful once Step 2.3b is on and Docker has restarted.** With `kernelForUDP` enabled,
+Docker Desktop creates a bridge on the host and an `eth1` inside the VM. Find both, then route.
+
+**Find the bridge.** The docs say `bridge101`; on this machine it came up as **`bridge100`**. macOS
+assigns the number, so look it up rather than copying a number out of a guide:
+
+```bash
+ifconfig -l | tr ' ' '\n' | grep -E '^bridge'
+```
+
+```
+bridge0
+bridge100
+```
+
+`bridge0` pre-existed; `bridge100` is the new one. Confirm it is the VM's by looking for a
+`vmenet` member:
+
+```bash
+ifconfig bridge100
+```
+
+```
+bridge100: flags=8a63<UP,BROADCAST,SMART,RUNNING,ALLMULTI,SIMPLEX,MULTICAST> mtu 1500
+	inet 192.168.64.1 netmask 0xffffff00 broadcast 192.168.64.255
+	member: vmenet0 flags=10803<LEARNING,DISCOVER,PRIVATE,CSUM>
+```
+
+The host is `192.168.64.1` on that segment.
+
+**Find the VM's address on the same segment**, by asking from inside a container:
+
+```bash
+docker run --rm --net=host --privileged busybox sh -c "ip -4 addr show eth1 | grep -o 'inet [0-9.]*'"
+```
+
+```
+inet 192.168.64.2
+```
+
+**Add the route** — this needs `sudo`, so run it yourself:
+
+```bash
+sudo route -n add -net 172.18.0.0/16 192.168.64.2
+```
+
+**Check:**
+
+```bash
+netstat -rn -f inet | grep '^172.18'
+```
+
+```
+172.18             192.168.64.2       UGSc            bridge100
+```
+
+The route is **not persistent** — it is lost on reboot, and must be re-added whenever the Docker VM
+restarts or gets a new address.
+
+---
+
+## ⚠ Step 2.7 — ORDERING: finish ALL Docker settings BEFORE creating any cluster
+
+**Read this before Step 3. This build learned it the expensive way.**
+
+A multi-node kind cluster **does not survive a Docker Desktop restart.** Docker reassigns container
+IP addresses on start, in whatever order containers happen to come up, and a kind cluster's etcd
+peer URLs and API server certificate SANs are written around the addresses the nodes had at
+creation time.
+
+Measured here. Before the restart, and after it:
+
+| Container | Before | After |
+|---|---|---|
+| `poc1-control-plane` | 172.18.0.3 | **172.18.0.7** |
+| `poc1-control-plane2` | 172.18.0.4 | **172.18.0.2** |
+| `poc1-control-plane3` | 172.18.0.6 | **172.18.0.5** |
+| `poc1-external-load-balancer` | 172.18.0.7 | **172.18.0.6** |
+
+Every container came back up, and the cluster was still dead:
+
+```
+kube-apiserver ... Exited (attempt 5)
+E run.go:72] "command failed" err="error creating storage factory: context deadline exceeded"
+W grpc: addrConn.createTransport failed to connect to {Addr: "127.0.0.1:2379" ...}
+```
+
+etcd could not form a quorum because its peers' addresses had moved, so the API server could not
+reach its datastore. The cluster had to be deleted and recreated.
+
+**So the rule is:** make **every** Docker Desktop change — memory (2.3), `kernelForUDP` (2.3b) —
+**before** Step 3, and apply them in **one** restart. After that, avoid restarting Docker for the
+life of the cluster. If you must, expect to `kind delete cluster` and rebuild.
+
+**A silver lining that validates an earlier decision.** Across three creations of `poc1` the load
+balancer's IP was `.7`, then `.6`, then `.2` — while its DNS name, `poc1-external-load-balancer`,
+never changed. That is a second, independent reason Step 5 passes Cilium the **name** and not the
+address: had the IP been baked into `cilium/values-poc1.yaml`, every rebuild would have broken it.
+
+---
+
+## Step 8 — LoadBalancer addresses without a cloud (and without MetalLB or kube-vip)
+
+**Why this is needed.** kind has no cloud provider, so a `type: LoadBalancer` Service stays
+`<pending>` forever and a Gateway never gets an address. The reflex is to install MetalLB or
+kube-vip. **Neither is used here:** Cilium 1.20 ships both halves itself — **LB IPAM** assigns the
+address, **L2 announcements** answer ARP for it — so this is one fewer component and it demonstrates
+a Cilium capability rather than working around a gap.
+
+**Where the addresses come from.** The nodes live on the `kind` docker bridge, so LoadBalancer
+addresses must be on that same segment. Confirm the subnet:
+
+```bash
+docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}'
+```
+
+```
+172.18.0.0/16 fc00:f853:ccd:e793::/64
+```
+
+Docker allocates container addresses from the **bottom** of that range upward (`.2`, `.3`, `.4`…),
+so `cilium/lb-ippool.yaml` takes a slice from the **top** (`172.18.255.200–250`). They can never
+collide.
+
+```bash
+kubectl --context kind-poc1 apply -f cilium/lb-ippool.yaml
+```
+
+**An API version trap.** Applying the pool as `cilium.io/v2alpha1` produces:
+
+```
+Warning: cilium.io/v2alpha1 CiliumLoadBalancerIPPool is deprecated; use cilium.io/v2
+```
+
+but the L2 announcement policy is **still v2alpha1-only** in this release. They did not graduate
+together. Check, do not assume:
+
+```bash
+kubectl --context kind-poc1 api-resources | grep -iE 'loadbalancerippool|l2announcement'
+```
+
+```
+ciliuml2announcementpolicies   l2announcement   cilium.io/v2alpha1   false   CiliumL2AnnouncementPolicy
+ciliumloadbalancerippools      ippools,...      cilium.io/v2         false   CiliumLoadBalancerIPPool
+```
+
+**Check the pool is healthy:**
+
+```bash
+kubectl --context kind-poc1 get ciliumloadbalancerippool
+```
+
+```
+NAME               DISABLED   CONFLICTING   IPS AVAILABLE   AGE
+kind-docker-pool   false      False         51              18s
+```
+
+`CONFLICTING: False` and a non-zero `IPS AVAILABLE` are what you want.
+
+### Try it: give Hubble UI a real address
+
+```bash
+kubectl --context kind-poc1 -n kube-system patch svc hubble-ui -p '{"spec":{"type":"LoadBalancer"}}'
+```
+
+```bash
+kubectl --context kind-poc1 -n kube-system get svc hubble-ui
+```
+
+```
+NAME        TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE
+hubble-ui   LoadBalancer   10.11.186.239   172.18.255.200   80:32537/TCP   2m33s
+```
+
+**`EXTERNAL-IP: 172.18.255.200`** — the first address from the pool, assigned in seconds.
+
+**Prove it serves, from the docker network** (this works whether or not the macOS route from Step
+2.6 is in place, so it isolates "the load balancer works" from "my laptop can reach it"):
+
+```bash
+docker run --rm --network kind curlimages/curl:latest   -s -o /dev/null -w 'http_code=%{http_code} time=%{time_total}s
+' http://172.18.255.200/
+```
+
+```
+http_code=200 time=0.003746s
+```
+
+**From the macOS browser**, `http://172.18.255.200/` works only once Step 2.6's route is added.
+Without it you will get a timeout — and that is a host routing problem, not a Cilium one. The two
+tests above tell those apart: if the container test returns 200 and the browser does not, the
+cluster is fine and the route is missing.
+
+---
