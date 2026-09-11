@@ -45,6 +45,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [35](#35) | The OTel collector logs `failed to emit token … attributes.flow.verdict` on every node — tracing looks broken, nothing is lost | demo 10 |
 | [36](#36) | `hubble observe` inside an agent pod shows one node; L7 flows live on the proxy's node — "no HTTP flows" was the wrong socket | Hubble |
 | [37](#37) | `hubble observe` on the Mac: `connection refused` — the CLI talks to `127.0.0.1:4245`, which exists only while a port-forward to Relay runs | Hubble |
+| [38](#38) | A `kind load`-ed image: the pod's `imageID` never equals `docker image inspect`'s ID — compare the config digest via `crictl inspecti` | kind |
 
 ---
 
@@ -923,6 +924,36 @@ address (`.201`, and `https://hubble.poc.local` through the Gateway). The CLI an
 Relay by different roads, and only the CLI's road is missing by default on a laptop.
 
 → demo 01 (uses `-P` throughout)
+
+---
+
+## <a name="38"></a>38. A `kind load`-ed image: the pod's `imageID` never equals `docker image inspect`'s ID — compare the config digest via `crictl inspecti`
+
+**Symptom.** Trying to prove "the pods run the image I just built":
+
+```
+pod imageID : docker.io/library/import-2026-09-11@sha256:74295bf76904ecf5984ebcb21e6b8ac7d3b6e7011d62dc89dd01d4c1715053ac
+docker Id   : sha256:2bf472bd5a96c6da81d5789ff3c918c94f22f6e5832fa7d6129ef054f68d7d87
+```
+
+Different — and this guide briefly told a reader to expect them equal. Retracted the same hour.
+
+**Cause.** They are different objects. Docker's image ID is the digest of the image **config**.
+`kind load docker-image` streams a tar into each node's containerd, which records the digest of
+the **import manifest** it received (`import-<date>@sha256:…`) as the repo digest, and that is
+what the kubelet reports as `imageID`. Same bytes, two names.
+
+**Fix.** Ask containerd for the config digest — its `id` — and compare that:
+
+```bash
+docker exec poc1-worker crictl inspecti docker.io/library/routedemo:local
+  "id": "sha256:2bf472bd…",                       <- equals docker image inspect --format '{{.Id}}'
+  "repoDigests": ["docker.io/library/import-2026-09-11@sha256:74295b…"]   <- what the pod shows
+```
+
+Measured equal on all five nodes. The loop is in demo 09, Part 11, step 8.
+
+→ demo 09, Part 11
 
 ---
 

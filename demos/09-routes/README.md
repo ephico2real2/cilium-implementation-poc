@@ -744,6 +744,99 @@ Gateway 172.18.255.240, root CA docs/root-ca.crt, wildcard domain *.poc.local, e
 FAILED CHECKS: 0
 ```
 
+### Validate the client yourself — step by step
+
+Each step isolates one behaviour and states the exact expected output; a wrong result in step 2
+almost always means step 1 was skipped.
+
+**1. Rebuild from the fixed source** (a binary built before commit `b44d5d7` has none of this):
+
+```bash
+cd /Users/olasumbo/gitRepos/cilium-kind-poc/demos/09-routes/app
+git log --oneline -1 -- main.go        # b44d5d7 or later
+go build -o routedemo .
+ls -l routedemo                        # timestamp must be now
+```
+
+**2. From `app/`, no `-ca` — the default is found by walking up:**
+
+```bash
+./routedemo -mode client -only grpc -target 172.18.255.240
+```
+```
+2026/09/11 15:44:18 using CA /Users/olasumbo/gitRepos/cilium-kind-poc/docs/root-ca.crt (found by walking up from the current directory)
+3. GRPCRoute -- grpc.health.v1.Health/Check, over h2c (:80) and over TLS (:443)
+  PASS  h2c  grpc.poc.local:80   SERVING
+  PASS  TLS  grpc.poc.local:443  SERVING
+
+FAILED CHECKS: 0
+```
+
+**3. From the repo root — the path exists as given, so no `using CA` line:**
+
+```bash
+cd /Users/olasumbo/gitRepos/cilium-kind-poc
+demos/09-routes/app/routedemo -mode client -only grpc -target 172.18.255.240; echo "exit=$?"   # exit=0
+```
+
+**4. Outside the repo — must fail and say what to pass:**
+
+```bash
+cd /tmp && /Users/olasumbo/gitRepos/cilium-kind-poc/demos/09-routes/app/routedemo -mode client -only grpc -target 172.18.255.240; echo "exit=$?"
+```
+```
+read CA docs/root-ca.crt: open docs/root-ca.crt: no such file or directory
+  pass -ca <path to docs/root-ca.crt>; from demos/09-routes/app that is -ca ../../../docs/root-ca.crt
+exit=1
+```
+
+**5. A wrong explicit path is never "fixed" — you typed it, so it is your intent:**
+
+```bash
+cd /Users/olasumbo/gitRepos/cilium-kind-poc/demos/09-routes/app
+./routedemo -mode client -only grpc -target 172.18.255.240 -ca nope.crt; echo "exit=$?"     # same error + hint, exit=1
+```
+
+**6. `-only` — one route type at a time, and a bad value refused:**
+
+```bash
+./routedemo -mode client -only http  -target 172.18.255.240    # 6 PASS, FAILED CHECKS: 0
+./routedemo -mode client -only tcp   -target 172.18.255.240    # 1 PASS, FAILED CHECKS: 0
+./routedemo -mode client -only bogus -target 172.18.255.240; echo "exit=$?"
+```
+```
+2026/09/11 15:44:18 unknown -only "bogus" (want http, grpc, tcp or all)
+exit=1
+```
+
+**7. Everything, with the exit code as the gate:**
+
+```bash
+./routedemo -mode client -target 172.18.255.240 && echo ALL-GOOD     # 9 PASS, FAILED CHECKS: 0, ALL-GOOD
+```
+
+**8. Server and client are one binary — compare the image config digest, not the pod's `imageID`.**
+A pod loaded with `kind load` reports `imageID: docker.io/library/import-2026-09-11@sha256:74295b…`,
+the digest of the *import manifest*; the laptop's `docker image inspect` ID is the *config*
+digest (`2bf472…`). They never match, by construction (gotcha #38). containerd's `id` is the
+config digest, and that is the one to compare:
+
+```bash
+LOCAL=$(docker image inspect routedemo:local --format '{{.Id}}')
+for n in poc1-control-plane poc1-control-plane2 poc1-control-plane3 poc1-worker poc1-worker2; do
+  printf '%-22s ' $n
+  id=$(docker exec $n crictl inspecti docker.io/library/routedemo:local | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"]["id"])')
+  [ "$id" = "$LOCAL" ] && echo "same as laptop" || echo "DIFFERENT: $id"
+done
+```
+```
+poc1-control-plane     same as laptop
+poc1-control-plane2    same as laptop
+poc1-control-plane3    same as laptop
+poc1-worker            same as laptop
+poc1-worker2           same as laptop
+```
+
 Two proofs now exist for the same routes and they deliberately use different clients:
 `scripts/check-routes.sh` (curl, a grpcurl container, `nc`) and this binary (Go stdlib TLS,
 grpc-go 1.76). Their disagreement is what found gotcha #33. The image was rebuilt from the same
