@@ -57,8 +57,19 @@ hubble:
     # only see the node you happen to be port-forwarded to.
     enabled: true
   ui:
-    # The service map in a browser. Reached with `cilium hubble ui`.
+    # The service map in a browser. Reached with `cilium hubble ui`, or on a real address via the
+    # service below.
     enabled: true
+    service:
+      # LoadBalancer so Cilium's own LB IPAM hands it an address from cilium/lb-ippool.yaml,
+      # instead of needing a port-forward.
+      #
+      # SET IT HERE, NOT WITH `kubectl patch`. An imperative patch on a Helm-managed Service is
+      # silently reverted by the next `helm upgrade` -- measured on this build: hubble-ui was
+      # patched to LoadBalancer, took 172.18.255.200, and reverted to ClusterIP the moment Gateway
+      # API was enabled with `helm upgrade --reuse-values`. Helm owns this object; the value is the
+      # only durable way to change it.
+      type: LoadBalancer
   metrics:
     # These are what make the UI's service map and the flow breakdowns useful. Each entry tells
     # Hubble to emit a Prometheus metric series; without them the UI renders a much emptier graph.

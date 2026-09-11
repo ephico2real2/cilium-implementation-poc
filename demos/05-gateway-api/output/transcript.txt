@@ -1,0 +1,57 @@
+### 2026-09-11T04:34:25Z
+$ kubectl --context kind-poc1 get gatewayclass
+NAME     CONTROLLER                     ACCEPTED   AGE
+cilium   io.cilium/gateway-controller   True       2m27s
+
+### 2026-09-11T04:34:25Z
+$ kubectl --context kind-poc1 get gateway sw-gateway
+NAME         CLASS    ADDRESS          PROGRAMMED   AGE
+sw-gateway   cilium   172.18.255.200   True         70s
+
+### 2026-09-11T04:34:25Z
+$ bash -c kubectl --context kind-poc1 get svc -A --field-selector spec.type=LoadBalancer -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,EXTERNAL-IP:.status.loadBalancer.ingress[0].ip'
+NAMESPACE     NAME                        EXTERNAL-IP
+default       cilium-gateway-sw-gateway   172.18.255.200
+kube-system   hubble-ui                   172.18.255.201
+
+### 2026-09-11T04:34:25Z
+$ bash -c curl -s -XPOST -w '\n[%{http_code} in %{time_total}s from the macOS host]\n' --max-time 8 http://172.18.255.200/v1/request-landing
+upstream connect error or disconnect/reset before headers. reset reason: connection timeout
+[503 in 5.006904s from the macOS host]
+
+### 2026-09-11T04:35:25Z
+$ kubectl --context kind-poc1 apply -f demos/05-gateway-api/allow-ingress-policy.yaml
+ciliumnetworkpolicy.cilium.io/allow-gateway-to-deathstar unchanged
+
+### 2026-09-11T04:35:26Z
+$ bash -c curl -s -XPOST -w '\n[%{http_code} in %{time_total}s from macOS]\n' --max-time 10 http://172.18.255.200/v1/request-landing
+Ship landed
+
+[200 in 0.010664s from macOS]
+
+### 2026-09-11T04:35:26Z
+$ bash -c curl -s -XPUT -w '\n[%{http_code} in %{time_total}s from macOS]\n' --max-time 10 http://172.18.255.200/v1/exhaust-port
+Panic: deathstar exploded
+
+goroutine 1 [running]:
+main.HandleGarbage(0x2080c3f50, 0x2, 0x4, 0x425c0, 0x5, 0xa)
+        /code/src/github.com/empire/deathstar/
+        temp/main.go:9 +0x64
+main.main()
+        /code/src/github.com/empire/deathstar/
+        temp/main.go:5 +0x85
+
+[503 in 0.007841s from macOS]
+
+### 2026-09-11T04:35:26Z
+$ bash -c curl -s -o /dev/null -w 'hubble-ui http://172.18.255.201/ -> %{http_code} in %{time_total}s\n' --max-time 10 http://172.18.255.201/
+hubble-ui http://172.18.255.201/ -> 200 in 0.008985s
+
+### 2026-09-11T04:36:03Z
+$ bash -c echo 'AFTER adding L7 rules to the gateway allow:'; echo -n 'POST /v1/request-landing : '; curl -s -XPOST -w ' [%{http_code} in %{time_total}s]' --max-time 10 http://172.18.255.200/v1/request-landing; echo; echo -n 'PUT  /v1/exhaust-port    : '; curl -s -XPUT -w ' [%{http_code} in %{time_total}s]' --max-time 10 http://172.18.255.200/v1/exhaust-port; echo
+AFTER adding L7 rules to the gateway allow:
+POST /v1/request-landing : Ship landed
+ [200 in 0.012677s]
+PUT  /v1/exhaust-port    : Access denied
+ [403 in 0.010145s]
+

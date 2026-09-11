@@ -1,0 +1,73 @@
+# A Gateway API Gateway served by Cilium — no separate ingress controller involved.
+#
+# Apply with:
+#   kubectl apply -f demos/05-gateway-api/gateway.yaml
+#
+# WHAT A GATEWAY IS. Gateway API is the successor to Ingress. It splits one overloaded resource
+# into three with different owners: GatewayClass (the infrastructure provider — here Cilium),
+# Gateway (a listener an ops team owns), and HTTPRoute (routing rules an app team owns and can be
+# delegated per namespace). Ingress conflated all of that into annotations.
+#
+# WHO IMPLEMENTS IT HERE. `gatewayClassName: cilium` points at the GatewayClass Cilium registers
+# when gatewayAPI.enabled=true. Cilium programs its per-node Envoy — the SAME Envoy that enforces
+# the L7 network policy in demo 02 — so there is no nginx/traefik/haproxy deployment to run
+# alongside. One dataplane does policy, load balancing and ingress.
+#
+# WHERE ITS ADDRESS COMES FROM. Cilium creates a Service of type LoadBalancer for this Gateway.
+# On kind that would normally sit <pending> forever, which is why cilium/lb-ippool.yaml exists:
+# LB IPAM assigns an address out of the kind docker subnet and L2 announcements make it answerable.
+# No MetalLB, no kube-vip.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: sw-gateway
+spec:
+  gatewayClassName: cilium
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        # Same-namespace routes only. The alternative (From: All) lets any namespace attach a route
+        # to this listener, which is a real delegation decision rather than a default to accept.
+        namespaces:
+          from: Same
+---
+# The routing rules. This is the resource an application team would own.
+#
+# Two rules, evaluated by specificity rather than order: Gateway API sorts matches so the most
+# specific path wins, which is a deliberate difference from Ingress's implementation-defined
+# ordering. The exact match therefore beats the prefix match without depending on file order.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: sw-route
+spec:
+  parentRefs:
+    - name: sw-gateway
+  rules:
+    # Rule 1 — an EXACT path, plus a header the backend never sees the client set.
+    # RequestHeaderModifier shows the Gateway rewriting traffic in flight, which is the kind of
+    # thing that needed a controller-specific annotation under Ingress.
+    - matches:
+        - path:
+            type: Exact
+            value: /v1/request-landing
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            add:
+              - name: X-Routed-By
+                value: cilium-gateway-api
+      backendRefs:
+        - name: deathstar
+          port: 80
+    # Rule 2 — everything else under / goes to the same backend. Kept so the catch-all behaviour is
+    # explicit: without it, an unmatched path returns 404 from the Gateway itself, not the backend.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: deathstar
+          port: 80

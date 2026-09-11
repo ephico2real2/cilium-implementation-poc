@@ -1,0 +1,68 @@
+# Let the Gateway reach the backend.
+#
+# Apply with:
+#   kubectl apply -f demos/05-gateway-api/allow-ingress-policy.yaml
+#
+# WHY THIS FILE EXISTS — and it is the most useful thing in this demo.
+#
+# With demo 02's L7 policy applied, the Gateway returns:
+#
+#   upstream connect error or disconnect/reset before headers. reset reason: connection timeout
+#   [503 in 5.006904s]
+#
+# The Gateway itself is healthy -- it answered, which is why you get a 503 from Envoy rather than a
+# timeout from nothing. What failed is the hop from the Gateway to the backend. Hubble names the
+# culprit exactly:
+#
+#   10.10.3.168:60206 (ingress) <> default/deathstar-...:80 Policy denied DROPPED (TCP Flags: SYN)
+#
+# NETWORK POLICY APPLIES TO GATEWAY TRAFFIC TOO. That is the lesson. A Gateway is not a privileged
+# bypass; its Envoy is just another client to the backend, and demo 02's policy admits only pods
+# labelled org=empire. Envoy is not one, so the packet is dropped before the backend sees it.
+#
+# `ingress` is a RESERVED Cilium identity for traffic originating from the Cilium-managed ingress /
+# Gateway proxy. Allowing it is a deliberate act, and it should be: it says "this backend accepts
+# traffic that arrived through the Gateway", which is a different statement from "this backend
+# accepts traffic from org=empire pods".
+#
+# Cilium policies are ADDITIVE -- separate allow-lists are unioned -- so this file grants the
+# Gateway path without editing or weakening demo 02's rule. Delete this one and demo 02 behaves
+# exactly as before.
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: "allow-gateway-to-deathstar"
+spec:
+  description: "Allow the Cilium Gateway (reserved identity: ingress) to reach deathstar"
+  endpointSelector:
+    matchLabels:
+      org: empire
+      class: deathstar
+  ingress:
+    - fromEntities:
+        - ingress
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+          # THE L7 RULES ARE NOT OPTIONAL HERE, AND LEAVING THEM OUT IS A REAL VULNERABILITY.
+          #
+          # Measured on this build. The first version of this file allowed the ingress entity on
+          # TCP 80 with no `rules.http`. Through the Gateway, from the macOS host:
+          #
+          #   $ curl -XPUT http://172.18.255.200/v1/exhaust-port
+          #   Panic: deathstar exploded
+          #
+          # Demo 02's L7 policy was still applied and still protected pod-to-pod traffic -- but
+          # CILIUM POLICIES ARE ADDITIVE. Adding a broader L3/L4 allow for a new source does not
+          # inherit the narrower L7 restriction written for a different source; it grants that
+          # source the whole port. The Gateway became a way around the very policy demo 02 exists
+          # to demonstrate.
+          #
+          # The general rule: when you widen a policy to admit a new client, restate every
+          # restriction that matters for that client. An allow-list union is only as strict as its
+          # most permissive member.
+          rules:
+            http:
+              - method: "POST"
+                path: "/v1/request-landing"
