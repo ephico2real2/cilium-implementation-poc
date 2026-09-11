@@ -15,6 +15,11 @@ kernel `6.6.12-linuxkit`. Cluster `poc1`: kind 0.33.0, Kubernetes v1.36.4, Ciliu
 | kind default node image | v1.37.0 | **Not used.** Cilium 1.20.1 is e2e-tested on 1.33–1.36 only; pinned v1.36.4 by digest |
 | kind external load balancer | `envoyproxy/envoy:v1.36.2` | Envoy, not HAProxy as older guides say |
 | Hubble CLI vs Relay | 1.19.4 vs 1.20.1 | Version warning on every command. `cilium/hubble`'s newest release *is* 1.19.4, so no matching CLI exists; warning is expected, not a misconfiguration |
+| macOS host → container network | no route, `curl` → `000` | Docker Desktop runs containers in a VM. Fixed with `kernelForUDP` + a host route, **not** with any in-cluster load balancer |
+| Docker Desktop host bridge | **`bridge100`**, not `bridge101` | macOS assigns the number; it is not portable between machines |
+| `CiliumLoadBalancerIPPool` | `cilium.io/v2` | `v2alpha1` is deprecated and warns |
+| `CiliumL2AnnouncementPolicy` | `cilium.io/v2alpha1` **only** | Did *not* graduate with the pool; one manifest needs two apiVersions |
+| kind multi-node + Docker restart | cluster destroyed | Container IPs are reassigned; etcd peers and cert SANs break. Settings must be final before cluster creation |
 
 ## Cluster and Cilium state
 
@@ -94,3 +99,125 @@ dropped), an L7 denial as an **immediate 403** (Envoy accepted, parsed, refused)
 - Demo 06 performance — iperf3 pod-to-pod before/after bandwidth manager + BBR (netkit excluded)
 - Demo 07 ClusterMesh — global service failover across poc1/poc2
 - `cilium connectivity test` full run
+
+## Finding — the macOS host cannot reach the container network (and what fixes it)
+
+Measured before any change:
+
+```
+$ curl -sk -o /dev/null -w '%{http_code}\n' --max-time 6 https://172.18.0.3:6443/version
+000
+
+$ netstat -rn -f inet | grep 172.18
+(no output — no route exists)
+```
+
+Docker Desktop on macOS runs containers inside a Linux VM whose network the host has no route to.
+**No in-cluster load balancer can fix this** — kube-vip, MetalLB and Cilium LB IPAM all allocate an
+equally unreachable `172.18.x` address, because the blocker is the host↔VM boundary.
+
+The fix is Docker Desktop 4.26+'s **`kernelForUDP`** ("kernel networking for UDP"), which creates a
+host bridge and a VM-side `eth1`. This machine is on Docker Desktop **4.27.2**.
+
+**The bridge number is not portable.** Guides name `bridge101`; here it came up as **`bridge100`**:
+
+```
+$ ifconfig -l | tr ' ' '\n' | grep -E '^bridge'
+bridge0
+bridge100
+
+$ ifconfig bridge100
+bridge100: flags=8a63<UP,BROADCAST,SMART,RUNNING,ALLMULTI,SIMPLEX,MULTICAST> mtu 1500
+	inet 192.168.64.1 netmask 0xffffff00 broadcast 192.168.64.255
+	member: vmenet0 flags=10803<LEARNING,DISCOVER,PRIVATE,CSUM>
+```
+
+Identify it by its `vmenet` member, not by its number. The VM side:
+
+```
+$ docker run --rm --net=host --privileged busybox sh -c "ip -4 addr show eth1 | grep -o 'inet [0-9.]*'"
+inet 192.168.64.2
+```
+
+Route (needs sudo, and is **not persistent** across reboots or VM restarts):
+
+```
+sudo route -n add -net 172.18.0.0/16 192.168.64.2
+```
+
+## Finding — the two Cilium load-balancer CRDs are on different API versions
+
+```
+$ kubectl apply -f cilium/lb-ippool.yaml
+Warning: cilium.io/v2alpha1 CiliumLoadBalancerIPPool is deprecated; use cilium.io/v2
+```
+
+```
+$ kubectl api-resources | grep -iE 'loadbalancerippool|l2announcement'
+ciliuml2announcementpolicies   l2announcement   cilium.io/v2alpha1   false   CiliumL2AnnouncementPolicy
+ciliumloadbalancerippools      ippools,...      cilium.io/v2         false   CiliumLoadBalancerIPPool
+```
+
+`CiliumLoadBalancerIPPool` graduated to `v2`; `CiliumL2AnnouncementPolicy` did not. A manifest
+containing both needs two different `apiVersion` values in Cilium 1.20.1.
+
+## Finding — a multi-node kind cluster does not survive a Docker restart
+
+The most expensive mistake of this build: Docker Desktop settings were changed **after** the
+cluster was created.
+
+| Container | Before restart | After restart |
+|---|---|---|
+| `poc1-control-plane` | 172.18.0.3 | **172.18.0.7** |
+| `poc1-control-plane2` | 172.18.0.4 | **172.18.0.2** |
+| `poc1-control-plane3` | 172.18.0.6 | **172.18.0.5** |
+| `poc1-worker` | 172.18.0.5 | **172.18.0.4** |
+| `poc1-worker2` | 172.18.0.2 | **172.18.0.3** |
+| `poc1-external-load-balancer` | 172.18.0.7 | **172.18.0.6** |
+
+All six containers restarted successfully. The cluster was still dead:
+
+```
+$ docker exec poc1-control-plane crictl ps -a --name kube-apiserver
+3c3d04a808215  b0f70fa6ec47e  45 seconds ago  Exited  kube-apiserver  5  ...
+
+$ crictl logs <kube-apiserver>
+W grpc: addrConn.createTransport failed to connect to {Addr: "127.0.0.1:2379", ...}
+E run.go:72] "command failed" err="error creating storage factory: context deadline exceeded"
+```
+
+etcd's peer URLs and the API server certificate SANs are written at cluster-creation time around
+the addresses the nodes held then. When those move, etcd cannot form a quorum and the API server
+cannot reach its datastore. `kind delete cluster` and rebuild is the only practical recovery.
+
+**Rule:** every Docker Desktop change first, in one restart, before `kind create cluster`.
+
+**Silver lining — it re-validated the `k8sServiceHost` decision.** Across three creations of
+`poc1` the external load balancer's IP was `.7`, then `.6`, then `.2`; its DNS name,
+`poc1-external-load-balancer`, never changed. Passing Cilium the **name** survives every rebuild;
+passing the IP would have broken on each one. That is now two independent reasons for the same
+choice — the certificate SAN (which only lists the name) and rebuild stability.
+
+## LoadBalancer addresses from the docker network
+
+```
+$ kubectl get ciliumloadbalancerippool
+NAME               DISABLED   CONFLICTING   IPS AVAILABLE   AGE
+kind-docker-pool   false      False         51              18s
+
+$ kubectl -n kube-system get svc hubble-ui
+NAME        TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE
+hubble-ui   LoadBalancer   10.11.186.239   172.18.255.200   80:32537/TCP   2m33s
+
+$ docker run --rm --network kind curlimages/curl -s -o /dev/null \
+    -w 'http_code=%{http_code} time=%{time_total}s\n' http://172.18.255.200/
+http_code=200 time=0.003746s
+```
+
+Pool `172.18.255.200-250`, carved from the top of the kind docker bridge because Docker allocates
+container addresses from the bottom upward — they cannot collide. Cilium's own LB IPAM and L2
+announcements do the job; **MetalLB and kube-vip are not installed.**
+
+The curl runs from a container **on the docker network** on purpose: it proves the load balancer
+works independently of whether the macOS host has the Step 2.6 route. If that test returns 200 and
+a browser does not, the cluster is fine and the host route is missing.

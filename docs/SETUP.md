@@ -12,6 +12,18 @@ differ in versions, IPs and hashes, but the *shape* should match.
 output**, then **Check**. If a Check fails, stop and read the Troubleshooting note for that step
 rather than continuing — later steps assume earlier ones succeeded.
 
+**Read these three first — each one costs an hour if you meet it cold.** They are documented in
+place below, and summarised together in the [README](../README.md#findings-worth-your-attention)
+and [FINDINGS.md](FINDINGS.md):
+
+1. **The macOS host bridge is `bridge100` here, not the `bridge101` guides name.** macOS assigns
+   the number; identify the interface by its `vmenet` member instead. → Step 2.6
+2. **`CiliumLoadBalancerIPPool` is `cilium.io/v2` but `CiliumL2AnnouncementPolicy` is still
+   `v2alpha1`.** They did not graduate together, so one manifest needs two apiVersions. → Step 8
+3. **Finish every Docker Desktop setting BEFORE creating a cluster.** A multi-node kind cluster does
+   not survive a Docker restart: container IPs are reassigned, etcd loses quorum against moved
+   peers, and the cluster is unrecoverable. This build lost one that way. → **Step 2.7**
+
 ---
 
 ## Step 0 — know what you already have

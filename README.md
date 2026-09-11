@@ -49,6 +49,83 @@ an untested combination.
 | 06 | Performance | Bandwidth manager + BBR, BIG TCP, measured with iperf3 |
 | 07 | ClusterMesh | A global Service backed by pods in a second cluster, with failover |
 
+## Findings worth your attention
+
+Three things this build learned the hard way. Each is documented in full where it belongs in
+[docs/SETUP.md](docs/SETUP.md), and measured in [docs/FINDINGS.md](docs/FINDINGS.md); they are
+surfaced here because each one costs time if you meet it cold.
+
+### 1. The bridge is `bridge100`, not `bridge101`
+
+macOS assigns the interface number, so the number printed in guides (including Docker's own
+ecosystem tooling, which names `bridge101`) is **not portable**. Find yours and confirm it by its
+`vmenet` member rather than copying a number:
+
+```bash
+ifconfig -l | tr ' ' '\n' | grep -E '^bridge'
+ifconfig bridge100 | grep -E 'inet |member'
+```
+
+```
+inet 192.168.64.1 netmask 0xffffff00 broadcast 192.168.64.255
+	member: vmenet0 flags=10803<LEARNING,DISCOVER,PRIVATE,CSUM>
+```
+
+See SETUP.md Step 2.6.
+
+### 2. An API-version trap: the two Cilium LB CRDs did not graduate together
+
+`CiliumLoadBalancerIPPool` has moved to **`cilium.io/v2`** and warns if you use the old group:
+
+```
+Warning: cilium.io/v2alpha1 CiliumLoadBalancerIPPool is deprecated; use cilium.io/v2
+```
+
+but `CiliumL2AnnouncementPolicy` is **still `v2alpha1`-only** in Cilium 1.20.1. A single manifest
+containing both therefore needs *two different* `apiVersion` values. Check rather than assume:
+
+```bash
+kubectl api-resources | grep -iE 'loadbalancerippool|l2announcement'
+```
+
+See SETUP.md Step 8 and `cilium/lb-ippool.yaml`.
+
+### 3. Finish ALL Docker Desktop settings BEFORE creating any cluster
+
+**A multi-node kind cluster does not survive a Docker Desktop restart.** This build changed Docker
+settings *after* creating the cluster and lost it.
+
+Docker reassigns container IPs on start, in whatever order containers come up:
+
+| Container | Before restart | After restart |
+|---|---|---|
+| `poc1-control-plane` | 172.18.0.3 | **172.18.0.7** |
+| `poc1-control-plane2` | 172.18.0.4 | **172.18.0.2** |
+| `poc1-control-plane3` | 172.18.0.6 | **172.18.0.5** |
+| `poc1-external-load-balancer` | 172.18.0.7 | **172.18.0.6** |
+
+All six containers came back up. The cluster was still dead, because etcd's peer URLs and the API
+server's certificate SANs were written around the original addresses:
+
+```
+kube-apiserver ... Exited (attempt 5)
+E run.go:72] "command failed" err="error creating storage factory: context deadline exceeded"
+W grpc: addrConn.createTransport failed to connect to {Addr: "127.0.0.1:2379" ...}
+```
+
+etcd could not form a quorum against moved peers, so the API server could not reach its datastore.
+The cluster had to be deleted and rebuilt.
+
+**The rule:** make every Docker Desktop change — memory, `kernelForUDP` — **before** creating a
+cluster, and apply them in **one** restart. This is SETUP.md **Step 2.7**, a hard gate before
+Step 3.
+
+**A silver lining.** The same failure independently re-validated an earlier decision. Across three
+creations of `poc1` the load balancer's IP was `.7`, then `.6`, then `.2` — while its DNS name,
+`poc1-external-load-balancer`, never changed. That is a second, independent reason Cilium is given
+the **name** and not the address for `k8sServiceHost`: had the IP been baked into
+`cilium/values-poc1.yaml`, every rebuild would have broken it.
+
 ## Status
 
 Build in progress. See `docs/SETUP.md` for what is verified so far and `docs/FINDINGS.md` for
