@@ -42,6 +42,8 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [32](#32) | A cross-namespace route returns 500 with `Accepted=True` | Gateway API |
 | [33](#33) | gRPC over TLS through the Gateway works for `grpcurl` and fails for a current grpc-go client — no ALPN | Gateway API |
 | [34](#34) | Every un-namespaced check in the evidence script reported `NotFound` — the kubeconfig's namespace had moved | tooling |
+| [35](#35) | The OTel collector logs `failed to emit token … attributes.flow.verdict` on every node — tracing looks broken, nothing is lost | demo 10 |
+| [36](#36) | `hubble observe` inside an agent pod shows one node; L7 flows live on the proxy's node — "no HTTP flows" was the wrong socket | Hubble |
 
 ---
 
@@ -800,6 +802,81 @@ or it measures the operator's shell state instead of the cluster. The same disci
 
 ---
 
+## <a name="35"></a>35. The OTel collector logs `failed to emit token … attributes.flow.verdict` on every node — tracing looks broken, nothing is lost
+
+**Symptom.** Every collector pod's log carries, a few times an hour:
+
+```
+error  reader/reader.go:285  failed to emit token  {"component": "fileconsumer", "path": "/var/run/cilium/hubble/events.log",
+  "error": "consume entries: move: field does not exist: attributes.flow.verdict\nmove: field does not exist: …"}
+```
+
+Read cold — especially after "I don't see any tracing any more" — it says the pipeline is failing.
+
+**Cause, measured.** `events.log` is not only flows. On one node, 64 of 4,832 lines had no
+`flow` object at all; they are agent events:
+
+```
+{"agent_event":{"type":"ENDPOINT_REGENERATE_SUCCESS","endpoint_regenerate":{"id":"443","labels":["reserved:host"]}},"node_name":"poc1-worker","time":"…"}
+```
+
+The `move` operator that lifts `flow.verdict` to `hubble.verdict` fails on each of those. The
+operator's error path is *HandleEntryErrorWithWrite*: it logs and **still forwards the entry** —
+counted: 1,148 records in 5 min, 32 of them without `hubble.verdict`, i.e. the agent events came
+through as plain bodies. So the log was noise, not loss — but noise that reads as failure.
+
+**Fix.** Guard the move so it only runs on flows:
+
+```yaml
+- type: move
+  if: 'attributes.flow != nil'
+  from: attributes.flow.verdict
+  to: attributes["hubble.verdict"]
+```
+
+`kubectl apply` + `rollout restart ds/otel-collector` (the ConfigMap is read at startup — the
+same rule as #28/#33). After: `emit-errors=0` on all five collectors, 542 FORWARDED / 8 DROPPED
+records with `hubble.verdict` in the first minute, and the `agent_event` lines still delivered.
+
+**The lesson.** Before believing a log that says data is failing, count the data. The collector
+was emitting 700–3,400 records per 10 minutes per node the whole time.
+
+→ demo 10, `otel-collector.yaml`; `demos/10-tracing/output/transcript.txt`
+
+---
+
+## <a name="36"></a>36. `hubble observe` inside an agent pod shows one node; L7 flows live on the proxy's node — "no HTTP flows" was the wrong socket
+
+**Symptom.** From a cilium agent pod: `hubble observe --since 60s` → 556 flows, but
+`hubble observe --since 60s --protocol http` → **0**, and `--last 3 --protocol http` → nothing.
+A fresh `PUT /v1/exhaust-port` returned **403** (the L7 policy is enforcing) and still no HTTP
+flow appeared. It looked as if L7 visibility had died after the ALPN change (#33).
+
+**Cause.** `hubble status` in that pod says where it reads from:
+`Healthcheck (via unix:///var/run/cilium/hubble.sock)` — the **local agent's** ring buffer,
+one node. L7 flows are emitted by the agent on the node where the **proxy** runs: for an ingress
+L7 policy that is the *destination* pod's node (deathstar on worker2), for the Gateway it is the
+node holding the L2 lease (control-plane3, whose `http.log` was 4.7 MB and one second old). The
+query ran on `poc1-worker`, which had neither, so its answer was truthfully "none here".
+
+**Fix.** Ask the relay, which merges every node:
+
+```bash
+cilium hubble port-forward --context kind-poc1 &
+hubble status                                  # Healthcheck (via localhost:4245): Ok — 20,475 flows, not 4,095
+hubble observe --since 10m --protocol http     # 418 flows
+```
+
+Or, per node, check the file the export writes: `docker exec <node> ls -la /var/run/cilium/hubble/http.log`.
+
+**The lesson.** State the scope of the tool before trusting its "nothing": a node-local socket
+answers for one node. The retraction is in the session record, and this entry is here so the
+next person does not repeat it under pressure.
+
+→ demo 01 (relay + port-forward), demo 10 (per-node files)
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -813,6 +890,8 @@ Most of these share a shape: **something reported success while not working.**
 - `clustermesh connect` printed `✅ Connected` (#20 — before status was checked)
 - `grpcurl` said `SERVING` over TLS (#33 — from a version too old to notice the missing ALPN)
 - the evidence script itself reported eleven failures that were not there (#34 — it was reading the shell's namespace, not the cluster)
+- the collector logged `failed to emit token` while forwarding every record (#35)
+- `hubble observe` said no HTTP flows — for the one node it could see (#36)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

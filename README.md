@@ -41,7 +41,7 @@ unchanged, with BGP substituted for L2 in production.
 6. **`scripts/verify.sh`** — regenerate every piece of evidence on *your* cluster and diff it
    against [docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md). `scripts/check-routes.sh` is the
    external-access proof for demo 09.
-7. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 34 traps, each with the real error
+7. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 36 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -55,7 +55,7 @@ unchanged, with BGP substituted for L2 in production.
 | ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (662 lines, 13 sections, including the native client) | regenerable |
 | ⏳ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | agreed, not started; needs a disk/memory headroom check first |
 | ⏳ | **BGP with an FRR router (demo 11)** | researched and planned in [docs/summary/BGP_FRR_PLAN.md](docs/summary/BGP_FRR_PLAN.md); parked |
-| ⏳ | Hubble UI **data stream** through the Gateway — only a browser can exercise it | HTML/JS/CSS proven at 200 via `https://hubble.poc.local`; browser confirmation pending (demo 09 Part 10) |
+| ✅ | Hubble UI through the Gateway, including its **data stream** | HTML/JS/CSS at 200, and the relay shows the browser's `POST /api/control-stream` and `/api/service-map-stream` → 200 arriving as identity `ingress` via `https://hubble.poc.local` (demo 09 Part 10) |
 | ⏳ | Wildcard **name** resolution (dnsmasq, `*.poc.local`) | documented in demo 09 Part 3c, not run (needs sudo) |
 | ⏳ | The **Linux-server** path in NETWORKING_DESIGN §5 | its routing-table shape measured on the Docker VM (a Linux host running dockerd); not yet run on a bare Linux server |
 | ⛔ | netkit, bandwidth manager/BBR, BIG TCP | **cannot run** on the 6.6.12-linuxkit kernel — demo 06 Part 4 proves each; needs a different VM kernel |
@@ -141,7 +141,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 34 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 36 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

@@ -208,3 +208,16 @@ In demo 01 that history was gone within minutes. Here it persists, rotates predi
 kubectl delete -f demos/10-tracing/otel-collector.yaml
 # to stop exporting: set hubble.export.dynamic.enabled=false in the overlay and helm upgrade
 ```
+
+## Addendum (2026-09-11) — the error that looks like lost data, and the socket that looks like lost L7
+
+Two traps met while checking "is tracing still working?", both documented with measurements in
+GOTCHAS #35 and #36 and recorded in `output/transcript.txt`:
+
+- Every collector logged `failed to emit token … field does not exist: attributes.flow.verdict`.
+  Cause: ~1 % of `events.log` lines are `agent_event` records with no `flow`; the `move` operator
+  failed on them but still forwarded them. Fix in `otel-collector.yaml`: `if: 'attributes.flow != nil'`
+  on the move, then `rollout restart ds/otel-collector`. After: 0 errors, records unchanged.
+- `hubble observe --protocol http` from inside an agent pod returned nothing while L7 policy was
+  visibly enforcing. It reads that node's socket only; L7 flows are on the proxy's node. Use the
+  relay (`cilium hubble port-forward`, then `hubble observe`) — 418 HTTP flows in 10 min.

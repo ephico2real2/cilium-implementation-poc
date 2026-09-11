@@ -46,7 +46,12 @@ data:
               parse_from: attributes.time
               layout: '%Y-%m-%dT%H:%M:%S.%LZ'
           # Lift the fields a query would filter on into top-level attributes.
+          # Not every line is a flow: ~1% are agent_event records (endpoint regenerations) with no
+          # `flow` object at all. Without the guard the move fails on each of those, the collector
+          # logs "failed to emit token … field does not exist: attributes.flow.verdict" (the entry is
+          # still forwarded, so nothing is lost) -- and the log reads as if tracing were broken.
           - type: move
+            if: 'attributes.flow != nil'
             from: attributes.flow.verdict
             to: attributes["hubble.verdict"]
           - type: move

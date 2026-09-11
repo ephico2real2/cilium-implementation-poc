@@ -620,6 +620,20 @@ Gateway (as `grpc-status: 12`, `server: envoy`) and via the direct address — w
 is transparent to it, not that the stream works. The last step is the browser: add the hosts line
 and open the URL — the service map must fill.
 
+**Browser-verified 2026-09-11 19:13 UTC.** With the hosts line in place and the UI open in Safari,
+the relay shows the browser's own data calls arriving through the Gateway — and it names the real
+paths, which are not `ui.UI/…` at all:
+
+```
+19:13:32.171: 192.168.64.1:57806 (ingress) -> kube-system/hubble-ui-…:8081 http-request  FORWARDED (HTTP/1.1 POST http://hubble.poc.local/api/control-stream)
+19:13:32.173: 192.168.64.1:57806 (ingress) <- kube-system/hubble-ui-…:8081 http-response FORWARDED (HTTP/1.1 200 3ms  (POST http://hubble.poc.local/api/control-stream))
+19:13:33.184: 192.168.64.1:57806 (ingress) -> kube-system/hubble-ui-…:8081 http-request  FORWARDED (HTTP/1.1 POST http://hubble.poc.local/api/service-map-stream)
+19:13:33.198: 192.168.64.1:57806 (ingress) <- kube-system/hubble-ui-…:8081 http-response FORWARDED (HTTP/1.1 200 14ms (POST http://hubble.poc.local/api/service-map-stream))
+```
+
+`192.168.64.1` is the Mac's address on `bridge100` (NETWORKING_DESIGN §2) and `ingress` is the
+Gateway's identity — the whole path of §4.4, seen by Hubble from the inside.
+
 ```bash
 scripts/hosts-entries.sh            # prints; you append it yourself
 sudo sh -c 'scripts/hosts-entries.sh >> /etc/hosts'

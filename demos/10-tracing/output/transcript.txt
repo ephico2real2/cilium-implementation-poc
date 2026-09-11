@@ -218,3 +218,47 @@ for k,v in c.most_common(): print(v, "x", k)'
 QUERY: every POLICY_DENIED across all nodes (a question the ring buffer cannot answer)
 8 x ('xwing', 'deathstar-d7f446dc5-dkgqt', 'poc1/poc1-worker2')
 
+### 2026-09-11T19:15:19Z
+$ sh -c kubectl --context kind-poc1 -n otel logs ds/otel-collector --since=30m 2>/dev/null | grep -c "failed to emit token"
+3
+
+### 2026-09-11T19:15:22Z
+$ kubectl --context kind-poc1 apply -f demos/10-tracing/otel-collector.yaml
+namespace/otel unchanged
+configmap/otel-collector configured
+daemonset.apps/otel-collector unchanged
+
+### 2026-09-11T19:15:22Z
+$ kubectl --context kind-poc1 -n otel rollout restart ds/otel-collector
+daemonset.apps/otel-collector restarted
+
+### 2026-09-11T19:15:22Z
+$ kubectl --context kind-poc1 -n otel rollout status ds/otel-collector --timeout=180s
+Waiting for daemon set "otel-collector" rollout to finish: 0 out of 5 new pods have been updated...
+Waiting for daemon set "otel-collector" rollout to finish: 0 out of 5 new pods have been updated...
+Waiting for daemon set "otel-collector" rollout to finish: 1 out of 5 new pods have been updated...
+Waiting for daemon set "otel-collector" rollout to finish: 1 out of 5 new pods have been updated...
+Waiting for daemon set "otel-collector" rollout to finish: 2 out of 5 new pods have been updated...
+Waiting for daemon set "otel-collector" rollout to finish: 2 out of 5 new pods have been updated...
+Waiting for daemon set "otel-collector" rollout to finish: 3 out of 5 new pods have been updated...
+Waiting for daemon set "otel-collector" rollout to finish: 3 out of 5 new pods have been updated...
+Waiting for daemon set "otel-collector" rollout to finish: 4 out of 5 new pods have been updated...
+Waiting for daemon set "otel-collector" rollout to finish: 4 out of 5 new pods have been updated...
+Waiting for daemon set "otel-collector" rollout to finish: 4 of 5 updated pods are available...
+daemon set "otel-collector" successfully rolled out
+
+### 2026-09-11T19:16:18Z
+$ sh -c for p in $(kubectl --context kind-poc1 -n otel get pods -o jsonpath="{.items[*].metadata.name}"); do printf "  %-24s records=%-5s emit-errors=%s\n" $p $(kubectl --context kind-poc1 -n otel logs $p 2>/dev/null | grep -c "^LogRecord #") $(kubectl --context kind-poc1 -n otel logs $p 2>/dev/null | grep -c "failed to emit token"); done
+  otel-collector-2nnrh     records=685   emit-errors=0
+  otel-collector-4p69k     records=341   emit-errors=0
+  otel-collector-v27kq     records=426   emit-errors=0
+  otel-collector-w2ntw     records=532   emit-errors=0
+  otel-collector-zpz6p     records=366   emit-errors=0
+
+### 2026-09-11T19:16:23Z
+$ sh -c P=$(kubectl --context kind-poc1 -n otel get pod --field-selector spec.nodeName=poc1-worker -o jsonpath="{.items[0].metadata.name}"); kubectl --context kind-poc1 -n otel logs $P 2>/dev/null | grep -E "hubble.verdict|agent_event" | sort | uniq -c | sort -rn | head -4
+ 542      -> hubble.verdict: Str(FORWARDED)
+   8      -> hubble.verdict: Str(DROPPED)
+   1 Body: Str({"agent_event":{"type":"IPCACHE_UPSERTED","ipcache_update":{"cidr":"10.10.4.198/32","identity":84972,"host_ip":"172.18.0.5","namespace":"otel","pod_name":"otel-collector-w2ntw"}},"node_name":"poc1-worker","time":"2026-09-11T19:15:26.020694811Z"})
+   1 Body: Str({"agent_event":{"type":"IPCACHE_UPSERTED","ipcache_update":{"cidr":"10.10.3.49/32","identity":84972,"host_ip":"172.18.0.4","namespace":"otel","pod_name":"otel-collector-2nnrh"}},"node_name":"poc1-worker","time":"2026-09-11T19:15:30.591906142Z"})
+
