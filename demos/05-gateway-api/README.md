@@ -173,6 +173,91 @@ PUT  /v1/exhaust-port    : Access denied [403 in 0.010145s]
 you widen a policy to admit a new client, restate every restriction that matters for that client.
 This is the single most valuable thing in this demo — it is a mistake that looks like success.
 
+## "Are we using kube-vip?" — no, and here is the proof
+
+A fair question, because on bare metal or kind the reflex is to reach for MetalLB or kube-vip to
+get LoadBalancer addresses. **Neither is installed here.**
+
+```bash
+kubectl get pods -A | grep -iE 'kube-vip|metallb'
+```
+
+```
+none — no kube-vip, no MetalLB
+```
+
+The complete list of workloads in `kube-system`:
+
+```bash
+kubectl -n kube-system get deploy,ds --no-headers | awk '{print $1}'
+```
+
+```
+deployment.apps/cilium-operator
+deployment.apps/coredns
+deployment.apps/hubble-relay
+deployment.apps/hubble-ui
+daemonset.apps/cilium
+daemonset.apps/cilium-envoy
+```
+
+Note what is **absent**: no kube-vip, no MetalLB, no kube-proxy, no nginx/traefik/haproxy ingress
+controller. CoreDNS and Cilium's own components are the whole cluster.
+
+### What replaces it
+
+Two Cilium resources do the job a load-balancer add-on would otherwise do:
+
+| Job | Component | Resource |
+|---|---|---|
+| Hand out an external IP | **Cilium LB IPAM** | `CiliumLoadBalancerIPPool` |
+| Make that IP answerable on the LAN | **Cilium L2 announcements** | `CiliumL2AnnouncementPolicy` |
+
+```bash
+kubectl get ciliumloadbalancerippool,ciliuml2announcementpolicy
+```
+
+```
+NAME                                                  DISABLED   CONFLICTING   IPS AVAILABLE   AGE
+ciliumloadbalancerippool.cilium.io/kind-docker-pool   false      False         49              8h
+
+NAME                                                    AGE
+ciliuml2announcementpolicy.cilium.io/kind-l2-announce   8h
+```
+
+The addresses are a **reserved range carved out of the docker network** —
+`172.18.255.200–250`, from the top of the `kind` bridge's `172.18.0.0/16`, because Docker allocates
+container addresses from the bottom upward and the two can therefore never collide.
+
+### It really is doing leader election, like kube-vip would
+
+L2 announcement is not a static ARP entry. One node is elected to answer for each service, via a
+Kubernetes `Lease`, and election moves if that node goes away:
+
+```bash
+kubectl -n kube-system get lease | grep l2announce
+```
+
+```
+cilium-l2announce-default-cilium-gateway-sw-gateway   poc1-worker2          3m57s
+cilium-l2announce-kube-system-hubble-ui               poc1-control-plane2   3m7s
+```
+
+Two services, two different announcing nodes. That is the same failover property kube-vip provides,
+built into the CNI already present.
+
+### So when *would* you want kube-vip?
+
+Being fair to it — kube-vip solves a problem this PoC does not have: a **highly available virtual
+IP for the Kubernetes API server itself**, typically on bare metal, often before any CNI is
+running. That is a bootstrap-time concern and Cilium cannot help with it, because Cilium needs the
+API server to start.
+
+Here, kind already fronts the three control planes with its own load balancer container, and the
+addresses we needed were for **workload** Services and a Gateway — squarely LB IPAM's job. Adding
+kube-vip would mean another DaemonSet, another leader election, and another thing that can hold a
+stale ARP entry, to duplicate a capability Cilium already ships.
+
 ## What to take away
 
 | Claim | Evidence |

@@ -55,3 +55,22 @@ POST /v1/request-landing : Ship landed
 PUT  /v1/exhaust-port    : Access denied
  [403 in 0.010145s]
 
+### 2026-09-11T04:37:23Z
+$ bash -c echo 'Is kube-vip or MetalLB installed?'; kubectl --context kind-poc1 get pods -A | grep -iE 'kube-vip|metallb' || echo 'none — no kube-vip, no MetalLB'
+Is kube-vip or MetalLB installed?
+none — no kube-vip, no MetalLB
+
+### 2026-09-11T04:37:23Z
+$ bash -c kubectl --context kind-poc1 -n kube-system get deploy,ds --no-headers | awk '{print $1}'
+deployment.apps/cilium-operator
+deployment.apps/coredns
+deployment.apps/hubble-relay
+deployment.apps/hubble-ui
+daemonset.apps/cilium
+daemonset.apps/cilium-envoy
+
+### 2026-09-11T04:37:23Z
+$ bash -c kubectl --context kind-poc1 -n kube-system get lease | grep -i l2announce
+cilium-l2announce-default-cilium-gateway-sw-gateway   poc1-worker2                                                                4m8s
+cilium-l2announce-kube-system-hubble-ui               poc1-control-plane2                                                         3m18s
+
