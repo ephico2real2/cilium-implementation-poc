@@ -221,3 +221,54 @@ announcements do the job; **MetalLB and kube-vip are not installed.**
 The curl runs from a container **on the docker network** on purpose: it proves the load balancer
 works independently of whether the macOS host has the Step 3.5 route. If that test returns 200 and
 a browser does not, the cluster is fine and the host route is missing.
+
+## Finding — one Cilium module is permanently DEGRADED on this kernel (benign)
+
+`cilium-dbg status` reports:
+
+```
+Modules Health:          Stopped(0) Degraded(1) OK(94)
+```
+
+Chased down with `cilium-dbg status --all-health`:
+
+```
+  │   │   ├── job-refresh                    [OK] Next refresh in 29m59.998987992s
+  │   │   └── socket-termination
+  │   │       └──   [DEGRADED] service LV socket termination not supported by kernel
+```
+
+**Cause:** the Docker Desktop VM kernel (`6.6.12-linuxkit`) lacks the support Cilium needs to
+forcibly terminate sockets whose service backend has gone away. It is the same class of constraint
+as netkit needing ≥6.7 — a property of this kernel, not a misconfiguration.
+
+**Impact here: none for these demos.** Service load balancing, policy, Hubble, Gateway API and
+encryption all work; what is missing is that an established socket to a removed backend is not
+torn down proactively, so it lingers until the application notices. Worth knowing before quoting
+`Degraded(1)` at someone as a fault.
+
+94 of 95 modules OK.
+
+## Finding — Hubble sees traffic from the macOS host, by its bridge address
+
+While verifying the Gateway from the laptop, Hubble recorded:
+
+```
+192.168.64.1:50186 (ingress) -> default/deathstar-...:80 (ID:70302) http-request FORWARDED (HTTP/1.1 POST http://172.18.255.200/v1/request-landing)
+192.168.64.1:50186 (ingress) <- default/deathstar-...:80 (ID:70302) http-response FORWARDED (HTTP/1.1 200 13ms ...)
+192.168.64.1:50187 (ingress) -> default/deathstar-...:80 (ID:83642) http-request FORWARDED (HTTP/1.1 PUT http://172.18.255.200/v1/exhaust-port)
+192.168.64.1:50187 (ingress) <- default/deathstar-...:80 (ID:83642) http-response FORWARDED (HTTP/1.1 403 9ms ...)
+```
+
+`192.168.64.1` is the **macOS host's own address on `bridge100`** (SETUP Step 3.5.2). So a curl
+typed on the laptop is traced by Hubble through the host route, the Gateway's Envoy and into the
+pod — with the 403 verdict attributed to it. Two things follow:
+
+- the Step 3.5 route genuinely carries host traffic into the cluster dataplane, independently
+  confirmed from inside;
+- Hubble's observability is not limited to pod-to-pod traffic — external clients appear with their
+  real source address under the reserved `ingress` identity.
+
+Note the latency difference in the same exchange: `200 in 13ms` measured at the host hop versus
+`2ms` pod-to-pod, and `403 in 9ms` versus `0ms`. The extra milliseconds are the host→VM→Gateway
+path, visible without any instrumentation.
