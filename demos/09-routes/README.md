@@ -652,14 +652,33 @@ number of failed checks. Build it for the machine you are on (Go 1.24+):
 cd demos/09-routes/app
 go build -o routedemo .                                   # this machine (macOS here)
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o routedemo-linux .   # for a Linux server
-cd ../../..
-demos/09-routes/app/routedemo -mode client -target "$(kubectl -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}')" -ca docs/root-ca.crt
 ```
+
+Run it from **wherever you are** — the default `-ca docs/root-ca.crt` is found by walking up from
+the current directory to the repo root, so both of these work:
+
+```bash
+./routedemo -mode client -target 172.18.255.240                          # still in demos/09-routes/app
+demos/09-routes/app/routedemo -mode client -target 172.18.255.240        # from the repo root
+```
+```
+2026/09/11 14:28:58 using CA /Users/olasumbo/gitRepos/cilium-kind-poc/docs/root-ca.crt (found by walking up from the current directory)
+```
+
+Outside the repo, or with a wrong path, it fails loudly and says what to pass:
+
+```
+read CA docs/root-ca.crt: open docs/root-ca.crt: no such file or directory
+  pass -ca <path to docs/root-ca.crt>; from demos/09-routes/app that is -ca ../../../docs/root-ca.crt
+```
+
+Read the Gateway address live rather than typing it, if you prefer:
+`-target "$(kubectl -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}')"`.
 
 To test one route type only — the gRPC question on its own, for example — add `-only`:
 
 ```bash
-demos/09-routes/app/routedemo -mode client -only grpc -target 172.18.255.240 -ca docs/root-ca.crt
+./routedemo -mode client -only grpc -target 172.18.255.240        # from demos/09-routes/app; the CA is found automatically
 ```
 ```
 3. GRPCRoute -- grpc.health.v1.Health/Check, over h2c (:80) and over TLS (:443)

@@ -38,6 +38,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -141,10 +142,40 @@ func pinnedDialer(target string) func(ctx context.Context, network, addr string)
 	}
 }
 
+// findCA makes the default -ca work from any directory in the repo. The path is relative to the
+// repo root, but people build from demos/09-routes/app and run from there -- so if it does not
+// exist as given, look for the same relative path in each parent directory. An explicit -ca that
+// does not exist is still an error, with the path that would have worked from here.
+func findCA(path string) string {
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	if filepath.IsAbs(path) {
+		return path
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		return path
+	}
+	for i := 0; i < 8; i++ {
+		candidate := filepath.Join(dir, path)
+		if _, err := os.Stat(candidate); err == nil {
+			log.Printf("using CA %s (found by walking up from the current directory)", candidate)
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return path
+}
+
 func loadRoots(path string) *x509.CertPool {
 	pem, err := os.ReadFile(path)
 	if err != nil {
-		log.Fatalf("read CA %s: %v", path, err)
+		log.Fatalf("read CA %s: %v\n  pass -ca <path to docs/root-ca.crt>; from demos/09-routes/app that is -ca ../../../docs/root-ca.crt", path, err)
 	}
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(pem) {
@@ -167,6 +198,7 @@ func runClient(target, caPath, domain, exact, only string) int {
 	c := &checker{}
 	// -only narrows the run to one route type (http | grpc | tcp); "all" runs every section.
 	want := func(section string) bool { return only == "all" || only == section }
+	caPath = findCA(caPath)
 	roots := loadRoots(caPath)
 	dial := pinnedDialer(target)
 	https := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
