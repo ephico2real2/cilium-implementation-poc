@@ -40,6 +40,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [30](#30) | **"Tracing" in Cilium 1.20 is flow export, not spans — hubble-otel is archived** | tracing |
 | [31](#31) | A hostPath log reader must run as root | tracing |
 | [32](#32) | A cross-namespace route returns 500 with `Accepted=True` | Gateway API |
+| [33](#33) | gRPC over TLS through the Gateway works for `grpcurl` and fails for a current grpc-go client — no ALPN | Gateway API |
 
 ---
 
@@ -683,6 +684,78 @@ Then `ResolvedRefs=True` and 200. Always read **both** conditions on a route; a 
 
 ---
 
+## <a name="33"></a>33. gRPC over TLS through the Gateway works for `grpcurl` and fails for a current grpc-go client — no ALPN
+
+**Symptom.** `grpcurl -cacert … 172.18.255.240:443 grpc.health.v1.Health/Check` returns `SERVING`,
+so the GRPCRoute over TLS is "verified". A client built with grpc-go **1.76** against the same
+listener fails every time:
+
+```
+rpc error: code = Unavailable desc = connection error: desc = "transport: authentication handshake
+failed: credentials: cannot check peer: missing selected ALPN property. If you upgraded from a
+grpc-go version earlier than 1.67, your TLS connections may have stopped working due to ALPN
+enforcement. For more details, see: https://github.com/grpc/grpc-go/issues/434"
+```
+
+**Cause.** The Gateway's HTTPS listeners offered **no ALPN at all** — measured on every SNI, and
+in the generated Envoy config:
+
+```
+$ echo | openssl s_client -connect 172.18.255.240:443 -servername grpc.poc.local -alpn h2,http/1.1 | grep ALPN
+No ALPN negotiated
+$ kubectl -n routes get ciliumenvoyconfig -o yaml | grep -i alpn
+(nothing)
+```
+
+gRPC requires HTTP/2, and since grpc-go 1.67 the client **refuses a TLS session in which the server
+did not select `h2`** — before that it silently assumed HTTP/2. `grpcurl` v1.9.3 predates the
+enforcement, so it reported success against a listener that a current client cannot use. Proof
+that ALPN is the whole story: the same failing client with `GRPC_ENFORCE_ALPN_ENABLED=false`
+passes. Cilium ships ALPN **off** on Gateway listeners (`gatewayAPI.enableAlpn: false`; the chart
+note: *"ALPN will attempt HTTP/2, then HTTP 1.1 … services that wish to use HTTP/2 will need to
+indicate that via their `appProtocol`"*). Tracked upstream as
+[cilium/cilium#30794](https://github.com/cilium/cilium/issues/30794) and
+[#39484](https://github.com/cilium/cilium/issues/39484); the gRPC example in the docs says it
+outright: *"ALPN support needs to be enabled with the Helm flag `gatewayAPI.enableAlpn` set to true."*
+
+**Fix — two steps, and the second is the trap.**
+
+```bash
+helm upgrade cilium cilium/cilium -n kube-system --version 1.20.1 --reuse-values --set gatewayAPI.enableAlpn=true
+kubectl -n kube-system rollout restart deploy/cilium-operator     # NOT optional
+```
+
+The upgrade only changes `cilium-config` (`enable-gateway-api-alpn: "true"`); the operator
+Deployment's template is unchanged, so `rollout status` says "successfully rolled out" while the
+**same pod from three hours earlier keeps running with the old flag** — and it reads the flag at
+startup (#28 again, different flag). Sixty seconds of waiting produced nothing. After the restart
+the Gateway is re-translated and the config carries it:
+
+```
+commonTlsContext:
+  alpnProtocols:
+  - h2,http/1.1
+```
+
+```
+grpc.poc.local       ALPN protocol: h2
+web.poc.local        ALPN protocol: h2
+exact.example.test   ALPN protocol: h2
+```
+
+and the grpc-go client passes over TLS. The `grpc` Service already declared
+`appProtocol: kubernetes.io/h2c`, which is what the chart note requires once ALPN is on; the
+HTTP/1.1 backends (`web`) need nothing — Envoy negotiates `h2` with the client and speaks HTTP/1.1
+to them. Re-run the curl/grpcurl/nc proof afterwards: 0 failures, so enabling ALPN broke nothing
+for HTTP/1.1 or h2c clients.
+
+**The lesson is the meta-lesson.** A tool that predates a protocol requirement will report success
+against a server that violates it. Verify with the client your applications will actually use.
+
+→ demo 09, Part 5b and Part 11; `demos/09-routes/output/client-check.txt`
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -694,6 +767,7 @@ Most of these share a shape: **something reported success while not working.**
 - the Gateway policy fix "worked" (#16)
 - `--enable-bandwidth-manager='true'` appeared in the log (#17)
 - `clustermesh connect` printed `✅ Connected` (#20 — before status was checked)
+- `grpcurl` said `SERVING` over TLS (#33 — from a version too old to notice the missing ALPN)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

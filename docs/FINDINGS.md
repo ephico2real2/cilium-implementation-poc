@@ -317,3 +317,25 @@ Selector key: `io.cilium.gateway/owning-gateway`, present on both Gateway-genera
 absent on `hubble-ui` (verified, not assumed). Old address `.202` confirmed dead afterwards
 (`http=000`); new addresses `200 chain-verified` from the Mac; the `/16` host route needed no
 change. Reference: https://docs.cilium.io/en/stable/network/lb-ipam/
+
+## Finding — the Gateway offered no ALPN, so gRPC over TLS only worked for old clients
+
+The demo app gained a native `-mode client` (grpc-go 1.76) so a junior can test all three routes
+without Docker. Its first run against the Gateway failed exactly one check:
+
+```
+  PASS  h2c  grpc.poc.local:80   SERVING
+  FAIL  TLS  grpc.poc.local:443  … missing selected ALPN property …
+```
+
+while `grpcurl` v1.9.3 had returned `SERVING` on the same listener in Part 5. Measured cause:
+`openssl s_client -alpn h2,http/1.1` → `No ALPN negotiated` on every SNI; the Gateway's
+`DownstreamTlsContext` carried no `alpnProtocols`. grpc-go enforces ALPN since 1.67; with
+`GRPC_ENFORCE_ALPN_ENABLED=false` the same client passed, isolating the cause to ALPN alone.
+
+Fix: `gatewayAPI.enableAlpn=true` **plus** `rollout restart deploy/cilium-operator` — the helm
+upgrade only rewrote `cilium-config`, the operator pod (started 15:53) never restarted and reads
+the flag at startup; 60 s of polling saw no change until the restart. After it: `alpnProtocols:
+[h2,http/1.1]` in the CiliumEnvoyConfig, `ALPN protocol: h2` on all three SNIs, native client
+**0 failures**, and the curl/grpcurl/nc proof (`scripts/check-routes.sh`) still 0 failures.
+Transcript: `demos/09-routes/output/client-check.txt`. Gotcha #33.

@@ -3,3 +3,7 @@
 kubeconfig-*
 .tmp/
 out/
+
+# Built binaries of the demo app (build with: go build -o routedemo ./demos/09-routes/app)
+demos/09-routes/app/routedemo
+bin/

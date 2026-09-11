@@ -5,10 +5,19 @@
 //	-mode grpc   gRPC server                 -> GRPCRoute
 //	-mode tcp    line-echo TCP server        -> TCPRoute
 //
+//	-mode client native test client        -> exercises all three routes through the Gateway
+//
 // WHY ONE BINARY INSTEAD OF THREE. Three images means three builds, three pushes and three
 // `kind load` steps on a laptop that just ran out of disk. One static binary keeps the image at a
 // few megabytes and makes the three deployments differ by a single argument, which also makes the
 // comparison between route types the only variable.
+//
+// WHY A CLIENT MODE IN THE SAME BINARY. The routes were first verified with a grpcurl container
+// and `nc`, which proves the routes but is not something a junior can run on a laptop without
+// Docker. The client mode speaks the same three protocols natively -- HTTPS with the enterprise
+// root, gRPC over h2c and over TLS with SNI, and the raw TCP echo -- pins each hostname to the
+// Gateway address the way `curl --resolve` does (no /etc/hosts needed), and exits with the number
+// of failed checks. Build it for the machine you are on: `go build -o routedemo .`
 //
 // WHY THE gRPC SIDE USES THE HEALTH SERVICE. A normal gRPC demo needs a .proto file, protoc, and
 // generated stubs checked in or generated at build time. grpc-go already ships the standard
@@ -18,16 +27,23 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
@@ -100,11 +116,168 @@ func serveTCP(addr string) {
 	}
 }
 
+// ---- client mode -------------------------------------------------------------------------------
+
+// checker counts failures so the process exit code is the number of checks that failed, which is
+// what lets a transcript or a pipeline read the result without parsing text.
+type checker struct{ failed int }
+
+func (c *checker) pass(format string, a ...any) { fmt.Printf("  PASS  "+format+"\n", a...) }
+func (c *checker) fail(format string, a ...any) {
+	c.failed++
+	fmt.Printf("  FAIL  "+format+"\n", a...)
+}
+
+// pinnedDialer is the programmatic form of `curl --resolve`: whatever hostname the client asks
+// for, the TCP connection goes to the Gateway address. TLS SNI and the Host/:authority header still
+// carry the real name, which is what the Gateway routes on. Nothing on the machine is touched.
+func pinnedDialer(target string) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		_, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
+		}
+		return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, network, net.JoinHostPort(target, port))
+	}
+}
+
+func loadRoots(path string) *x509.CertPool {
+	pem, err := os.ReadFile(path)
+	if err != nil {
+		log.Fatalf("read CA %s: %v", path, err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pem) {
+		log.Fatalf("no certificate found in %s", path)
+	}
+	return pool
+}
+
+func httpGet(client *http.Client, url string) (int, string, error) {
+	resp, err := client.Get(url)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	return resp.StatusCode, strings.TrimSpace(string(body)), nil
+}
+
+func runClient(target, caPath, domain, exact string) int {
+	c := &checker{}
+	roots := loadRoots(caPath)
+	dial := pinnedDialer(target)
+	https := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
+		DialContext: dial, TLSClientConfig: &tls.Config{RootCAs: roots}}}
+	plain := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{DialContext: dial}}
+
+	fmt.Printf("Gateway %s, root CA %s, wildcard domain *.%s, exact host %s\n\n", target, caPath, domain, exact)
+
+	fmt.Println("1. HTTPRoute over HTTPS -- chain verified against the root, SNI selects the listener")
+	for _, h := range []string{"web." + domain, "anything-at-all." + domain, exact} {
+		code, body, err := httpGet(https, "https://"+h+"/")
+		switch {
+		case err != nil:
+			c.fail("https://%s/  %v", h, err)
+		case code != 200:
+			c.fail("https://%s/  http %d", h, code)
+		case !strings.Contains(body, `"host":"`+h+`"`) || !strings.Contains(body, `"tls":true`):
+			c.fail("https://%s/  200 but the app did not echo host+tls: %s", h, body)
+		default:
+			c.pass("https://%s/  200, app echoed host and tls=true", h)
+		}
+	}
+	if code, _, err := httpGet(https, "https://nobody."+domain+"/"); err != nil || code != 404 {
+		c.fail("https://nobody.%s/  want 404 (under the wildcard, no route), got %d %v", domain, code, err)
+	} else {
+		c.pass("https://nobody.%s/  404 -- wildcard cert served it, no HTTPRoute claimed it", domain)
+	}
+	if _, _, err := httpGet(https, "https://nobody.example.test/"); err == nil {
+		c.fail("https://nobody.example.test/  the exact listener must NOT present a cert for another name")
+	} else {
+		c.pass("https://nobody.example.test/  TLS refused as expected: %v", errString(err))
+	}
+
+	fmt.Println("\n2. HTTPRoute over plain HTTP :80 -- the Host header picks the route")
+	req, _ := http.NewRequest("GET", "http://"+target+"/", nil)
+	req.Host = "web." + domain
+	if resp, err := plain.Do(req); err != nil || resp.StatusCode != 200 {
+		c.fail("http://%s/ Host: web.%s  %v", target, domain, err)
+	} else {
+		resp.Body.Close()
+		c.pass("http://%s/ Host: web.%s  200", target, domain)
+	}
+
+	fmt.Println("\n3. GRPCRoute -- grpc.health.v1.Health/Check, over h2c (:80) and over TLS (:443)")
+	grpcHost := "grpc." + domain
+	grpcCheck := func(label string, port string, creds credentials.TransportCredentials) {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		// grpc-go dials the target string; the authority (and TLS ServerName) is the route hostname.
+		conn, err := grpc.NewClient(net.JoinHostPort(target, port),
+			grpc.WithTransportCredentials(creds), grpc.WithAuthority(grpcHost))
+		if err != nil {
+			c.fail("%s  dial: %v", label, err)
+			return
+		}
+		defer conn.Close()
+		resp, err := healthpb.NewHealthClient(conn).Check(ctx, &healthpb.HealthCheckRequest{})
+		if err != nil {
+			c.fail("%s  %v", label, err)
+			return
+		}
+		if resp.GetStatus() != healthpb.HealthCheckResponse_SERVING {
+			c.fail("%s  status %s", label, resp.GetStatus())
+			return
+		}
+		c.pass("%s  SERVING", label)
+	}
+	grpcCheck("h2c  "+grpcHost+":80 ", "80", insecure.NewCredentials())
+	grpcCheck("TLS  "+grpcHost+":443", "443", credentials.NewTLS(&tls.Config{RootCAs: roots, ServerName: grpcHost}))
+
+	fmt.Println("\n4. TCPRoute :9000 -- greeting on connect, then a line echoed back")
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(target, "9000"), 5*time.Second)
+	if err != nil {
+		c.fail("tcp %s:9000  %v", target, err)
+	} else {
+		defer conn.Close()
+		conn.SetDeadline(time.Now().Add(5 * time.Second))
+		r := bufio.NewReader(conn)
+		greet, err := r.ReadString('\n')
+		if err != nil || !strings.Contains(greet, "(tcp echo)") {
+			c.fail("tcp greeting: %q %v", greet, err)
+		} else {
+			fmt.Fprintf(conn, "ping from routedemo client\n")
+			echo, err := r.ReadString('\n')
+			if err != nil || !strings.Contains(echo, "echoed: ping from routedemo client") {
+				c.fail("tcp echo: %q %v", echo, err)
+			} else {
+				c.pass("tcp  greeting %q then %q", strings.TrimSpace(greet), strings.TrimSpace(echo))
+			}
+		}
+	}
+
+	fmt.Printf("\nFAILED CHECKS: %d\n", c.failed)
+	return c.failed
+}
+
+// errString keeps a TLS failure to one line so the transcript stays readable.
+func errString(err error) string {
+	s := err.Error()
+	if i := strings.LastIndex(s, ": "); i >= 0 && i+2 < len(s) {
+		return s[i+2:]
+	}
+	return s
+}
+
 func main() {
-	mode := flag.String("mode", "http", "http | grpc | tcp")
-	addr := flag.String("addr", ":8080", "listen address")
+	mode := flag.String("mode", "http", "http | grpc | tcp | client")
+	addr := flag.String("addr", ":8080", "listen address (server modes)")
+	target := flag.String("target", "", "client: Gateway address, e.g. 172.18.255.240")
+	caPath := flag.String("ca", "docs/root-ca.crt", "client: root CA to verify the Gateway's certificates")
+	domain := flag.String("domain", "poc.local", "client: the wildcard domain (*.poc.local)")
+	exact := flag.String("exact", "exact.example.test", "client: the exact-listener hostname")
 	flag.Parse()
-	_ = context.Background()
 	switch *mode {
 	case "http":
 		serveHTTP(*addr)
@@ -112,7 +285,12 @@ func main() {
 		serveGRPC(*addr)
 	case "tcp":
 		serveTCP(*addr)
+	case "client":
+		if *target == "" {
+			log.Fatal("-mode client needs -target <gateway address>")
+		}
+		os.Exit(runClient(*target, *caPath, *domain, *exact))
 	default:
-		log.Fatalf("unknown -mode %q (want http, grpc or tcp)", *mode)
+		log.Fatalf("unknown -mode %q (want http, grpc, tcp or client)", *mode)
 	}
 }

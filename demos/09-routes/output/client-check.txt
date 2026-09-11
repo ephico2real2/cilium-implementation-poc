@@ -1,0 +1,121 @@
+### 2026-09-11T18:22:26Z
+$ sh -c echo | openssl s_client -connect 172.18.255.240:443 -servername grpc.poc.local -alpn h2,http/1.1 2>/dev/null | grep -E 'ALPN'
+No ALPN negotiated
+
+### 2026-09-11T18:22:26Z
+$ helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 --reuse-values --set gatewayAPI.enableAlpn=true
+Release "cilium" has been upgraded. Happy Helming!
+NAME: cilium
+LAST DEPLOYED: Fri Sep 11 13:22:28 2026
+NAMESPACE: kube-system
+STATUS: deployed
+REVISION: 17
+TEST SUITE: None
+NOTES:
+You have successfully installed Cilium with Hubble Relay and Hubble UI.
+
+WARNINGS:
+- WARNING: TLS is not enabled for the Hubble Relay server (hubble.relay.tls.server.enabled=false).
+  This means Hubble Relay communications may not be encrypted. For more information about the security
+  implications and suggested controls, please see: https://docs.cilium.io/en/stable/security/threat-model/#hubble-data-attacker
+
+Your release version is 1.20.1.
+
+For any further help, visit https://docs.cilium.io/en/v1.20/gettinghelp
+
+### 2026-09-11T18:22:36Z
+$ kubectl --context kind-poc1 -n kube-system rollout status deploy/cilium-operator --timeout=120s
+deployment "cilium-operator" successfully rolled out
+
+### 2026-09-11T18:23:42Z
+$ sh -c kubectl --context kind-poc1 -n routes get ciliumenvoyconfig -o yaml | grep -n -i -A2 alpn_protocols | head -8
+
+### 2026-09-11T18:23:47Z
+$ sh -c for s in grpc.poc.local web.poc.local exact.example.test; do printf '%-20s ' $s; echo | openssl s_client -connect 172.18.255.240:443 -servername $s -alpn h2,http/1.1 2>/dev/null | grep -E 'ALPN'; done
+grpc.poc.local       No ALPN negotiated
+web.poc.local        No ALPN negotiated
+exact.example.test   No ALPN negotiated
+
+### 2026-09-11T18:23:47Z
+$ /tmp/routedemo -mode client -target 172.18.255.240 -ca docs/root-ca.crt
+Gateway 172.18.255.240, root CA docs/root-ca.crt, wildcard domain *.poc.local, exact host exact.example.test
+
+1. HTTPRoute over HTTPS -- chain verified against the root, SNI selects the listener
+  PASS  https://web.poc.local/  200, app echoed host and tls=true
+  PASS  https://anything-at-all.poc.local/  200, app echoed host and tls=true
+  PASS  https://exact.example.test/  200, app echoed host and tls=true
+  PASS  https://nobody.poc.local/  404 -- wildcard cert served it, no HTTPRoute claimed it
+  PASS  https://nobody.example.test/  TLS refused as expected: connection reset by peer
+
+2. HTTPRoute over plain HTTP :80 -- the Host header picks the route
+  PASS  http://172.18.255.240/ Host: web.poc.local  200
+
+3. GRPCRoute -- grpc.health.v1.Health/Check, over h2c (:80) and over TLS (:443)
+  PASS  h2c  grpc.poc.local:80   SERVING
+  FAIL  TLS  grpc.poc.local:443  rpc error: code = Unavailable desc = connection error: desc = "transport: authentication handshake failed: credentials: cannot check peer: missing selected ALPN property. If you upgraded from a grpc-go version earlier than 1.67, your TLS connections may have stopped working due to ALPN enforcement. For more details, see: https://github.com/grpc/grpc-go/issues/434"
+
+4. TCPRoute :9000 -- greeting on connect, then a line echoed back
+  PASS  tcp  greeting "hello from echo (tcp echo)" then "echo echoed: ping from routedemo client"
+
+FAILED CHECKS: 1
+[exit code: 1]
+
+### 2026-09-11T18:24:30Z
+$ kubectl --context kind-poc1 -n kube-system get pods -l name=cilium-operator -o custom-columns=POD:.metadata.name,STARTED:.status.startTime
+POD                                STARTED
+cilium-operator-5779b975bc-rc48c   2026-09-11T15:53:17Z
+
+### 2026-09-11T18:24:30Z
+$ kubectl --context kind-poc1 -n kube-system rollout restart deploy/cilium-operator
+deployment.apps/cilium-operator restarted
+
+### 2026-09-11T18:24:31Z
+$ kubectl --context kind-poc1 -n kube-system rollout status deploy/cilium-operator --timeout=180s
+Waiting for deployment "cilium-operator" rollout to finish: 0 of 1 updated replicas are available...
+Waiting for deployment "cilium-operator" rollout to finish: 0 of 1 updated replicas are available...
+deployment "cilium-operator" successfully rolled out
+
+### 2026-09-11T18:26:14Z
+$ sh -c kubectl --context kind-poc1 -n routes get ciliumenvoyconfig -o yaml | grep -n -i -A3 alpn_protocols | head -10
+
+### 2026-09-11T18:26:22Z
+$ sh -c for s in grpc.poc.local web.poc.local exact.example.test; do printf '%-20s ' $s; echo | openssl s_client -connect 172.18.255.240:443 -servername $s -alpn h2,http/1.1 2>/dev/null | grep -E 'ALPN'; done
+grpc.poc.local       ALPN protocol: h2
+web.poc.local        ALPN protocol: h2
+exact.example.test   ALPN protocol: h2
+
+### 2026-09-11T18:26:23Z
+$ /tmp/routedemo -mode client -target 172.18.255.240 -ca docs/root-ca.crt
+Gateway 172.18.255.240, root CA docs/root-ca.crt, wildcard domain *.poc.local, exact host exact.example.test
+
+1. HTTPRoute over HTTPS -- chain verified against the root, SNI selects the listener
+  PASS  https://web.poc.local/  200, app echoed host and tls=true
+  PASS  https://anything-at-all.poc.local/  200, app echoed host and tls=true
+  PASS  https://exact.example.test/  200, app echoed host and tls=true
+  PASS  https://nobody.poc.local/  404 -- wildcard cert served it, no HTTPRoute claimed it
+  PASS  https://nobody.example.test/  TLS refused as expected: connection reset by peer
+
+2. HTTPRoute over plain HTTP :80 -- the Host header picks the route
+  PASS  http://172.18.255.240/ Host: web.poc.local  200
+
+3. GRPCRoute -- grpc.health.v1.Health/Check, over h2c (:80) and over TLS (:443)
+  PASS  h2c  grpc.poc.local:80   SERVING
+  PASS  TLS  grpc.poc.local:443  SERVING
+
+4. TCPRoute :9000 -- greeting on connect, then a line echoed back
+  PASS  tcp  greeting "hello from echo (tcp echo)" then "echo echoed: ping from routedemo client"
+
+FAILED CHECKS: 0
+
+### 2026-09-11T18:26:48Z
+$ sh -c kubectl --context kind-poc1 -n routes get ciliumenvoyconfig -o yaml | grep -n -i -B1 -A2 'alpn' | head -12
+120-            commonTlsContext:
+121:              alpnProtocols:
+122-              - h2,http/1.1
+123-              tlsCertificateSdsSecretConfigs:
+--
+168-            commonTlsContext:
+169:              alpnProtocols:
+170-              - h2,http/1.1
+171-              tlsCertificateSdsSecretConfigs:
+

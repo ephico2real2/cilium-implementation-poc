@@ -270,6 +270,54 @@ method** (`grpc.health.v1.Health/Check`), not just a path prefix. The route file
 > `appProtocol: kubernetes.io/h2c`. Without it the Gateway speaks HTTP/1.1 to the pod and every
 > call fails with a protocol error that looks like an application bug.
 
+### Part 5b — what `grpcurl` could not see: the listener offered no ALPN (gotcha #33)
+
+The TLS result above is real and it is also misleading. `grpcurl` v1.9.3 is built on a grpc-go
+older than 1.67, from before the client library started **enforcing** that a TLS server selects
+`h2` via ALPN. A client on current grpc-go (1.76, the native client in Part 11) fails the same
+call:
+
+```
+transport: authentication handshake failed: credentials: cannot check peer: missing selected ALPN property
+```
+
+Measured on the Gateway, before the fix:
+
+```bash
+echo | openssl s_client -connect 172.18.255.240:443 -servername grpc.poc.local -alpn h2,http/1.1 2>/dev/null | grep ALPN
+```
+```
+No ALPN negotiated
+```
+
+Cilium ships ALPN off on Gateway listeners. Enable it, and **restart the operator** — the upgrade
+only changes the ConfigMap, the operator reads it at startup, and `rollout status` will claim
+success without any pod having restarted:
+
+```bash
+helm upgrade cilium cilium/cilium -n kube-system --version 1.20.1 --reuse-values --set gatewayAPI.enableAlpn=true
+kubectl -n kube-system rollout restart deploy/cilium-operator
+kubectl -n kube-system rollout status deploy/cilium-operator --timeout=180s
+kubectl -n routes get ciliumenvoyconfig -o yaml | grep -A1 alpnProtocols
+```
+```
+              alpnProtocols:
+              - h2,http/1.1
+```
+```bash
+for s in grpc.poc.local web.poc.local exact.example.test; do printf '%-20s ' $s; echo | openssl s_client -connect 172.18.255.240:443 -servername $s -alpn h2,http/1.1 2>/dev/null | grep ALPN; done
+```
+```
+grpc.poc.local       ALPN protocol: h2
+web.poc.local        ALPN protocol: h2
+exact.example.test   ALPN protocol: h2
+```
+
+The `grpc` Service already declares `appProtocol: kubernetes.io/h2c` (02-apps.yaml), which the
+chart requires once ALPN is on so Envoy speaks h2c to that backend; `web` is HTTP/1.1 and needs
+nothing. `scripts/check-routes.sh` re-run after the change: **0 failures** — HTTP/1.1, h2c and TCP
+clients are unaffected. Full transcript: `output/client-check.txt`.
+
 ## Part 6 — TCPRoute, and the CRD-discovery gotcha
 
 Raw TCP has no hostname, no path and no method, so a `TCPRoute` binds to its listener **by name**:
@@ -578,6 +626,53 @@ sudo sh -c 'scripts/hosts-entries.sh >> /etc/hosts'
 open https://hubble.poc.local       # macOS; trust docs/root-ca.crt in Keychain first, or click through
 ```
 
+## Part 11 — one native client for all three routes (no Docker, no grpcurl)
+
+`grpcurl` needed a container and the TCP test needed `nc`. The demo app now has a fourth mode,
+`-mode client`, in the same `app/main.go`: it speaks HTTPS with the enterprise root, gRPC over
+h2c **and** over TLS with SNI, and the raw TCP echo — pinning every hostname to the Gateway
+address in code the way `curl --resolve` does, so it needs **no `/etc/hosts`**. It exits with the
+number of failed checks. Build it for the machine you are on (Go 1.24+):
+
+```bash
+cd demos/09-routes/app
+go build -o routedemo .                                   # this machine (macOS here)
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o routedemo-linux .   # for a Linux server
+cd ../../..
+demos/09-routes/app/routedemo -mode client -target "$(kubectl -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}')" -ca docs/root-ca.crt
+```
+
+Recorded run (`output/client-check.txt`, after Part 5b's ALPN fix):
+
+```
+Gateway 172.18.255.240, root CA docs/root-ca.crt, wildcard domain *.poc.local, exact host exact.example.test
+
+1. HTTPRoute over HTTPS -- chain verified against the root, SNI selects the listener
+  PASS  https://web.poc.local/  200, app echoed host and tls=true
+  PASS  https://anything-at-all.poc.local/  200, app echoed host and tls=true
+  PASS  https://exact.example.test/  200, app echoed host and tls=true
+  PASS  https://nobody.poc.local/  404 -- wildcard cert served it, no HTTPRoute claimed it
+  PASS  https://nobody.example.test/  TLS refused as expected: connection reset by peer
+
+2. HTTPRoute over plain HTTP :80 -- the Host header picks the route
+  PASS  http://172.18.255.240/ Host: web.poc.local  200
+
+3. GRPCRoute -- grpc.health.v1.Health/Check, over h2c (:80) and over TLS (:443)
+  PASS  h2c  grpc.poc.local:80   SERVING
+  PASS  TLS  grpc.poc.local:443  SERVING
+
+4. TCPRoute :9000 -- greeting on connect, then a line echoed back
+  PASS  tcp  greeting "hello from echo (tcp echo)" then "echo echoed: ping from routedemo client"
+
+FAILED CHECKS: 0
+```
+
+Two proofs now exist for the same routes and they deliberately use different clients:
+`scripts/check-routes.sh` (curl, a grpcurl container, `nc`) and this binary (Go stdlib TLS,
+grpc-go 1.76). Their disagreement is what found gotcha #33. The image was rebuilt from the same
+source (`routedemo:local`, 14.6 MB) and the three deployments rolled onto it, so the running
+servers and the client are one binary.
+
 ## What to take away
 
 | Claim | Evidence |
@@ -588,6 +683,8 @@ open https://hubble.poc.local       # macOS; trust docs/root-ca.crt in Keychain 
 | Two certs on one port | SNI selects `*.poc.local` vs `exact.example.test` on :443 |
 | `HTTPRoute` | 3 hostnames → `web`, 200 over both HTTPS and HTTP |
 | `GRPCRoute` | `Health/Check` → `SERVING` over h2c **and** TLS; reflection lists services |
+| gRPC over TLS needs ALPN | `gatewayAPI.enableAlpn=true` **and** an operator restart; grpc-go ≥ 1.67 refuses a listener without `h2` (gotcha #33) |
+| One native client, three protocols | `routedemo -mode client` — HTTPS, gRPC h2c + TLS, TCP echo; exit code = failed checks |
 | `TCPRoute` | echo round-trip on :9000 |
 | One image, three protocols | `routedemo:local`, 14 MB, `-mode http\|grpc\|tcp` |
 | Cross-namespace backends need consent | `RefNotPermitted` → 500 until a `ReferenceGrant` in `kube-system`; then 200 |

@@ -41,7 +41,7 @@ unchanged, with BGP substituted for L2 in production.
 6. **`scripts/verify.sh`** — regenerate every piece of evidence on *your* cluster and diff it
    against [docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md). `scripts/check-routes.sh` is the
    external-access proof for demo 09.
-7. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 32 traps, each with the real error
+7. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 33 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -116,7 +116,7 @@ an untested combination.
 | 06 | Performance | iperf3 pod-to-pod across nodes, with 25–38 % run-to-run noise measured honestly; netkit, bandwidth manager/BBR and BIG TCP **cannot run on this VM kernel** (6.6.12 < 6.7; sysctl absent; BBR not compiled) and the demo proves each |
 | 07 | ClusterMesh | A global Service backed by pods in a second cluster, with failover |
 | 08 | Enterprise CA | cert-manager root in poc1 issuing every cluster's mesh certificates; trust before join |
-| 09 | Wildcard TLS + 3 route types | cert-manager wildcard and exact certs on one Gateway; `HTTPRoute`, `GRPCRoute`, `TCPRoute` from one 14 MB image |
+| 09 | Wildcard TLS + 3 route types | cert-manager wildcard and exact certs on one Gateway; `HTTPRoute`, `GRPCRoute`, `TCPRoute` from one 14 MB image — and a native Go client (`-mode client`) that tests all three, which is how the missing-ALPN gotcha (#33) was found |
 | 10 | Flow tracing -> OpenTelemetry | Hubble dynamic flow export per node, tailed by an OTel Collector into OTLP; every flow persistent and queryable. **Events, not spans** -- hubble-otel is archived, see gotcha #30 |
 
 ## Regenerating the evidence
@@ -141,7 +141,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 32 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 33 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 
