@@ -49,3 +49,20 @@ $ bash -c kubectl --context kind-poc2 -n kube-system exec ds/cilium -c cilium-ag
 $ bash -c kubectl --context kind-poc2 run xcheck3 --rm -i --restart=Never --image=curlimages/curl:latest --command -- sh -c 'curl -s --max-time 6 http://inventory.default.svc.cluster.local/' 2>/dev/null
 pod "xcheck3" deleted
 
+### 2026-09-11T14:43:46Z
+$ bash -c for c in kind-poc1 kind-poc2; do printf '%-10s ' $c; kubectl --context $c -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -i '^Encryption'; done
+kind-poc1  Encryption:              Disabled        
+kind-poc2  Encryption:              Disabled        
+
+### 2026-09-11T14:43:47Z
+$ bash -c kubectl --context kind-poc1 -n perf get endpoints iperf3-global --no-headers; kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | grep -A1 $(kubectl --context kind-poc1 -n perf get svc iperf3-global -o jsonpath='{.spec.clusterIP}')
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+iperf3-global   <none>   2m30s
+26   10.11.157.25:5201/TCP    ClusterIP      1 => 10.20.1.220:5201/TCP (active)   
+
+### 2026-09-11T14:43:48Z
+$ bash -c for i in 1 2 3; do kubectl --context kind-poc1 -n perf exec iperf3-client -- iperf3 -c iperf3-global.perf.svc.cluster.local -t 10 -f m 2>/dev/null | grep receiver; done
+[  5]   0.00-10.00  sec  9.64 GBytes  8279 Mbits/sec                  receiver
+[  5]   0.00-10.00  sec  9.96 GBytes  8549 Mbits/sec                  receiver
+[  5]   0.00-10.00  sec  9.56 GBytes  8209 Mbits/sec                  receiver
+

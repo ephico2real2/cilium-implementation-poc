@@ -329,6 +329,158 @@ kubectl --context kind-poc2 run xcheck --rm -i --restart=Never --image=curlimage
 | Directions tested | poc1 → mesh | **poc1 → poc2 AND poc2 → poc1** |
 | What it models | HA / spill-over capacity | a genuine service dependency across clusters |
 
+## Verifying the mesh day to day
+
+Handy variants, including a couple of tools you may already prefer over plain `kubectl`.
+
+### Switching contexts
+
+`kubectx` lists and switches contexts more briefly than `kubectl config use-context`:
+
+```bash
+kubectx
+```
+
+```
+kind-kind-cluster
+kind-poc1
+kind-poc2
+```
+
+```bash
+kubectx kind-poc1
+```
+
+```
+Switched to context "kind-poc1".
+```
+
+> **Gotcha: a context can outlive its cluster.** `kind-kind-cluster` above is a **stale entry** —
+> `kind get clusters` reports only `poc1` and `poc2`. Deleting a cluster with `kind delete cluster`
+> removes the context, but a cluster deleted some other way (or a kubeconfig copied between
+> machines) leaves the entry behind, and `kubectl --context kind-kind-cluster ...` then fails with
+> a connection error that looks like a broken cluster rather than a missing one. Cross-check with
+> `kind get clusters`, and prune with
+> `kubectl config delete-context kind-kind-cluster`.
+
+`oc` works anywhere `kubectl` does, if that is your habit:
+
+```bash
+oc get node
+```
+
+```
+NAME                  STATUS   ROLES           AGE   VERSION
+poc1-control-plane    Ready    control-plane   18h   v1.36.4
+poc1-control-plane2   Ready    control-plane   18h   v1.36.4
+poc1-control-plane3   Ready    control-plane   18h   v1.36.4
+poc1-worker           Ready    <none>          18h   v1.36.4
+poc1-worker2          Ready    <none>          18h   v1.36.4
+```
+
+### Full mesh status, both sides
+
+Always check **both** — a mesh reporting healthy from one side is only half the answer.
+
+```bash
+cilium clustermesh status --context kind-poc1
+```
+
+```
+⚠️  Service type NodePort detected! Service may fail when nodes are removed from the cluster!
+✅ Service "clustermesh-apiserver" of type "NodePort" found
+✅ Cluster access information is available:
+  - 172.18.0.6:32379
+✅ Deployment clustermesh-apiserver is ready
+ℹ️  KVStoreMesh is enabled
+
+✅ All 5 nodes are connected to all clusters [min:1 / avg:1.0 / max:1]
+✅ All 1 KVStoreMesh replicas are connected to all clusters [min:1 / avg:1.0 / max:1]
+
+🔌 Cluster Connections:
+  - poc2: 5/5 configured, 5/5 connected - KVStoreMesh: 1/1 configured, 1/1 connected
+```
+
+```bash
+cilium clustermesh status --context kind-poc2
+```
+
+```
+✅ Cluster access information is available:
+  - 172.18.0.10:32379
+✅ All 2 nodes are connected to all clusters [min:1 / avg:1.0 / max:1]
+
+🔌 Cluster Connections:
+  - poc1: 2/2 configured, 2/2 connected - KVStoreMesh: 1/1 configured, 1/1 connected
+```
+
+**What to read in that output:**
+
+- **`5/5 configured, 5/5 connected`** — *configured* means the node was told about the remote
+  cluster; *connected* means it actually established the session. A gap between the two numbers is
+  the interesting failure, and it is invisible if you only look for green ticks.
+- **The access address** (`172.18.0.6:32379`) is the NodePort endpoint the other cluster dials.
+  Each side advertises its own.
+- **`min:1 / avg:1.0 / max:1`** — remote clusters connected per node. Every node connects
+  independently, which is why there is no gateway to fail.
+- The **NodePort warning** is expected here and worth heeding in production (see Part 1).
+
+## Part 7 — cross-cluster throughput (WireGuard off)
+
+Same rig as demo 06, same image, same 10s TCP test, same laptop, **encryption off on both sides** —
+confirmed before measuring, because it is the single biggest variable:
+
+```bash
+for c in kind-poc1 kind-poc2; do
+  kubectl --context $c -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status | grep Encryption
+done
+```
+
+```
+kind-poc1  Encryption:  Disabled
+kind-poc2  Encryption:  Disabled
+```
+
+The server runs in **poc2 only**, reached through a global Service, so poc1 has the Service with
+no local endpoints:
+
+```
+poc1 local endpoints: <none>
+26   10.11.157.25:5201/TCP   ClusterIP   1 => 10.20.1.220:5201/TCP (active)
+```
+
+Both measurements were taken **in the same session, minutes apart**, because comparing against
+numbers from another day on a laptop is meaningless.
+
+| | Median | Range | Spread |
+|---|---|---|---|
+| **Intra**-cluster (poc1 → poc1, across nodes) | 8714 Mbit/s | 6757–8997 | **25%** |
+| **Cross**-cluster (poc1 → poc2, via mesh) | 8098 Mbit/s | 8057–8215 | **2%** |
+
+Raw cross-cluster runs: `8215, 8096, 8098, 8057, 8127`.
+
+### Reading this honestly
+
+**The median difference is ~7%. The intra-cluster spread is 25%.** The difference is *smaller than
+the noise in the thing it is being compared against*, so the defensible statement is:
+
+> **ClusterMesh adds no throughput penalty that this rig can distinguish from noise.**
+
+Not "ClusterMesh costs 7%".
+
+**And the result would not transfer.** Both "clusters" are containers on one host sharing one
+kernel and one bridge — there is no real network between them. What this measures is the
+*mechanism* overhead: endpoint merging, the extra eBPF map entries, the tunnel. It says nothing
+about a real mesh, where the dominant cost is the physical distance between the clusters. Across
+two regions, latency and bandwidth of the inter-region link will swamp everything measured here.
+
+**The genuinely interesting number is the spread, not the median.** Cross-cluster was *four times
+more consistent* (2% vs 25%). The likely explanation is contention: the intra-cluster pair sits on
+two poc1 workers that are also running Cilium agents, Envoy, Hubble and the demo workloads, while
+poc2 is nearly idle. That is a property of this laptop, not of Cilium — and it is a good reminder
+that on a shared machine the *quietest* path can benchmark fastest for reasons that have nothing
+to do with the feature under test.
+
 ## What to take away
 
 | Claim | Evidence |

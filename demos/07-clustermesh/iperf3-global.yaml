@@ -1,0 +1,46 @@
+# Cross-cluster throughput rig: an iperf3 server reachable as a GLOBAL service.
+#
+# Apply the Service to BOTH clusters; apply the Deployment to poc2 ONLY:
+#   kubectl --context kind-poc1 apply -f iperf3-global.yaml   # creates ns + Service (+ a Deployment with no pods scheduled there)
+#   kubectl --context kind-poc2 apply -f iperf3-global.yaml
+#   kubectl --context kind-poc1 delete deployment iperf3-global -n perf   # keep poc1 backend-free
+#
+# The point is to measure the SAME thing as demo 06 but with the backend in another cluster, so the
+# two numbers are directly comparable: same image, same 10s TCP test, same laptop, encryption off
+# on both sides. The only variable is whether the far end is in this cluster or the next one.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: perf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iperf3-global
+  namespace: perf
+  annotations:
+    service.cilium.io/global: "true"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5201
+  selector:
+    name: iperf3-global
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iperf3-global
+  namespace: perf
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {name: iperf3-global}
+  template:
+    metadata:
+      labels: {name: iperf3-global}
+    spec:
+      containers:
+        - name: iperf3
+          image: networkstatic/iperf3:latest
+          args: ["-s"]
