@@ -129,6 +129,10 @@ NAME        CLASS    ADDRESS          PROGRAMMED   AGE
 routes-gw   cilium   172.18.255.202   True         5s
 ```
 
+> `.202` is the address this capture got from the general pool **before Part 7b reserved a Gateway
+> range**. The Gateway is pinned at `172.18.255.240` now; `kubectl -n routes get gateway routes-gw`
+> on your cluster must show an address inside `172.18.255.240–250`.
+
 ## Part 3 — DNS: three options, in order of honesty
 
 The Gateway matches on hostname, so requests need a name. On a laptop you have three choices.
@@ -145,8 +149,11 @@ machine changes, and the evidence cannot be contaminated by a stale `/etc/hosts`
 
 ### 3b. Real names for a browser — `/etc/hosts` (needs sudo, run it yourself)
 
+Do not hardcode the address — it is read from the cluster by `scripts/hosts-entries.sh`, and Part 8
+has the full procedure (write, count, flush, resolve, curl, open):
+
 ```bash
-sudo sh -c 'printf "\n# cilium-kind-poc demo 09\n172.18.255.202 web.poc.local anything-at-all.poc.local grpc.poc.local exact.example.test\n" >> /etc/hosts'
+sudo sh -c 'scripts/hosts-entries.sh >> /etc/hosts'
 ```
 
 Then `https://web.poc.local/` works in a browser — after you trust the root (Part 7).
@@ -176,6 +183,9 @@ The root CA is exported once so `curl --cacert` can verify against it:
 ```bash
 kubectl -n cert-manager get secret clustermesh-root-ca -o jsonpath='{.data.tls\.crt}' | base64 -d > root-ca.crt
 ```
+
+(Captured at the pre-Part-7b address `.202`; today the Gateway is `.240` — `scripts/check-routes.sh`
+reads the address live and repeats this test, see Part 10.)
 
 ```bash
 for h in web.poc.local anything-at-all.poc.local exact.example.test; do

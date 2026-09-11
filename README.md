@@ -4,6 +4,63 @@ A reproducible, local proof-of-concept that demonstrates what **Cilium** and **H
 over a stock CNI + kube-proxy Kubernetes cluster — built on [kind](https://kind.sigs.k8s.io/), on a
 laptop, from nothing.
 
+## What this is, technically
+
+A **two-cluster Cilium 1.20.1 lab on kind**, built so every claim about Cilium is *measured* here
+rather than quoted from a slide. Both clusters run with **no kube-proxy and no other CNI** — Cilium
+is the only datapath — and the lab exercises, in order:
+
+| Capability | Mechanism under test | Where proven |
+|---|---|---|
+| eBPF datapath, identity-aware | every pod gets a security identity; policy and load balancing are eBPF programs, not iptables chains | demos 01, 03 |
+| L3–L7 network policy | `CiliumNetworkPolicy` with HTTP method+path rules enforced by a per-node Envoy | demo 02 |
+| Service load balancing without kube-proxy | `kubeProxyReplacement: true`; the eBPF service map replaces the NAT chains | demo 03 |
+| LoadBalancer addresses with no cloud | Cilium **LB IPAM** pools carved from the docker subnet + **L2 announcements** (no MetalLB, no kube-vip) | NETWORKING_DESIGN, SETUP 8 |
+| Ingress via Gateway API | Cilium as `GatewayClass` controller; `HTTPRoute`, `GRPCRoute`, `TCPRoute`; TLS by SNI | demos 05, 09 |
+| Enterprise PKI | cert-manager root CA in poc1, `ClusterIssuer` in both clusters, issuing mesh certs and Gateway wildcard/exact certs | demos 08, 09 |
+| Multi-cluster | **ClusterMesh** over a shared root of trust; global Services with cross-cluster failover | demos 07, 08 |
+| Node-to-node encryption | WireGuard in the kernel, enabled/verified on the wire, then deliberately left **off** | demo 04 |
+| Observability and export | Hubble flows with identities and verdicts; dynamic flow export per node → OpenTelemetry Collector (events, not spans) | demos 01, 10 |
+
+The network underneath is deliberately a *model of a real one*: the docker bridge is the LAN, kind
+nodes are servers on it, reserved ranges at the top of the subnet are the VIP blocks, and the
+laptop is a router with one static route in — so the same design can be handed to a network team
+unchanged, with BGP substituted for L2 in production.
+
+## How to use this as a tutorial — the path
+
+1. **[NETWORKING_DESIGN.md](NETWORKING_DESIGN.md)** — the addressing plan and the ASCII diagram.
+   Read it first; every address later comes from here. `scripts/network-plan.sh` reprints it live.
+2. **[docs/SETUP.md](docs/SETUP.md)** Steps 0–8 — toolchain, Docker VM sizing (**all settings
+   before any cluster**, Step 2.7), poc1, the host route, Cilium, LB IPAM. Stop at each *Check*.
+3. **Demos 01 → 06** on poc1, in order; each `demos/NN-*/README.md` has a *Summary context*, the
+   commands, and its recorded `output/transcript.txt`.
+4. **SETUP Step 9** — poc2 and ClusterMesh, trust established with cert-manager **before** joining
+   (Route A). Then **demos 07 → 08**.
+5. **Demo 09** (wildcard TLS + three route types) and **demo 10** (flow export → OTel); SETUP Step 10.
+6. **`scripts/verify.sh`** — regenerate every piece of evidence on *your* cluster and diff it
+   against [docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md). `scripts/check-routes.sh` is the
+   external-access proof for demo 09.
+7. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 32 traps, each with the real error
+   text.
+
+## What is done, and what is left
+
+| | Item | State |
+|---|---|---|
+| ✅ | poc1 (3 CP + 2 W) and poc2 (1 CP + 1 W), Cilium 1.20.1, no kube-proxy, no other CNI | built, `cilium status` OK on both |
+| ✅ | Demos 01–10, each with a recorded transcript | done |
+| ✅ | Networking design, two reserved pools, host route, hosts block generated from live state | done |
+| ✅ | Enterprise CA from day 1; ClusterMesh on cert-manager certs (`issuer=CN=clustermesh-root-ca`) | done |
+| ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (644 lines, 13 sections) | regenerable |
+| ⏳ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | agreed, not started; needs a disk/memory headroom check first |
+| ⏳ | **BGP with an FRR router (demo 11)** | researched and planned in [docs/summary/BGP_FRR_PLAN.md](docs/summary/BGP_FRR_PLAN.md); parked |
+| ⏳ | Hubble UI **data stream** through the Gateway — only a browser can exercise it | HTML/JS/CSS proven at 200 via `https://hubble.poc.local`; browser confirmation pending (demo 09 Part 10) |
+| ⏳ | Wildcard **name** resolution (dnsmasq, `*.poc.local`) | documented in demo 09 Part 3c, not run (needs sudo) |
+| ⏳ | The **Linux-server** path in NETWORKING_DESIGN §5 | its routing-table shape measured on the Docker VM (a Linux host running dockerd); not yet run on a bare Linux server |
+| ⛔ | netkit, bandwidth manager/BBR, BIG TCP | **cannot run** on the 6.6.12-linuxkit kernel — demo 06 Part 4 proves each; needs a different VM kernel |
+| ⛔ | Application **spans** from Hubble | not a Cilium 1.20 capability — hubble-otel archived, CFP closed; demo 10 exports flow *events* instead |
+
 **Start with [NETWORKING_DESIGN.md](NETWORKING_DESIGN.md).** It is the addressing plan the whole PoC is
 built on — one subnet (`172.18.0.0/16`, the Docker `kind` network standing in for the LAN), the nodes on
 it, and the **two reserved service ranges** carved out of it for Cilium LB IPAM (`.255.200–239`) and
@@ -54,9 +111,9 @@ an untested combination.
 | 01 | Hubble flows + UI | Per-flow, identity-aware visibility that iptables cannot produce |
 | 02 | L7 HTTP policy | Allow `POST /v1/request-landing`, deny `PUT /v1/exhaust-port` between the *same* two pods — inexpressible in iptables |
 | 03 | kube-proxy free | Services load-balanced in eBPF; no kube-proxy DaemonSet exists at all |
-| 04 | WireGuard | Node-to-node encryption from one helm value |
+| 04 | WireGuard | Node-to-node encryption enabled with one helm value and verified on the wire — then deliberately switched **off** (the values ship `encryption.enabled: false`) |
 | 05 | Gateway API | Cilium as the Gateway controller, address from Cilium's own LB IPAM |
-| 06 | Performance | Bandwidth manager + BBR, BIG TCP, measured with iperf3 |
+| 06 | Performance | iperf3 pod-to-pod across nodes, with 25–38 % run-to-run noise measured honestly; netkit, bandwidth manager/BBR and BIG TCP **cannot run on this VM kernel** (6.6.12 < 6.7; sysctl absent; BBR not compiled) and the demo proves each |
 | 07 | ClusterMesh | A global Service backed by pods in a second cluster, with failover |
 | 08 | Enterprise CA | cert-manager root in poc1 issuing every cluster's mesh certificates; trust before join |
 | 09 | Wildcard TLS + 3 route types | cert-manager wildcard and exact certs on one Gateway; `HTTPRoute`, `GRPCRoute`, `TCPRoute` from one 14 MB image |
@@ -73,9 +130,9 @@ scripts/verify.sh                              # to the terminal
 scripts/verify.sh > docs/VERIFICATION_RUN.md   # as a document
 ```
 
-The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 433 lines of
-real console output covering versions, cluster state, full Cilium status, and all five working
-demos.
+The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 644 lines of
+real console output in 13 sections: versions, cluster state, full Cilium status, and every demo
+through 10.
 
 Two notes on reading it. It is **read-only** apart from HTTP requests to the demo app. And it
 **always exits 0**, deliberately: several checks are *supposed* to fail — a `curl` that times out
@@ -181,5 +238,5 @@ the **name** and not the address for `k8sServiceHost`: had the IP been baked int
 
 ## Status
 
-Build in progress. See `docs/SETUP.md` for what is verified so far and `docs/FINDINGS.md` for
-measured results.
+All ten demos built and recorded; see *What is done, and what is left* above for the open items.
+Measured results live in `docs/FINDINGS.md`; regenerate the evidence with `scripts/verify.sh`.
