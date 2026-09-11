@@ -689,7 +689,35 @@ FAILED CHECKS: 0
 ```
 
 `-only http` and `-only tcp` do the same for the other two; the exit code is still the number of
-failed checks in what ran.
+failed checks in what ran. Both, as run by the operator from `demos/09-routes/app` on 2026-09-11
+(with the explicit `-ca ../../../docs/root-ca.crt`, before the CA lookup above existed):
+
+```
+macbookpro:app olasumbo$ ./routedemo -mode client -only http -target 172.18.255.240 -ca ../../../docs/root-ca.crt
+Gateway 172.18.255.240, root CA ../../../docs/root-ca.crt, wildcard domain *.poc.local, exact host exact.example.test
+
+1. HTTPRoute over HTTPS -- chain verified against the root, SNI selects the listener
+  PASS  https://web.poc.local/  200, app echoed host and tls=true
+  PASS  https://anything-at-all.poc.local/  200, app echoed host and tls=true
+  PASS  https://exact.example.test/  200, app echoed host and tls=true
+  PASS  https://nobody.poc.local/  404 -- wildcard cert served it, no HTTPRoute claimed it
+  PASS  https://nobody.example.test/  TLS refused as expected: connection reset by peer
+
+2. HTTPRoute over plain HTTP :80 -- the Host header picks the route
+  PASS  http://172.18.255.240/ Host: web.poc.local  200
+
+FAILED CHECKS: 0
+```
+
+```
+macbookpro:app olasumbo$ ./routedemo -mode client -only tcp -target 172.18.255.240 -ca ../../../docs/root-ca.crt
+Gateway 172.18.255.240, root CA ../../../docs/root-ca.crt, wildcard domain *.poc.local, exact host exact.example.test
+
+4. TCPRoute :9000 -- greeting on connect, then a line echoed back
+  PASS  tcp  greeting "hello from echo (tcp echo)" then "echo echoed: ping from routedemo client"
+
+FAILED CHECKS: 0
+```
 
 Recorded run (`output/client-check.txt`, after Part 5b's ALPN fix):
 
