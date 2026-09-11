@@ -57,6 +57,8 @@ unchanged, with BGP substituted for L2 in production.
 | ✅ | Enterprise CA from day 1; ClusterMesh on cert-manager certs (`issuer=CN=clustermesh-root-ca`) | done |
 | ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (663 lines, 13 sections, including the native client) | regenerable |
 | ✅ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | done — demo 11, with the three-cause forensic on Cilium's default install; poc3 is paused (`scripts/cluster-resume.sh poc3`) |
+| ⛔ | **"Cilium mTLS" (mutual authentication, SPIFFE/SPIRE)** | evaluated, **not enabled and not to be adopted**: deprecated in 1.20, removal planned in 1.21 (cilium#47132), ClusterMesh-incompatible — [docs/summary/MTLS_EVALUATION.md](docs/summary/MTLS_EVALUATION.md) |
+| ⏳ | **ztunnel mTLS (demo 13)** — `encryption.type=ztunnel`, beta in 1.20.1, the named successor | parked with a measurement plan in the same document |
 | ⏳ | **BGP with an FRR router (demo 12)** | researched and planned in [docs/summary/BGP_FRR_PLAN.md](docs/summary/BGP_FRR_PLAN.md); parked |
 | ✅ | Hubble UI through the Gateway, including its **data stream** | HTML/JS/CSS at 200, and the relay shows the browser's `POST /api/control-stream` and `/api/service-map-stream` → 200 arriving as identity `ingress` via `https://hubble.poc.local` (demo 09 Part 10) |
 | ⏳ | Wildcard **name** resolution (dnsmasq, `*.poc.local`) | documented in demo 09 Part 3c, not run (needs sudo) |
@@ -98,7 +100,7 @@ Both are installed with **eBPF masquerading and eBPF host routing** from day 1 (
 |---|---|
 | kind | 0.33.0 |
 | Kubernetes (node image) | v1.36.4, pinned by digest |
-| Cilium | 1.20.1 |
+| Cilium | 1.20.1 — the newest chart and upstream tag as of 2026-09-11 (checked; see `docs/summary/MTLS_EVALUATION.md` §7) |
 | cilium CLI | v0.20.0 |
 | Hubble CLI | 1.19.4 |
 | cert-manager | v1.21.1 (chart; GitHub had v1.21.2 the same day — see gotcha #26) |
@@ -238,6 +240,8 @@ the **name** and not the address for `k8sServiceHost`: had the IP been baked int
 
 ## Parked
 
+- **ztunnel mTLS (demo 13)** — the beta successor to the deprecated mutual-auth feature;
+  evaluation and plan in [docs/summary/MTLS_EVALUATION.md](docs/summary/MTLS_EVALUATION.md).
 - **BGP with an FRR router (demo 12)** — researched and planned, not built:
   [docs/summary/BGP_FRR_PLAN.md](docs/summary/BGP_FRR_PLAN.md). Every VIP is reachable by L2 today and
   nothing on the docker network speaks BGP (measured), so the router *is* the demo.

@@ -359,3 +359,13 @@ Gbit/s (spread 19 %), 7.8 k vs 8.9 k qps — parity within noise on a cluster pa
 control-plane and proxy tax (VM load 13–18 vs 7) that the control does not. poc1 restored from a
 values snapshot and re-verified. Full tables and the corrections kept in place:
 `demos/11-kube-proxy-vs-cilium/README.md`, `output/transcript.txt`. Gotchas #39–#43.
+
+## Finding — "Cilium mTLS" is off, deprecated, and not the feature to build on
+
+Measured on poc1: `mesh-auth-enabled=false`, no SPIRE pods, no policy with `authentication.mode`,
+`encryption.enabled=false`. The 1.20.1 chart marks `authentication.mutual` *"Deprecated as of
+Cilium v1.20 … removed in Cilium v1.21"* (cilium#47132, open CFP), and the chart itself notes it
+*"is not full mTLS support without also enabling encryption"*. The successor is
+`encryption.type=ztunnel` (beta in 1.20.1, Cilium-internal CA, HBONE), unmeasured here for
+ClusterMesh, Gateway and throughput. We run the newest Cilium (chart and tag 1.20.1). Evaluation
+and plan: `docs/summary/MTLS_EVALUATION.md`.

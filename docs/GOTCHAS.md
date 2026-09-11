@@ -795,7 +795,14 @@ CURRENT   NAME        CLUSTER     AUTHINFO    NAMESPACE
 namespace being `default` — a hidden input that lives on the laptop, not in the cluster, and that
 any other terminal can change. Eleven checks failed at once and none of them said why.
 
-**Fix.** The script no longer depends on it: `K="kubectl --context $CTX -n default"`, with the
+**Fix.** Two halves. The kubeconfig itself, so your own hand-typed `kubectl` lands where you
+think (`kubectl config get-contexts` shows the NAMESPACE column; blank means `default`):
+
+```bash
+kubectl config set-context kind-poc1 --namespace=default
+```
+
+And the script, so it never depends on it again: `K="kubectl --context $CTX -n default"`, with the
 explicit `-n kube-system` / `-n routes` on individual commands still winning because **kubectl
 takes the last `-n` on the line** (measured: `-n default -n kube-system get pods` lists cilium
 pods, and the reverse lists `deathstar`). Regenerated: only the three expected non-zero exits
