@@ -1,0 +1,35 @@
+# A REAL cross-cluster dependency: the backend exists in ONE cluster only.
+#
+# This is different from the global-service demo, and the difference matters. There, both clusters
+# ran backends and the mesh load-balanced across them -- so a request succeeding could always have
+# been served locally. Here the consumer is in poc1 and the provider runs ONLY in poc2, so a
+# successful response is proof of cross-cluster traffic and nothing else.
+#
+# Apply:
+#   kubectl --context kind-poc2 apply -f cross-cluster-dependency.yaml   # Service + Deployment
+#   kubectl --context kind-poc1 apply -f cross-cluster-dependency.yaml   # Service ONLY (see below)
+#
+# WHY THE SERVICE OBJECT MUST EXIST IN BOTH CLUSTERS, even though poc1 runs no backends.
+# A client resolves `payments.default.svc.cluster.local` through its OWN cluster's DNS, which only
+# answers for Services that exist there. Without the local Service there is no ClusterIP to
+# resolve and no entry for Cilium to attach the remote endpoints to. The global annotation merges
+# the ENDPOINTS across clusters; it does not replicate the Service object. This trips people up:
+# "the mesh is connected, why does DNS not resolve?" -- because you only created the Service on
+# one side.
+#
+# In poc1 the Deployment below will therefore have zero pods scheduled (it is applied only to
+# poc2); poc1 gets the Service alone.
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments
+  annotations:
+    service.cilium.io/global: "true"
+    # Endpoints from remote clusters are used even when local ones exist. Left at the default here;
+    # set service.cilium.io/affinity: local to prefer local backends and fall back remotely.
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+  selector:
+    name: payments

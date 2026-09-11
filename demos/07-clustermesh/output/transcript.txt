@@ -21,3 +21,31 @@ $ bash -c kubectl --context kind-poc1 exec tiefighter -- sh -c 'for i in $(seq 2
   11 "cluster": "poc1"
    9 "cluster": "poc2"
 
+### 2026-09-11T14:37:57Z
+$ bash -c echo 'poc1: Service exists, zero local backends'; kubectl --context kind-poc1 get endpoints payments --no-headers; kubectl --context kind-poc1 get pods -l name=payments -o name | wc -l | tr -d ' ' | sed 's/^/local pods: /'
+poc1: Service exists, zero local backends
+Warning: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice
+payments   <none>   86s
+local pods: 0
+
+### 2026-09-11T14:37:57Z
+$ bash -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | grep -A2 $(kubectl --context kind-poc1 get svc payments -o jsonpath='{.spec.clusterIP}')
+24   10.11.165.19:80/TCP      ClusterIP      1 => 10.20.1.90:80/TCP (active)      
+                                             2 => 10.20.1.112:80/TCP (active)     
+25   10.11.63.215:80/TCP      ClusterIP      1 => 10.10.3.17:80/TCP (active)      
+
+### 2026-09-11T14:37:58Z
+$ bash -c kubectl --context kind-poc1 exec tiefighter -- sh -c 'for i in 1 2 3; do curl -s --max-time 6 http://payments.default.svc.cluster.local/; done'
+{"service": "payments", "running_in": "poc2", "note": "this provider exists ONLY in poc2"}
+{"service": "payments", "running_in": "poc2", "note": "this provider exists ONLY in poc2"}
+{"service": "payments", "running_in": "poc2", "note": "this provider exists ONLY in poc2"}
+
+### 2026-09-11T14:37:58Z
+$ bash -c kubectl --context kind-poc2 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | grep -A2 $(kubectl --context kind-poc2 get svc inventory -o jsonpath='{.spec.clusterIP}')
+12   10.21.50.140:80/TCP      ClusterIP      1 => 10.10.3.17:80/TCP (active)      
+                                             2 => 10.10.4.213:80/TCP (active)     
+
+### 2026-09-11T14:37:59Z
+$ bash -c kubectl --context kind-poc2 run xcheck3 --rm -i --restart=Never --image=curlimages/curl:latest --command -- sh -c 'curl -s --max-time 6 http://inventory.default.svc.cluster.local/' 2>/dev/null
+pod "xcheck3" deleted
+

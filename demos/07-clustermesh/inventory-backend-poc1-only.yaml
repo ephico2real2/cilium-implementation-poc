@@ -1,0 +1,29 @@
+# The provider. Applied to poc1 ONLY — poc1 never runs this.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {name: inventory}
+  template:
+    metadata:
+      labels: {name: inventory}
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          volumeMounts:
+            - {name: html, mountPath: /usr/share/nginx/html}
+      volumes:
+        - name: html
+          configMap: {name: inventory-response}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inventory-response
+data:
+  index.html: |
+    {"service": "inventory", "running_in": "poc1", "note": "this provider exists ONLY in poc1"}

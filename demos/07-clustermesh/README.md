@@ -231,6 +231,104 @@ already knew about.
 
 Restore with `--replicas=2` and the split returns.
 
+## Part 6 — a real cross-cluster dependency (both directions)
+
+Parts 4–5 used a global service with backends in **both** clusters, so a successful request could
+always have been served locally; only the failover case forced it remote. That is not the same as
+a **dependency that lives solely in another cluster**, which is the actual use case people mean.
+So: provider in one cluster only, consumer in the other, tested **both ways**.
+
+### The Service object must exist in BOTH clusters
+
+This is the part that catches people. A client resolves `payments.default.svc.cluster.local`
+through **its own** cluster's DNS, which only answers for Services that exist there. The global
+annotation merges **endpoints** across clusters — it does **not** replicate the Service object.
+
+So the `Service` is applied to both clusters; the `Deployment` to only one. If you skip the local
+Service you get "the mesh is connected, why does DNS not resolve?"
+
+### Direction 1 — consumer in poc1, provider only in poc2
+
+```bash
+kubectl --context kind-poc1 apply -f demos/07-clustermesh/cross-cluster-dependency.yaml  # Service
+kubectl --context kind-poc2 apply -f demos/07-clustermesh/cross-cluster-dependency.yaml  # Service
+kubectl --context kind-poc2 apply -f demos/07-clustermesh/payments-backend-poc2-only.yaml # backend
+```
+
+poc1 has the Service and **nothing behind it**:
+
+```bash
+kubectl --context kind-poc1 get endpoints payments
+kubectl --context kind-poc1 get pods -l name=payments
+```
+
+```
+NAME       ENDPOINTS   AGE
+payments   <none>      1m
+
+No resources found in default namespace.
+```
+
+Yet poc1's eBPF table has two backends — both `10.20.x`, which is **poc2's** pod CIDR:
+
+```
+24   10.11.165.19:80/TCP   ClusterIP   1 => 10.20.1.90:80/TCP (active)
+                                       2 => 10.20.1.112:80/TCP (active)
+```
+
+```bash
+kubectl --context kind-poc1 exec tiefighter --   sh -c 'for i in $(seq 6); do curl -s http://payments.default.svc.cluster.local/; done'
+```
+
+```
+{"service": "payments", "running_in": "poc2", "note": "this provider exists ONLY in poc2"}
+{"service": "payments", "running_in": "poc2", "note": "this provider exists ONLY in poc2"}
+... 6/6
+```
+
+And DNS confirms the consumer used an ordinary **local** lookup:
+
+```
+Name:    payments.default.svc.cluster.local
+Address: 10.11.165.19          <- poc1's OWN ClusterIP
+```
+
+**Nothing in the client knows a second cluster exists.** No remote hostname, no port-forward, no
+gateway. It called a normal Service name and got a pod in another cluster.
+
+### Direction 2 — consumer in poc2, provider only in poc1
+
+The exact mirror, because a mesh that only works one way is not a mesh:
+
+```bash
+kubectl --context kind-poc1 apply -f demos/07-clustermesh/inventory-backend-poc1-only.yaml
+```
+
+poc2's eBPF table for `inventory` — backends in `10.10.x`, **poc1's** CIDR:
+
+```
+12   10.21.50.140:80/TCP   ClusterIP   1 => 10.10.3.17:80/TCP (active)
+                                       2 => 10.10.4.213:80/TCP (active)
+```
+
+```bash
+kubectl --context kind-poc2 run xcheck --rm -i --restart=Never --image=curlimages/curl:latest \
+  --command -- sh -c 'curl -s http://inventory.default.svc.cluster.local/'
+```
+
+```
+{"service": "inventory", "running_in": "poc1", "note": "this provider exists ONLY in poc1"}
+```
+
+### Why this is the stronger proof
+
+| | Global service (Parts 4–5) | Cross-cluster dependency (Part 6) |
+|---|---|---|
+| Backends | both clusters | **one cluster only** |
+| A success could be local | yes, except during failover | **never** |
+| Directions tested | poc1 → mesh | **poc1 → poc2 AND poc2 → poc1** |
+| What it models | HA / spill-over capacity | a genuine service dependency across clusters |
+
 ## What to take away
 
 | Claim | Evidence |
