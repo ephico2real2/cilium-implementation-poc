@@ -4,7 +4,14 @@ A reproducible, local proof-of-concept that demonstrates what **Cilium** and **H
 over a stock CNI + kube-proxy Kubernetes cluster — built on [kind](https://kind.sigs.k8s.io/), on a
 laptop, from nothing.
 
-Every command is documented one at a time in **[docs/SETUP.md](docs/SETUP.md)**, written for someone
+**Start with [NETWORKING_DESIGN.md](NETWORKING_DESIGN.md).** It is the addressing plan the whole PoC is
+built on — one subnet (`172.18.0.0/16`, the Docker `kind` network standing in for the LAN), the nodes on
+it, and the **two reserved service ranges** carved out of it for Cilium LB IPAM (`.255.200–239`) and
+for Cilium Gateway API only (`.255.240–250`) — with the layer-by-layer ASCII diagram, the exact route
+commands for a MacBook (Docker Desktop) and for a Linux server, and the checklist for the conversation
+with the network team. `scripts/network-plan.sh` reprints the live plan.
+
+Every command is then documented one at a time in **[docs/SETUP.md](docs/SETUP.md)**, written for someone
 who has not done this before: what each command does, its real captured output, and how to tell it
 worked. Where something went wrong during the build, the failure and the diagnosis are kept in the
 guide rather than tidied away — the debugging is the useful part.
@@ -111,7 +118,7 @@ inet 192.168.64.1 netmask 0xffffff00 broadcast 192.168.64.255
 	member: vmenet0 flags=10803<LEARNING,DISCOVER,PRIVATE,CSUM>
 ```
 
-See SETUP.md Step 3.5.
+See NETWORKING_DESIGN.md §4 and SETUP.md Step 3.5.
 
 ### 2. An API-version trap: the two Cilium LB CRDs did not graduate together
 
@@ -128,7 +135,7 @@ containing both therefore needs *two different* `apiVersion` values. Check rathe
 kubectl api-resources | grep -iE 'loadbalancerippool|l2announcement'
 ```
 
-See SETUP.md Step 8 and `cilium/lb-ippool.yaml`.
+See NETWORKING_DESIGN.md §0 and §3, SETUP.md Step 8 and `cilium/lb-ippool.yaml`.
 
 ### 3. Finish ALL Docker Desktop settings BEFORE creating any cluster
 

@@ -396,6 +396,9 @@ p.write_text(json.dumps(d, indent=2)); print('memoryMiB ->', d['memoryMiB'])
 
 ### Step 2.3b — enable kernel networking for UDP (macOS PREREQUISITE for routable container IPs)
 
+> Architecture first: this step is layer 1 of [NETWORKING_DESIGN.md](../NETWORKING_DESIGN.md) §4.1 — the
+> host↔VM link that the Mac's route (Step 3.5) will point at.
+
 **Do this now, in the same edit as Step 2.3, so one restart applies both.**
 
 **Why this exists.** On macOS, Docker containers run inside a Linux VM and **the container network is
@@ -630,6 +633,10 @@ evidence that there was never anything running alongside it.
 ---
 
 ## Step 3.5 — route the docker network from macOS
+
+> The design behind this step — one subnet, two reserved ranges, why the Mac becomes a router and why a
+> Linux server needs no route — is [NETWORKING_DESIGN.md](../NETWORKING_DESIGN.md) §1–§5. Read it once;
+> this step is its §4.3–§4.4 executed value by value.
 
 **Two preconditions:** Step 2.3b (`kernelForUDP`) is on and Docker has restarted, **and** a cluster
 exists. That second one is easy to miss — the `kind` docker network is created by kind when it
@@ -1197,6 +1204,9 @@ instead.
 ---
 
 ## Step 8 — LoadBalancer addresses without a cloud (and without MetalLB or kube-vip)
+
+> The two pools applied here are the reserved ranges of [NETWORKING_DESIGN.md](../NETWORKING_DESIGN.md) §0
+> (`kind-docker-pool` `.255.200–239` for plain Services, `gateway-pool` `.255.240–250` for Gateway API only).
 
 **Why this is needed.** kind has no cloud provider, so a `type: LoadBalancer` Service stays
 `<pending>` forever and a Gateway never gets an address. The reflex is to install MetalLB or
