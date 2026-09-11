@@ -92,13 +92,20 @@ destination, the same TCP port, and two different verdicts decided by HTTP metho
 Secondary observation, useful as a diagnostic: an L3/L4 denial presents as a **timeout** (the SYN is
 dropped), an L7 denial as an **immediate 403** (Envoy accepted, parsed, refused).
 
-## Still to measure
+## Measured since this section was first written
 
-- Demo 04 WireGuard — encryption status and on-the-wire capture
-- Demo 05 Gateway API — Gateway address from Cilium LB IPAM, HTTPRoute behaviour
-- Demo 06 performance — iperf3 pod-to-pod before/after bandwidth manager + BBR (netkit excluded)
-- Demo 07 ClusterMesh — global service failover across poc1/poc2
-- `cilium connectivity test` full run
+Every item once listed here as "still to measure" now has its own demo and transcript:
+
+| Demo | Result | Where |
+|---|---|---|
+| 04 WireGuard | encryption on the wire: zero TCP/80 packets captured across 6 HTTP requests, only UDP/51871; ~50% throughput cost (directional, single sample) | `demos/04-wireguard/` |
+| 05 Gateway API | Gateway programmed from LB IPAM; policy applies to the Gateway's `ingress` identity; additive-policy hole found and closed | `demos/05-gateway-api/` |
+| 06 performance | 7.6–10.0 Gbit/s intra-cluster with a 25–38% spread; netkit, bandwidth manager and BBR all unavailable on this kernel, each diagnosed to a cause | `demos/06-perf/` |
+| 07 ClusterMesh | one eBPF service entry with backends in both clusters; failover 20/20; cross-cluster dependency proven both directions; throughput difference **retracted** as within noise | `demos/07-clustermesh/` |
+| 08 enterprise CA | cert-manager root in poc1, identical fingerprints in both clusters, mesh certs `issuer=CN=clustermesh-root-ca`; the disk-full failure that looked like TLS | `demos/08-certmanager-ca/` |
+| 09 routes + TLS | wildcard and exact certs on one Gateway, chain-verified; `HTTPRoute`, `GRPCRoute`, `TCPRoute` from one 14 MB image | `demos/09-routes/` |
+| 10 flow tracing | Hubble export → OTel Collector, one flow followed end to end with 137 ms pipeline latency; events not spans | `demos/10-tracing/` |
+| `cilium connectivity test` | not run — it needs ~20 min and ~1.5 GB on a laptop already at the disk and memory margin; the demos above exercise the same paths individually | — |
 
 ## Finding — the macOS host cannot reach the container network (and what fixes it)
 

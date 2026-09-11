@@ -39,6 +39,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [29](#29) | A multi-word command in a shell variable silently breaks under zsh | misc |
 | [30](#30) | **"Tracing" in Cilium 1.20 is flow export, not spans — hubble-otel is archived** | tracing |
 | [31](#31) | A hostPath log reader must run as root | tracing |
+| [32](#32) | A cross-namespace route returns 500 with `Accepted=True` | Gateway API |
 
 ---
 
@@ -622,6 +623,38 @@ the checkpoint.)
 fluent-bit, promtail and vector run as root in the node-log-reader role: reading root-owned files
 on the host is the job. Its privilege is two host directories read and one written; document that
 rather than pretending it is unprivileged.
+
+## <a name="32"></a>32. A cross-namespace route returns 500 with `Accepted=True`
+
+**Symptom.** An `HTTPRoute` pointing at a Service in another namespace is `Accepted=True`, the
+Gateway is programmed, and every request returns **HTTP 500**. It looks like the backend is broken.
+
+**Cause.** The route status has a second condition that says otherwise:
+
+```
+Accepted=True      reason=Accepted
+ResolvedRefs=False reason=RefNotPermitted
+```
+
+Gateway API refuses cross-namespace backend references by default — a deliberate security property,
+so one team cannot route traffic into another team's Services. `Accepted` is about the route
+attaching to the Gateway; `ResolvedRefs` is about the backend, and it is the one that failed.
+
+**Fix.** A `ReferenceGrant` created **in the target namespace, by its owner**, naming exactly which
+kind and name may be referenced from where:
+
+```yaml
+kind: ReferenceGrant
+metadata: {name: allow-routes-to-hubble-ui, namespace: kube-system}
+spec:
+  from: [{group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: routes}]
+  to:   [{group: "", kind: Service, name: hubble-ui}]
+```
+
+Then `ResolvedRefs=True` and 200. Always read **both** conditions on a route; a 500 with
+`RefNotPermitted` is consent missing, not a crash.
+
+→ demo 09, Part 7
 
 ---
 

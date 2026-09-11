@@ -1,0 +1,44 @@
+# Hubble UI behind the Gateway, with the wildcard certificate: https://hubble.poc.local
+#
+# Apply with:
+#   kubectl apply -f demos/09-routes/04-hubble-via-gateway.yaml
+#
+# WHY. Demo 01 reached Hubble UI at a bare LoadBalancer address over plain HTTP. This puts it on a
+# real name, over TLS, issued by the enterprise root — with NO change to Hubble itself and NO new
+# certificate: the route's hostname is under *.poc.local, so the wildcard listener already covers it.
+#
+# THE CROSS-NAMESPACE PART, which is the interesting bit. The Gateway lives in `routes` and only
+# accepts routes from its own namespace (allowedRoutes: from: Same). hubble-ui lives in kube-system.
+# So the HTTPRoute goes in `routes` and points at a backend in ANOTHER namespace -- which Gateway API
+# refuses by default, because otherwise any team could route traffic into any other team's Services.
+# The ReferenceGrant, created IN kube-system BY kube-system's owner, is the explicit consent:
+# "routes in namespace `routes` may reference Service `hubble-ui` here". Without it the route reports
+# ResolvedRefs=False / RefNotPermitted and the Gateway returns 500. That is a security property.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hubble
+  namespace: routes
+spec:
+  parentRefs: [{name: routes-gw}]
+  hostnames: ["hubble.poc.local"]
+  rules:
+    - backendRefs:
+        - name: hubble-ui
+          namespace: kube-system      # <- cross-namespace; needs the grant below
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-routes-to-hubble-ui
+  namespace: kube-system              # <- lives in the TARGET namespace, granted by its owner
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: routes
+  to:
+    - group: ""
+      kind: Service
+      name: hubble-ui                 # <- only this Service, not everything in kube-system

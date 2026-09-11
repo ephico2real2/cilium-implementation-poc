@@ -115,7 +115,45 @@ run "hubble observe --last 6 -P --protocol http 2>&1 | grep -v level=WARN"
 echo "Verdicts. Note the two shapes: 'Policy denied ... SYN' is L3/L4, 'http-request DROPPED' is L7:"
 run "hubble observe --last 6 -P --verdict DROPPED 2>&1 | grep -v level=WARN"
 
-hdr "8. HOST ROUTING (macOS)"
+hdr "8. DEMO 07 — CLUSTERMESH (needs poc2)"
+if kubectl --context kind-poc2 get nodes >/dev/null 2>&1; then
+  run "cilium clustermesh status --context kind-poc1 2>&1 | tail -6"
+  run "cilium clustermesh status --context kind-poc2 2>&1 | tail -4"
+  echo "One eBPF service entry with backends in BOTH pod CIDRs (10.10.x = poc1, 10.20.x = poc2):"
+  run "$K -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | grep -A4 \$($K get svc rebel-base -o jsonpath='{.spec.clusterIP}' 2>/dev/null)"
+  echo "A provider that exists ONLY in poc2, reached from poc1 by an ordinary local Service name:"
+  run "$K get endpoints payments 2>&1; $K exec tiefighter -- curl -s --max-time 6 http://payments.default.svc.cluster.local/"
+else
+  echo "_poc2 not present — ClusterMesh section skipped._"
+fi
+
+hdr "9. DEMO 08 — ENTERPRISE CA (cert-manager)"
+echo "Same root fingerprint in both clusters, and mesh certs issued by it:"
+run "for c in kind-poc1 kind-poc2; do printf '%-10s ' \$c; kubectl --context \$c -n cert-manager get secret clustermesh-root-ca -o jsonpath='{.data.tls\\.crt}' 2>/dev/null | base64 -d | openssl x509 -noout -fingerprint -sha256 2>/dev/null || echo '(absent)'; done"
+run "for c in kind-poc1 kind-poc2; do printf '%-10s ' \$c; kubectl --context \$c -n kube-system get secret clustermesh-apiserver-server-cert -o jsonpath='{.data.tls\\.crt}' 2>/dev/null | base64 -d | openssl x509 -noout -issuer 2>/dev/null || echo '(absent)'; done"
+run "$K get clusterissuer"
+
+hdr "10. DEMO 09 — WILDCARD TLS + HTTPRoute / GRPCRoute / TCPRoute"
+run "$K -n routes get gateway,httproute,grpcroute,tcproute"
+run "$K -n routes get certificate"
+CA=$(mktemp); $K -n cert-manager get secret clustermesh-root-ca -o jsonpath='{.data.tls\\.crt}' 2>/dev/null | base64 -d > "$CA"
+GW=$($K -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}' 2>/dev/null)
+echo "HTTPS, chain-verified against the exported root (never -k). The wildcard covers a name with no cert of its own:"
+run "for h in web.poc.local anything-at-all.poc.local exact.example.test hubble.poc.local; do printf '%-28s ' \$h; curl -s --max-time 8 --cacert $CA --resolve \$h:443:$GW https://\$h/ -o /dev/null -w '[http=%{http_code}]\\n'; done"
+echo "NEGATIVE — a name no listener covers must fail the handshake (curl exit 35):"
+run "curl -s --max-time 8 --cacert $CA --resolve nobody.example.test:443:$GW https://nobody.example.test/ -o /dev/null -w '[http=%{http_code}]\\n'; echo \"exit=\$?\""
+run "docker run --rm --network kind fullstorydev/grpcurl:latest -plaintext -authority grpc.poc.local $GW:80 grpc.health.v1.Health/Check"
+run "(echo 'ping from verify.sh'; sleep 1) | nc -w 5 $GW 9000"
+rm -f "$CA"
+
+hdr "11. DEMO 10 — HUBBLE FLOW EXPORT -> OTEL"
+run "$K -n kube-system get cm cilium-flowlog-config -o jsonpath='{.data.flowlogs\\.yaml}' 2>/dev/null | grep -E 'name:|filePath:' "
+run "for n in poc1-worker poc1-worker2; do printf '%-14s ' \$n; docker exec \$n sh -c 'ls -l /var/run/cilium/hubble/ 2>/dev/null | tail -n +2 | awk \"{print \\\$5, \\\$9}\" | tr \"\\n\" \"  \"'; echo; done"
+run "$K -n otel get pods -o wide --no-headers 2>/dev/null | awk '{print \$1, \$2, \$3, \$7}'"
+echo "Records emitted by one collector in the last 5 minutes:"
+run "$K -n otel logs \$($K -n otel get pod -l app=otel-collector -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) --since=5m 2>/dev/null | grep -c '^LogRecord #'"
+
+hdr "12. HOST ROUTING (macOS)"
 run "netstat -rn -f inet | grep '^172.18' || echo 'no route — see SETUP Step 3.5'"
 run "ifconfig -l | tr ' ' '\n' | grep -E '^bridge'"
 

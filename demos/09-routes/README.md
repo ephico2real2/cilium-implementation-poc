@@ -309,16 +309,111 @@ Three separate facts, and all three have to be true:
 **Also:** `v1alpha2` TCPRoute is deprecated in Gateway API 1.6.1 — the CRD's storage version is
 `v1`. The route file uses `gateway.networking.k8s.io/v1`.
 
-## Part 7 — trusting the root in a browser (optional)
+## Part 7 — Hubble UI on a real name, over TLS, across a namespace boundary
 
-`curl --cacert` verifies without changing the machine. For a browser, import the root once:
+Demo 01 reached Hubble at a bare LoadBalancer address over plain HTTP. `04-hubble-via-gateway.yaml`
+puts it at **`https://hubble.poc.local`** — with no change to Hubble and **no new certificate**,
+because the name is under `*.poc.local` and the wildcard listener already covers it.
+
+The interesting part is that the Gateway lives in `routes` and `hubble-ui` lives in `kube-system`.
+Gateway API **refuses cross-namespace backends by default** — otherwise any team could route
+traffic into any other team's Services. The demo shows the refusal first, on purpose:
 
 ```bash
-open root-ca.crt        # macOS Keychain Access -> import, then set "Always Trust"
+# route only, no grant
+kubectl -n routes get httproute hubble -o jsonpath='{range .status.parents[0].conditions[*]}{.type}={.status} reason={.reason}{"\n"}{end}'
 ```
 
-After that, `https://web.poc.local/` (with the `/etc/hosts` line from 3b) shows a valid padlock
-issued by `clustermesh-root-ca`.
+```
+Accepted=True reason=Accepted
+ResolvedRefs=False reason=RefNotPermitted
+curl -> [http=500]
+```
+
+**Read that carefully: `Accepted=True` and a 500.** The route is valid and attached; the *backend
+reference* is what was refused. A 500 from the Gateway with `RefNotPermitted` in the route status is
+a consent gate, not a broken backend — and it is the first thing to check when a cross-namespace
+route "works" in one cluster and 500s in another.
+
+The consent is a `ReferenceGrant`, created **in the target namespace by its owner**, naming exactly
+which Service may be referenced:
+
+```yaml
+kind: ReferenceGrant
+metadata: {name: allow-routes-to-hubble-ui, namespace: kube-system}
+spec:
+  from: [{group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: routes}]
+  to:   [{group: "", kind: Service, name: hubble-ui}]
+```
+
+```
+Accepted=True reason=Accepted
+ResolvedRefs=True reason=ResolvedRefs
+curl -> [http=200 chain-verified]
+```
+
+And the certificate the Gateway presented for the new name — the wildcard, from the enterprise root:
+
+```
+X509v3 Subject Alternative Name: DNS:*.poc.local
+issuer=CN=clustermesh-root-ca
+```
+
+## Part 8 — DNS for a browser: the hosts block, generated from live state
+
+`/etc/hosts` cannot express a wildcard, so every name is listed — and rather than copying addresses
+from this README (which is how they go stale), `scripts/hosts-entries.sh` reads them from the
+cluster:
+
+```bash
+scripts/hosts-entries.sh
+```
+
+```
+# ---- cilium-kind-poc (generated 2026-09-11T16:32Z by scripts/hosts-entries.sh) ----
+172.18.255.202  hubble.poc.local web.poc.local anything-at-all.poc.local grpc.poc.local exact.example.test
+172.18.255.200  deathstar.poc.local
+172.18.255.201  hubble-direct.poc.local
+# ---- end cilium-kind-poc ----
+```
+
+The script **never writes to `/etc/hosts` itself**. Review the block, then add it — this needs
+`sudo`, so run it in a real Terminal:
+
+```bash
+scripts/hosts-entries.sh | sudo tee -a /etc/hosts
+```
+
+To remove it later: delete the lines between the two `# ---- cilium-kind-poc` markers.
+
+**Trust the root once**, so the browser shows a padlock instead of a warning. The public
+certificate is committed at `docs/root-ca.crt` (certificate only — the key never leaves the
+cluster):
+
+```bash
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain docs/root-ca.crt
+```
+
+Then, in a browser:
+
+| URL | Serves | Via |
+|---|---|---|
+| https://hubble.poc.local | Hubble UI | Gateway, wildcard cert, ReferenceGrant |
+| https://web.poc.local | demo app (`web`) | Gateway, wildcard cert |
+| https://anything-at-all.poc.local | demo app | Gateway, wildcard cert — a name with no cert of its own |
+| https://exact.example.test | demo app | Gateway, single-name cert |
+| http://hubble-direct.poc.local | Hubble UI | the LoadBalancer directly, no TLS (demo 01 path) |
+
+Both routing prerequisites still apply: `kernelForUDP` (SETUP 2.3b) and the host route (SETUP 3.5).
+Without them the names resolve but nothing answers — and the diagnosis is the same as gotcha #3.
+
+## Part 9 — the wildcard *name*: dnsmasq
+
+`/etc/hosts` gives you the five names above and nothing else. For `*.poc.local` to resolve — so a
+new HTTPRoute for `foo.poc.local` works with **no hosts edit** — you need a resolver that answers
+the whole domain. See Part 3c for the dnsmasq setup (`address=/.poc.local/172.18.255.202` plus
+`/etc/resolver/poc.local`). That is the pairing that makes the wildcard *certificate* and a
+wildcard *name* meet.
 
 ## What to take away
 
@@ -332,6 +427,8 @@ issued by `clustermesh-root-ca`.
 | `GRPCRoute` | `Health/Check` → `SERVING` over h2c **and** TLS; reflection lists services |
 | `TCPRoute` | echo round-trip on :9000 |
 | One image, three protocols | `routedemo:local`, 14 MB, `-mode http\|grpc\|tcp` |
+| Cross-namespace backends need consent | `RefNotPermitted` → 500 until a `ReferenceGrant` in `kube-system`; then 200 |
+| Hubble on a real TLS name | `https://hubble.poc.local`, wildcard cert, no change to Hubble |
 
 ## Clean up
 

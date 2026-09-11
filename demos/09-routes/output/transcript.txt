@@ -72,3 +72,34 @@ $ bash -c (echo 'ping from the laptop'; sleep 1) | nc -w 5 172.18.255.202 9000
 hello from echo (tcp echo)
 echo echoed: ping from the laptop
 
+### 2026-09-11T16:35:10Z
+$ bash -c echo 'STEP 1: HTTPRoute to a backend in ANOTHER namespace, WITHOUT a ReferenceGrant'; kubectl --context kind-poc1 -n routes get httproute hubble -o jsonpath='{range .status.parents[0].conditions[*]}{.type}={.status} reason={.reason}{"\n"}{end}' | head -0; kubectl --context kind-poc1 -n kube-system delete referencegrant allow-routes-to-hubble-ui >/dev/null 2>&1; sleep 6; kubectl --context kind-poc1 -n routes get httproute hubble -o jsonpath='{range .status.parents[0].conditions[*]}{.type}={.status} reason={.reason}{"\n"}{end}'; curl -s --max-time 6 --cacert docs/root-ca.crt --resolve hubble.poc.local:443:172.18.255.202 https://hubble.poc.local/ -o /dev/null -w 'curl -> [http=%{http_code}]\n'
+STEP 1: HTTPRoute to a backend in ANOTHER namespace, WITHOUT a ReferenceGrant
+head: illegal line count -- 0
+Accepted=True reason=Accepted
+ResolvedRefs=False reason=RefNotPermitted
+curl -> [http=500]
+
+### 2026-09-11T16:35:16Z
+$ bash -c echo 'STEP 2: the owner of kube-system grants consent'; kubectl --context kind-poc1 apply -f demos/09-routes/04-hubble-via-gateway.yaml | grep -i referencegrant; sleep 6; kubectl --context kind-poc1 -n routes get httproute hubble -o jsonpath='{range .status.parents[0].conditions[*]}{.type}={.status} reason={.reason}{"\n"}{end}'; curl -s --max-time 6 --cacert docs/root-ca.crt --resolve hubble.poc.local:443:172.18.255.202 https://hubble.poc.local/ -o /dev/null -w 'curl -> [http=%{http_code} chain-verified]\n'
+STEP 2: the owner of kube-system grants consent
+referencegrant.gateway.networking.k8s.io/allow-routes-to-hubble-ui created
+Accepted=True reason=Accepted
+ResolvedRefs=True reason=ResolvedRefs
+curl -> [http=200 chain-verified]
+
+### 2026-09-11T16:35:25Z
+$ bash -c echo | openssl s_client -connect 172.18.255.202:443 -servername hubble.poc.local 2>/dev/null | openssl x509 -noout -subject -ext subjectAltName -issuer
+subject=
+X509v3 Subject Alternative Name: critical
+    DNS:*.poc.local
+issuer=CN=clustermesh-root-ca
+
+### 2026-09-11T16:35:25Z
+$ ./scripts/hosts-entries.sh
+# ---- cilium-kind-poc (generated 2026-09-11T16:35Z by scripts/hosts-entries.sh) ----
+172.18.255.202  hubble.poc.local web.poc.local anything-at-all.poc.local grpc.poc.local exact.example.test
+172.18.255.200  deathstar.poc.local
+172.18.255.201  hubble-direct.poc.local
+# ---- end cilium-kind-poc ----
+
