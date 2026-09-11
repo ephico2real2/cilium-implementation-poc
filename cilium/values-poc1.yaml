@@ -100,6 +100,25 @@ k8sClientRateLimit:
   burst: 100
 
 # ---------------------------------------------------------------------------------------------
+# TRANSPARENT ENCRYPTION (demo 04)
+# ---------------------------------------------------------------------------------------------
+# Node-to-node encryption of all pod traffic, from two values. No WireGuard installation is
+# required: WireGuard has been IN the Linux kernel since 5.6, and Cilium drives it directly --
+# it creates the cilium_wg0 device, generates each node's keypair, and distributes public keys
+# through the CiliumNode CRD. There are no config files to write and no peers to pair by hand.
+#
+# Verified on this cluster before enabling (kernel 6.6.12-linuxkit):
+#   /sys/module/wireguard exists, and `ip link add wgtest type wireguard` succeeded.
+# If that second command fails on your kernel, this feature cannot work and Cilium will say so
+# rather than silently sending plaintext.
+#
+# "Transparent" is accurate: no application changes, no sidecars, no certificates to rotate. The
+# cost is a per-packet encrypt/decrypt, which demo 06 measures rather than hand-waves.
+encryption:
+  enabled: true
+  type: wireguard
+
+# ---------------------------------------------------------------------------------------------
 # NOT SET HERE, AND WHY
 # ---------------------------------------------------------------------------------------------
 # k8sServiceHost / k8sServicePort — passed by scripts/install-cilium.sh with --set.

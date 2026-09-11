@@ -1,0 +1,63 @@
+### 2026-09-11T05:51:33Z
+$ docker exec poc1-worker uname -r
+6.6.12-linuxkit
+
+### 2026-09-11T05:51:33Z
+$ bash -c docker exec poc1-worker sh -c "ls /sys/module/wireguard 2>/dev/null && echo IN-KERNEL || echo absent"
+uevent
+version
+IN-KERNEL
+
+### 2026-09-11T05:51:33Z
+$ bash -c docker exec --privileged poc1-worker sh -c "ip link add wgtest type wireguard && echo SUCCESS: kernel supports wireguard && ip link del wgtest"
+SUCCESS: kernel supports wireguard
+
+### 2026-09-11T05:51:34Z
+$ bash -c docker exec poc1-worker sh -c "ip link show | grep -c cilium_wg0 || echo 0"
+0
+0
+
+### 2026-09-11T05:52:45Z
+$ bash -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -iE "encryption|wireguard"
+Encryption:              Wireguard   [NodeEncryption: Disabled, cilium_wg0 (Pubkey: 4rVB/OFsgc+3LQmlAwqzlhlKxP+K2Y850h1hkSeFLVg=, Port: 51871, Peers: 4)]
+
+### 2026-09-11T05:52:46Z
+$ bash -c docker exec poc1-worker ip -d link show cilium_wg0 2>&1 | head -4
+28: cilium_wg0: <POINTOPOINT,NOARP,UP,LOWER_UP> mtu 65425 qdisc noqueue state UNKNOWN mode DEFAULT group default 
+    link/none  promiscuity 0 allmulti 0 minmtu 0 maxmtu 2147483552 
+    wireguard numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535 tso_max_size 65536 tso_max_segs 65535 gro_max_size 65536 gso_ipv4_max_size 65536 gro_ipv4_max_size 65536 
+
+### 2026-09-11T05:55:54Z
+$ bash -c docker run --rm --net=container:poc1-worker --privileged nicolaka/netshoot sh -c "apk add --no-cache wireguard-tools >/dev/null 2>&1; wg show cilium_wg0" 2>/dev/null | head -18
+interface: cilium_wg0
+  public key: 4rVB/OFsgc+3LQmlAwqzlhlKxP+K2Y850h1hkSeFLVg=
+  private key: (hidden)
+  listening port: 51871
+  fwmark: 0xe00
+
+peer: V7HRo+8aKSOly0j+vH3ETN9FIApSQE9we0FPW/76WH0=
+  endpoint: 172.18.0.7:51871
+  allowed ips: 172.18.0.7/32
+  latest handshake: 1 minute, 21 seconds ago
+  transfer: 2.71 KiB received, 2.75 KiB sent
+
+peer: /It/KqIsuneUoOL3vgDoD3tHokkPk0WoWnWAWH2Wc2w=
+  endpoint: 172.18.0.3:51871
+  allowed ips: 172.18.0.3/32
+  latest handshake: 1 minute, 35 seconds ago
+  transfer: 4.05 KiB received, 4.17 KiB sent
+
+
+### 2026-09-11T05:55:57Z
+$ bash -c docker run --rm --network kind --privileged nicolaka/netshoot sh -c "
+ip link show cilium_wg0 2>/dev/null || echo \"NO cilium_wg0 - not in the mesh\"
+ip -4 addr show eth0 | grep -o \"inet [0-9.]*\"
+curl -s -o /dev/null -m 5 -w \"pod 10.10.3.231:80 -> %{http_code}\n\" http://10.10.3.231/v1/request-landing || echo \"pod UNREACHABLE\"
+curl -s -o /dev/null -m 5 -w \"LB  172.18.255.201:80 -> %{http_code}\n\" http://172.18.255.201/ || echo \"LB UNREACHABLE\"
+" 2>/dev/null
+NO cilium_wg0 - not in the mesh
+inet 172.18.0.9
+pod 10.10.3.231:80 -> 000
+pod UNREACHABLE
+LB  172.18.255.201:80 -> 200
+
