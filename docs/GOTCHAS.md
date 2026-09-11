@@ -35,6 +35,8 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [25](#25) | **A full Docker disk looks like a TLS/etcd bug** | cluster |
 | [26](#26) | A GitHub release is not a Helm chart release | toolchain |
 | [27](#27) | GNU `sed` range syntax that BSD/macOS `sed` rejects | misc |
+| [28](#28) | **A Gateway API route type that is supported, installed — and ignored** | Gateway API |
+| [29](#29) | A multi-word command in a shell variable silently breaks under zsh | misc |
 
 ---
 
@@ -522,6 +524,54 @@ text. It is portable and states exactly which fields survive:
 
 ```bash
 kubectl get secret X -o json | python3 -c 'import json,sys; s=json.load(sys.stdin); print(json.dumps({...}))'
+```
+
+## <a name="28"></a>28. A Gateway API route type that is supported, installed — and ignored
+
+**Symptom.** A `TCPRoute` applies cleanly, the Gateway's TCP listener says `programmed=True`, and
+nothing happens: `attachedRoutes=0` and the route has **no `status.parents` at all**.
+
+**Cause.** Three facts have to be true, and they are checked in three different places:
+
+| Fact | Where to check | This build |
+|---|---|---|
+| Cilium **supports** the kind | `gatewayclass ... .status.supportedFeatures` | yes — lists TCPRoute |
+| The CRD is **installed** | `kubectl get crd tcproutes...` | no — it is in the *experimental* channel, and demo 05 installed *standard* |
+| The operator has **discovered** it | operator log at startup | no — the CRD was installed *after* the operator started |
+
+Cilium's operator inventories Gateway API CRDs **when it starts** and only runs controllers for the
+ones present. Installing a CRD later does nothing until a restart. The operator's log had never
+mentioned TCPRoute.
+
+**Fix.**
+
+```bash
+kubectl apply --server-side -f .../config/crd/experimental/gateway.networking.k8s.io_tcproutes.yaml
+kubectl -n kube-system rollout restart deployment/cilium-operator
+```
+
+```
+"TCPRoute CRD is installed, TCPRoute support is enabled"
+```
+
+Then `Accepted=True`, `attachedRoutes=1`. Also use `gateway.networking.k8s.io/v1` — `v1alpha2` is
+deprecated and warns on apply.
+
+## <a name="29"></a>29. A multi-word command in a shell variable silently breaks under zsh
+
+**Symptom.** `K="kubectl --context kind-poc1"; $K apply -f x.yaml` →
+`command not found: kubectl --context kind-poc1`. Every subsequent line fails the same way, and if
+output was piped through `sed 's/^/  /'` the errors look like normal indented output.
+
+**Cause.** zsh does not word-split an unquoted `$K`, so the whole string is looked up as one command
+name. (bash would split it.) This build hit it **twice**, once while recording demo 02 and again
+deploying demo 09 — the second time it silently applied *nothing* while looking like it had.
+
+**Fix.** Never put a multi-word command in a variable. Use a function:
+
+```bash
+k() { kubectl --context kind-poc1 "$@"; }
+k apply -f x.yaml
 ```
 
 ---

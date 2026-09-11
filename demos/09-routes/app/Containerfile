@@ -1,0 +1,23 @@
+# Multi-stage: build a static Go binary, ship it on a distroless base.
+#
+# Build and load into kind (no registry needed):
+#   docker build -t routedemo:local -f demos/09-routes/app/Containerfile demos/09-routes/app
+#   kind load docker-image routedemo:local --name poc1
+#
+# WHY distroless. The final image is the binary plus CA certs and tzdata -- no shell, no package
+# manager, ~10 MB. Small matters here for a reason beyond hygiene: this laptop's Docker VM filled its
+# disk mid-build once already (gotcha #25), and every megabyte in an image is a megabyte in every
+# kind node that loads it.
+#
+# CGO_ENABLED=0 makes the binary fully static so it runs on distroless/static, which has no libc.
+FROM golang:1.24-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY main.go .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /routedemo .
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /routedemo /routedemo
+USER nonroot:nonroot
+ENTRYPOINT ["/routedemo"]

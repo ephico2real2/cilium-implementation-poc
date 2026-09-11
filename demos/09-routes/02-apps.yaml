@@ -1,0 +1,81 @@
+# Three workloads from ONE image, differing only in -mode. Apply with:
+#   kubectl apply -f demos/09-routes/02-apps.yaml
+#
+# The image is routedemo:local, built from demos/09-routes/app and loaded with `kind load`.
+# imagePullPolicy: Never is deliberate -- there is no registry; if the image is not on the node
+# the pod should FAIL visibly rather than try to pull something that does not exist.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web, namespace: routes}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: web}}
+  template:
+    metadata: {labels: {app: web}}
+    spec:
+      containers:
+        - name: app
+          image: routedemo:local
+          imagePullPolicy: Never
+          args: ["-mode", "http", "-addr", ":8080"]
+          env: [{name: APP_NAME, value: web}]
+          ports: [{containerPort: 8080}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: web, namespace: routes}
+spec:
+  selector: {app: web}
+  ports: [{port: 8080, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: grpc, namespace: routes}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: grpc}}
+  template:
+    metadata: {labels: {app: grpc}}
+    spec:
+      containers:
+        - name: app
+          image: routedemo:local
+          imagePullPolicy: Never
+          args: ["-mode", "grpc", "-addr", ":9090"]
+          env: [{name: APP_NAME, value: grpc}]
+          ports: [{containerPort: 9090}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: grpc, namespace: routes}
+spec:
+  selector: {app: grpc}
+  ports:
+    # appProtocol is how the Gateway learns this backend speaks HTTP/2 (gRPC). Without it Envoy
+    # would talk HTTP/1.1 to the pod and every gRPC call would fail with a protocol error that
+    # looks like an application bug.
+    - {port: 9090, targetPort: 9090, appProtocol: kubernetes.io/h2c}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: echo, namespace: routes}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: echo}}
+  template:
+    metadata: {labels: {app: echo}}
+    spec:
+      containers:
+        - name: app
+          image: routedemo:local
+          imagePullPolicy: Never
+          args: ["-mode", "tcp", "-addr", ":7000"]
+          env: [{name: APP_NAME, value: echo}]
+          ports: [{containerPort: 7000}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: echo, namespace: routes}
+spec:
+  selector: {app: echo}
+  ports: [{port: 7000, targetPort: 7000}]

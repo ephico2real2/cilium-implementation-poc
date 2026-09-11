@@ -1,0 +1,84 @@
+# One Gateway, four listeners, three protocols — and cert-manager issues every certificate.
+#
+# Apply with:
+#   kubectl apply -f demos/09-routes/01-gateway.yaml
+#
+# THE ANNOTATION IS HOW CERTIFICATES HAPPEN. `cert-manager.io/cluster-issuer: ca-issuer` tells
+# cert-manager to watch this Gateway and, for every HTTPS listener, create a Certificate whose
+# dnsNames come from the listener's `hostname` and whose Secret is the listener's certificateRef.
+# We never write a Certificate object by hand. The issuer is the same enterprise root from demo 08,
+# so a browser that trusts clustermesh-root-ca trusts these too.
+#
+# WHY TWO HTTPS LISTENERS ON THE SAME PORT. They are distinguished by SNI -- the hostname the
+# client presents in the TLS handshake. Gateway API allows this precisely so one address can serve
+# many names with different certificates:
+#
+#   https-wildcard  hostname *.poc.local        one cert covers web.poc.local, grpc.poc.local, and
+#                                               ANY other subdomain you invent later
+#   https-exact     hostname exact.example.test a DIFFERENT domain, not covered by the wildcard,
+#                                               with its own single-name certificate
+#
+# exact.example.test is deliberately outside poc.local. If the "exact" listener were
+# api.poc.local it would ALSO match the wildcard and the demo would prove nothing.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: routes
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: routes-gw
+  namespace: routes
+  annotations:
+    cert-manager.io/cluster-issuer: ca-issuer
+    # Pinned, for the reason gotcha #13 records: an unpinned LB address depends on creation order.
+    io.cilium/lb-ipam-ips: "172.18.255.202"
+spec:
+  gatewayClassName: cilium
+  listeners:
+    # --- HTTPS, wildcard certificate ---------------------------------------------------------
+    - name: https-wildcard
+      protocol: HTTPS
+      port: 443
+      hostname: "*.poc.local"
+      tls:
+        mode: Terminate                       # cert-manager only supports Terminate
+        certificateRefs:
+          - kind: Secret
+            name: wildcard-poc-local-tls      # cert-manager creates this
+      allowedRoutes:
+        namespaces: {from: Same}
+
+    # --- HTTPS, exact-name certificate -------------------------------------------------------
+    - name: https-exact
+      protocol: HTTPS
+      port: 443
+      hostname: "exact.example.test"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: exact-example-test-tls      # a SEPARATE cert, single SAN
+      allowedRoutes:
+        namespaces: {from: Same}
+
+    # --- plain HTTP -----------------------------------------------------------------------
+    # No hostname: matches everything on :80. Also carries h2c (gRPC without TLS), which is what
+    # `grpcurl -plaintext` uses.
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces: {from: Same}
+
+    # --- raw TCP --------------------------------------------------------------------------
+    # A TCP listener has no hostname and no HTTP semantics; it forwards bytes. The route kind must
+    # be stated explicitly because the default allowed kinds for a TCP listener are none.
+    - name: tcp-echo
+      protocol: TCP
+      port: 9000
+      allowedRoutes:
+        namespaces: {from: Same}
+        kinds:
+          - kind: TCPRoute

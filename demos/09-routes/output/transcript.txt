@@ -1,0 +1,74 @@
+### 2026-09-11T15:53:45Z
+$ kubectl --context kind-poc1 -n routes get gateway routes-gw
+NAME        CLASS    ADDRESS          PROGRAMMED   AGE
+routes-gw   cilium   172.18.255.202   True         2m6s
+
+### 2026-09-11T15:53:45Z
+$ kubectl --context kind-poc1 -n routes get certificate
+NAME                     READY   SECRET                   AGE
+exact-example-test-tls   True    exact-example-test-tls   2m6s
+wildcard-poc-local-tls   True    wildcard-poc-local-tls   2m6s
+
+### 2026-09-11T15:53:45Z
+$ bash -c for s in wildcard-poc-local-tls exact-example-test-tls; do printf '%-26s ' $s; kubectl --context kind-poc1 -n routes get secret $s -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -ext subjectAltName -issuer | tr '\n' ' '; echo; done
+wildcard-poc-local-tls     X509v3 Subject Alternative Name: critical     DNS:*.poc.local issuer=CN=clustermesh-root-ca 
+exact-example-test-tls     X509v3 Subject Alternative Name: critical     DNS:exact.example.test issuer=CN=clustermesh-root-ca 
+
+### 2026-09-11T15:53:46Z
+$ bash -c for h in web.poc.local anything-at-all.poc.local exact.example.test; do printf '%-28s ' $h; curl -s --max-time 8 --cacert /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/routes/root-ca.crt --resolve $h:443:172.18.255.202 https://$h/ -w ' [http=%{http_code} chain-verified]\n'; done
+web.poc.local                {"app":"web","mode":"http","path":"/","host":"web.poc.local","method":"GET","proto":"HTTP/1.1","tls":true}
+ [http=200 chain-verified]
+anything-at-all.poc.local    {"app":"web","mode":"http","path":"/","host":"anything-at-all.poc.local","method":"GET","proto":"HTTP/1.1","tls":true}
+ [http=200 chain-verified]
+exact.example.test           {"app":"web","mode":"http","path":"/","host":"exact.example.test","method":"GET","proto":"HTTP/1.1","tls":true}
+ [http=200 chain-verified]
+
+### 2026-09-11T15:53:46Z
+$ bash -c printf 'nobody.example.test (NEGATIVE) '; curl -s --max-time 8 --cacert /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/routes/root-ca.crt --resolve nobody.example.test:443:172.18.255.202 https://nobody.example.test/ -o /dev/null -w '[http=%{http_code}]' 2>&1; echo " exit=$?"
+nobody.example.test (NEGATIVE) [http=000] exit=35
+
+### 2026-09-11T15:53:46Z
+$ bash -c docker run --rm --network kind fullstorydev/grpcurl:latest -plaintext -authority grpc.poc.local 172.18.255.202:80 grpc.health.v1.Health/Check
+{
+  "status": "SERVING"
+}
+
+### 2026-09-11T15:53:47Z
+$ bash -c docker run --rm --network kind -v /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/routes:/certs:ro fullstorydev/grpcurl:latest -cacert /certs/root-ca.crt -authority grpc.poc.local 172.18.255.202:443 grpc.health.v1.Health/Check
+{
+  "status": "SERVING"
+}
+
+### 2026-09-11T15:53:48Z
+$ bash -c docker run --rm --network kind fullstorydev/grpcurl:latest -plaintext -authority grpc.poc.local 172.18.255.202:80 list
+grpc.health.v1.Health
+grpc.reflection.v1.ServerReflection
+grpc.reflection.v1alpha.ServerReflection
+
+### 2026-09-11T15:53:50Z
+$ bash -c for h in web.poc.local exact.example.test nothing.poc.local; do printf '%-24s ' $h; curl -s --max-time 8 -H "Host: $h" http://172.18.255.202/ -o /dev/null -w '[http=%{http_code}]\n'; done
+web.poc.local            [http=200]
+exact.example.test       [http=200]
+nothing.poc.local        [http=404]
+
+### 2026-09-11T15:54:13Z
+$ bash -c kubectl --context kind-poc1 -n kube-system logs deployment/cilium-operator --tail=3000 2>/dev/null | grep -iE 'GatewayAPI resources|TCPRoute CRD' | cut -c1-140
+time=2026-09-11T15:53:24.831559765Z level=info msg="Checking for required and optional GatewayAPI resources" module=operator.operator-contro
+time=2026-09-11T15:53:24.994727728Z level=info msg="TCPRoute CRD is installed, TCPRoute support is enabled" module=operator.operator-control
+
+### 2026-09-11T15:54:14Z
+$ bash -c kubectl --context kind-poc1 -n routes get tcproute echo -o jsonpath='{range .status.parents[*]}{.parentRef.name}/{.parentRef.sectionName}: {range .conditions[*]}{.type}={.status} {end}{"\n"}{end}'
+routes-gw/tcp-echo: Accepted=True ResolvedRefs=True 
+
+### 2026-09-11T15:54:14Z
+$ bash -c kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath='{range .status.listeners[*]}{.name} attachedRoutes={.attachedRoutes}{"\n"}{end}'
+https-wildcard attachedRoutes=3
+https-exact attachedRoutes=1
+http attachedRoutes=4
+tcp-echo attachedRoutes=1
+
+### 2026-09-11T15:54:14Z
+$ bash -c (echo 'ping from the laptop'; sleep 1) | nc -w 5 172.18.255.202 9000
+hello from echo (tcp echo)
+echo echoed: ping from the laptop
+
