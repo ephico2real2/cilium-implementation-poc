@@ -1,0 +1,23 @@
+### 2026-09-11T14:30:47Z
+$ bash -c cilium clustermesh status --context kind-poc1 2>&1 | tail -8
+ℹ️  KVStoreMesh is enabled
+
+✅ All 5 nodes are connected to all clusters [min:1 / avg:1.0 / max:1]
+✅ All 1 KVStoreMesh replicas are connected to all clusters [min:1 / avg:1.0 / max:1]
+
+🔌 Cluster Connections:
+  - poc2: 5/5 configured, 5/5 connected - KVStoreMesh: 1/1 configured, 1/1 connected
+
+
+### 2026-09-11T14:30:49Z
+$ bash -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | grep -A5 $(kubectl --context kind-poc1 get svc rebel-base -o jsonpath='{.spec.clusterIP}')
+23   10.11.100.76:80/TCP      ClusterIP      1 => 10.10.3.240:80/TCP (active)     
+                                             2 => 10.10.4.104:80/TCP (active)     
+                                             3 => 10.20.1.69:80/TCP (active)      
+                                             4 => 10.20.1.184:80/TCP (active)     
+
+### 2026-09-11T14:30:49Z
+$ bash -c kubectl --context kind-poc1 exec tiefighter -- sh -c 'for i in $(seq 20); do curl -s --max-time 5 http://rebel-base.default.svc.cluster.local/; done' 2>/dev/null | grep -o '"cluster": "[a-z0-9]*"' | sort | uniq -c
+  11 "cluster": "poc1"
+   9 "cluster": "poc2"
+
