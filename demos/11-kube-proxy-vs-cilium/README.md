@@ -215,9 +215,10 @@ host with real NICs, and Cilium's own netperf methodology
 (`helm get values` before tuning): tunnel/VXLAN, iptables masquerade, Hubble + export + collectors,
 Gateway API + ALPN — verified by `cilium status`, the flow-export ConfigMap, five collectors
 Running and `scripts/check-routes.sh` at 0 failures (after the 2–3 minutes an agent rollout
-takes the Gateway off the air, gotcha #42). Whether to **adopt** `bpf.masquerade=true` in
-`cilium/values-poc1.yaml` permanently is a decision to make with the numbers above, not a
-side effect of this demo.
+takes the Gateway off the air, gotcha #42). **Adopted afterwards, as a separate decision:** `bpf.masquerade: true` is now in
+`cilium/values-poc1.yaml` and `values-poc2.yaml`, applied to both clusters (release 22 / 9), with
+`Host: BPF` on both, `check-routes.sh` 0 failures and ClusterMesh 5/5 — the transcript's last
+block. The rule and the reasoning are `docs/TUNING.md`; native routing stays measured-not-adopted.
 
 ## Part 5 — reproduce it
 

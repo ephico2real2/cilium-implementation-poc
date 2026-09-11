@@ -81,7 +81,7 @@ kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- \
 
 ```
 KubeProxyReplacement:    True   [eth0    172.18.0.4 fc00:f853:ccd:e793::4 fe80::42:acff:fe12:4 (Direct Routing)]
-Routing:                 Network: Tunnel [vxlan]   Host: Legacy
+Routing:                 Network: Tunnel [vxlan]   Host: Legacy        <- captured before demo 11; now `Host: BPF` (docs/TUNING.md)
 Device Mode:             veth
 ```
 

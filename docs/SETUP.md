@@ -994,6 +994,13 @@ cilium/cilium 1.20.0         1.20.0       eBPF-based Networking, Security, and O
 
 ### Step 5.2 — install
 
+> **Day-1 tuning is in the values file, on purpose.** `cilium/values-poc1.yaml` sets
+> `bpf.masquerade: true`, which switches masquerading to eBPF and with it turns on eBPF **host
+> routing** (`Host: BPF` instead of `Legacy`): packets leaving a pod go eBPF → NIC without
+> traversing netfilter. The chart default leaves that off, and enabling it later costs an agent
+> restart and a 2–3 minute Gateway outage. Why, what it measured, and how to prove it is on:
+> **[docs/TUNING.md](TUNING.md)**.
+
 `cilium/values-poc1.yaml` holds everything that can be decided in advance. Only the API server
 address is passed on the command line, because it is not knowable until the cluster exists.
 
@@ -1195,6 +1202,9 @@ KubeProxyReplacement:    True   [eth0  172.18.0.4 ... (Direct Routing)]
 Cilium:                  Ok     1.20.1 (v1.20.1-7d68cfb3)
 Routing:                 Network: Tunnel [vxlan]   Host: Legacy
 Masquerading:            IPTables [IPv4: Enabled, IPv6: Disabled]
+
+> Captured before `bpf.masquerade: true` was adopted (demo 11). On a fresh install from the
+> values file these two lines read `Host: BPF` and `Masquerading: BPF [eth0] …` — docs/TUNING.md §1.
 ```
 
 `KubeProxyReplacement: True` is the headline. Read it together with the `No resources found` from

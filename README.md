@@ -34,6 +34,8 @@ unchanged, with BGP substituted for L2 in production.
    Read it first; every address later comes from here. `scripts/network-plan.sh` reprints it live.
 2. **[docs/SETUP.md](docs/SETUP.md)** Steps 0–8 — toolchain, Docker VM sizing (**all settings
    before any cluster**, Step 2.7), poc1, the host route, Cilium, LB IPAM. Stop at each *Check*.
+   Read **[docs/TUNING.md](docs/TUNING.md)** with Step 5: the day-1 datapath values (eBPF
+   masquerading → eBPF host routing) are in the values file because setting them later is an outage.
 3. **Demos 01 → 06** on poc1, in order; each `demos/NN-*/README.md` has a *Summary context*, the
    commands, and its recorded `output/transcript.txt`.
 4. **SETUP Step 9** — poc2 and ClusterMesh, trust established with cert-manager **before** joining
@@ -53,7 +55,7 @@ unchanged, with BGP substituted for L2 in production.
 | ✅ | Demos 01–10, each with a recorded transcript | done |
 | ✅ | Networking design, two reserved pools, host route, hosts block generated from live state | done |
 | ✅ | Enterprise CA from day 1; ClusterMesh on cert-manager certs (`issuer=CN=clustermesh-root-ca`) | done |
-| ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (662 lines, 13 sections, including the native client) | regenerable |
+| ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (663 lines, 13 sections, including the native client) | regenerable |
 | ✅ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | done — demo 11, with the three-cause forensic on Cilium's default install; poc3 is paused (`scripts/cluster-resume.sh poc3`) |
 | ⏳ | **BGP with an FRR router (demo 12)** | researched and planned in [docs/summary/BGP_FRR_PLAN.md](docs/summary/BGP_FRR_PLAN.md); parked |
 | ✅ | Hubble UI through the Gateway, including its **data stream** | HTML/JS/CSS at 200, and the relay shows the browser's `POST /api/control-stream` and `/api/service-map-stream` → 200 arriving as identity `ingress` via `https://hubble.poc.local` (demo 09 Part 10) |
@@ -87,6 +89,8 @@ it is deliberately minimal. The CIDRs do not overlap because ClusterMesh require
 
 Both clusters run with **no kube-proxy** (`kubeProxyMode: none`) and **no default CNI**
 (`disableDefaultCNI: true`) — Cilium is both.
+Both are installed with **eBPF masquerading and eBPF host routing** from day 1 (`bpf.masquerade: true`;
+`Host: BPF` in `cilium status`) — the chart default leaves the netfilter bypass off, see [docs/TUNING.md](docs/TUNING.md).
 
 ## Versions this was built and verified against
 
@@ -132,7 +136,7 @@ scripts/verify.sh                              # to the terminal
 scripts/verify.sh > docs/VERIFICATION_RUN.md   # as a document
 ```
 
-The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 662 lines of
+The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 663 lines of
 real console output in 13 sections: versions, cluster state, full Cilium status, every demo
 through 10, and the native route client.
 

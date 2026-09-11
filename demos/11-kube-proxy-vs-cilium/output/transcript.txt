@@ -1316,3 +1316,86 @@ poc2 cilium ready 2/2
     \__/       ClusterMesh:        OK
 global service rebel-base: true
 
+### 2026-09-11T22:17:51Z
+$ [ADOPTION: bpf.masquerade=true committed to cilium/values-poc1.yaml and values-poc2.yaml, applied to both clusters]
+
+### 2026-09-11T22:17:51Z
+$ sh -c helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 --reuse-values -f cilium/values-poc1.yaml 2>&1 | grep -E 'Release|Error'; helm history cilium -n kube-system --kube-context kind-poc1 --max 1 | tail -1 | cut -f1,4,7
+Release "cilium" has been upgraded. Happy Helming!
+22      	cilium-1.20.1
+
+### 2026-09-11T22:18:03Z
+$ kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium
+daemonset.apps/cilium restarted
+
+### 2026-09-11T22:18:44Z
+$ sh -c helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc2 --version 1.20.1 --reuse-values -f cilium/values-poc2.yaml 2>&1 | grep -E 'Release|Error'; helm history cilium -n kube-system --kube-context kind-poc2 --max 1 | tail -1 | cut -f1,4,7
+Release "cilium" has been upgraded. Happy Helming!
+9       	cilium-1.20.1
+
+### 2026-09-11T22:18:52Z
+$ kubectl --context kind-poc2 -n kube-system rollout restart ds/cilium
+daemonset.apps/cilium restarted
+
+### 2026-09-11T22:19:26Z
+$ sh -c for c in poc1 poc2; do printf "%s: " $c; kubectl --context kind-$c -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E "^Routing|^Masquerading" | tr -s " " | tr "\n" " "; echo; done
+poc1: Routing: Network: Tunnel [vxlan] Host: BPF Masquerading: BPF [eth0] 10.10.0.0/24 [IPv4: Enabled, IPv6: Disabled] 
+poc2: Routing: Network: Tunnel [vxlan] Host: BPF Masquerading: BPF [eth0] 10.20.1.0/24 [IPv4: Enabled, IPv6: Disabled] 
+
+### 2026-09-11T22:19:27Z
+$ sh -c helm get values cilium -n kube-system --kube-context kind-poc1 | grep -A1 "^bpf:"
+bpf:
+  masquerade: true
+
+### 2026-09-11T22:21:28Z
+$ scripts/check-routes.sh
+Gateway routes-gw address: 172.18.255.240   (must be inside gateway-pool 172.18.255.240-250)
+KIND        NAME       HOSTS                         ACCEPTED   RESOLVED
+HTTPRoute   anything   [anything-at-all.poc.local]   True       True
+HTTPRoute   exact      [exact.example.test]          True       True
+HTTPRoute   hubble     [hubble.poc.local]            True       True
+HTTPRoute   web        [web.poc.local]               True       True
+GRPCRoute   grpc       [grpc.poc.local]              True       True
+TCPRoute    echo       <none>                        True       True
+
+1. HTTPRoute x3 over HTTPS, certificate chain verified against the enterprise root (docs/root-ca.crt)
+  PASS  https://web.poc.local/ (wildcard listener, *.poc.local cert) -> 200
+  PASS  https://anything-at-all.poc.local/ (wildcard listener, *.poc.local cert) -> 200
+  PASS  https://exact.example.test/ (exact listener, its own cert) -> 200
+  PASS  https://nobody.poc.local/ (under the wildcard but NO route -> Gateway 404) -> 404
+   SNI -> certificate presented:
+     web.poc.local        DNS:*.poc.local
+     exact.example.test   DNS:exact.example.test
+
+2. HTTPRoute over plain HTTP :80 (Host header selects the route)
+  PASS  http://172.18.255.240/ Host: web.poc.local -> 200
+
+3. GRPCRoute (grpcurl runs in a container on the docker network; -authority is the route's hostname)
+  PASS  h2c :80 Health/Check -> {"status":"SERVING"}
+  PASS  TLS :443 Health/Check, wildcard cert verified -> {"status":"SERVING"}
+
+4. TCPRoute :9000 (bytes in, bytes back — no HTTP involved)
+  PASS  tcp echo -> hello from echo (tcp echo)|echo echoed: ping from check-routes|
+
+5. Hubble UI through the SAME Gateway URL: https://hubble.poc.local (HTTPRoute in routes -> Service in kube-system via ReferenceGrant)
+  PASS  https://hubble.poc.local/ (index) -> 200
+  PASS  page title <title>Hubble UI</title>
+  PASS  asset /bundle.main.811eb2d9fcafb97bbf36.js -> 200
+  PASS  asset /bundle.main.0f16d72c3dee99c3b95a.css -> 200
+  PASS  same UI direct at its own LB address (kind-docker-pool) for comparison -> 200
+   Hubble's own view of that request (world -> hubble-ui, through the Gateway):
+
+FAILED CHECKS: 0
+
+### 2026-09-11T22:21:32Z
+$ sh -c cilium clustermesh status --context kind-poc1 2>/dev/null | grep -E "✅ All|⚠️  [0-9]" | head -2; cilium status --context kind-poc1 2>/dev/null | grep -E "Cilium:|ClusterMesh:|Hubble Relay:" | sed "s/\x1b\[[0-9;]*m//g"
+✅ All 5 nodes are connected to all clusters [min:1 / avg:1.0 / max:1]
+✅ All 1 KVStoreMesh replicas are connected to all clusters [min:1 / avg:1.0 / max:1]
+ /¯¯\__/¯¯\    Cilium:             OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+
+### 2026-09-11T22:21:36Z
+$ sh -c kubectl --context kind-poc1 -n forensic exec client -- curl -s -o /dev/null -w "cross-node pod->pod after the change: http %{http_code}\n" http://web.forensic.svc.cluster.local/
+cross-node pod->pod after the change: http 200
+

@@ -49,6 +49,9 @@ $ cilium-dbg status | grep -E 'KubeProxyReplacement|Routing|Masquerading'
 KubeProxyReplacement:    True   [eth0 172.18.0.4 ... (Direct Routing)]
 Routing:                 Network: Tunnel [vxlan]   Host: Legacy
 Masquerading:            IPTables [IPv4: Enabled, IPv6: Disabled]
+
+(As captured on the original install. Since demo 11, `bpf.masquerade: true` is in the values files
+and both lines read `Host: BPF` / `Masquerading: BPF [eth0]` — see docs/TUNING.md §1.)
 ```
 
 ## Demo 03 — kube-proxy replacement

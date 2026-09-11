@@ -41,6 +41,20 @@ operator:
 # poc2 is also built with kubeProxyMode: none, so Cilium must do service load balancing here too.
 kubeProxyReplacement: true
 
+# eBPF masquerading — and, with it, eBPF HOST ROUTING. The chart default is iptables masquerading,
+# which forces `Host Routing: Legacy`: every packet leaving a pod still traverses the host stack and
+# netfilter, and the datapath bypass the tuning guide describes is simply off. Demo 11 measured the
+# difference on this VM: iperf3 pod-to-pod 9.1 -> 10.2 Gbit/s from this one value alone (tunnel mode,
+# Hubble off in both runs), and `cilium status` flips from
+#   Routing: Network: Tunnel [vxlan]  Host: Legacy      Masquerading: IPTables
+# to
+#   Routing: Network: Tunnel [vxlan]  Host: BPF         Masquerading: BPF [eth0]
+# Nothing above it (policy, Gateway, ClusterMesh, LB IPAM) depends on iptables SNAT. It needs an
+# agent restart, which takes the Gateway off the air for 2-3 minutes (gotcha #42) — apply it before
+# anyone is watching. Docs: https://docs.cilium.io/en/stable/network/concepts/masquerading/
+bpf:
+  masquerade: true
+
 l7Proxy: true
 
 hubble:

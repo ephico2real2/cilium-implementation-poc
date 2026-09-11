@@ -115,11 +115,11 @@ echo "The device, and its counters — proof it is carrying real traffic:"
 run "docker exec poc1-worker ip -s link show cilium_wg0"
 
 hdr "7. DEMO 01 — HUBBLE OBSERVABILITY"
-run "hubble status -P 2>&1 | grep -v level=WARN"
+run "hubble status -P --kube-context $CTX 2>&1 | grep -v level=WARN"
 echo "L7 flows, with method, path, status and latency — no application instrumentation:"
-run "hubble observe --last 6 -P --protocol http 2>&1 | grep -v level=WARN"
+run "hubble observe --last 6 -P --kube-context $CTX --protocol http 2>&1 | grep -v level=WARN"
 echo "Verdicts. Note the two shapes: 'Policy denied ... SYN' is L3/L4, 'http-request DROPPED' is L7:"
-run "hubble observe --last 6 -P --verdict DROPPED 2>&1 | grep -v level=WARN"
+run "hubble observe --last 6 -P --kube-context $CTX --verdict DROPPED 2>&1 | grep -v level=WARN"
 
 hdr "8. DEMO 07 — CLUSTERMESH (needs poc2)"
 if kubectl --context kind-poc2 get nodes >/dev/null 2>&1; then
