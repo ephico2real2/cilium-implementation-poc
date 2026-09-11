@@ -449,37 +449,74 @@ poc1 local endpoints: <none>
 26   10.11.157.25:5201/TCP   ClusterIP   1 => 10.20.1.220:5201/TCP (active)
 ```
 
-Both measurements were taken **in the same session, minutes apart**, because comparing against
-numbers from another day on a laptop is meaningless.
+Measurements are taken with `scripts/bench.sh`, which prints **every raw sample** and computes the
+median and spread on screen — nothing is calculated off-camera:
+
+```bash
+scripts/bench.sh "INTRA" kind-poc1 perf iperf3-client 10.10.4.116 5
+scripts/bench.sh "CROSS" kind-poc1 perf iperf3-client iperf3-global.perf.svc.cluster.local 5
+```
+
+### Two measurement sessions, and why that matters
+
+**Session A:**
 
 | | Median | Range | Spread |
 |---|---|---|---|
-| **Intra**-cluster (poc1 → poc1, across nodes) | 8714 Mbit/s | 6757–8997 | **25%** |
-| **Cross**-cluster (poc1 → poc2, via mesh) | 8098 Mbit/s | 8057–8215 | **2%** |
+| Intra-cluster | 8714 Mbit/s | 6757–8997 | 25% |
+| Cross-cluster | 8098 Mbit/s | 8057–8215 | 2% |
 
-Raw cross-cluster runs: `8215, 8096, 8098, 8057, 8127`.
+On that data alone you would conclude cross-cluster costs about 7%, and that it is unusually
+consistent. **Both conclusions were wrong.** Session B, same rig, same commands, an hour later:
 
-### Reading this honestly
+```
+=== INTRA-CLUSTER  poc1-worker2 -> poc1-worker ===
+  run 1: 6626    run 2: 9011    run 3: 8432    run 4: 6513    run 5: 6550
+  median  : 6626 Mbits/sec
+  min/max : 6513 / 9011 Mbits/sec
+  spread  : 37.7%  of median
+```
 
-**The median difference is ~7%. The intra-cluster spread is 25%.** The difference is *smaller than
-the noise in the thing it is being compared against*, so the defensible statement is:
+```
+=== CROSS-CLUSTER  poc1 -> poc2 via global service ===
+  run 1: 8096    run 2: 6022    run 3: 7845    run 4: 7780    run 5: 7919
+  median  : 7845 Mbits/sec
+  min/max : 6022 / 8096 Mbits/sec
+  spread  : 26.4%  of median
+```
 
-> **ClusterMesh adds no throughput penalty that this rig can distinguish from noise.**
+| | Session A | Session B |
+|---|---|---|
+| Intra-cluster median | 8714 | **6626** |
+| Cross-cluster median | 8098 | **7845** |
+| Which was faster? | intra, by 7% | **cross, by 18%** |
 
-Not "ClusterMesh costs 7%".
+**The ordering reversed.** Cross-cluster's "remarkably tight" 2% spread in session A did not
+reproduce either — it was 26.4% in session B. That 2% was luck.
 
-**And the result would not transfer.** Both "clusters" are containers on one host sharing one
-kernel and one bridge — there is no real network between them. What this measures is the
-*mechanism* overhead: endpoint merging, the extra eBPF map entries, the tunnel. It says nothing
-about a real mesh, where the dominant cost is the physical distance between the clusters. Across
-two regions, latency and bandwidth of the inter-region link will swamp everything measured here.
+### The actual conclusion
 
-**The genuinely interesting number is the spread, not the median.** Cross-cluster was *four times
-more consistent* (2% vs 25%). The likely explanation is contention: the intra-cluster pair sits on
-two poc1 workers that are also running Cilium agents, Envoy, Hubble and the demo workloads, while
-poc2 is nearly idle. That is a property of this laptop, not of Cilium — and it is a good reminder
-that on a shared machine the *quietest* path can benchmark fastest for reasons that have nothing
-to do with the feature under test.
+> **This rig cannot measure a difference between intra-cluster and cross-cluster throughput.** The
+> two distributions overlap almost entirely (intra 6513–9011, cross 6022–8215 across both
+> sessions), and run-to-run variation within a single configuration (26–38%) is far larger than any
+> difference between them — large enough to reverse the ranking between sessions.
+
+An earlier draft of this page claimed "cross-cluster costs ~7%". **That is retracted.** It was a
+single session's median difference, smaller than that session's own noise, and it did not survive
+a re-run.
+
+**Why the numbers move so much:** both clusters are containers on one laptop, sharing a kernel, a
+bridge and a CPU with Cilium agents, Envoy, Hubble, the demo workloads and everything else on the
+machine. Whichever path happens to be least contended at that moment wins.
+
+**Why the result would not transfer anyway:** with both clusters on one host there is no real
+network between them. Even a clean measurement here would only capture *mechanism* overhead —
+endpoint merging, extra map entries, the tunnel — and say nothing about a real mesh, where the
+inter-region link dominates entirely.
+
+**What it would take to answer properly:** two machines with a real link, ≥30 samples per
+configuration, interleaved rather than run in blocks (so drift affects both equally), and reported
+as distributions rather than medians.
 
 ## What to take away
 
