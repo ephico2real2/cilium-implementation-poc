@@ -1,5 +1,26 @@
 # Demo 05 — Gateway API, served by Cilium
 
+## Is this Cilium Gateway API directly? Yes — the whole path
+
+The short answer, because it is the first thing anyone asks. **Every hop is Cilium. Nothing else is
+in the request path.**
+
+| Layer | What handles it | How to confirm |
+|---|---|---|
+| Gateway controller | Cilium — `io.cilium/gateway-controller`, selected by `gatewayClassName: cilium` | `kubectl get gatewayclass` |
+| Data path / proxy | Cilium's per-node **Envoy** — the *same* one enforcing demo 02's L7 policy | `kubectl -n kube-system get ds cilium-envoy` |
+| External address | Cilium **LB IPAM** (`CiliumLoadBalancerIPPool`) | `kubectl get ciliumloadbalancerippool` |
+| Address reachability | Cilium **L2 announcements** (`CiliumL2AnnouncementPolicy`), leader-elected per service | `kubectl -n kube-system get lease \| grep l2announce` |
+| Service load balancing | Cilium eBPF (`KubeProxyReplacement: True`) | demo 03 |
+| Network policy on that traffic | Cilium, including on the Gateway's own `ingress` identity | Part 3 below |
+
+**Not involved, and not installed:** kube-vip, MetalLB, nginx, traefik, haproxy, kube-proxy. See
+["Are we using kube-vip?"](#are-we-using-kube-vip--no-and-here-is-the-proof) for the proof.
+
+So the full request `curl http://172.18.255.200/v1/request-landing` → Gateway → HTTPRoute → pod is
+served end to end by one dataplane, observed by one tool (Hubble), and governed by one policy
+engine.
+
 ## Summary context
 
 **What Gateway API is.** The successor to Ingress. Ingress put every non-trivial behaviour behind
