@@ -417,21 +417,56 @@ scripts/hosts-entries.sh
 ```
 
 ```
-# ---- cilium-kind-poc (generated 2026-09-11T16:32Z by scripts/hosts-entries.sh) ----
-172.18.255.202  hubble.poc.local web.poc.local anything-at-all.poc.local grpc.poc.local exact.example.test
-172.18.255.200  deathstar.poc.local
+# ---- cilium-kind-poc (generated 2026-09-11T17:31Z by scripts/hosts-entries.sh) ----
+172.18.255.240  hubble.poc.local web.poc.local anything-at-all.poc.local grpc.poc.local exact.example.test
+172.18.255.241  deathstar.poc.local
 172.18.255.201  hubble-direct.poc.local
 # ---- end cilium-kind-poc ----
 ```
 
+(`.240` and `.241` are in `gateway-pool`, `.201` in `kind-docker-pool` — see NETWORKING_DESIGN §0.)
+
 The script **never writes to `/etc/hosts` itself**. Review the block, then add it — this needs
-`sudo`, so run it in a real Terminal:
+`sudo`, so run it in a real Terminal. Either form works; they differ in *who runs the script*:
 
 ```bash
-scripts/hosts-entries.sh | sudo tee -a /etc/hosts
+cd /Users/olasumbo/gitRepos/cilium-kind-poc
+sudo sh -c 'scripts/hosts-entries.sh >> /etc/hosts'      # script AND its kubectl run as root
+#   works because macOS sudo keeps HOME (env_keep), so root reads your ~/.kube/config
+scripts/hosts-entries.sh | sudo tee -a /etc/hosts        # script runs as you; only the write is root
 ```
 
-To remove it later: delete the lines between the two `# ---- cilium-kind-poc` markers.
+Whichever you ran, count the names that landed — anything less than 3 lines means the script
+could not reach the cluster (its warnings go to stderr, never into the file), and the block is
+empty:
+
+```bash
+grep -c 'poc.local' /etc/hosts
+```
+```
+3
+```
+
+Then verify the name resolves and the URL answers, in that order — each step isolates one layer:
+
+```bash
+dscacheutil -flushcache; sudo killall -HUP mDNSResponder   # 1. drop the macOS resolver cache (killall needs sudo)
+dscacheutil -q host -a name hubble.poc.local               # 2. the resolver sees the hosts entry
+curl -s --cacert docs/root-ca.crt -o /dev/null -w '%{http_code}\n' https://hubble.poc.local/   # 3. TLS + route
+open https://hubble.poc.local                              # 4. the browser
+```
+```
+name: hubble.poc.local
+ip_address: 172.18.255.240
+200
+```
+
+If step 2 prints nothing, the hosts line is missing (or cached — redo step 1). If step 2 is right
+and step 3 is `000`, the name is fine and the *route* is missing — SETUP 3.5 / NETWORKING_DESIGN
+§4.3. If step 3 is `200` and the browser still warns, that is trust, not networking — next
+paragraph.
+
+To remove the block later: `sudo sed -i '' '/---- cilium-kind-poc/,/---- end cilium-kind-poc/d' /etc/hosts`.
 
 **Trust the root once**, so the browser shows a padlock instead of a warning. The public
 certificate is committed at `docs/root-ca.crt` (certificate only — the key never leaves the

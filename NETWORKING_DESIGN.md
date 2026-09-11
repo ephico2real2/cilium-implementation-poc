@@ -393,7 +393,19 @@ scripts/hosts-entries.sh
 172.18.255.201  hubble-direct.poc.local
 ```
 
-Append those lines yourself: `sudo sh -c 'scripts/hosts-entries.sh >> /etc/hosts'`. Note that
+Append those lines yourself (needs `sudo`; the script never writes the file), then verify one
+layer at a time — resolver, then TLS + route, then browser:
+
+```bash
+sudo sh -c 'scripts/hosts-entries.sh >> /etc/hosts'       # or: scripts/hosts-entries.sh | sudo tee -a /etc/hosts
+grep -c 'poc.local' /etc/hosts                             # 3 — fewer means the script could not reach the cluster
+dscacheutil -flushcache; sudo killall -HUP mDNSResponder   # drop the macOS resolver cache
+dscacheutil -q host -a name hubble.poc.local               # ip_address: 172.18.255.240
+curl -s --cacert docs/root-ca.crt -o /dev/null -w '%{http_code}\n' https://hubble.poc.local/   # 200
+open https://hubble.poc.local
+```
+
+Note that
 everything under `*.poc.local` sits in **`gateway-pool`** — the wildcard is on the Gateway API range
 by design, so a new hostname needs a new `HTTPRoute`, never a new address.
 
