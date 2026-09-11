@@ -917,7 +917,11 @@ inet 192.168.64.2
 sudo route -n add -net 172.18.0.0/16 192.168.64.2
 ```
 
-**Check:**
+**`sudo` cannot prompt for a password from a non-interactive shell** (including Claude Code's `!`
+prefix) — you will get `sudo: a terminal is required to read the password`. Run it in a normal
+Terminal window.
+
+**Check** — verified on this machine:
 
 ```bash
 netstat -rn -f inet | grep '^172.18'
@@ -927,8 +931,56 @@ netstat -rn -f inet | grep '^172.18'
 172.18             192.168.64.2       UGSc            bridge100
 ```
 
+```bash
+curl -s -o /dev/null -w '%{http_code} in %{time_total}s\n' http://172.18.255.200/
+```
+
+```
+200 in 0.007111s
+```
+
+```bash
+curl -sk -o /dev/null -w '%{http_code}\n' https://172.18.0.6:6443/version
+```
+
+```
+200
+```
+
+The whole docker network is now reachable from the host: a LoadBalancer address **and** a raw node
+IP both answer. Compare with the `000` in Step 2.3b, before the change.
+
 The route is **not persistent** — it is lost on reboot, and must be re-added whenever the Docker VM
 restarts or gets a new address.
+
+### Step 2.6b — the no-sudo alternative (and why you might keep both)
+
+If you cannot or would rather not use `sudo`, publish a single service through a proxy container on
+the docker network instead. Docker's normal port publishing crosses the VM boundary, so no route is
+involved:
+
+```bash
+docker run -d --name hubble-ui-proxy --network kind -p 18080:80 --restart unless-stopped \
+  alpine/socat tcp-listen:80,fork,reuseaddr tcp-connect:172.18.255.200:80
+```
+
+```bash
+curl -s -o /dev/null -w '%{http_code} in %{time_total}s\n' http://localhost:18080/
+```
+
+```
+200 in 0.004836s
+```
+
+|  | Route (2.6) | Proxy container (2.6b) |
+|---|---|---|
+| Needs `sudo` | yes | no |
+| Survives reboot | **no** — re-add each time | yes, with `--restart unless-stopped` |
+| Reaches | every container and LB address | one service per proxy container |
+| URL | `http://172.18.255.200/` | `http://localhost:18080/` |
+
+They are complementary. The route is the better daily experience; the proxy is useful insurance
+precisely because the route does not persist.
 
 ---
 

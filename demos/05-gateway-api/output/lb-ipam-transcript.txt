@@ -16,3 +16,15 @@ http://172.18.255.200/ -> http_code=200 time=0.003746s
 $ bash -c netstat -rn -f inet | grep '^172.18' || echo 'no host route yet (needs: sudo route -n add -net 172.18.0.0/16 192.168.64.2)'
 no host route yet (needs: sudo route -n add -net 172.18.0.0/16 192.168.64.2)
 
+### 2026-09-11T04:03:37Z
+$ bash -c netstat -rn -f inet | grep '^172.18'
+172.18             192.168.64.2       UGSc            bridge100       
+
+### 2026-09-11T04:03:37Z
+$ bash -c curl -s -o /dev/null -w 'http://172.18.255.200/ -> http_code=%{http_code} time=%{time_total}s\n' --max-time 8 http://172.18.255.200/
+http://172.18.255.200/ -> http_code=200 time=0.007111s
+
+### 2026-09-11T04:03:37Z
+$ bash -c curl -sk -o /dev/null -w 'https://172.18.0.6:6443/version -> http_code=%{http_code}\n' --max-time 8 https://172.18.0.6:6443/version
+https://172.18.0.6:6443/version -> http_code=200
+
