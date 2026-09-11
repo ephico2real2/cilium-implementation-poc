@@ -70,6 +70,13 @@ hubble:
       # API was enabled with `helm upgrade --reuse-values`. Helm owns this object; the value is the
       # only durable way to change it.
       type: LoadBalancer
+      annotations:
+        # PIN THE ADDRESS. Without this, LB IPAM hands out the next free address in the pool, so an
+        # address depends on the ORDER services happen to be created in. Measured the annoying way:
+        # hubble-ui first held .200, lost it during a helm upgrade, and came back on .201 while the
+        # Gateway took .200 -- silently invalidating a bookmark and a proxy that pointed at .200.
+        # Pinning makes the address a property of the service rather than of startup order.
+        "io.cilium/lb-ipam-ips": "172.18.255.201"
   metrics:
     # These are what make the UI's service map and the flow breakdowns useful. Each entry tells
     # Hubble to emit a Prometheus metric series; without them the UI renders a much emptier graph.
@@ -114,8 +121,13 @@ k8sClientRateLimit:
 #
 # "Transparent" is accurate: no application changes, no sidecars, no certificates to rotate. The
 # cost is a per-packet encrypt/decrypt, which demo 06 measures rather than hand-waves.
+#
+# SHIPPED OFF. Demo 04 turns it on, measures it, and turns it back off again, because demo 06
+# measures throughput and encryption is the single biggest variable in that measurement. Enable it
+# with `--set encryption.enabled=true` (see demos/04-wireguard/README.md) rather than editing this,
+# so the baseline the perf numbers were taken against stays reproducible.
 encryption:
-  enabled: true
+  enabled: false
   type: wireguard
 
 # ---------------------------------------------------------------------------------------------

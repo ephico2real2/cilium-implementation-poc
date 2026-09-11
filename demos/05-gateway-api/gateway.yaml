@@ -21,6 +21,11 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: sw-gateway
+  annotations:
+    # PIN THE GATEWAY'S ADDRESS. LB IPAM otherwise allocates the next free address, which depends
+    # on creation order -- this Gateway and hubble-ui swapped addresses once during this build when
+    # a helm upgrade recreated one of them. Pinning keeps published URLs and bookmarks valid.
+    "io.cilium/lb-ipam-ips": "172.18.255.200"
 spec:
   gatewayClassName: cilium
   listeners:

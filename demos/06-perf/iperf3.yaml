@@ -1,0 +1,56 @@
+# iperf3 server and client, pinned to DIFFERENT nodes so the traffic is forced across the wire.
+#
+# Apply with:
+#   kubectl apply -f demos/06-perf/iperf3.yaml
+#
+# WHY ITS OWN NAMESPACE. The default namespace carries demo 02's CiliumNetworkPolicy, which is
+# default-deny for anything not labelled org=empire. Running the benchmark there would measure
+# policy denial, not throughput. A separate namespace with no policy keeps the variable count at one.
+#
+# WHY nodeAffinity RATHER THAN LETTING THE SCHEDULER CHOOSE. If both pods land on the same node the
+# traffic never touches the network -- it is a loopback memcpy and the number is meaningless for
+# comparing CNI settings. These are pinned to poc1-worker and poc1-worker2.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: perf
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: iperf3-server
+  namespace: perf
+  labels: {app: iperf3-server}
+spec:
+  nodeName: poc1-worker
+  containers:
+    - name: iperf3
+      image: networkstatic/iperf3:latest
+      args: ["-s"]
+      ports:
+        - containerPort: 5201
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iperf3-server
+  namespace: perf
+spec:
+  selector: {app: iperf3-server}
+  ports:
+    - port: 5201
+      targetPort: 5201
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: iperf3-client
+  namespace: perf
+spec:
+  # The OTHER worker, so every byte crosses the node-to-node path.
+  nodeName: poc1-worker2
+  containers:
+    - name: iperf3
+      image: networkstatic/iperf3:latest
+      # Sleep; the benchmark is driven with `kubectl exec` so each run is explicit and repeatable.
+      command: ["sleep", "infinity"]
