@@ -221,3 +221,5 @@ GOTCHAS #35 and #36 and recorded in `output/transcript.txt`:
 - `hubble observe --protocol http` from inside an agent pod returned nothing while L7 policy was
   visibly enforcing. It reads that node's socket only; L7 flows are on the proxy's node. Use the
   relay (`cilium hubble port-forward`, then `hubble observe`) — 418 HTTP flows in 10 min.
+- And on the laptop itself, `hubble observe` with no port-forward at all is `connection refused` on
+  `127.0.0.1:4245` — gotcha #37; `hubble observe -P --since 5m --protocol http` is the one-liner.

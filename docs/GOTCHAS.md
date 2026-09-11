@@ -44,6 +44,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [34](#34) | Every un-namespaced check in the evidence script reported `NotFound` — the kubeconfig's namespace had moved | tooling |
 | [35](#35) | The OTel collector logs `failed to emit token … attributes.flow.verdict` on every node — tracing looks broken, nothing is lost | demo 10 |
 | [36](#36) | `hubble observe` inside an agent pod shows one node; L7 flows live on the proxy's node — "no HTTP flows" was the wrong socket | Hubble |
+| [37](#37) | `hubble observe` on the Mac: `connection refused` — the CLI talks to `127.0.0.1:4245`, which exists only while a port-forward to Relay runs | Hubble |
 
 ---
 
@@ -874,6 +875,54 @@ answers for one node. The retraction is in the session record, and this entry is
 next person does not repeat it under pressure.
 
 → demo 01 (relay + port-forward), demo 10 (per-node files)
+
+---
+
+## <a name="37"></a>37. `hubble observe` on the Mac: `connection refused` — the CLI talks to `127.0.0.1:4245`, which exists only while a port-forward to Relay runs
+
+**Symptom.** On the laptop, with the cluster healthy and Hubble UI working in the browser:
+
+```
+$ hubble observe --since 5m --protocol http
+rpc error: code = Unavailable desc = connection error: desc = "transport: Error while dialing: dial tcp 127.0.0.1:4245: connect: connection refused"
+```
+
+Nothing is broken in the cluster; the CLI's default server is the laptop's own `127.0.0.1:4245`,
+and nothing listens there until something forwards it to `hubble-relay`. The Relay itself is
+reachable only inside the cluster (its Service is ClusterIP). Two ways to give the CLI a server:
+
+**a. Per command — `-P`.** The CLI opens a port-forward for that one invocation and closes it
+after (uses the *current* kube context; it does not take `--context`):
+
+```bash
+hubble status -P
+hubble observe -P --since 5m --protocol http
+```
+```
+Healthcheck (via 127.0.0.1:4245): Ok
+Current/Max Flows: 20,475/20,475 (100.00%)
+Flows/s: 42.95
+(37 HTTP flows)
+```
+
+**b. Long-lived — a background port-forward**, when you want to run many commands:
+
+```bash
+cilium hubble port-forward --context kind-poc1 &
+hubble status                      # Healthcheck (via localhost:4245): Ok
+hubble observe --since 5m --protocol http
+kill %1                            # when done — a forgotten one keeps running (it did, for 3 minutes, in this build)
+```
+
+`kubectl -n kube-system port-forward svc/hubble-relay 4245:80` is the same thing without the
+cilium CLI. Either way, `hubble status` first: its `Healthcheck (via …)` line names the server
+you are actually talking to — which is also the lesson of #36.
+
+Contrast with the browser: Hubble **UI** never needs this, because it is a Service with an
+address (`.201`, and `https://hubble.poc.local` through the Gateway). The CLI and the UI reach
+Relay by different roads, and only the CLI's road is missing by default on a laptop.
+
+→ demo 01 (uses `-P` throughout)
 
 ---
 

@@ -38,6 +38,10 @@ All output below is in [`output/transcript.txt`](output/transcript.txt), capture
 hubble status -P
 ```
 
+> **Without `-P` (or a running port-forward) every `hubble` command on the laptop fails with**
+> `dial tcp 127.0.0.1:4245: connect: connection refused` — the cluster is fine, the CLI simply
+> has no server. Gotcha #37 shows both forms; `hubble status` always prints which server it used.
+
 ```
 Healthcheck (via 127.0.0.1:4245): Ok
 Current/Max Flows: 19,311/20,475 (94.32%)
