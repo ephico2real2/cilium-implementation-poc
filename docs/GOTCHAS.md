@@ -37,6 +37,8 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [27](#27) | GNU `sed` range syntax that BSD/macOS `sed` rejects | misc |
 | [28](#28) | **A Gateway API route type that is supported, installed — and ignored** | Gateway API |
 | [29](#29) | A multi-word command in a shell variable silently breaks under zsh | misc |
+| [30](#30) | **"Tracing" in Cilium 1.20 is flow export, not spans — hubble-otel is archived** | tracing |
+| [31](#31) | A hostPath log reader must run as root | tracing |
 
 ---
 
@@ -573,6 +575,53 @@ deploying demo 09 — the second time it silently applied *nothing* while lookin
 k() { kubectl --context kind-poc1 "$@"; }
 k apply -f x.yaml
 ```
+
+## <a name="30"></a>30. "Tracing" in Cilium 1.20 is flow export, not spans — hubble-otel is archived
+
+**Symptom.** You want distributed traces (spans) from Cilium's L7 proxy, the way Istio's Envoy can
+emit them, and every guide points at `hubble-otel`.
+
+**Cause.** Researched before building, and the answer is unambiguous:
+
+- **`cilium/hubble-otel` is archived** — *"This repository was archived by the owner on Jun 20,
+  2024. It is now read-only."* Its README: *"archived and unmaintained. Hubble OTEL was an
+  experimental project."*
+- **The CFP for Envoy-side OpenTelemetry tracing, cilium/cilium#41259, is closed as not planned.**
+  Its own motivation says why the gap exists: *"With hubble-otel no longer being maintained, it has
+  become harder to get observability for L7 traffic in Cilium environments."*
+
+Cilium 1.20 does not emit application spans. What it **does** provide, maintained and built in, is
+**Hubble flow export**: every flow as newline-delimited JSON with identities, verdicts and L7
+detail, to a per-node file with rotation, and a *dynamic* mode whose filters change without a
+restart.
+
+**Fix — reframe honestly.** Treat "tracing" as **flow-level network tracing**: ship the export
+through an OpenTelemetry Collector as OTLP *logs*. You get a persistent, queryable, per-flow record
+(which also removes demo 01's "ring buffer is finite" limit) and correlation by timestamp, pod and
+identity against whatever application traces you have from elsewhere. Say plainly that these are
+events, not spans. For runtime process/syscall tracing the sibling project is **Tetragon** — a
+separate install and a different story.
+
+→ demo 10
+
+## <a name="31"></a>31. A hostPath log reader must run as root
+
+**Symptom.** The OTel Collector DaemonSet crash-loops on start:
+
+```
+Error: cannot start pipelines: failed to start "filelog" receiver:
+       storage client: open /var/lib/otelcol/receiver_filelog_: permission denied
+```
+
+**Cause.** The `opentelemetry-collector-contrib` image runs as uid 10001. kubelet creates a
+`DirectoryOrCreate` hostPath as `root:root 0755`, so the non-root process cannot write its
+checkpoint there. (The export file itself was `0644`, so *reading* was never the problem — only
+the checkpoint.)
+
+**Fix.** `securityContext: {runAsUser: 0, runAsGroup: 0}` on the pod. This is the same reason
+fluent-bit, promtail and vector run as root in the node-log-reader role: reading root-owned files
+on the host is the job. Its privilege is two host directories read and one written; document that
+rather than pretending it is unprivileged.
 
 ---
 

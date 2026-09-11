@@ -1,0 +1,220 @@
+### 2026-09-11T16:16:19Z
+$ bash -c kubectl --context kind-poc1 -n kube-system get cm cilium-flowlog-config -o jsonpath='{.data.flowlogs\.yaml}' | head -40
+flowLogs:
+  - fieldMask:
+    - time
+    - node_name
+    - verdict
+    - drop_reason_desc
+    - traffic_direction
+    - source.identity
+    - source.namespace
+    - source.pod_name
+    - source.labels
+    - destination.identity
+    - destination.namespace
+    - destination.pod_name
+    - destination.labels
+    - IP
+    - l4
+    - l7
+    - Summary
+    fileCompress: false
+    fileMaxBackups: 5
+    fileMaxSizeMb: 10
+    filePath: /var/run/cilium/hubble/events.log
+    name: all
+  - fieldMask:
+    - time
+    - node_name
+    - verdict
+    - drop_reason_desc
+    - source.namespace
+    - source.pod_name
+    - destination.namespace
+    - destination.pod_name
+    - l4
+    - l7
+    fileMaxBackups: 5
+    fileMaxSizeMb: 10
+    filePath: /var/run/cilium/hubble/drops.log
+    includeFilters:
+    - verdict:
+
+### 2026-09-11T16:16:20Z
+$ bash -c for n in poc1-control-plane poc1-worker poc1-worker2; do printf '%-20s ' $n; docker exec $n sh -c 'ls -l /var/run/cilium/hubble/ | tail -n +2 | awk "{print \$5, \$9}" | tr "\n" "  "'; echo; done
+poc1-control-plane   2320 drops.log 1474546 events.log 
+poc1-worker          3312 drops.log 3497023 events.log 
+poc1-worker2         3892 drops.log 4094970 events.log 
+
+### 2026-09-11T16:16:23Z
+$ bash -c echo 'ONE RAW EXPORTED FLOW (events.log, poc1-worker2):'; docker exec poc1-worker2 tail -1 /var/run/cilium/hubble/events.log | python3 -m json.tool
+ONE RAW EXPORTED FLOW (events.log, poc1-worker2):
+{
+    "flow": {
+        "time": "2026-09-11T16:16:24.329888998Z",
+        "verdict": "FORWARDED",
+        "IP": {
+            "source": "172.18.0.4",
+            "destination": "172.18.0.2",
+            "ipVersion": "IPv4"
+        },
+        "l4": {
+            "TCP": {
+                "source_port": 34376,
+                "destination_port": 6443,
+                "flags": {
+                    "ACK": true
+                }
+            }
+        },
+        "source": {
+            "identity": 1,
+            "labels": [
+                "reserved:host"
+            ]
+        },
+        "destination": {
+            "identity": 2,
+            "labels": [
+                "reserved:world"
+            ]
+        },
+        "node_name": "poc1/poc1-worker2",
+        "traffic_direction": "EGRESS",
+        "Summary": "TCP Flags: ACK"
+    },
+    "node_name": "poc1/poc1-worker2",
+    "time": "2026-09-11T16:16:24.329888998Z"
+}
+
+### 2026-09-11T16:16:25Z
+$ bash -c echo 'drops.log — the persistent record of every policy denial:'; docker exec poc1-worker2 sh -c 'cat /var/run/cilium/hubble/drops.log' | python3 -c 'import sys,json
+for l in sys.stdin:
+    f=json.loads(l)["flow"]; print(f["time"], f["verdict"], f.get("drop_reason_desc"), f.get("source",{}).get("pod_name"),"->",f.get("destination",{}).get("pod_name"))'
+drops.log — the persistent record of every policy denial:
+2026-09-11T16:10:07.295752502Z DROPPED UNSUPPORTED_L3_PROTOCOL None -> None
+2026-09-11T16:10:18.750976323Z DROPPED UNSUPPORTED_L3_PROTOCOL None -> None
+2026-09-11T16:10:18.751033524Z DROPPED UNSUPPORTED_L3_PROTOCOL None -> None
+2026-09-11T16:10:19.391159742Z DROPPED UNSUPPORTED_L3_PROTOCOL None -> None
+2026-09-11T16:10:22.394833107Z DROPPED UNSUPPORTED_L3_PROTOCOL None -> None
+2026-09-11T16:10:29.826375088Z DROPPED UNSUPPORTED_L3_PROTOCOL None -> None
+2026-09-11T16:10:44.665594772Z DROPPED UNSUPPORTED_L3_PROTOCOL None -> None
+2026-09-11T16:11:12.821622583Z DROPPED UNSUPPORTED_L3_PROTOCOL None -> None
+2026-09-11T16:11:12.821920719Z DROPPED UNSUPPORTED_L3_PROTOCOL None -> None
+2026-09-11T16:11:15.382025235Z DROPPED UNSUPPORTED_L3_PROTOCOL None -> None
+2026-09-11T16:12:18.361603494Z DROPPED UNSUPPORTED_L3_PROTOCOL None -> None
+2026-09-11T16:14:25.341455695Z DROPPED UNSUPPORTED_L3_PROTOCOL None -> None
+2026-09-11T16:16:14.976618426Z DROPPED UNSUPPORTED_L3_PROTOCOL None -> None
+2026-09-11T16:16:17.726662969Z DROPPED UNSUPPORTED_L3_PROTOCOL None -> None
+2026-09-11T16:16:25.203608043Z DROPPED UNSUPPORTED_L3_PROTOCOL None -> None
+
+### 2026-09-11T16:18:03Z
+$ bash -c docker exec poc1-worker sh -c 'grep "pod_name\":\"xwing" /var/run/cilium/hubble/drops.log | tail -1' | python3 -m json.tool
+Expecting value: line 1 column 1 (char 0)
+[exit code: 1]
+
+### 2026-09-11T16:18:03Z
+$ bash -c docker exec poc1-worker sh -c 'grep exhaust-port /var/run/cilium/hubble/events.log | tail -2' | python3 -c 'import sys,json
+for l in sys.stdin:
+    f=json.loads(l)["flow"]; h=f.get("l7",{}).get("http",{}); print(f["time"], f["verdict"], f["source"].get("pod_name"), "->", f["destination"].get("pod_name"), h.get("method"), h.get("url"), h.get("code"))'
+2026-09-11T16:17:08.231496853Z DROPPED tiefighter -> deathstar-d7f446dc5-6wgwz PUT http://deathstar.default.svc.cluster.local/v1/exhaust-port None
+2026-09-11T16:17:08.233000492Z FORWARDED deathstar-d7f446dc5-6wgwz -> tiefighter PUT http://deathstar.default.svc.cluster.local/v1/exhaust-port 403
+
+### 2026-09-11T16:18:03Z
+$ bash -c kubectl --context kind-poc1 -n otel logs $(kubectl --context kind-poc1 -n otel get pod -l app=otel-collector --field-selector spec.nodeName=poc1-worker -o jsonpath='{.items[0].metadata.name}') --since=10m | grep -B1 -A6 'LogRecord #23$' | grep -E 'LogRecord|Timestamp|hubble.verdict|k8s.node.name|Summary' | cut -c1-140
+LogRecord #23
+ObservedTimestamp: 2026-09-11 16:17:08.368682895 +0000 UTC
+Timestamp: 2026-09-11 16:17:08.233000492 +0000 UTC
+Body: Str({"flow":{"time":"2026-09-11T16:17:08.233000492Z","verdict":"FORWARDED","IP":{"source":"10.10.4.248","destination":"10.10.4.172","i
+
+### 2026-09-11T16:18:59Z
+$ bash -c kubectl --context kind-poc1 -n kube-system get pods -l k8s-app=cilium -o jsonpath='{range .items[*]}{.metadata.name} age={.metadata.creationTimestamp}{"\n"}{end}'
+cilium-2d74m age=2026-09-11T16:09:10Z
+cilium-lwmn7 age=2026-09-11T16:09:40Z
+cilium-wdjnj age=2026-09-11T16:09:26Z
+cilium-z6zqw age=2026-09-11T16:09:26Z
+cilium-zhrk9 age=2026-09-11T16:09:10Z
+
+### 2026-09-11T16:18:59Z
+$ bash -c docker exec poc1-worker sh -c 'ls -l /var/run/cilium/hubble/ && echo && tail -1 /var/run/cilium/hubble/http.log' | python3 -c 'import sys
+for l in sys.stdin:
+    print(l.rstrip()[:220])'
+tail: cannot open '/var/run/cilium/hubble/http.log' for reading: No such file or directory
+total 4804
+-rw-r--r-- 1 root root    5148 Sep 11 16:18 drops.log
+-rw-r--r-- 1 root root 4907243 Sep 11 16:18 events.log
+
+
+### 2026-09-11T16:21:28Z
+$ bash -c docker exec poc1-worker2 sh -c 'grep "pod_name\":\"xwing" /var/run/cilium/hubble/drops.log | tail -1' | python3 -m json.tool
+{
+    "flow": {
+        "time": "2026-09-11T16:17:11.618328534Z",
+        "verdict": "DROPPED",
+        "l4": {
+            "TCP": {
+                "source_port": 53402,
+                "destination_port": 80,
+                "flags": {
+                    "SYN": true
+                }
+            }
+        },
+        "source": {
+            "namespace": "default",
+            "pod_name": "xwing"
+        },
+        "destination": {
+            "namespace": "default",
+            "pod_name": "deathstar-d7f446dc5-dkgqt"
+        },
+        "node_name": "poc1/poc1-worker2",
+        "drop_reason_desc": "POLICY_DENIED"
+    },
+    "node_name": "poc1/poc1-worker2",
+    "time": "2026-09-11T16:17:11.618328534Z"
+}
+
+### 2026-09-11T16:21:28Z
+$ bash -c kubectl --context kind-poc1 get pods -o wide --no-headers | grep -E 'xwing|deathstar' | awk '{print $1, $6, $7}'
+deathstar-d7f446dc5-6wgwz 10.10.4.248 poc1-worker
+deathstar-d7f446dc5-dkgqt 10.10.3.231 poc1-worker2
+xwing 10.10.4.63 poc1-worker
+
+### 2026-09-11T16:22:13Z
+$ bash -c kubectl --context kind-poc1 -n kube-system logs $(kubectl --context kind-poc1 -n kube-system get pod -l k8s-app=cilium --field-selector spec.nodeName=poc1-worker -o jsonpath='{.items[0].metadata.name}') -c cilium-agent --since=15m | grep 'Configuring Hubble event exporter' | cut -c1-150
+time=2026-09-11T16:09:21.867250931Z level=info msg="Configuring Hubble event exporter" module=agent.controlplane.hubble.hubble-exporters flowLogName=a
+time=2026-09-11T16:09:21.868055002Z level=info msg="Configuring Hubble event exporter" module=agent.controlplane.hubble.hubble-exporters flowLogName=d
+time=2026-09-11T16:19:22.942159983Z level=info msg="Configuring Hubble event exporter" module=agent.controlplane.hubble.hubble-exporters flowLogName=h
+
+### 2026-09-11T16:22:14Z
+$ bash -c helm history cilium -n kube-system --kube-context kind-poc1 | tail -3
+13      	Fri Sep 11 10:39:04 2026	superseded	cilium-1.20.1	1.20.1     	Upgrade complete
+14      	Fri Sep 11 11:08:57 2026	superseded	cilium-1.20.1	1.20.1     	Upgrade complete
+15      	Fri Sep 11 11:18:21 2026	deployed  	cilium-1.20.1	1.20.1     	Upgrade complete
+
+### 2026-09-11T16:22:15Z
+$ bash -c for n in poc1-worker poc1-worker2; do printf '%-14s ' $n; docker exec $n sh -c 'ls -l /var/run/cilium/hubble/ | tail -n +2 | awk "{print \$5, \$9}" | tr "\n" "  "'; echo; done
+poc1-worker    5700 drops.log 6597821 events.log 1315 http.log 
+poc1-worker2   9352 drops.log 7652686 events.log 1196 http.log 
+
+### 2026-09-11T16:22:16Z
+$ bash -c docker exec poc1-worker sh -c 'cat /var/run/cilium/hubble/http.log' | python3 -c 'import sys,json
+tot=bad=0
+for l in sys.stdin:
+    tot+=1; f=json.loads(l)["flow"]
+    if "l7" not in f: bad+=1
+print("http.log lines=%d without_l7=%d" % (tot,bad))'
+http.log lines=2 without_l7=0
+
+### 2026-09-11T16:22:17Z
+$ bash -c echo 'QUERY: every POLICY_DENIED across all nodes (a question the ring buffer cannot answer)'; for n in poc1-control-plane poc1-control-plane2 poc1-control-plane3 poc1-worker poc1-worker2; do docker exec $n sh -c 'cat /var/run/cilium/hubble/drops.log 2>/dev/null'; done | python3 -c 'import sys,json,collections
+c=collections.Counter()
+for l in sys.stdin:
+    f=json.loads(l)["flow"]
+    if f.get("drop_reason_desc")=="POLICY_DENIED": c[(f["source"].get("pod_name"), f["destination"].get("pod_name"), f.get("node_name"))]+=1
+for k,v in c.most_common(): print(v, "x", k)'
+QUERY: every POLICY_DENIED across all nodes (a question the ring buffer cannot answer)
+8 x ('xwing', 'deathstar-d7f446dc5-dkgqt', 'poc1/poc1-worker2')
+

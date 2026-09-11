@@ -1427,3 +1427,40 @@ Run it on **both** sides. `--wait` matters: the first attempts legitimately repo
 Demo 07 then deploys the global service. → [demos/07-clustermesh/README.md](../demos/07-clustermesh/README.md)
 
 ---
+## Step 10 — flow export and tracing (demo 10)
+
+Optional. Adds a persistent, queryable record of every flow, shipped to an OpenTelemetry Collector.
+
+**Read the reframing first.** "Tracing" here is **flow export as OTLP logs**, not application spans:
+`hubble-otel` is archived and Cilium 1.20 emits no spans (gotcha #30). What you get is every flow,
+per node, persisted and correlatable — which also removes demo 01's ring-buffer limit.
+
+```bash
+# 1. enable dynamic export (three files: all flows, drops only, L7 only)
+helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc1 \
+  --reuse-values -f cilium/values-hubble-export.yaml
+kubectl -n kube-system rollout restart daemonset/cilium       # first enable only
+```
+
+```bash
+# 2. confirm the files exist ON THE NODE (a hostPath) -- one set per node
+docker exec poc1-worker ls -l /var/run/cilium/hubble/
+```
+
+```bash
+# 3. the collector, one per node, must run as root for its hostPath checkpoint (gotcha #31)
+kubectl apply -f demos/10-tracing/otel-collector.yaml
+kubectl -n otel get pods            # 5/5 Running
+```
+
+```bash
+# 4. see a flow arrive as an OTLP record
+kubectl -n otel logs -l app=otel-collector --since=2m | grep -A6 'LogRecord #' | head -20
+```
+
+**Changing the export set later needs no restart** — edit the overlay and `helm upgrade` — but allow
+**about a minute** for the mounted ConfigMap to propagate before concluding it did not work.
+
+→ [demos/10-tracing/README.md](../demos/10-tracing/README.md)
+
+---

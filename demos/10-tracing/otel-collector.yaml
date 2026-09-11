@@ -1,0 +1,118 @@
+# An OpenTelemetry Collector on every node, tailing Hubble's flow export and emitting each flow as
+# an OTLP log record.
+#
+# Apply with:
+#   kubectl apply -f demos/10-tracing/otel-collector.yaml
+#
+# WHY A DAEMONSET. Hubble writes its export file per NODE -- each cilium agent writes the flows it
+# saw. So the reader has to be on every node too, with the same hostPath mounted. A single central
+# collector would only see one node's flows.
+#
+# WHY THE `debug` EXPORTER AND NOT JAEGER/LOKI. The point of this demo is the INTEGRATION: Hubble
+# -> file -> Collector -> OTLP. The debug exporter prints every record to the collector's own log,
+# which is enough to prove the pipeline end to end on a laptop and costs nothing to run. Any real
+# backend -- Loki, Elastic, Splunk, Grafana Cloud, an OTLP gateway -- is one more exporter block;
+# the receiver side does not change.
+#
+# WHAT THIS IS AND IS NOT. These are flow EVENTS (who talked to whom, verdict, L7 detail), exported
+# as OTLP *logs*. They are not application spans. Cilium 1.20 does not emit distributed traces:
+# hubble-otel, which generated spans from flows, was archived in June 2024, and the CFP for
+# Envoy-side OpenTelemetry tracing (cilium/cilium#41259) was closed as not planned. See the README.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: otel
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector
+  namespace: otel
+data:
+  config.yaml: |
+    receivers:
+      filelog:
+        include:
+          - /var/run/cilium/hubble/events.log
+        # Tail from the end on first start; a restart resumes from a checkpoint, so nothing is
+        # double-counted and nothing is lost across a collector restart.
+        start_at: end
+        storage: file_storage
+        operators:
+          # Each line is one JSON object: {"flow": {...}, "node_name": ..., "time": ...}
+          - type: json_parser
+            parse_from: body
+            timestamp:
+              parse_from: attributes.time
+              layout: '%Y-%m-%dT%H:%M:%S.%LZ'
+          # Lift the fields a query would filter on into top-level attributes.
+          - type: move
+            from: attributes.flow.verdict
+            to: attributes["hubble.verdict"]
+          - type: move
+            from: attributes.node_name
+            to: attributes["k8s.node.name"]
+    extensions:
+      file_storage:
+        directory: /var/lib/otelcol
+        create_directory: true
+    processors:
+      batch: {}
+      # Tag every record with the node it came from, so a central backend can attribute it.
+      resource:
+        attributes:
+          - key: service.name
+            value: hubble-flow-export
+            action: upsert
+    exporters:
+      debug:
+        verbosity: detailed
+    service:
+      extensions: [file_storage]
+      pipelines:
+        logs:
+          receivers: [filelog]
+          processors: [resource, batch]
+          exporters: [debug]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-collector
+  namespace: otel
+spec:
+  selector: {matchLabels: {app: otel-collector}}
+  template:
+    metadata: {labels: {app: otel-collector}}
+    spec:
+      # Run on control-plane nodes too: they have cilium agents and therefore export files.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      # ROOT, DELIBERATELY. The contrib image runs as uid 10001 by default, and the first attempt
+      # died with "storage client: open /var/lib/otelcol/receiver_filelog_: permission denied":
+      # kubelet creates a DirectoryOrCreate hostPath as root:root 0755, and the export file itself
+      # is written by the cilium agent as root. A node-level log reader has to read root-owned
+      # files on the host, which is why fluent-bit, promtail and vector run as root in this role
+      # too. It reads two host directories and writes to one; that is its whole privilege.
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      containers:
+        - name: collector
+          image: otel/opentelemetry-collector-contrib:0.160.0
+          args: ["--config=/etc/otelcol/config.yaml"]
+          volumeMounts:
+            - {name: config, mountPath: /etc/otelcol, readOnly: true}
+            - {name: hubble-export, mountPath: /var/run/cilium/hubble, readOnly: true}
+            - {name: checkpoints, mountPath: /var/lib/otelcol}
+      volumes:
+        - name: config
+          configMap: {name: otel-collector}
+        - name: hubble-export
+          # The same hostPath the cilium agent writes to. Verified against the cilium DaemonSet's
+          # cilium-run volume before this was written.
+          hostPath: {path: /var/run/cilium/hubble, type: DirectoryOrCreate}
+        - name: checkpoints
+          hostPath: {path: /var/lib/otelcol, type: DirectoryOrCreate}

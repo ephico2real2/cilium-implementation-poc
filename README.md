@@ -34,6 +34,7 @@ Both clusters run with **no kube-proxy** (`kubeProxyMode: none`) and **no defaul
 | Hubble CLI | 1.19.4 |
 | cert-manager | v1.21.1 (chart; GitHub had v1.21.2 the same day — see gotcha #26) |
 | Gateway API CRDs | v1.6.1 standard, plus experimental `TCPRoute` |
+| OpenTelemetry Collector | contrib 0.160.0 |
 
 **The Kubernetes version is not the default and that is deliberate.** kind 0.33.0 defaults to
 v1.37.0, but Cilium 1.20.1 is e2e-tested only on 1.33–1.36. Taking the default would put the PoC on
@@ -52,6 +53,7 @@ an untested combination.
 | 07 | ClusterMesh | A global Service backed by pods in a second cluster, with failover |
 | 08 | Enterprise CA | cert-manager root in poc1 issuing every cluster's mesh certificates; trust before join |
 | 09 | Wildcard TLS + 3 route types | cert-manager wildcard and exact certs on one Gateway; `HTTPRoute`, `GRPCRoute`, `TCPRoute` from one 14 MB image |
+| 10 | Flow tracing -> OpenTelemetry | Hubble dynamic flow export per node, tailed by an OTel Collector into OTLP; every flow persistent and queryable. **Events, not spans** -- hubble-otel is archived, see gotcha #30 |
 
 ## Regenerating the evidence
 

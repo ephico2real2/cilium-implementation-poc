@@ -1,0 +1,92 @@
+# Hubble DYNAMIC flow export — the overlay that turns Hubble's finite ring buffer into a persistent,
+# queryable record of every flow.
+#
+# Apply on top of the existing release (reuse-values keeps clustermesh, gateway, cert-manager settings):
+#   helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc1 \
+#     --reuse-values -f cilium/values-hubble-export.yaml
+#   kubectl -n kube-system rollout restart daemonset/cilium      # first enable only
+#
+# WHY DYNAMIC AND NOT STATIC. Both write JSON-per-line files with rotation. The difference is what
+# happens when you change the filters: static export is baked into the agent's flags and needs a
+# DaemonSet restart; dynamic export reads its config from a ConfigMap (cilium-flowlog-config) and
+# picks up changes live. Enabling the exporter the FIRST time still needs one restart -- after that,
+# adding or narrowing an export is a ConfigMap edit. Demo 10 shows that.
+#
+# WHAT GETS WRITTEN. Each cilium agent writes the flows IT saw to /var/run/cilium/hubble/ on its own
+# node (a hostPath, verified against the DaemonSet's cilium-run volume). So there is one file per
+# node, and the reader -- demos/10-tracing/otel-collector.yaml -- runs as a DaemonSet for that reason.
+hubble:
+  export:
+    dynamic:
+      enabled: true
+      config:
+        createConfigMap: true
+        content:
+          # Every flow, with a fieldMask so a record is a few hundred bytes rather than a few KB.
+          # These are the fields demo 01 taught you to read: who, whom, verdict, L4/L7, and which
+          # node saw it. Everything else (raw event type, ethernet, etc.) is dropped.
+          - name: all
+            filePath: /var/run/cilium/hubble/events.log
+            fieldMask:
+              - time
+              - node_name
+              - verdict
+              - drop_reason_desc
+              - traffic_direction
+              - source.identity
+              - source.namespace
+              - source.pod_name
+              - source.labels
+              - destination.identity
+              - destination.namespace
+              - destination.pod_name
+              - destination.labels
+              - IP
+              - l4
+              - l7
+              - Summary
+            fileMaxSizeMb: 10
+            fileMaxBackups: 5
+            fileCompress: false
+          # A SECOND export, drops only, to a second file. This is the "every policy denial ever"
+          # log a security review actually asks for, and it costs nothing extra: the same flow
+          # stream, a different filter. It is also the entry to edit live to prove the dynamic part.
+          - name: drops
+            filePath: /var/run/cilium/hubble/drops.log
+            includeFilters:
+              - verdict: [DROPPED]
+            fieldMask:
+              - time
+              - node_name
+              - verdict
+              - drop_reason_desc
+              - source.namespace
+              - source.pod_name
+              - destination.namespace
+              - destination.pod_name
+              - l4
+              - l7
+            fileMaxSizeMb: 10
+            fileMaxBackups: 5
+          # A THIRD export, added AFTER the first two were live, to prove the "dynamic" claim: this
+          # entry reached the agents through a helm upgrade of the ConfigMap with NO DaemonSet
+          # restart. MEASURED: helm upgrade at ~16:18, the agent logged "Configuring Hubble event
+          # exporter ... flowLogName=http" at 16:19:22, and http.log existed on both workers by
+          # 16:21 with pods unchanged. So "dynamic" means about a MINUTE, not seconds -- a mounted
+          # ConfigMap propagates on kubelet's sync period. The first check at +30 s found nothing;
+          # that is expected, not a failure. L7 HTTP flows only -- the request log an application
+          # team would want, without the L3/L4 chatter.
+          - name: http
+            filePath: /var/run/cilium/hubble/http.log
+            includeFilters:
+              - protocol: [http]
+            fieldMask:
+              - time
+              - verdict
+              - source.namespace
+              - source.pod_name
+              - destination.namespace
+              - destination.pod_name
+              - l7
+            fileMaxSizeMb: 10
+            fileMaxBackups: 5
