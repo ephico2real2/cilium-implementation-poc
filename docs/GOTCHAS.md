@@ -46,6 +46,11 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [36](#36) | `hubble observe` inside an agent pod shows one node; L7 flows live on the proxy's node — "no HTTP flows" was the wrong socket | Hubble |
 | [37](#37) | `hubble observe` on the Mac: `connection refused` — the CLI talks to `127.0.0.1:4245`, which exists only while a port-forward to Relay runs | Hubble |
 | [38](#38) | A `kind load`-ed image: the pod's `imageID` never equals `docker image inspect`'s ID — compare the config digest via `crictl inspecti` | kind |
+| [39](#39) | Pods in a brand-new namespace refused: `serviceaccount "default" not found` — a race with the token controller, re-apply | Kubernetes |
+| [40](#40) | `hubble.enabled=false` alone is refused by the chart (`Hubble Relay requires .Values.hubble.enabled=true`) — and the failed upgrade leaves everything running | helm |
+| [41](#41) | `hubble observe` said nothing was wrong while Hubble cost 80 % of the connection rate — `EVENTS LOST: OBSERVER_EVENTS_QUEUE` is the tell | Hubble |
+| [42](#42) | A Cilium agent rollout takes the Gateway off the air for 2–3 minutes; tuning flags need a restart, so every tuning step costs an outage | Cilium |
+| [43](#43) | Resuming a paused kind cluster by starting containers in address order breaks the moment a lower address was freed — pin with `docker network connect --ip` | kind / Docker |
 
 ---
 
@@ -957,6 +962,141 @@ Measured equal on all five nodes. The loop is in demo 09, Part 11, step 8.
 
 ---
 
+## <a name="39"></a>39. Pods in a brand-new namespace refused: `serviceaccount "default" not found` — a race with the token controller, re-apply
+
+**Symptom.** One `kubectl apply -f` that creates a Namespace and Pods in it:
+
+```
+namespace/forensic created
+deployment.apps/web created
+Error from server (Forbidden): … pods "iperf3-server" is forbidden: error looking up service account forensic/default: serviceaccount "default" not found
+```
+
+**Cause.** The `default` ServiceAccount is created asynchronously by the controller-manager after
+the Namespace exists; bare Pods are admitted immediately and fail the lookup, while the Deployment
+(whose Pods are created a moment later by its controller) is fine. Eleven seconds later:
+`kubectl -n forensic get sa` → `default 11s`.
+
+**Fix.** Apply again — `kubectl apply` is idempotent, the second pass creates only what failed. In a
+script, wait for the SA: `kubectl -n <ns> wait --for=jsonpath='{.metadata.name}'=default sa/default --timeout=30s`.
+
+→ demo 11, `00-rig.yaml`
+
+---
+
+## <a name="40"></a>40. `hubble.enabled=false` alone is refused by the chart — and the failed upgrade leaves everything running
+
+**Symptom.** `helm upgrade … --reuse-values --set hubble.enabled=false` printed nothing useful
+through a `| tail -1`, the agents were restarted, and `cilium status` still said `Hubble: Ok` with
+relay and UI running. A whole measurement block was recorded under the wrong label before this
+was noticed (the transcript carries the correction).
+
+**Cause.** The chart validates: `execution error at (cilium/templates/validate.yaml:71:7): Hubble
+Relay requires .Values.hubble.enabled=true`. With `--reuse-values`, the release still carries
+`hubble.relay.enabled=true`, so the render fails and **no release is created** — `helm history`
+still ends at the previous revision. The restart then rolled the old configuration.
+
+**Fix.** Switch the dependents off with it, and read the release number back:
+
+```bash
+helm upgrade … --reuse-values --set hubble.enabled=false --set hubble.relay.enabled=false \
+  --set hubble.ui.enabled=false --set hubble.export.dynamic.enabled=false
+helm history cilium -n kube-system --max 1        # a NEW revision, or nothing happened
+cilium-dbg status | grep ^Hubble                   # Hubble: Disabled
+```
+
+**The lesson.** Never pipe a `helm upgrade` through `tail`/`grep` without checking the revision
+afterwards; and label a measurement only after the state it claims has been read back.
+
+→ demo 11, tuning step B
+
+---
+
+## <a name="41"></a>41. `hubble observe` said nothing was wrong while Hubble cost 80 % of the connection rate — `EVENTS LOST` is the tell
+
+**Symptom.** 64 parallel connections with `Connection: close` against a Service on poc1:
+**1,197 qps, p50 45 ms**, `cilium-agent` at 90–160 % CPU. The same load on the kube-proxy cluster:
+8,926 qps, p50 6.9 ms. No drops in `hubble observe --verdict DROPPED`.
+
+**Cause.** The agent was saturated **processing flow events**, not forwarding packets — it is not in
+the packet path. The only line that said so:
+
+```
+Sep 11 21:17:10.982 EVENTS LOST: OBSERVER_EVENTS_QUEUE CPU(0) 5983 (first: 21:17:09.981, last: 21:17:10.978)
+```
+
+Isolated step by step (demo 11): flow export off → 1,578–1,857 qps (the JSON export was part of
+it); Hubble off entirely (relay, UI, monitor) → **8,929–9,450 qps, p50 5–6 ms, agent at 10 %**; the
+datapath tuning (BPF host routing, native routing) then added throughput but changed churn little.
+
+**What to do with it.** Not "turn Hubble off". Size for it: at ~10 k new connections/s per node
+Hubble's per-flow work is a CPU budget line like any other; on this 16-vCPU VM already carrying
+three control planes it was the budget. In production, give the agent CPU, tune
+`hubble.eventQueueSize` / `monitor` aggregation, and export what you need (drops, L7) rather than
+every flow. And watch for `EVENTS LOST` — it is the only symptom.
+
+→ demo 11, Part 3
+
+---
+
+## <a name="42"></a>42. A Cilium agent rollout takes the Gateway off the air for 2–3 minutes; every tuning flag needs one
+
+**Symptom.** Right after `rollout restart ds/cilium` reported success, the external proof
+(`scripts/check-routes.sh`) failed 8 of 11 checks: every HTTP/HTTPS listener on the Gateway address
+**connection refused**, `hubble.poc.local` 503 — while TCPRoute on :9000 still answered and the
+Gateway said `Programmed: True`.
+
+**Cause.** The L2 lease holder (control-plane3) had the address, but its Envoy had not yet received
+the Gateway listener from the restarted agent (`lds: add/update listener` arrives after the xDS
+stream re-establishes). Two minutes later: 0 failures. The datapath tuning flags used in demo 11
+(`bpf.masquerade`, `routingMode`) and Hubble on/off all require an agent restart, so **each step
+of the tuning costs this outage**; the first cross-node curl after the native-routing switch also
+timed out (exit 28) while node routes converged.
+
+**Fix / rule.** Treat agent restarts as maintenance windows, not config reloads. After any of
+them, run the external proof and wait for 0 failures before measuring or declaring done.
+
+→ demo 11, restore step; `scripts/check-routes.sh`
+
+---
+
+## <a name="43"></a>43. Resuming a paused kind cluster by starting containers in address order breaks the moment a lower address was freed — pin the address instead
+
+**Symptom.** `scripts/cluster-resume.sh poc1 poc2` (first version: start each container in
+ascending recorded-IP order) brought poc1's six containers back on their exact addresses, then:
+
+```
+poc2-worker -> 172.18.0.8  EXPECTED 172.18.0.9 — STOP: something else holds that address
+```
+
+**Cause.** Docker gives a starting container the **lowest free** address. Ascending order
+reproduces the map only while nothing *below* the cluster's range is free. `hubble-ui-proxy`
+(`.8`) had been stopped to free memory and not restarted first, so `.8` was free and poc2-worker
+took it. Had the script not checked and stopped, poc2's control plane would have come up on `.9`
+and the cluster would have been dead (#6). Restarting the proxy un-pinned then made it worse: it
+took `.9`, the address poc2-worker needed.
+
+**Fix.** Make the address a property of the container, not of start order. On a **stopped**
+container:
+
+```bash
+docker network disconnect kind poc2-worker
+docker network connect --ip 172.18.0.9 kind poc2-worker
+docker start poc2-worker
+```
+
+The container keeps its name in docker DNS (`getent hosts poc2-control-plane` still resolves) and
+the node rejoined (both Ready in 10 s, ClusterMesh 5/5 connected two minutes later).
+`scripts/cluster-resume.sh` now does this for every recorded container, refuses to start if the
+address is held by a different container, and `hubble-ui-proxy` is pinned to `.8` the same way.
+
+**The lesson.** Ordering is a hope; pinning is a guarantee. The first script "worked" on poc2's dry
+run only because nothing had changed in between.
+
+→ demo 11, Part 5b; `scripts/cluster-resume.sh`
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -972,6 +1112,9 @@ Most of these share a shape: **something reported success while not working.**
 - the evidence script itself reported eleven failures that were not there (#34 — it was reading the shell's namespace, not the cluster)
 - the collector logged `failed to emit token` while forwarding every record (#35)
 - `hubble observe` said no HTTP flows — for the one node it could see (#36)
+- `helm upgrade` piped through `tail` looked fine while it had created no release (#40)
+- `rollout status` said success while the Gateway refused every HTTP connection for two minutes (#42)
+- the ordered-restart dry run on poc2 passed — and then the same script put poc2-worker on the wrong address (#43)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

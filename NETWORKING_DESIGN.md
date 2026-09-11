@@ -106,6 +106,35 @@ Each line in that diagram maps to a command in §4 (macOS) or §5 (Linux) that p
 
 ---
 
+## 2b. A second LAN — poc3 on its own docker network
+
+Demo 11 adds a third cluster (`poc3`, kindnet + kube-proxy) and it does **not** join the `kind`
+network. It gets its own bridge, exactly as you would give a test rack its own VLAN:
+
+```
+ docker network create --subnet 172.30.0.0/16 --gateway 172.30.0.1 kind-classic
+ KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-classic kind create cluster --config clusters/poc3.yaml
+```
+
+| | `kind` (poc1, poc2) | `kind-classic` (poc3) |
+|---|---|---|
+| subnet / gateway | `172.18.0.0/16` / `172.18.0.1` | `172.30.0.0/16` / `172.30.0.1` |
+| bridge in the VM | `br-e1180494aacf` | `br-49634ac72e11` |
+| nodes (measured) | `.0.2 … .0.10` | `.0.2` worker2, `.0.3` worker, `.0.4` control-plane |
+| route on the Mac | `sudo route -n add -net 172.18.0.0/16 192.168.64.2` | `sudo route -n add -net 172.30.0.0/16 192.168.64.2` |
+| pod / service CIDR | `10.10/16`, `10.11/16` (poc1) | `10.30/16`, `10.31/16` |
+
+Why it matters beyond tidiness: a stopped kind node releases its address, and Docker hands the
+lowest free address to whatever starts next. Had poc3 been created on `kind` while poc1 was
+stopped, it would have taken `.2–.4` and poc1 could never have come back (gotcha #6). On its own
+network it cannot collide, and `scripts/cluster-pause.sh` / `cluster-resume.sh` (which start
+containers in ascending recorded-IP order) make stopping and resuming clusters safe — measured on
+poc2 (both nodes back on `.9`/`.10`, Ready in 10 s) and on poc1 (six containers, all addresses
+reproduced).
+
+The Mac needs the second route only to reach poc3's services from a browser; none of demo 11's
+measurements run from the Mac, so it is optional there.
+
 ## 3. The addressing plan (live, and how to reprint it)
 
 Run this any time; it reads everything from Docker and the cluster, nothing is hardcoded:

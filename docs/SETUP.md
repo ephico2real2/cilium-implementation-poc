@@ -1567,3 +1567,21 @@ kubectl -n otel logs -l app=otel-collector --since=2m | grep -A6 'LogRecord #' |
 → [demos/10-tracing/README.md](../demos/10-tracing/README.md)
 
 ---
+
+## Step 11 — a third cluster on its own docker network, and pausing clusters (demo 11)
+
+The forensic comparison needs a control cluster the VM cannot hold alongside poc1 and poc2. Two
+things make that workable, both scripted and both measured:
+
+```bash
+# poc3 on its OWN docker network, so it can never take an address poc1/poc2 need (NETWORKING_DESIGN §2b)
+docker network create --subnet 172.30.0.0/16 --gateway 172.30.0.1 kind-classic
+KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-classic kind create cluster --config clusters/poc3.yaml
+
+# pause / resume without losing a multi-node cluster (gotcha #6): addresses are recorded, then PINNED on resume (gotcha #43)
+scripts/cluster-pause.sh poc1 poc2
+scripts/cluster-resume.sh poc1 poc2
+```
+
+Everything else — the rig, the five measurements, the tuning steps and the restore — is
+`demos/11-kube-proxy-vs-cilium/README.md`.

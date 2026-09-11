@@ -339,3 +339,20 @@ the flag at startup; 60 s of polling saw no change until the restart. After it: 
 [h2,http/1.1]` in the CiliumEnvoyConfig, `ALPN protocol: h2` on all three SNIs, native client
 **0 failures**, and the curl/grpcurl/nc proof (`scripts/check-routes.sh`) still 0 failures.
 Transcript: `demos/09-routes/output/client-check.txt`. Gotcha #33.
+
+## Finding — kube-proxy vs Cilium, measured on one machine (demo 11)
+
+A control cluster (`poc3`: kindnet + kube-proxy iptables, same v1.36.4, own docker network) and
+`scripts/forensic.sh` on both. The numbers the slide gets right: at 1,000 Services kube-proxy
+holds **11,078** iptables rules per node, Cilium **48** (5,110 eBPF map entries); Service
+programming latency 1.3–1.7 s vs 0.2–0.9 s and scale-flat; kernel conntrack under churn 38,621 vs
+~110. The numbers the slide leaves out: the **default** Cilium install (tunnel/VXLAN,
+`Host Routing: Legacy`, iptables masquerade, Hubble + export on) measured **6.8 vs 16.8 Gbit/s**
+and **1,197 vs 8,926 qps** of connection churn. Isolated one change at a time: Hubble's per-flow
+processing was the entire churn penalty (`EVENTS LOST: OBSERVER_EVENTS_QUEUE`; 8,929–9,450 qps
+with it off, agent CPU 120 % → 10 %); `bpf.masquerade=true` turned host routing to BPF (9.1 →
+10.2 Gbit/s); native routing removed VXLAN (15.1 Gbit/s). Best config vs kube-proxy: 15.1 vs 16.8
+Gbit/s (spread 19 %), 7.8 k vs 8.9 k qps — parity within noise on a cluster paying ≈2.8 cores of
+control-plane and proxy tax (VM load 13–18 vs 7) that the control does not. poc1 restored from a
+values snapshot and re-verified. Full tables and the corrections kept in place:
+`demos/11-kube-proxy-vs-cilium/README.md`, `output/transcript.txt`. Gotchas #39–#43.

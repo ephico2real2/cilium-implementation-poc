@@ -1,0 +1,51 @@
+# poc3 — the "classic" control: kind's default CNI (kindnet) + kube-proxy in iptables mode.
+#
+# Create with (its OWN docker network — see below):
+#   docker network create --subnet 172.30.0.0/16 --gateway 172.30.0.1 kind-classic
+#   KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-classic kind create cluster --config clusters/poc3.yaml
+#
+# WHY A SEPARATE DOCKER NETWORK. poc1 and poc2 live on the `kind` network (172.18.0.0/16). kind
+# allocates node addresses from the bottom of whatever network it is on, and a multi-node cluster
+# dies if its nodes come back with different addresses (gotcha #6). Putting poc3 on `kind-classic`
+# (172.30.0.0/16) means it can never take an address poc1/poc2 need while they are stopped, and it
+# is honest about what it is: a second LAN/VLAN, with its own bridge and its own route on the Mac
+# (`sudo route -n add -net 172.30.0.0/16 192.168.64.2`) — NETWORKING_DESIGN.md's model, twice.
+# The env var is kind's supported way to choose the network (experimental in name, stable in use).
+#
+# WHY THIS CLUSTER EXISTS. poc1 proves what Cilium does; nothing so far measures what it does
+# BETTER, because there is nothing to measure it against. poc3 is the same Kubernetes version on the
+# same Docker VM with the stock datapath: Services programmed as iptables chains by kube-proxy,
+# pods connected by kindnet (a plain veth + ptp bridge CNI). Demo 11 runs the same forensic
+# measurements on both — rule count as services grow, programming latency, throughput, conntrack
+# and CPU under load — so every "Cilium is faster/leaner" claim in this repo is a number next to a
+# number, on one machine, same day.
+#
+# WHY iptables MODE, EXPLICITLY. kube-proxy has three datapaths (iptables, ipvs, nftables). iptables
+# is still kind's default and the one most clusters in the field run; naming it makes the comparison
+# reproducible when a future kind changes the default. nftables would be a separate, fair follow-up.
+#
+# WHY 1 CP + 2 WORKERS. The measurements are per-node datapath behaviour and cross-node throughput
+# (worker -> worker, as demo 06 does on poc1). A third control plane would add memory cost on a VM
+# that has ~6 GiB to spare and would change nothing being measured.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: poc3
+
+networking:
+  # Both DEFAULTS, written out so the contrast with poc1/poc2 is visible on the page:
+  disableDefaultCNI: false      # kindnet
+  kubeProxyMode: iptables       # kube-proxy, iptables datapath
+
+  # Disjoint from poc1 (10.10/10.11) and poc2 (10.20/10.21). Not a mesh member — but the three
+  # clusters share one docker network, and non-overlapping ranges keep every packet capture and
+  # every conntrack entry unambiguous when three clusters' pods are on one VM.
+  podSubnet: "10.30.0.0/16"
+  serviceSubnet: "10.31.0.0/16"
+
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  - role: worker
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  - role: worker
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed

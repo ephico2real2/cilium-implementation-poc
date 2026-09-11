@@ -21,6 +21,7 @@ is the only datapath — and the lab exercises, in order:
 | Multi-cluster | **ClusterMesh** over a shared root of trust; global Services with cross-cluster failover | demos 07, 08 |
 | Node-to-node encryption | WireGuard in the kernel, enabled/verified on the wire, then deliberately left **off** | demo 04 |
 | Observability and export | Hubble flows with identities and verdicts; dynamic flow export per node → OpenTelemetry Collector (events, not spans) | demos 01, 10 |
+| Measured against the stock datapath | the same five measurements on a kindnet + kube-proxy control cluster; the tuning that gets Cilium from half of kube-proxy's throughput to parity, and what Hubble costs at 10 k conn/s | demo 11 |
 
 The network underneath is deliberately a *model of a real one*: the docker bridge is the LAN, kind
 nodes are servers on it, reserved ranges at the top of the subnet are the VIP blocks, and the
@@ -41,7 +42,7 @@ unchanged, with BGP substituted for L2 in production.
 6. **`scripts/verify.sh`** — regenerate every piece of evidence on *your* cluster and diff it
    against [docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md). `scripts/check-routes.sh` is the
    external-access proof for demo 09.
-7. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 38 traps, each with the real error
+7. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 43 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -53,8 +54,8 @@ unchanged, with BGP substituted for L2 in production.
 | ✅ | Networking design, two reserved pools, host route, hosts block generated from live state | done |
 | ✅ | Enterprise CA from day 1; ClusterMesh on cert-manager certs (`issuer=CN=clustermesh-root-ca`) | done |
 | ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (662 lines, 13 sections, including the native client) | regenerable |
-| ⏳ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | agreed, not started; needs a disk/memory headroom check first |
-| ⏳ | **BGP with an FRR router (demo 11)** | researched and planned in [docs/summary/BGP_FRR_PLAN.md](docs/summary/BGP_FRR_PLAN.md); parked |
+| ✅ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | done — demo 11, with the three-cause forensic on Cilium's default install; poc3 is paused (`scripts/cluster-resume.sh poc3`) |
+| ⏳ | **BGP with an FRR router (demo 12)** | researched and planned in [docs/summary/BGP_FRR_PLAN.md](docs/summary/BGP_FRR_PLAN.md); parked |
 | ✅ | Hubble UI through the Gateway, including its **data stream** | HTML/JS/CSS at 200, and the relay shows the browser's `POST /api/control-stream` and `/api/service-map-stream` → 200 arriving as identity `ingress` via `https://hubble.poc.local` (demo 09 Part 10) |
 | ⏳ | Wildcard **name** resolution (dnsmasq, `*.poc.local`) | documented in demo 09 Part 3c, not run (needs sudo) |
 | ⏳ | The **Linux-server** path in NETWORKING_DESIGN §5 | its routing-table shape measured on the Docker VM (a Linux host running dockerd); not yet run on a bare Linux server |
@@ -118,6 +119,7 @@ an untested combination.
 | 08 | Enterprise CA | cert-manager root in poc1 issuing every cluster's mesh certificates; trust before join |
 | 09 | Wildcard TLS + 3 route types | cert-manager wildcard and exact certs on one Gateway; `HTTPRoute`, `GRPCRoute`, `TCPRoute` from one 14 MB image — and a native Go client (`-mode client`) that tests all three, which is how the missing-ALPN gotcha (#33) was found |
 | 10 | Flow tracing -> OpenTelemetry | Hubble dynamic flow export per node, tailed by an OTel Collector into OTLP; every flow persistent and queryable. **Events, not spans** -- hubble-otel is archived, see gotcha #30 |
+| 11 | **kube-proxy vs Cilium, forensic** | A third cluster (`poc3`: kindnet + kube-proxy iptables, its own docker network) and one script on both: 48 vs 11,078 iptables rules at 1,000 Services, ~2× faster programming, conntrack out of the kernel — **and** the default install losing on throughput and churn until three causes were isolated (legacy host routing, VXLAN, Hubble's per-flow CPU) |
 
 ## Regenerating the evidence
 
@@ -141,7 +143,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 38 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 43 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 
@@ -232,7 +234,7 @@ the **name** and not the address for `k8sServiceHost`: had the IP been baked int
 
 ## Parked
 
-- **BGP with an FRR router (demo 11)** — researched and planned, not built:
+- **BGP with an FRR router (demo 12)** — researched and planned, not built:
   [docs/summary/BGP_FRR_PLAN.md](docs/summary/BGP_FRR_PLAN.md). Every VIP is reachable by L2 today and
   nothing on the docker network speaks BGP (measured), so the router *is* the demo.
 

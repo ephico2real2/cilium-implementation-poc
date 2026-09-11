@@ -1,0 +1,1318 @@
+### 2026-09-11T20:52:40Z
+$ docker network create --subnet 172.30.0.0/16 --gateway 172.30.0.1 kind-classic
+49634ac72e114e01ba03d8b05fadfd8f3aa15d70dac3f478d2622b2fd3707f1a
+
+### 2026-09-11T20:52:40Z
+$ sh -c docker network inspect kind-classic --format "{{range .IPAM.Config}}subnet {{.Subnet}} gateway {{.Gateway}}{{end}}"
+subnet 172.30.0.0/16 gateway 172.30.0.1
+
+### 2026-09-11T20:52:41Z
+$ sh -c docker info --format "VM Mem={{.MemTotal}} CPUs={{.NCPU}}"; docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -- sh -c "free -m | head -2; cat /proc/loadavg"
+VM Mem=16769388544 CPUs=16
+              total        used        free      shared  buff/cache   available
+Mem:          15993        8780        1420         379        5793        6504
+13.87 15.53 12.54 20/3727 299354
+
+### 2026-09-11T20:52:42Z
+$ env KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-classic kind create cluster --config clusters/poc3.yaml
+Creating cluster "poc3" ...
+ • Ensuring node image (kindest/node:v1.36.4) 🖼️  ...
+WARNING: Overriding docker network due to KIND_EXPERIMENTAL_DOCKER_NETWORK
+WARNING: Here be dragons! This is not supported currently.
+ ✓ Ensuring node image (kindest/node:v1.36.4) 🖼️
+ • Preparing nodes 📦 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-poc3"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-poc3
+
+Have a question, bug, or feature request? Let us know! https://kind.sigs.k8s.io/#community 🙂
+
+### 2026-09-11T20:53:22Z
+$ sh -c docker network inspect kind-classic --format "{{range .Containers}}{{.IPv4Address}} {{.Name}}{{println}}{{end}}" | sort -t. -k4 -n
+
+172.30.0.2/16 poc3-worker2
+172.30.0.3/16 poc3-worker
+172.30.0.4/16 poc3-control-plane
+
+### 2026-09-11T20:53:23Z
+$ sh -c docker network inspect kind --format "{{range .Containers}}{{.IPv4Address}} {{.Name}}{{println}}{{end}}" | sort -t. -k4 -n
+
+172.18.0.2/16 poc1-external-load-balancer
+172.18.0.3/16 poc1-control-plane3
+172.18.0.4/16 poc1-worker2
+172.18.0.5/16 poc1-worker
+172.18.0.6/16 poc1-control-plane
+172.18.0.7/16 poc1-control-plane2
+172.18.0.8/16 hubble-ui-proxy
+172.18.0.9/16 poc2-worker
+172.18.0.10/16 poc2-control-plane
+
+### 2026-09-11T20:53:23Z
+$ kubectl --context kind-poc3 get nodes -o wide
+NAME                 STATUS     ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION            CONTAINER-RUNTIME
+poc3-control-plane   NotReady   control-plane   15s   v1.36.4   172.30.0.4    <none>        Debian GNU/Linux 13 (trixie)   6.6.12-linuxkit (amd64)   containerd://2.3.4
+poc3-worker          NotReady   <none>          3s    v1.36.4   172.30.0.3    <none>        Debian GNU/Linux 13 (trixie)   6.6.12-linuxkit (amd64)   containerd://2.3.4
+poc3-worker2         NotReady   <none>          3s    v1.36.4   172.30.0.2    <none>        Debian GNU/Linux 13 (trixie)   6.6.12-linuxkit (amd64)   containerd://2.3.4
+
+### 2026-09-11T20:53:24Z
+$ kubectl --context kind-poc3 -n kube-system get ds -o custom-columns=DS:.metadata.name,READY:.status.numberReady,DESIRED:.status.desiredNumberScheduled,IMAGE:.spec.template.spec.containers[0].image
+DS           READY   DESIRED   IMAGE
+kindnet      1       3         docker.io/kindest/kindnetd:v20260820-69b56db7
+kube-proxy   3       3         registry.k8s.io/kube-proxy:v1.36.4
+
+### 2026-09-11T20:53:24Z
+$ sh -c kubectl --context kind-poc3 -n kube-system get cm kube-proxy -o jsonpath="{.data.config\.conf}" | grep -E "^mode|minSyncPeriod|syncPeriod|clusterCIDR"
+clusterCIDR: 10.30.0.0/16
+  minSyncPeriod: 1s
+  syncPeriod: 0s
+  minSyncPeriod: 0s
+  syncPeriod: 0s
+mode: iptables
+  minSyncPeriod: 0s
+  syncPeriod: 0s
+
+### 2026-09-11T20:53:55Z
+$ scripts/cluster-pause.sh poc1 poc2
+== poc1 on network 'kind' — recorded 6 containers to .tmp/ipmap-poc1.txt:
+   172.18.0.2 poc1-external-load-balancer
+   172.18.0.3 poc1-control-plane3
+   172.18.0.4 poc1-worker2
+   172.18.0.5 poc1-worker
+   172.18.0.6 poc1-control-plane
+   172.18.0.7 poc1-control-plane2
+   stopped.
+== poc2 on network 'kind' — recorded 2 containers to .tmp/ipmap-poc2.txt:
+   172.18.0.9 poc2-worker
+   172.18.0.10 poc2-control-plane
+   stopped.
+
+resume with: scripts/cluster-resume.sh poc1 poc2
+
+### 2026-09-11T20:54:21Z
+$ docker stop hubble-ui-proxy
+hubble-ui-proxy
+
+### 2026-09-11T20:54:29Z
+$ sh -c docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -- sh -c "free -m | head -2; cat /proc/loadavg"; docker ps --format "{{.Names}}" | sort | tr "\n" " "; echo
+              total        used        free      shared  buff/cache   available
+Mem:          15993        1665        8093          36        6235       13961
+40.93 21.88 14.97 8/1787 305427
+poc3-control-plane poc3-worker poc3-worker2 
+
+### 2026-09-11T21:03:27Z
+$ scripts/forensic.sh poc3
+
+================================================================================
+ 0. IDENTITY — poc3  (2026-09-11T21:03:28Z)
+================================================================================
+  poc3-control-plane   Ready   v1.36.4   6.6.12-linuxkit
+  poc3-worker          Ready   v1.36.4   6.6.12-linuxkit
+  poc3-worker2         Ready   v1.36.4   6.6.12-linuxkit
+  datapath : kindnet v20260820-69b56db7, kube-proxy v1.36.4 mode=iptables
+  rig      :
+  client                 poc3-worker2   10.30.3.2   true
+  fortio                 poc3-worker2   10.30.3.4   true
+  iperf3-server          poc3-worker    10.30.1.5   true
+  web-85c8cb547f-87c5k   poc3-worker    10.30.1.2   true
+  web-85c8cb547f-g9njw   poc3-worker    10.30.1.4   true
+  web-85c8cb547f-sxlqp   poc3-worker    10.30.1.3   true
+  VM load  : 5.17 8.09 10.77
+  clock    : VM is 65.0 ms ahead of the Mac (measured, best of 7, rtt 161.8 ms) — subtracted from every latency below
+
+================================================================================
+ 1. BASELINE STATE (rig only, no generated services)
+================================================================================
+  poc3-worker    iptables rules=78     KUBE-SVC=29   KUBE-SEP=44   | kube-proxy nat rules=50     sync_duration sum/count=0.340218465/7  network_programming sum/count=10.776875090000003/9  nf_conntrack=7
+  poc3-worker2   iptables rules=78     KUBE-SVC=29   KUBE-SEP=44   | kube-proxy nat rules=50     sync_duration sum/count=0.339082441/7  network_programming sum/count=10.763772782999999/9  nf_conntrack=8
+  services in forensic: 2
+
+================================================================================
+ 2. PROGRAMMING LATENCY at scale 0 — ms from 'kubectl create service' to first successful connect (3 samples)
+================================================================================
+  sample 1: 1342 ms
+  sample 2: 1261 ms
+  sample 3: 1265 ms
+
+================================================================================
+ 3. RULE COUNT vs SERVICES — generated ClusterIP Services, all selecting the 3 web backends
+================================================================================
+
+--- growing to 100 services ---
+  apply of 100 Services took 6.7 s (API side)
+  last service (gen-0100, 10.31.84.86) reachable 9.0 s after the apply began
+  poc3-worker    iptables rules=1178   KUBE-SVC=629  KUBE-SEP=1244 | kube-proxy nat rules=1150   sync_duration sum/count=0.5430914900000001/19  network_programming sum/count=156.77509778299986/112  nf_conntrack=16
+  poc3-worker2   iptables rules=1178   KUBE-SVC=629  KUBE-SEP=1244 | kube-proxy nat rules=1150   sync_duration sum/count=0.5411858279999999/19  network_programming sum/count=156.45037146699997/112  nf_conntrack=45
+  programming latency at scale 100 (3 samples):
+    sample 1: 1339 ms
+    sample 2: 1250 ms
+    sample 3: 1267 ms
+
+--- growing to 500 services ---
+  apply of 400 Services took 25.4 s (API side)
+  last service (gen-0500, 10.31.155.232) reachable 36.1 s after the apply began
+  poc3-worker    iptables rules=5578   KUBE-SVC=3029 KUBE-SEP=6044 | kube-proxy nat rules=5550   sync_duration sum/count=1.8764470860000002/45  network_programming sum/count=2358.635621834002/515  nf_conntrack=21
+  poc3-worker2   iptables rules=5578   KUBE-SVC=3029 KUBE-SEP=6044 | kube-proxy nat rules=5550   sync_duration sum/count=1.8705283609999996/45  network_programming sum/count=2358.290419912999/515  nf_conntrack=92
+  programming latency at scale 500 (3 samples):
+    sample 1: 1347 ms
+    sample 2: 1563 ms
+    sample 3: 1278 ms
+
+--- growing to 1000 services ---
+  apply of 500 Services took 32.2 s (API side)
+  last service (gen-1000, 10.31.30.205) reachable 46.0 s after the apply began
+  poc3-worker    iptables rules=11078  KUBE-SVC=6029 KUBE-SEP=12044 | kube-proxy nat rules=11050  sync_duration sum/count=4.602871230000002/75  network_programming sum/count=5676.089779906002/1018  nf_conntrack=30
+  poc3-worker2   iptables rules=11078  KUBE-SVC=6029 KUBE-SEP=12044 | kube-proxy nat rules=11050  sync_duration sum/count=4.9514745/75  network_programming sum/count=5691.788498364003/1018  nf_conntrack=111
+  programming latency at scale 1000 (3 samples):
+    sample 1: 1732 ms
+    sample 2: 1671 ms
+    sample 3: 1583 ms
+
+================================================================================
+ 4. THROUGHPUT — iperf3 poc3-worker2 -> poc3-worker, pod IP then via the Service ClusterIP (5 runs each)
+================================================================================
+  VM load before: 6.96 7.33 10.04
+context=kind-poc3  ns=forensic  client=client  target=10.30.1.5  runs=5  duration=10s
+  run 1: 16848 Mbits/sec
+  run 2: 16967 Mbits/sec
+  run 3: 16825 Mbits/sec
+  run 4: 15716 Mbits/sec
+  run 5: 16723 Mbits/sec
+  median  : 16825 Mbits/sec
+  spread  : 7.4%  of median   <-- treat any difference smaller than this as noise
+context=kind-poc3  ns=forensic  client=client  target=iperf3-server.forensic.svc.cluster.local  runs=5  duration=10s
+  run 1: 16891 Mbits/sec
+  run 2: 16741 Mbits/sec
+  run 3: 16372 Mbits/sec
+  run 4: 16826 Mbits/sec
+  run 5: 16489 Mbits/sec
+  median  : 16741 Mbits/sec
+  spread  : 3.1%  of median   <-- treat any difference smaller than this as noise
+
+================================================================================
+ 5. CONNECTION CHURN + what the nodes pay — fortio, 64 parallel, Connection: close, 20 s, via the web Service
+================================================================================
+  before: 32 conntrack entries on poc3-worker; VM load 7.17 7.28 9.72
+  t+4s: nf_conntrack(poc3-worker)=22486  node CPU: poc3-worker 415.95% poc3-worker2 674.29%   kube-proxy on poc3-worker: %
+  t+8s: nf_conntrack(poc3-worker)=37353  node CPU: poc3-worker 420.25% poc3-worker2 685.49%   kube-proxy on poc3-worker: %
+  t+12s: nf_conntrack(poc3-worker)=38609  node CPU: poc3-worker 317.95% poc3-worker2 513.51%   kube-proxy on poc3-worker: %
+  t+16s: nf_conntrack(poc3-worker)=38621  node CPU: poc3-worker 8.92% poc3-worker2 3.54%   kube-proxy on poc3-worker: %
+  # target 50% 0.00691807
+  # target 99% 0.0152806
+  Sockets used: 178658 (for perfect keepalive, would be 64)
+  Code 200 : 178594 (100.0 %)
+  All done 178594 calls (plus 64 warmup) 7.167 ms avg, 8926.4 qps
+  after : 38576 conntrack entries on poc3-worker
+
+  keep-alive comparison (same load, persistent connections, 10 s):
+  # target 50% 0.000990323
+  # target 99% 0.00850623
+  All done 408165 calls (plus 64 warmup) 1.566 ms avg, 40805.9 qps
+
+================================================================================
+ 6. CLEANUP — generated services removed, rig kept
+================================================================================
+  services in forensic now: 2
+
+### 2026-09-11T21:09:28Z
+$ scripts/cluster-pause.sh poc3
+== poc3 on network 'kind-classic' — recorded 3 containers to .tmp/ipmap-poc3.txt:
+   172.30.0.2 poc3-worker2
+   172.30.0.3 poc3-worker
+   172.30.0.4 poc3-control-plane
+   stopped.
+
+resume with: scripts/cluster-resume.sh poc3
+
+### 2026-09-11T21:09:40Z
+$ scripts/cluster-resume.sh poc1
+== poc1: starting in recorded order
+   poc1-external-load-balancer -> 172.18.0.2  ok
+   poc1-control-plane3 -> 172.18.0.3  ok
+   poc1-worker2 -> 172.18.0.4  ok
+   poc1-worker -> 172.18.0.5  ok
+   poc1-control-plane -> 172.18.0.6  ok
+   poc1-control-plane2 -> 172.18.0.7  ok
+   waiting for nodes Ready.
+   NAME                  STATUS   ROLES           AGE   VERSION
+   poc1-control-plane    Ready    control-plane   24h   v1.36.4
+   poc1-control-plane2   Ready    control-plane   24h   v1.36.4
+   poc1-control-plane3   Ready    control-plane   24h   v1.36.4
+   poc1-worker           Ready    <none>          24h   v1.36.4
+   poc1-worker2          Ready    <none>          24h   v1.36.4
+
+### 2026-09-11T21:10:07Z
+$ cilium status --context kind-poc1
+[33m    /¯¯\
+[36m /¯¯[33m\__/[32m¯¯\[0m    Cilium:             [33m5 warnings[0m
+[36m \__[31m/¯¯\[32m__/[0m    Operator:           [32mOK[0m
+[32m /¯¯[31m\__/[35m¯¯\[0m    Envoy DaemonSet:    [32mOK[0m
+[32m \__[34m/¯¯\[35m__/[0m    Hubble Relay:       [32mOK[0m
+[34m[34m[34m    \__/[0m       ClusterMesh:        [32mOK[0m
+
+DaemonSet              cilium                   Desired: 5, Ready: [32m5/5[0m, Available: [32m5/5[0m
+DaemonSet              cilium-envoy             Desired: 5, Ready: [32m5/5[0m, Available: [32m5/5[0m
+Deployment             cilium-operator          Desired: 1, Ready: [32m1/1[0m, Available: [32m1/1[0m
+Deployment             clustermesh-apiserver    Desired: 1, Ready: [32m1/1[0m, Available: [32m1/1[0m
+Deployment             hubble-relay             Desired: 1, Ready: [32m1/1[0m, Available: [32m1/1[0m
+Deployment             hubble-ui                Desired: 1, Ready: [32m1/1[0m, Available: [32m1/1[0m
+Containers:            cilium                   Pending: [32m5[0m
+                       cilium-envoy             Running: [32m5[0m
+                       cilium-operator          Running: [32m1[0m
+                       clustermesh-apiserver    Running: [32m1[0m
+                       hubble-relay             Running: [32m1[0m
+                       hubble-ui                Running: [32m1[0m
+Cluster Pods:          28/28 managed by Cilium
+Helm chart version:    1.20.1
+Image versions         cilium                   quay.io/cilium/cilium:v1.20.1@sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b: 5
+                       cilium-envoy             quay.io/cilium/cilium-envoy:v1.37.5-1786810558-766ccfb37260a43e9d228837aa84ce3faf9f64e7@sha256:75b8094c7127736a2ffd2dce3945e0931cb6df21b0372ff661940eca26730b91: 5
+                       cilium-operator          quay.io/cilium/operator-generic:v1.20.1@sha256:6c3885fc7b629099fdbe2a5c87869c86feb825fa18fae299eac0f61918d16ecf: 1
+                       clustermesh-apiserver    quay.io/cilium/clustermesh-apiserver:v1.20.1@sha256:d905d614a332b2058cb81c193e481d1f460902b903f4eb57cc9764640b750fb5: 3
+                       hubble-relay             quay.io/cilium/hubble-relay:v1.20.1@sha256:59be0ae7d475ab9011a5e954618c0f27b5778b17140381425b308b55ba4917f4: 1
+                       hubble-ui                quay.io/cilium/hubble-ui-backend:v0.13.5@sha256:fac0c300ae119274edca11fd89b1ad23c788792d8bc4ea2ba631c709e8d3c688: 1
+                       hubble-ui                quay.io/cilium/hubble-ui:v0.13.5@sha256:f7d514fc54d784ed6df9d58cf0e97648b143f92b766dd1780ed3fc845bd4c516: 1
+Warnings:              cilium                   cilium-2d74m    pod is pending
+                       cilium                   cilium-lwmn7    pod is pending
+                       cilium                   cilium-wdjnj    pod is pending
+                       cilium                   cilium-z6zqw    pod is pending
+                       cilium                   cilium-zhrk9    pod is pending
+
+### 2026-09-11T21:10:08Z
+$ kubectl --context kind-poc1 apply -f demos/11-kube-proxy-vs-cilium/00-rig.yaml
+namespace/forensic created
+deployment.apps/web created
+service/web created
+service/iperf3-server created
+Error from server (Forbidden): error when creating "demos/11-kube-proxy-vs-cilium/00-rig.yaml": pods "iperf3-server" is forbidden: error looking up service account forensic/default: serviceaccount "default" not found
+Error from server (Forbidden): error when creating "demos/11-kube-proxy-vs-cilium/00-rig.yaml": pods "client" is forbidden: error looking up service account forensic/default: serviceaccount "default" not found
+Error from server (Forbidden): error when creating "demos/11-kube-proxy-vs-cilium/00-rig.yaml": pods "fortio" is forbidden: error looking up service account forensic/default: serviceaccount "default" not found
+[exit code: 1]
+
+### 2026-09-11T21:10:14Z
+$ kubectl --context kind-poc1 -n forensic get pods -o wide
+No resources found in forensic namespace.
+
+### 2026-09-11T21:10:30Z
+$ kubectl --context kind-poc1 -n forensic get sa
+NAME      AGE
+default   11s
+
+### 2026-09-11T21:10:31Z
+$ kubectl --context kind-poc1 apply -f demos/11-kube-proxy-vs-cilium/00-rig.yaml
+namespace/forensic unchanged
+deployment.apps/web unchanged
+service/web unchanged
+pod/iperf3-server created
+service/iperf3-server unchanged
+pod/client created
+pod/fortio created
+
+### 2026-09-11T21:12:18Z
+$ kubectl --context kind-poc1 -n forensic get pods -o wide
+NAME                   READY   STATUS    RESTARTS   AGE    IP            NODE           NOMINATED NODE   READINESS GATES
+client                 1/1     Running   0          106s   10.10.3.116   poc1-worker2   <none>           <none>
+fortio                 1/1     Running   0          106s   10.10.3.206   poc1-worker2   <none>           <none>
+iperf3-server          1/1     Running   0          106s   10.10.4.31    poc1-worker    <none>           <none>
+web-85c8cb547f-d74c7   1/1     Running   0          118s   10.10.4.66    poc1-worker    <none>           <none>
+web-85c8cb547f-v6kb6   1/1     Running   0          118s   10.10.4.248   poc1-worker    <none>           <none>
+web-85c8cb547f-vtnll   1/1     Running   0          118s   10.10.4.44    poc1-worker    <none>           <none>
+
+### 2026-09-11T21:12:18Z
+$ scripts/forensic.sh poc1
+
+================================================================================
+ 0. IDENTITY — poc1  (2026-09-11T21:12:18Z)
+================================================================================
+  poc1-control-plane    Ready   v1.36.4   6.6.12-linuxkit
+  poc1-control-plane2   Ready   v1.36.4   6.6.12-linuxkit
+  poc1-control-plane3   Ready   v1.36.4   6.6.12-linuxkit
+  poc1-worker           Ready   v1.36.4   6.6.12-linuxkit
+  poc1-worker2          Ready   v1.36.4   6.6.12-linuxkit
+  datapath : Cilium ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b, kube-proxy DaemonSet: 1 (0 = none)
+  KPR      : KubeProxyReplacement: True [eth0 172.18.0.5 fc00:f853:ccd:e793::5 fe80::42:acff:fe12:5 (Direct Routing)]
+  rig      :
+  client                 poc1-worker2   10.10.3.116   true
+  fortio                 poc1-worker2   10.10.3.206   true
+  iperf3-server          poc1-worker    10.10.4.31    true
+  web-85c8cb547f-d74c7   poc1-worker    10.10.4.66    true
+  web-85c8cb547f-v6kb6   poc1-worker    10.10.4.248   true
+  web-85c8cb547f-vtnll   poc1-worker    10.10.4.44    true
+  VM load  : 18.03 15.64 12.60
+  clock    : VM is 83.9 ms ahead of the Mac (measured, best of 7, rtt 202.6 ms) — subtracted from every latency below
+
+================================================================================
+ 1. BASELINE STATE (rig only, no generated services)
+================================================================================
+  poc1-worker    iptables rules=46     KUBE-SVC=0    KUBE-SEP=0    | cilium services=32    bpf lb entries=110    bpf ct entries=79     nf_conntrack=79
+  poc1-worker2   iptables rules=46     KUBE-SVC=0    KUBE-SEP=0    | cilium services=32    bpf lb entries=110    bpf ct entries=183    nf_conntrack=148
+  services in forensic: 2
+
+================================================================================
+ 2. PROGRAMMING LATENCY at scale 0 — ms from 'kubectl create service' to first successful connect (3 samples)
+================================================================================
+  sample 1: 553 ms
+  sample 2: 562 ms
+  sample 3: 286 ms
+
+================================================================================
+ 3. RULE COUNT vs SERVICES — generated ClusterIP Services, all selecting the 3 web backends
+================================================================================
+
+--- growing to 100 services ---
+  apply of 100 Services took 10.6 s (API side)
+  last service (gen-0100, 10.11.247.179) reachable 11.1 s after the apply began
+  poc1-worker    iptables rules=48     KUBE-SVC=0    KUBE-SEP=0    | cilium services=132   bpf lb entries=610    bpf ct entries=93     nf_conntrack=104
+  poc1-worker2   iptables rules=48     KUBE-SVC=0    KUBE-SEP=0    | cilium services=132   bpf lb entries=610    bpf ct entries=247    nf_conntrack=203
+  programming latency at scale 100 (3 samples):
+    sample 1: 549 ms
+    sample 2: 586 ms
+    sample 3: 909 ms
+
+--- growing to 500 services ---
+  apply of 400 Services took 39.7 s (API side)
+  last service (gen-0500, 10.11.227.85) reachable 40.2 s after the apply began
+  poc1-worker    iptables rules=48     KUBE-SVC=0    KUBE-SEP=0    | cilium services=532   bpf lb entries=2610   bpf ct entries=124    nf_conntrack=111
+  poc1-worker2   iptables rules=48     KUBE-SVC=0    KUBE-SEP=0    | cilium services=532   bpf lb entries=2610   bpf ct entries=335    nf_conntrack=191
+  programming latency at scale 500 (3 samples):
+    sample 1: 890 ms
+    sample 2: 542 ms
+    sample 3: 229 ms
+
+--- growing to 1000 services ---
+  apply of 500 Services took 49.8 s (API side)
+  last service (gen-1000, 10.11.99.168) reachable 50.3 s after the apply began
+  poc1-worker    iptables rules=48     KUBE-SVC=0    KUBE-SEP=0    | cilium services=1032  bpf lb entries=5110   bpf ct entries=174    nf_conntrack=132
+  poc1-worker2   iptables rules=48     KUBE-SVC=0    KUBE-SEP=0    | cilium services=1032  bpf lb entries=5110   bpf ct entries=430    nf_conntrack=197
+  programming latency at scale 1000 (3 samples):
+    sample 1: 713 ms
+    sample 2: 218 ms
+    sample 3: 230 ms
+
+================================================================================
+ 4. THROUGHPUT — iperf3 poc1-worker2 -> poc1-worker, pod IP then via the Service ClusterIP (5 runs each)
+================================================================================
+  VM load before: 15.46 15.44 13.00
+context=kind-poc1  ns=forensic  client=client  target=10.10.4.31  runs=5  duration=10s
+  run 1: 6764 Mbits/sec
+  run 2: 6690 Mbits/sec
+  run 3: 8805 Mbits/sec
+  run 4: 8868 Mbits/sec
+  run 5: 6441 Mbits/sec
+  median  : 6764 Mbits/sec
+  spread  : 35.9%  of median   <-- treat any difference smaller than this as noise
+context=kind-poc1  ns=forensic  client=client  target=iperf3-server.forensic.svc.cluster.local  runs=5  duration=10s
+  run 1: 8686 Mbits/sec
+  run 2: 8815 Mbits/sec
+  run 3: 6295 Mbits/sec
+  run 4: 6345 Mbits/sec
+  run 5: 7468 Mbits/sec
+  median  : 7468 Mbits/sec
+  spread  : 33.7%  of median   <-- treat any difference smaller than this as noise
+
+================================================================================
+ 5. CONNECTION CHURN + what the nodes pay — fortio, 64 parallel, Connection: close, 20 s, via the web Service
+================================================================================
+  before: 127 conntrack entries on poc1-worker; VM load 14.98 14.89 13.04
+  t+8s: nf_conntrack(poc1-worker)=110  node CPU: poc1-worker 494.90% poc1-worker2 689.25%   cilium-agent on poc1-worker: 90.9%
+  t+15s: nf_conntrack(poc1-worker)=112  node CPU: poc1-worker 495.74% poc1-worker2 725.25%   cilium-agent on poc1-worker: 50%
+  t+23s: nf_conntrack(poc1-worker)=112  node CPU: poc1-worker 383.57% poc1-worker2 690.80%   cilium-agent on poc1-worker: 108.3%
+  t+30s: nf_conntrack(poc1-worker)=119  node CPU: poc1-worker 40.78% poc1-worker2 53.70%   cilium-agent on poc1-worker: 10%
+  # target 50% 0.0450841
+  # target 99% 0.197736
+  Sockets used: 24060 (for perfect keepalive, would be 64)
+  Code 200 : 23996 (100.0 %)
+  All done 23996 calls (plus 64 warmup) 53.373 ms avg, 1196.8 qps
+  cilium bpf ct entries on poc1-worker after: 12791
+  after : 123 conntrack entries on poc1-worker
+
+  keep-alive comparison (same load, persistent connections, 10 s):
+  # target 50% 0.00133104
+  # target 99% 0.0131565
+  All done 289481 calls (plus 64 warmup) 2.208 ms avg, 28932.7 qps
+
+================================================================================
+ 6. CLEANUP — generated services removed, rig kept
+================================================================================
+  services in forensic now: 2
+
+### 2026-09-11T21:20:02Z
+$ [decomposition on poc1, Hubble + flow export ON — raw fortio lines]
+=== E1. churn with observability ON (flow export 3 files/node + 5 OTel collectors + Hubble relay) ===
+  load: 11.77 17.12 14.66
+  pod-ip    http://10.10.4.66:8080/ 
+  clusterip http://10.11.108.33/ 
+  dns-name  http://web.forensic.svc.cluster.local/ 
+### 2026-09-11T21:21:20Z
+$ [decomposition on poc1, flow export + OTel collectors OFF, Hubble relay still on]
+=== E3. same churn, observability OFF ===
+  load: 9.41 15.18 14.16
+  pod-ip    http://10.10.4.66:8080/ 
+  clusterip http://10.11.108.33/ 
+  dns-name  http://web.forensic.svc.cluster.local/ 
+  cilium-agent CPU on poc1-worker right after: 0%
+### 2026-09-11T21:23:27Z
+$ scripts/churn-decompose.sh poc1 flow export OFF, OTel collectors OFF, Hubble relay ON
+=== churn decomposition on poc1 (flow export OFF, OTel collectors OFF, Hubble relay ON) — 64 conns, Connection: close, 8 s each; daemon=cilium-agent on poc1-worker ===
+  VM load: 9.56 13.35 13.62
+  target     url                                               qps    p50_ms    p99_ms cilium-agent%
+  pod-ip     http://10.10.4.66:8080/                        1578.6      33.3     139.1 10
+  clusterip  http://10.11.108.33/                           1769.3      28.7     134.9 16.7
+  dns-name   http://web.forensic.svc.cluster.local/         1490.7      38.4     116.9 20
+
+### 2026-09-11T21:23:56Z
+$ scripts/bench.sh poc1 pod-ip, export OFF kind-poc1 forensic client 10.10.4.31 5
+=== poc1 pod-ip, export OFF ===
+context=kind-poc1  ns=forensic  client=client  target=10.10.4.31  runs=5  duration=10s
+
+  run 1: 9039 Mbits/sec
+  run 2: 8662 Mbits/sec
+  run 3: 8828 Mbits/sec
+  run 4: 7477 Mbits/sec
+  run 5: 7893 Mbits/sec
+
+  samples : 5
+  sorted  : 7477, 7893, 8662, 8828, 9039
+  median  : 8662 Mbits/sec
+  min/max : 7477 / 9039 Mbits/sec
+  spread  : 18.0%  of median   <-- treat any difference smaller than this as noise
+
+### 2026-09-11T21:25:31Z
+$ [TUNING STEP A on poc1: bpf.masquerade=true (docs: with kube-proxy replacement this enables eBPF host routing); flow export still OFF]
+### 2026-09-11T21:25:31Z
+$ sh -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --verbose 2>/dev/null | grep -E "^Routing|Host Routing|^Masquerading"
+Routing:                Network: Tunnel [vxlan]   Host: Legacy
+Masquerading:           IPTables [IPv4: Enabled, IPv6: Disabled]
+
+### 2026-09-11T21:25:32Z
+$ helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 --reuse-values --set bpf.masquerade=true
+Release "cilium" has been upgraded. Happy Helming!
+NAME: cilium
+LAST DEPLOYED: Fri Sep 11 16:25:34 2026
+NAMESPACE: kube-system
+STATUS: deployed
+REVISION: 18
+TEST SUITE: None
+NOTES:
+You have successfully installed Cilium with Hubble Relay and Hubble UI.
+
+WARNINGS:
+- WARNING: TLS is not enabled for the Hubble Relay server (hubble.relay.tls.server.enabled=false).
+  This means Hubble Relay communications may not be encrypted. For more information about the security
+  implications and suggested controls, please see: https://docs.cilium.io/en/stable/security/threat-model/#hubble-data-attacker
+
+Your release version is 1.20.1.
+
+For any further help, visit https://docs.cilium.io/en/v1.20/gettinghelp
+
+### 2026-09-11T21:25:41Z
+$ kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium
+daemonset.apps/cilium restarted
+
+### 2026-09-11T21:25:41Z
+$ kubectl --context kind-poc1 -n kube-system rollout status ds/cilium --timeout=300s
+Waiting for daemon set "cilium" rollout to finish: 0 out of 5 new pods have been updated...
+Waiting for daemon set "cilium" rollout to finish: 1 out of 5 new pods have been updated...
+Waiting for daemon set "cilium" rollout to finish: 2 out of 5 new pods have been updated...
+Waiting for daemon set "cilium" rollout to finish: 2 out of 5 new pods have been updated...
+Waiting for daemon set "cilium" rollout to finish: 2 out of 5 new pods have been updated...
+Waiting for daemon set "cilium" rollout to finish: 3 out of 5 new pods have been updated...
+Waiting for daemon set "cilium" rollout to finish: 4 out of 5 new pods have been updated...
+Waiting for daemon set "cilium" rollout to finish: 4 out of 5 new pods have been updated...
+Waiting for daemon set "cilium" rollout to finish: 4 out of 5 new pods have been updated...
+Waiting for daemon set "cilium" rollout to finish: 4 of 5 updated pods are available...
+daemon set "cilium" successfully rolled out
+
+### 2026-09-11T21:26:36Z
+$ sh -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --verbose 2>/dev/null | grep -E "^Routing|Host Routing|^Masquerading|BPF"
+Routing:                Network: Tunnel [vxlan]   Host: BPF
+Masquerading:           BPF   [eth0]   10.10.0.0/24  [IPv4: Enabled, IPv6: Disabled]
+Clock Source for BPF:   ktime
+BPF Maps:   dynamic sizing: on (ratio: 0.002500)
+
+### 2026-09-11T21:26:49Z
+$ [FULL SUITE on poc1 TUNED: bpf.masquerade=true -> Host Routing BPF; tunnel vxlan; flow export OFF, OTel OFF]
+### 2026-09-11T21:26:49Z
+$ scripts/forensic.sh poc1
+
+================================================================================
+ 0. IDENTITY — poc1  (2026-09-11T21:26:49Z)
+================================================================================
+  poc1-control-plane    Ready   v1.36.4   6.6.12-linuxkit
+  poc1-control-plane2   Ready   v1.36.4   6.6.12-linuxkit
+  poc1-control-plane3   Ready   v1.36.4   6.6.12-linuxkit
+  poc1-worker           Ready   v1.36.4   6.6.12-linuxkit
+  poc1-worker2          Ready   v1.36.4   6.6.12-linuxkit
+  datapath : Cilium ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b, kube-proxy DaemonSet: 1 (0 = none)
+  KPR      : KubeProxyReplacement: True [eth0 172.18.0.5 fc00:f853:ccd:e793::5 fe80::42:acff:fe12:5 (Direct Routing)]
+  rig      :
+  client                 poc1-worker2   10.10.3.116   true
+  fortio                 poc1-worker2   10.10.3.206   true
+  iperf3-server          poc1-worker    10.10.4.31    true
+  web-85c8cb547f-d74c7   poc1-worker    10.10.4.66    true
+  web-85c8cb547f-v6kb6   poc1-worker    10.10.4.248   true
+  web-85c8cb547f-vtnll   poc1-worker    10.10.4.44    true
+  VM load  : 10.49 14.28 14.22
+  clock    : VM is 78.7 ms ahead of the Mac (measured, best of 7, rtt 190.7 ms) — subtracted from every latency below
+
+================================================================================
+ 1. BASELINE STATE (rig only, no generated services)
+================================================================================
+  poc1-worker    iptables rules=37     KUBE-SVC=0    KUBE-SEP=0    | cilium services=32    bpf lb entries=110    bpf ct entries=19522  nf_conntrack=108
+  poc1-worker2   iptables rules=37     KUBE-SVC=0    KUBE-SEP=0    | cilium services=32    bpf lb entries=110    bpf ct entries=38260  nf_conntrack=132
+  services in forensic: 2
+
+================================================================================
+ 2. PROGRAMMING LATENCY at scale 0 — ms from 'kubectl create service' to first successful connect (3 samples)
+================================================================================
+  sample 1: 533 ms
+  sample 2: 534 ms
+  sample 3: 900 ms
+
+================================================================================
+ 3. RULE COUNT vs SERVICES — generated ClusterIP Services, all selecting the 3 web backends
+================================================================================
+
+--- growing to 100 services ---
+  apply of 100 Services took 9.3 s (API side)
+  last service (gen-0100, 10.11.87.83) reachable 9.8 s after the apply began
+  poc1-worker    iptables rules=37     KUBE-SVC=0    KUBE-SEP=0    | cilium services=132   bpf lb entries=610    bpf ct entries=19538  nf_conntrack=131
+  poc1-worker2   iptables rules=37     KUBE-SVC=0    KUBE-SEP=0    | cilium services=132   bpf lb entries=610    bpf ct entries=38308  nf_conntrack=188
+  programming latency at scale 100 (3 samples):
+    sample 1: 548 ms
+    sample 2: 866 ms
+    sample 3: 865 ms
+
+--- growing to 500 services ---
+  apply of 400 Services took 39.4 s (API side)
+  last service (gen-0500, 10.11.249.142) reachable 40.0 s after the apply began
+  poc1-worker    iptables rules=39     KUBE-SVC=0    KUBE-SEP=0    | cilium services=532   bpf lb entries=2610   bpf ct entries=19597  nf_conntrack=130
+  poc1-worker2   iptables rules=39     KUBE-SVC=0    KUBE-SEP=0    | cilium services=532   bpf lb entries=2610   bpf ct entries=12648  nf_conntrack=193
+  programming latency at scale 500 (3 samples):
+    sample 1: 852 ms
+    sample 2: 576 ms
+    sample 3: 203 ms
+
+--- growing to 1000 services ---
+  apply of 500 Services took 47.6 s (API side)
+  last service (gen-1000, 10.11.135.143) reachable 48.8 s after the apply began
+  poc1-worker    iptables rules=39     KUBE-SVC=0    KUBE-SEP=0    | cilium services=1032  bpf lb entries=5110   bpf ct entries=115    nf_conntrack=132
+  poc1-worker2   iptables rules=39     KUBE-SVC=0    KUBE-SEP=0    | cilium services=1032  bpf lb entries=5110   bpf ct entries=12740  nf_conntrack=200
+  programming latency at scale 1000 (3 samples):
+    sample 1: 541 ms
+    sample 2: 879 ms
+    sample 3: 530 ms
+
+================================================================================
+ 4. THROUGHPUT — iperf3 poc1-worker2 -> poc1-worker, pod IP then via the Service ClusterIP (5 runs each)
+================================================================================
+  VM load before: 13.65 14.10 14.14
+context=kind-poc1  ns=forensic  client=client  target=10.10.4.31  runs=5  duration=10s
+  run 1: 8954 Mbits/sec
+  run 2: 6676 Mbits/sec
+  run 3: 9149 Mbits/sec
+  run 4: 9692 Mbits/sec
+  run 5: 9110 Mbits/sec
+  median  : 9110 Mbits/sec
+  spread  : 33.1%  of median   <-- treat any difference smaller than this as noise
+context=kind-poc1  ns=forensic  client=client  target=iperf3-server.forensic.svc.cluster.local  runs=5  duration=10s
+  run 1: 9319 Mbits/sec
+  run 2: 9241 Mbits/sec
+  run 3: 9253 Mbits/sec
+  run 4: 9301 Mbits/sec
+  run 5: 6957 Mbits/sec
+  median  : 9253 Mbits/sec
+  spread  : 25.5%  of median   <-- treat any difference smaller than this as noise
+
+================================================================================
+ 5. CONNECTION CHURN + what the nodes pay — fortio, 64 parallel, Connection: close, 20 s, via the web Service
+================================================================================
+  before: 123 conntrack entries on poc1-worker; VM load 9.03 12.35 13.50
+  t+7s: nf_conntrack(poc1-worker)=104  node CPU: poc1-worker 446.43% poc1-worker2 721.05%   cilium-agent on poc1-worker: 163.6%
+  t+14s: nf_conntrack(poc1-worker)=111  node CPU: poc1-worker 476.07% poc1-worker2 725.70%   cilium-agent on poc1-worker: 127.3%
+  t+20s: nf_conntrack(poc1-worker)=114  node CPU: poc1-worker 450.99% poc1-worker2 702.21%   cilium-agent on poc1-worker: 118.2%
+  t+28s: nf_conntrack(poc1-worker)=119  node CPU: poc1-worker 37.06% poc1-worker2 40.48%   cilium-agent on poc1-worker: 20%
+  # target 50% 0.0372651
+  # target 99% 0.107409
+  Sockets used: 31425 (for perfect keepalive, would be 64)
+  Code 200 : 31361 (100.0 %)
+  All done 31361 calls (plus 64 warmup) 40.822 ms avg, 1565.3 qps
+  cilium bpf ct entries on poc1-worker after: 14529
+  after : 123 conntrack entries on poc1-worker
+
+  keep-alive comparison (same load, persistent connections, 10 s):
+  # target 50% 0.00128209
+  # target 99% 0.0124105
+  All done 298861 calls (plus 64 warmup) 2.139 ms avg, 29872.3 qps
+
+================================================================================
+ 6. CLEANUP — generated services removed, rig kept
+================================================================================
+  services in forensic now: 2
+
+### 2026-09-11T21:33:19Z
+$ [TUNING STEP B on poc1: hubble.enabled=false (relay, UI and the agent's flow processing all off); bpf.masquerade still true]
+### 2026-09-11T21:33:19Z
+$ helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 --reuse-values --set hubble.enabled=false
+Error: UPGRADE FAILED: execution error at (cilium/templates/validate.yaml:71:7): Hubble Relay requires .Values.hubble.enabled=true
+[exit code: 1]
+
+### 2026-09-11T21:33:21Z
+$ kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium
+daemonset.apps/cilium restarted
+
+### 2026-09-11T21:34:16Z
+$ sh -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E "^Hubble|^Routing|^Masquerading"; kubectl --context kind-poc1 -n kube-system get deploy hubble-relay hubble-ui --no-headers 2>&1 | head -2
+Routing:             Network: Tunnel [vxlan]   Host: BPF
+Masquerading:        BPF   [eth0]   10.10.3.0/24  [IPv4: Enabled, IPv6: Disabled]
+Hubble:                  Ok         Current/Max Flows: 596/4095 (14.55%), Flows/s: 12.49   Metrics: Ok
+hubble-relay   1/1   1     1     25h
+hubble-ui      1/1   1     1     25h
+
+### 2026-09-11T21:34:17Z
+$ scripts/churn-decompose.sh poc1 BPF host routing, vxlan, Hubble OFF entirely
+=== churn decomposition on poc1 (BPF host routing, vxlan, Hubble OFF entirely) — 64 conns, Connection: close, 8 s each; daemon=cilium-agent on poc1-worker ===
+  VM load: 13.09 15.51 14.81
+  target     url                                               qps    p50_ms    p99_ms cilium-agent%
+  pod-ip     http://10.10.4.66:8080/                        1661.0      31.8     134.8 100
+  clusterip  http://10.11.108.33/                           1767.6      27.9     144.9 118.2
+  dns-name   http://web.forensic.svc.cluster.local/         1529.1      37.5     117.9 130
+
+### 2026-09-11T21:34:45Z
+$ scripts/bench.sh poc1 pod-ip, BPF host routing, Hubble OFF kind-poc1 forensic client 10.10.4.31 5
+=== poc1 pod-ip, BPF host routing, Hubble OFF ===
+context=kind-poc1  ns=forensic  client=client  target=10.10.4.31  runs=5  duration=10s
+
+  run 1: 6207 Mbits/sec
+  run 2: 6629 Mbits/sec
+  run 3: 8986 Mbits/sec
+  run 4: 9471 Mbits/sec
+  run 5: 9306 Mbits/sec
+
+  samples : 5
+  sorted  : 6207, 6629, 8986, 9306, 9471
+  median  : 8986 Mbits/sec
+  min/max : 6207 / 9471 Mbits/sec
+  spread  : 36.3%  of median   <-- treat any difference smaller than this as noise
+
+### 2026-09-11T21:35:55Z
+$ [CORRECTION: the STEP B block above is mislabelled — cilium status still reported "Hubble: Ok" and relay/UI stayed deployed, so its numbers are "BPF host routing, vxlan, Hubble ON, export OFF" (a repeat), NOT "Hubble OFF". Cause investigated below.]
+
+### 2026-09-11T21:36:18Z
+$ [TUNING STEP B, second attempt: hubble off with its dependents — the chart refused hubble.enabled=false alone]
+### 2026-09-11T21:36:18Z
+$ helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 --reuse-values --set hubble.enabled=false --set hubble.relay.enabled=false --set hubble.ui.enabled=false --set hubble.export.dynamic.enabled=false --set hubble.metrics.enabled=null
+Release "cilium" has been upgraded. Happy Helming!
+NAME: cilium
+LAST DEPLOYED: Fri Sep 11 16:36:19 2026
+NAMESPACE: kube-system
+STATUS: deployed
+REVISION: 19
+TEST SUITE: None
+NOTES:
+You have successfully installed Cilium.
+
+Your release version is 1.20.1.
+
+For any further help, visit https://docs.cilium.io/en/v1.20/gettinghelp
+
+### 2026-09-11T21:36:27Z
+$ kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium
+daemonset.apps/cilium restarted
+
+### 2026-09-11T21:37:23Z
+$ sh -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E "^Hubble|^Routing|^Masquerading"; echo "hubble deployments: $(kubectl --context kind-poc1 -n kube-system get deploy --no-headers 2>/dev/null | grep -c hubble)"
+Routing:             Network: Tunnel [vxlan]   Host: BPF
+Masquerading:        BPF   [eth0]   10.10.1.0/24  [IPv4: Enabled, IPv6: Disabled]
+Hubble:                  Disabled   Metrics: Disabled
+hubble deployments: 0
+
+### 2026-09-11T21:37:24Z
+$ scripts/churn-decompose.sh poc1 BPF host routing, vxlan, Hubble OFF (verified above)
+=== churn decomposition on poc1 (BPF host routing, vxlan, Hubble OFF (verified above)) — 64 conns, Connection: close, 8 s each; daemon=cilium-agent on poc1-worker ===
+  VM load: 10.92 15.36 15.08
+  target     url                                               qps    p50_ms    p99_ms cilium-agent%
+  pod-ip     http://10.10.4.66:8080/                        8928.8       6.0      26.7 10
+  clusterip  http://10.11.108.33/                           9450.2       5.0      29.1 9.1
+  dns-name   http://web.forensic.svc.cluster.local/         6565.9       9.2      23.2 9.1
+
+### 2026-09-11T21:37:52Z
+$ scripts/bench.sh poc1 pod-ip, BPF host routing, Hubble OFF kind-poc1 forensic client 10.10.4.31 5
+=== poc1 pod-ip, BPF host routing, Hubble OFF ===
+context=kind-poc1  ns=forensic  client=client  target=10.10.4.31  runs=5  duration=10s
+
+  run 1: 9955 Mbits/sec
+  run 2: 9559 Mbits/sec
+  run 3: 10193 Mbits/sec
+  run 4: 10428 Mbits/sec
+  run 5: 10285 Mbits/sec
+
+  samples : 5
+  sorted  : 9559, 9955, 10193, 10285, 10428
+  median  : 10193 Mbits/sec
+  min/max : 9559 / 10428 Mbits/sec
+  spread  : 8.5%  of median   <-- treat any difference smaller than this as noise
+
+### 2026-09-11T21:39:12Z
+$ [TUNING STEP C on poc1: routingMode=native (no VXLAN), autoDirectNodeRoutes=true, ipv4NativeRoutingCIDR=10.10.0.0/16; BPF host routing; Hubble OFF]
+### 2026-09-11T21:39:13Z
+$ helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 --reuse-values --set routingMode=native --set autoDirectNodeRoutes=true --set ipv4NativeRoutingCIDR=10.10.0.0/16
+Release "cilium" has been upgraded. Happy Helming!
+NAME: cilium
+LAST DEPLOYED: Fri Sep 11 16:39:14 2026
+NAMESPACE: kube-system
+STATUS: deployed
+REVISION: 20
+TEST SUITE: None
+NOTES:
+You have successfully installed Cilium.
+
+Your release version is 1.20.1.
+
+For any further help, visit https://docs.cilium.io/en/v1.20/gettinghelp
+
+### 2026-09-11T21:39:19Z
+$ kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium
+daemonset.apps/cilium restarted
+
+### 2026-09-11T21:40:19Z
+$ sh -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E "^Hubble|^Routing|^Masquerading"
+Routing:             Network: Native   Host: BPF
+Masquerading:        BPF   [eth0]   10.10.0.0/16  [IPv4: Enabled, IPv6: Disabled]
+Hubble:                  Disabled   Metrics: Disabled
+
+### 2026-09-11T21:40:20Z
+$ sh -c docker exec poc1-worker2 ip route show | grep -E "^10\.10\." | head -6
+10.10.0.0/24 via 172.18.0.6 dev eth0 proto kernel 
+10.10.1.0/24 via 172.18.0.7 dev eth0 proto kernel 
+10.10.2.0/24 via 172.18.0.3 dev eth0 proto kernel 
+10.10.3.0/24 via 10.10.3.168 dev cilium_host proto kernel src 10.10.3.168 
+10.10.3.168 dev cilium_host proto kernel scope link 
+10.10.4.0/24 via 172.18.0.5 dev eth0 proto kernel 
+
+### 2026-09-11T21:40:21Z
+$ sh -c kubectl --context kind-poc1 -n forensic exec client -- curl -s -o /dev/null -w 'cross-node pod->pod via native routes: http %{http_code}\n' http://10.10.4.66:8080/
+cross-node pod->pod via native routes: http 000
+command terminated with exit code 28
+[exit code: 28]
+
+### 2026-09-11T21:42:34Z
+$ scripts/churn-decompose.sh poc1 native routing, BPF host routing, Hubble OFF
+=== churn decomposition on poc1 (native routing, BPF host routing, Hubble OFF) — 64 conns, Connection: close, 8 s each; daemon=cilium-agent on poc1-worker ===
+  VM load: 8.77 13.01 14.41
+  target     url                                               qps    p50_ms    p99_ms cilium-agent%
+  pod-ip     http://10.10.4.66:8080/                       10941.8       4.8      21.6 9.1
+  clusterip  http://10.11.108.33/                          11715.8       4.1      23.3 10
+  dns-name   http://web.forensic.svc.cluster.local/         7701.7       7.9      18.5 18.2
+
+### 2026-09-11T21:43:02Z
+$ [FULL SUITE on poc1 BEST CONFIG: native routing + BPF host routing + Hubble OFF]
+### 2026-09-11T21:43:02Z
+$ scripts/forensic.sh poc1
+
+================================================================================
+ 0. IDENTITY — poc1  (2026-09-11T21:43:02Z)
+================================================================================
+  poc1-control-plane    Ready   v1.36.4   6.6.12-linuxkit
+  poc1-control-plane2   Ready   v1.36.4   6.6.12-linuxkit
+  poc1-control-plane3   Ready   v1.36.4   6.6.12-linuxkit
+  poc1-worker           Ready   v1.36.4   6.6.12-linuxkit
+  poc1-worker2          Ready   v1.36.4   6.6.12-linuxkit
+  datapath : Cilium ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b, kube-proxy DaemonSet: 1 (0 = none)
+  KPR      : KubeProxyReplacement: True [eth0 172.18.0.5 fc00:f853:ccd:e793::5 fe80::42:acff:fe12:5 (Direct Routing)]
+  rig      :
+  client                 poc1-worker2   10.10.3.116   true
+  fortio                 poc1-worker2   10.10.3.206   true
+  iperf3-server          poc1-worker    10.10.4.31    true
+  web-85c8cb547f-d74c7   poc1-worker    10.10.4.66    true
+  web-85c8cb547f-v6kb6   poc1-worker    10.10.4.248   true
+  web-85c8cb547f-vtnll   poc1-worker    10.10.4.44    true
+  VM load  : 18.98 15.04 15.04
+  clock    : VM is 74.7 ms ahead of the Mac (measured, best of 7, rtt 178.3 ms) — subtracted from every latency below
+
+================================================================================
+ 1. BASELINE STATE (rig only, no generated services)
+================================================================================
+  poc1-worker    iptables rules=36     KUBE-SVC=0    KUBE-SEP=0    | cilium services=28    bpf lb entries=94     bpf ct entries=25356  nf_conntrack=94
+  poc1-worker2   iptables rules=36     KUBE-SVC=0    KUBE-SEP=0    | cilium services=28    bpf lb entries=94     bpf ct entries=51108  nf_conntrack=74
+  services in forensic: 2
+
+================================================================================
+ 2. PROGRAMMING LATENCY at scale 0 — ms from 'kubectl create service' to first successful connect (3 samples)
+================================================================================
+  sample 1: 440 ms
+  sample 2: 868 ms
+  sample 3: 537 ms
+
+================================================================================
+ 3. RULE COUNT vs SERVICES — generated ClusterIP Services, all selecting the 3 web backends
+================================================================================
+
+--- growing to 100 services ---
+  apply of 100 Services took 8.8 s (API side)
+  last service (gen-0100, 10.11.165.226) reachable 9.3 s after the apply began
+  poc1-worker    iptables rules=36     KUBE-SVC=0    KUBE-SEP=0    | cilium services=128   bpf lb entries=594    bpf ct entries=25379  nf_conntrack=116
+  poc1-worker2   iptables rules=36     KUBE-SVC=0    KUBE-SEP=0    | cilium services=128   bpf lb entries=594    bpf ct entries=51159  nf_conntrack=103
+  programming latency at scale 100 (3 samples):
+    sample 1: 546 ms
+    sample 2: 542 ms
+    sample 3: 873 ms
+
+--- growing to 500 services ---
+  apply of 400 Services took 36.3 s (API side)
+  last service (gen-0500, 10.11.109.100) reachable 37.5 s after the apply began
+  poc1-worker    iptables rules=40     KUBE-SVC=0    KUBE-SEP=0    | cilium services=528   bpf lb entries=2594   bpf ct entries=25414  nf_conntrack=139
+  poc1-worker2   iptables rules=40     KUBE-SVC=0    KUBE-SEP=0    | cilium services=528   bpf lb entries=2594   bpf ct entries=51242  nf_conntrack=124
+  programming latency at scale 500 (3 samples):
+    sample 1: 531 ms
+    sample 2: 549 ms
+    sample 3: 526 ms
+
+--- growing to 1000 services ---
+  apply of 500 Services took 47.9 s (API side)
+  last service (gen-1000, 10.11.92.156) reachable 48.3 s after the apply began
+  poc1-worker    iptables rules=40     KUBE-SVC=0    KUBE-SEP=0    | cilium services=1028  bpf lb entries=5094   bpf ct entries=25456  nf_conntrack=143
+  poc1-worker2   iptables rules=40     KUBE-SVC=0    KUBE-SEP=0    | cilium services=1028  bpf lb entries=5094   bpf ct entries=51336  nf_conntrack=126
+  programming latency at scale 1000 (3 samples):
+    sample 1: 861 ms
+    sample 2: 856 ms
+    sample 3: 470 ms
+
+================================================================================
+ 4. THROUGHPUT — iperf3 poc1-worker2 -> poc1-worker, pod IP then via the Service ClusterIP (5 runs each)
+================================================================================
+  VM load before: 10.24 12.81 14.18
+context=kind-poc1  ns=forensic  client=client  target=10.10.4.31  runs=5  duration=10s
+  run 1: 12472 Mbits/sec
+  run 2: 15394 Mbits/sec
+  run 3: 15147 Mbits/sec
+  run 4: 15392 Mbits/sec
+  run 5: 13295 Mbits/sec
+  median  : 15147 Mbits/sec
+  spread  : 19.3%  of median   <-- treat any difference smaller than this as noise
+context=kind-poc1  ns=forensic  client=client  target=iperf3-server.forensic.svc.cluster.local  runs=5  duration=10s
+  run 1: 15556 Mbits/sec
+  run 2: 15397 Mbits/sec
+  run 3: 15554 Mbits/sec
+  run 4: 13122 Mbits/sec
+  run 5: 15547 Mbits/sec
+  median  : 15547 Mbits/sec
+  spread  : 15.7%  of median   <-- treat any difference smaller than this as noise
+
+================================================================================
+ 5. CONNECTION CHURN + what the nodes pay — fortio, 64 parallel, Connection: close, 20 s, via the web Service
+================================================================================
+  before: 135 conntrack entries on poc1-worker; VM load 8.75 11.54 13.57
+  t+7s: nf_conntrack(poc1-worker)=104  node CPU: poc1-worker 435.08% poc1-worker2 631.48%   cilium-agent on poc1-worker: 18.2%
+  t+15s: nf_conntrack(poc1-worker)=109  node CPU: poc1-worker 415.70% poc1-worker2 635.53%   cilium-agent on poc1-worker: 10%
+  t+22s: nf_conntrack(poc1-worker)=99  node CPU: poc1-worker 181.03% poc1-worker2 637.61%   cilium-agent on poc1-worker: 9.1%
+  t+30s: nf_conntrack(poc1-worker)=109  node CPU: poc1-worker 36.03% poc1-worker2 23.38%   cilium-agent on poc1-worker: 0%
+  # target 50% 0.00783946
+  # target 99% 0.0182059
+  Sockets used: 155388 (for perfect keepalive, would be 64)
+  Code 200 : 155324 (100.0 %)
+  All done 155324 calls (plus 64 warmup) 8.239 ms avg, 7763.5 qps
+  cilium bpf ct entries on poc1-worker after: 27957
+  after : 112 conntrack entries on poc1-worker
+
+  keep-alive comparison (same load, persistent connections, 10 s):
+  # target 50% 0.00109962
+  # target 99% 0.00932316
+  All done 361918 calls (plus 64 warmup) 1.766 ms avg, 36179.7 qps
+
+================================================================================
+ 6. CLEANUP — generated services removed, rig kept
+================================================================================
+  services in forensic now: 2
+
+### 2026-09-11T21:49:32Z
+$ [RESTORE poc1 to its documented state from the pre-tuning snapshot: tunnel/vxlan, iptables masquerade, Hubble + relay + UI + flow export, gatewayAPI + ALPN]
+### 2026-09-11T21:49:32Z
+$ sh -c helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 -f .tmp/poc1-values-before-tuning.yaml 2>&1 | grep -E 'Release|Error'
+Release "cilium" has been upgraded. Happy Helming!
+
+### 2026-09-11T21:49:43Z
+$ sh -c helm get values cilium -n kube-system --kube-context kind-poc1 | grep -cE "masquerade|routingMode|autoDirect|NativeRouting"; echo "^ tuning keys left in the release (expect 0)"
+0
+^ tuning keys left in the release (expect 0)
+
+### 2026-09-11T21:49:44Z
+$ kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium deploy/cilium-operator
+daemonset.apps/cilium restarted
+deployment.apps/cilium-operator restarted
+
+### 2026-09-11T21:50:24Z
+$ kubectl --context kind-poc1 -n otel patch ds otel-collector --type json -p [{"op":"remove","path":"/spec/template/spec/nodeSelector"}]
+daemonset.apps/otel-collector patched
+
+### 2026-09-11T21:51:09Z
+$ sh -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E "^Hubble|^Routing|^Masquerading"; kubectl --context kind-poc1 -n kube-system get deploy hubble-relay hubble-ui --no-headers; kubectl --context kind-poc1 -n otel get pods --no-headers | grep -c Running | sed "s/^/otel collectors running: /"; kubectl --context kind-poc1 -n kube-system get cm cilium-flowlog-config -o jsonpath="{.data.flowlogs\.yaml}" | grep -c filePath | sed "s/^/flow export files: /"
+Routing:             Network: Tunnel [vxlan]   Host: Legacy
+Masquerading:        IPTables [IPv4: Enabled, IPv6: Disabled]
+Hubble:                  Ok         Current/Max Flows: 617/4095 (15.07%), Flows/s: 7.69   Metrics: Ok
+hubble-relay   0/1   1     0     89s
+hubble-ui      1/1   1     1     89s
+otel collectors running: 0
+flow export files: 3
+
+### 2026-09-11T21:51:10Z
+$ scripts/check-routes.sh
+Gateway routes-gw address: 172.18.255.240   (must be inside gateway-pool 172.18.255.240-250)
+KIND        NAME       HOSTS                         ACCEPTED   RESOLVED
+HTTPRoute   anything   [anything-at-all.poc.local]   True       True
+HTTPRoute   exact      [exact.example.test]          True       True
+HTTPRoute   hubble     [hubble.poc.local]            True       True
+HTTPRoute   web        [web.poc.local]               True       True
+GRPCRoute   grpc       [grpc.poc.local]              True       True
+TCPRoute    echo       <none>                        True       True
+
+1. HTTPRoute x3 over HTTPS, certificate chain verified against the enterprise root (docs/root-ca.crt)
+  FAIL  https://web.poc.local/ (wildcard listener, *.poc.local cert) -> 000 (expected 200)
+  FAIL  https://anything-at-all.poc.local/ (wildcard listener, *.poc.local cert) -> 000 (expected 200)
+  FAIL  https://exact.example.test/ (exact listener, its own cert) -> 000 (expected 200)
+  FAIL  https://nobody.poc.local/ (under the wildcard but NO route -> Gateway 404) -> 000 (expected 404)
+   SNI -> certificate presented:
+     web.poc.local        
+     exact.example.test   
+
+2. HTTPRoute over plain HTTP :80 (Host header selects the route)
+  FAIL  http://172.18.255.240/ Host: web.poc.local -> 000 (expected 200)
+
+3. GRPCRoute (grpcurl runs in a container on the docker network; -authority is the route's hostname)
+  FAIL  h2c :80 Health/Check -> Failedtodialtargethost"172.18.255.240:80":connectionerror:desc="transport:errorwhiledialing:dialtcp172.18.255.240:80:connect:connectionrefused"
+  FAIL  TLS :443 Health/Check -> Failedtodialtargethost"172.18.255.240:443":connectionerror:desc="transport:errorwhiledialing:dialtcp172.18.255.240:443:connect:connectionrefused"
+
+4. TCPRoute :9000 (bytes in, bytes back — no HTTP involved)
+  PASS  tcp echo -> hello from echo (tcp echo)|echo echoed: ping from check-routes|
+
+5. Hubble UI through the SAME Gateway URL: https://hubble.poc.local (HTTPRoute in routes -> Service in kube-system via ReferenceGrant)
+  FAIL  https://hubble.poc.local/ (index) -> 503 (expected 200)
+  PASS  page title <title>Hubble UI</title>
+  PASS  asset /bundle.main.811eb2d9fcafb97bbf36.js -> 200
+  PASS  asset /bundle.main.0f16d72c3dee99c3b95a.css -> 200
+  PASS  same UI direct at its own LB address (kind-docker-pool) for comparison -> 200
+   Hubble's own view of that request (world -> hubble-ui, through the Gateway):
+
+FAILED CHECKS: 8
+[exit code: 8]
+
+### 2026-09-11T21:52:28Z
+$ sh -c kubectl --context kind-poc1 -n forensic get pods --no-headers | wc -l | sed "s/^/forensic rig pods kept: /"
+forensic rig pods kept:        6
+
+### 2026-09-11T21:54:18Z
+$ [restore verified 2 min later: hubble-relay 1/1, 5 OTel collectors Running, Gateway routes-gw Programmed at 172.18.255.240, scripts/check-routes.sh FAILED CHECKS: 0 — the 8 failures right after the rollout were the agents + Envoy re-converging, ~2-3 min of Gateway downtime]
+
+### 2026-09-11T21:54:18Z
+$ scripts/cluster-pause.sh poc1
+== poc1 on network 'kind' — recorded 6 containers to .tmp/ipmap-poc1.txt:
+   172.18.0.2 poc1-external-load-balancer
+   172.18.0.3 poc1-control-plane3
+   172.18.0.4 poc1-worker2
+   172.18.0.5 poc1-worker
+   172.18.0.6 poc1-control-plane
+   172.18.0.7 poc1-control-plane2
+   stopped.
+
+resume with: scripts/cluster-resume.sh poc1
+
+### 2026-09-11T21:54:31Z
+$ scripts/cluster-resume.sh poc3
+== poc3: starting in recorded order
+   poc3-worker2 -> 172.30.0.2  ok
+   poc3-worker -> 172.30.0.3  ok
+   poc3-control-plane -> 172.30.0.4  ok
+   waiting for nodes Ready.
+   NAME                 STATUS   ROLES           AGE   VERSION
+   poc3-control-plane   Ready    control-plane   61m   v1.36.4
+   poc3-worker          Ready    <none>          61m   v1.36.4
+   poc3-worker2         Ready    <none>          61m   v1.36.4
+
+### 2026-09-11T21:55:29Z
+$ [poc3 AT REST, 60 s after resume — the control-plane cost the two clusters carry, for the CPU comparison]
+### 2026-09-11T21:55:29Z
+$ sh -c docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -- cut -d" " -f1-3 /proc/loadavg; docker stats --no-stream --format "{{.Name}} {{.CPUPerc}} {{.MemUsage}}" poc3-control-plane poc3-worker poc3-worker2
+15.65 13.90 13.88
+poc3-control-plane 27.13% 911.3MiB / 15.62GiB
+poc3-worker 4.47% 301.5MiB / 15.62GiB
+poc3-worker2 3.06% 275.8MiB / 15.62GiB
+
+### 2026-09-11T21:55:32Z
+$ sh -c for n in poc3-control-plane poc3-worker; do echo "--- $n ---"; docker exec $n top -b -n1 -w 200 | awk "NR>7 && \$9+0>0.5 {printf \"  %5s%% %s\\n\", \$9, \$12}" | head -4; done
+--- poc3-control-plane ---
+   10.0% kubelet
+   10.0% etcd
+   10.0% kube-controller
+--- poc3-worker ---
+   18.2% containerd
+
+### 2026-09-11T21:55:33Z
+$ scripts/churn-decompose.sh poc3 kube-proxy iptables, kindnet, no Hubble
+=== churn decomposition on poc3 (kube-proxy iptables, kindnet, no Hubble) — 64 conns, Connection: close, 8 s each; daemon=kube-proxy on poc3-worker ===
+  VM load: 14.64 13.72 13.82
+  target     url                                               qps    p50_ms    p99_ms kube-proxy%
+  pod-ip     http://10.30.1.4:8080/                        13910.8       3.8      16.6 0
+  clusterip  http://10.31.248.249/                         14407.3       3.4      19.2 0
+  dns-name   http://web.forensic.svc.cluster.local/         9577.2       6.4      14.6 0
+
+### 2026-09-11T21:56:00Z
+$ scripts/cluster-pause.sh poc3
+== poc3 on network 'kind-classic' — recorded 3 containers to .tmp/ipmap-poc3.txt:
+   172.30.0.2 poc3-worker2
+   172.30.0.3 poc3-worker
+   172.30.0.4 poc3-control-plane
+   stopped.
+
+resume with: scripts/cluster-resume.sh poc3
+
+### 2026-09-11T21:56:11Z
+$ scripts/cluster-resume.sh poc1 poc2
+== poc1: starting in recorded order
+   poc1-external-load-balancer -> 172.18.0.2  ok
+   poc1-control-plane3 -> 172.18.0.3  ok
+   poc1-worker2 -> 172.18.0.4  ok
+   poc1-worker -> 172.18.0.5  ok
+   poc1-control-plane -> 172.18.0.6  ok
+   poc1-control-plane2 -> 172.18.0.7  ok
+   waiting for nodes Ready.
+   NAME                  STATUS   ROLES           AGE   VERSION
+   poc1-control-plane    Ready    control-plane   25h   v1.36.4
+   poc1-control-plane2   Ready    control-plane   25h   v1.36.4
+   poc1-control-plane3   Ready    control-plane   25h   v1.36.4
+   poc1-worker           Ready    <none>          25h   v1.36.4
+   poc1-worker2          Ready    <none>          25h   v1.36.4
+== poc2: starting in recorded order
+   poc2-worker -> 172.18.0.8  EXPECTED 172.18.0.9 — STOP: something else holds that address; stop it, then run this again
+[exit code: 1]
+
+### 2026-09-11T21:57:35Z
+$ sh -c cilium status --context kind-poc1 2>/dev/null | grep -E "Cilium:|Operator:|ClusterMesh:|Hubble Relay:"; cilium clustermesh status --context kind-poc1 2>/dev/null | grep -E "connected|✅|❌" | head -3; kubectl --context kind-poc2 get nodes --no-headers
+[36m /¯¯[33m\__/[32m¯¯\[0m    Cilium:             [32mOK[0m
+[36m \__[31m/¯¯\[32m__/[0m    Operator:           [32mOK[0m
+[32m \__[34m/¯¯\[35m__/[0m    Hubble Relay:       [31m1 errors[0m
+[34m[34m[34m    \__/[0m       ClusterMesh:        [31m2 errors[0m
+✅ Service "clustermesh-apiserver" of type "NodePort" found
+✅ Cluster access information is available:
+E0911 16:57:37.990735   10633 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:55470/api?timeout=32s\": dial tcp 127.0.0.1:55470: connect: connection refused"
+E0911 16:57:37.992749   10633 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:55470/api?timeout=32s\": dial tcp 127.0.0.1:55470: connect: connection refused"
+E0911 16:57:37.994606   10633 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:55470/api?timeout=32s\": dial tcp 127.0.0.1:55470: connect: connection refused"
+E0911 16:57:37.996055   10633 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:55470/api?timeout=32s\": dial tcp 127.0.0.1:55470: connect: connection refused"
+E0911 16:57:37.997631   10633 memcache.go:265] "Unhandled Error" err="couldn't get current server API group list: Get \"https://127.0.0.1:55470/api?timeout=32s\": dial tcp 127.0.0.1:55470: connect: connection refused"
+The connection to the server 127.0.0.1:55470 was refused - did you specify the right host or port?
+[exit code: 1]
+
+### 2026-09-11T21:57:38Z
+$ scripts/check-routes.sh
+Gateway routes-gw address: 172.18.255.240   (must be inside gateway-pool 172.18.255.240-250)
+KIND        NAME       HOSTS                         ACCEPTED   RESOLVED
+HTTPRoute   anything   [anything-at-all.poc.local]   True       True
+HTTPRoute   exact      [exact.example.test]          True       True
+HTTPRoute   hubble     [hubble.poc.local]            True       True
+HTTPRoute   web        [web.poc.local]               True       True
+GRPCRoute   grpc       [grpc.poc.local]              True       True
+TCPRoute    echo       <none>                        True       True
+
+1. HTTPRoute x3 over HTTPS, certificate chain verified against the enterprise root (docs/root-ca.crt)
+  PASS  https://web.poc.local/ (wildcard listener, *.poc.local cert) -> 200
+  PASS  https://anything-at-all.poc.local/ (wildcard listener, *.poc.local cert) -> 200
+  PASS  https://exact.example.test/ (exact listener, its own cert) -> 200
+  PASS  https://nobody.poc.local/ (under the wildcard but NO route -> Gateway 404) -> 404
+   SNI -> certificate presented:
+     web.poc.local        DNS:*.poc.local
+     exact.example.test   DNS:exact.example.test
+
+2. HTTPRoute over plain HTTP :80 (Host header selects the route)
+  PASS  http://172.18.255.240/ Host: web.poc.local -> 200
+
+3. GRPCRoute (grpcurl runs in a container on the docker network; -authority is the route's hostname)
+  FAIL  h2c :80 Health/Check -> Errorinvokingmethod"grpc.health.v1.Health/Check":rpcerror:code=Unavailabledesc=failedtoqueryforservicedescriptor"grpc.health.v1.Health":nohealthyupstream
+  FAIL  TLS :443 Health/Check -> Errorinvokingmethod"grpc.health.v1.Health/Check":rpcerror:code=Unavailabledesc=failedtoqueryforservicedescriptor"grpc.health.v1.Health":nohealthyupstream
+
+4. TCPRoute :9000 (bytes in, bytes back — no HTTP involved)
+  PASS  tcp echo -> hello from echo (tcp echo)|echo echoed: ping from check-routes|
+
+5. Hubble UI through the SAME Gateway URL: https://hubble.poc.local (HTTPRoute in routes -> Service in kube-system via ReferenceGrant)
+  FAIL  https://hubble.poc.local/ (index) -> 503 (expected 200)
+  FAIL  page title ''
+  FAIL  same UI direct at its own LB address (kind-docker-pool) for comparison -> 000 (expected 200)
+   Hubble's own view of that request (world -> hubble-ui, through the Gateway):
+
+FAILED CHECKS: 5
+[exit code: 5]
+
+### 2026-09-11T21:58:17Z
+$ [resume of poc2 stopped itself: poc2-worker came up on 172.18.0.8 because hubble-ui-proxy (.8) had been stopped and not restarted first. Ordering cannot defend against a freed lower address; pinning can. Testing docker network connect --ip on the stopped containers.]
+
+### 2026-09-11T21:58:17Z
+$ sh -c docker stop poc2-worker >/dev/null; docker ps -a --format "{{.Names}} {{.Status}}" | grep -E "poc2|hubble-ui-proxy"
+poc2-control-plane Exited (137) About an hour ago
+poc2-worker Exited (130) Less than a second ago
+hubble-ui-proxy Up About a minute
+
+### 2026-09-11T21:58:18Z
+$ sh -c for pair in "poc2-worker 172.18.0.9" "poc2-control-plane 172.18.0.10"; do set -- $pair; docker network disconnect kind $1 2>&1; docker network connect --ip $2 kind $1 && echo "$1 pinned to $2 (stopped)"; done
+poc2-worker pinned to 172.18.0.9 (stopped)
+poc2-control-plane pinned to 172.18.0.10 (stopped)
+
+### 2026-09-11T21:58:18Z
+$ sh -c docker start poc2-worker poc2-control-plane >/dev/null; sleep 3; docker network inspect kind --format "{{range .Containers}}{{.IPv4Address}} {{.Name}}{{println}}{{end}}" | grep -E "poc2|proxy" | sort -t. -k4 -n
+Error response from daemon: Address already in use
+Error: failed to start containers: poc2-worker
+172.18.0.9/16 hubble-ui-proxy
+172.18.0.10/16 poc2-control-plane
+
+### 2026-09-11T21:58:32Z
+$ sh -c docker exec poc2-worker getent hosts poc2-control-plane; kubectl --context kind-poc2 get nodes --no-headers
+Error response from daemon: container d92e0a70b86a5ef6ae1f763a98df31909d83851f1ab1ba9533e3c58d7acde1e3 is not running
+poc2-control-plane   Ready   control-plane   7h43m   v1.36.4
+poc2-worker          Ready   <none>          7h43m   v1.36.4
+
+### 2026-09-11T21:59:32Z
+$ sh -c cilium status --context kind-poc1 2>/dev/null | grep -E "Cilium:|Operator:|ClusterMesh:|Hubble Relay:" | sed "s/\x1b\[[0-9;]*m//g"; cilium clustermesh status --context kind-poc1 2>/dev/null | grep -E "connected|Connected|✅ All|❌" | head -3
+ /¯¯\__/¯¯\    Cilium:             5 errors
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+⚠️  5/5 nodes are not connected to all clusters [min:0 / avg:0.0 / max:0]
+⚠️  1/1 KVStoreMesh replicas are not connected to all clusters [min:0 / avg:0.0 / max:0]
+  - poc2: 5/5 configured, 0/5 connected - KVStoreMesh: 1/1 configured, 0/1 connected
+
+### 2026-09-11T21:59:35Z
+$ scripts/check-routes.sh
+Gateway routes-gw address: 172.18.255.240   (must be inside gateway-pool 172.18.255.240-250)
+KIND        NAME       HOSTS                         ACCEPTED   RESOLVED
+HTTPRoute   anything   [anything-at-all.poc.local]   True       True
+HTTPRoute   exact      [exact.example.test]          True       True
+HTTPRoute   hubble     [hubble.poc.local]            True       True
+HTTPRoute   web        [web.poc.local]               True       True
+GRPCRoute   grpc       [grpc.poc.local]              True       True
+TCPRoute    echo       <none>                        True       True
+
+1. HTTPRoute x3 over HTTPS, certificate chain verified against the enterprise root (docs/root-ca.crt)
+  PASS  https://web.poc.local/ (wildcard listener, *.poc.local cert) -> 200
+  PASS  https://anything-at-all.poc.local/ (wildcard listener, *.poc.local cert) -> 200
+  PASS  https://exact.example.test/ (exact listener, its own cert) -> 200
+  PASS  https://nobody.poc.local/ (under the wildcard but NO route -> Gateway 404) -> 404
+   SNI -> certificate presented:
+     web.poc.local        DNS:*.poc.local
+     exact.example.test   DNS:exact.example.test
+
+2. HTTPRoute over plain HTTP :80 (Host header selects the route)
+  PASS  http://172.18.255.240/ Host: web.poc.local -> 200
+
+3. GRPCRoute (grpcurl runs in a container on the docker network; -authority is the route's hostname)
+  PASS  h2c :80 Health/Check -> {"status":"SERVING"}
+  PASS  TLS :443 Health/Check, wildcard cert verified -> {"status":"SERVING"}
+
+4. TCPRoute :9000 (bytes in, bytes back — no HTTP involved)
+  PASS  tcp echo -> hello from echo (tcp echo)|echo echoed: ping from check-routes|
+
+5. Hubble UI through the SAME Gateway URL: https://hubble.poc.local (HTTPRoute in routes -> Service in kube-system via ReferenceGrant)
+  PASS  https://hubble.poc.local/ (index) -> 200
+  PASS  page title <title>Hubble UI</title>
+  PASS  asset /bundle.main.811eb2d9fcafb97bbf36.js -> 200
+  PASS  asset /bundle.main.0f16d72c3dee99c3b95a.css -> 200
+  PASS  same UI direct at its own LB address (kind-docker-pool) for comparison -> 200
+   Hubble's own view of that request (world -> hubble-ui, through the Gateway):
+
+FAILED CHECKS: 0
+
+### 2026-09-11T22:00:03Z
+$ [hubble-ui-proxy, restarted un-pinned a minute earlier, had taken .9 — the address poc2-worker was pinned to. Pin the proxy to its documented .8 the same way, then start both.]
+
+### 2026-09-11T22:00:03Z
+$ sh -c docker stop hubble-ui-proxy >/dev/null; docker network disconnect kind hubble-ui-proxy; docker network connect --ip 172.18.0.8 kind hubble-ui-proxy && echo "hubble-ui-proxy pinned to 172.18.0.8"; docker start poc2-worker hubble-ui-proxy >/dev/null; sleep 3; docker network inspect kind --format "{{range .Containers}}{{.IPv4Address}} {{.Name}}{{println}}{{end}}" | sort -t. -k4 -n
+hubble-ui-proxy pinned to 172.18.0.8
+
+172.18.0.2/16 poc1-external-load-balancer
+172.18.0.3/16 poc1-control-plane3
+172.18.0.4/16 poc1-worker2
+172.18.0.5/16 poc1-worker
+172.18.0.6/16 poc1-control-plane
+172.18.0.7/16 poc1-control-plane2
+172.18.0.8/16 hubble-ui-proxy
+172.18.0.9/16 poc2-worker
+172.18.0.10/16 poc2-control-plane
+
+### 2026-09-11T22:00:08Z
+$ sh -c docker exec poc2-worker getent hosts poc2-control-plane; kubectl --context kind-poc2 get nodes --no-headers; kubectl --context kind-poc2 -n kube-system get ds cilium -o jsonpath="cilium ready {.status.numberReady}/{.status.desiredNumberScheduled}{\"\n\"}"
+fc00:f853:ccd:e793::8 poc2-control-plane
+poc2-control-plane   Ready   control-plane   7h45m   v1.36.4
+poc2-worker          Ready   <none>          7h44m   v1.36.4
+cilium ready 1/2
+
+### 2026-09-11T22:01:24Z
+$ sh -c cilium clustermesh status --context kind-poc1 2>/dev/null | grep -E "connected|✅ All|⚠️" | head -3; cilium status --context kind-poc1 2>/dev/null | grep -E "Cilium:|ClusterMesh:" | sed "s/\x1b\[[0-9;]*m//g"
+⚠️  Service type NodePort detected! Service may fail when nodes are removed from the cluster!
+⚠️  5/5 nodes are not connected to all clusters [min:0 / avg:0.0 / max:0]
+⚠️  1/1 KVStoreMesh replicas are not connected to all clusters [min:0 / avg:0.0 / max:0]
+ /¯¯\__/¯¯\    Cilium:             6 errors
+    \__/       ClusterMesh:        OK
+
+### 2026-09-11T22:01:28Z
+$ scripts/check-routes.sh
+Gateway routes-gw address: 172.18.255.240   (must be inside gateway-pool 172.18.255.240-250)
+KIND        NAME       HOSTS                         ACCEPTED   RESOLVED
+HTTPRoute   anything   [anything-at-all.poc.local]   True       True
+HTTPRoute   exact      [exact.example.test]          True       True
+HTTPRoute   hubble     [hubble.poc.local]            True       True
+HTTPRoute   web        [web.poc.local]               True       True
+GRPCRoute   grpc       [grpc.poc.local]              True       True
+TCPRoute    echo       <none>                        True       True
+
+1. HTTPRoute x3 over HTTPS, certificate chain verified against the enterprise root (docs/root-ca.crt)
+  PASS  https://web.poc.local/ (wildcard listener, *.poc.local cert) -> 200
+  PASS  https://anything-at-all.poc.local/ (wildcard listener, *.poc.local cert) -> 200
+  PASS  https://exact.example.test/ (exact listener, its own cert) -> 200
+  PASS  https://nobody.poc.local/ (under the wildcard but NO route -> Gateway 404) -> 404
+   SNI -> certificate presented:
+     web.poc.local        DNS:*.poc.local
+     exact.example.test   DNS:exact.example.test
+
+2. HTTPRoute over plain HTTP :80 (Host header selects the route)
+  PASS  http://172.18.255.240/ Host: web.poc.local -> 200
+
+3. GRPCRoute (grpcurl runs in a container on the docker network; -authority is the route's hostname)
+  PASS  h2c :80 Health/Check -> {"status":"SERVING"}
+  PASS  TLS :443 Health/Check, wildcard cert verified -> {"status":"SERVING"}
+
+4. TCPRoute :9000 (bytes in, bytes back — no HTTP involved)
+  PASS  tcp echo -> hello from echo (tcp echo)|echo echoed: ping from check-routes|
+
+5. Hubble UI through the SAME Gateway URL: https://hubble.poc.local (HTTPRoute in routes -> Service in kube-system via ReferenceGrant)
+  PASS  https://hubble.poc.local/ (index) -> 200
+  PASS  page title <title>Hubble UI</title>
+  PASS  asset /bundle.main.811eb2d9fcafb97bbf36.js -> 200
+  PASS  asset /bundle.main.0f16d72c3dee99c3b95a.css -> 200
+  PASS  same UI direct at its own LB address (kind-docker-pool) for comparison -> 200
+   Hubble's own view of that request (world -> hubble-ui, through the Gateway):
+
+FAILED CHECKS: 0
+
+### 2026-09-11T22:01:32Z
+$ sh -c curl -s -o /dev/null -w "hubble-ui-proxy still answers at .8: http %{http_code}\n" http://172.18.0.8/ ; docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -- sh -c "free -m | head -2"
+hubble-ui-proxy still answers at .8: http 200
+              total        used        free      shared  buff/cache   available
+Mem:          15993        7808         207         114        7978        7741
+
+### 2026-09-11T22:03:53Z
+$ sh -c kubectl --context kind-poc2 -n kube-system get ds cilium -o jsonpath="poc2 cilium ready {.status.numberReady}/{.status.desiredNumberScheduled}{\"\n\"}"; cilium clustermesh status --context kind-poc1 2>/dev/null | grep -E "connected|✅ All|⚠️  [0-9]" | head -3; cilium status --context kind-poc1 2>/dev/null | grep -E "Cilium:|ClusterMesh:|Hubble Relay:" | sed "s/\x1b\[[0-9;]*m//g"; kubectl --context kind-poc1 get svc -n default rebel-base -o jsonpath="global service rebel-base: {.metadata.annotations.service\.cilium\.io/global}{\"\n\"}" 2>/dev/null
+poc2 cilium ready 2/2
+✅ All 5 nodes are connected to all clusters [min:1 / avg:1.0 / max:1]
+✅ All 1 KVStoreMesh replicas are connected to all clusters [min:1 / avg:1.0 / max:1]
+  - poc2: 5/5 configured, 5/5 connected - KVStoreMesh: 1/1 configured, 1/1 connected
+ /¯¯\__/¯¯\    Cilium:             OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+global service rebel-base: true
+
