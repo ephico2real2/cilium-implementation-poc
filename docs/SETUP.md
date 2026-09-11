@@ -808,6 +808,73 @@ curl -s -o /dev/null -w '%{http_code} in %{time_total}s\n' http://172.18.255.200
 Compare with Step 2.3b, where the same node request returned `000` and the routing table had no
 `172.18` entry at all.
 
+### What the route actually makes your Mac: a router, with one hop into the overlay
+
+It helps to see this the way you would see any other network, because it *is* one. After Step 3.5
+your laptop has a static route, the Docker VM is the next hop, and Cilium answers on the far side.
+Nothing about it is special to kind or Cilium — it is the same three pieces a branch-office router
+has: a route, a next hop, and something at the destination that answers ARP.
+
+```bash
+netstat -rn -f inet | grep -E '^Destination|^172\.18'
+```
+
+```
+Destination        Gateway            Flags               Netif
+172.18             192.168.64.2       UGSc            bridge100
+```
+
+One `/16` route covers **every** LoadBalancer address, in both pools, and every node — it never
+needs editing when a pool is added or a Gateway moves.
+
+**Make the hop visible.** `traceroute` to a Gateway address and to a Services-pool address:
+
+```bash
+traceroute -n -m 4 -q 1 -w 2 172.18.255.240     # a Gateway (gateway-pool)
+traceroute -n -m 4 -q 1 -w 2 172.18.255.201     # hubble-ui  (services pool)
+```
+
+```
+traceroute to 172.18.255.240, 4 hops max
+ 1  192.168.64.2  1.302 ms        <- the Docker VM: your next hop
+ 2  *
+ 3  *
+
+traceroute to 172.18.255.201, 4 hops max
+ 1  192.168.64.2  1.023 ms        <- same next hop
+ 2  *
+```
+
+Read hop 1 and the silence after it together. **Hop 1 is the VM**, reached over `bridge100` —
+the "router" you added. After that there is **no further hop to show**: inside the VM the packet
+lands on the `kind` docker bridge, and the LoadBalancer address is not a host with a routing
+stack, it is an address a Cilium node **answers ARP for** (L2 announcement). The reply comes from a
+node interface directly; there is nothing in between to decrement the TTL, so traceroute prints
+`*`. That is normal for an L2-announced address and is *not* a dropped route.
+
+**Which node is answering, right now**, is the L2 announcement lease — the "router inside the
+overlay" that moves if a node dies:
+
+```bash
+kubectl -n kube-system get lease -o custom-columns='LEASE:.metadata.name,HOLDER:.spec.holderIdentity' | grep l2announce
+```
+
+```
+cilium-l2announce-default-cilium-gateway-sw-gateway   poc1-control-plane3
+cilium-l2announce-kube-system-hubble-ui               poc1-worker
+cilium-l2announce-routes-cilium-gateway-routes-gw     poc1-control-plane3
+```
+
+So a request to `https://hubble.poc.local` travels: **Mac → `bridge100` → VM `eth1` → docker bridge
+→ ARP answered by `poc1-control-plane3` → Cilium eBPF → the Gateway's Envoy → the pod.** Every hop
+is observable with an ordinary tool, which is the point of writing it down.
+
+**Why the Gateway range matters to the router view.** `172.18.255.240–250` is reserved for
+Gateways (`cilium/lb-ippool.yaml`). That is the range DNS points at (`*.poc.local`), the range a
+firewall rule would name, and the range a bookmark holds — and because only Gateway-owned Services
+can draw from it, "this address is a Gateway" is true by construction rather than by luck.
+Reference: [Cilium LB IPAM](https://docs.cilium.io/en/stable/network/lb-ipam/).
+
 ### Managing the route
 
 ```bash
@@ -1149,8 +1216,12 @@ docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}'
 ```
 
 Docker allocates container addresses from the **bottom** of that range upward (`.2`, `.3`, `.4`…),
-so `cilium/lb-ippool.yaml` takes a slice from the **top** (`172.18.255.200–250`). They can never
-collide.
+so `cilium/lb-ippool.yaml` takes a slice from the **top**. They can never collide. The slice is split
+into **two pools with complementary selectors** — `172.18.255.240–250` reserved for Gateway-owned
+Services (label `io.cilium.gateway/owning-gateway` Exists), `172.18.255.200–239` for everything
+else — so a Gateway's address is in the Gateway range by construction. Reference:
+[Cilium LB IPAM](https://docs.cilium.io/en/stable/network/lb-ipam/); the pool file quotes the two
+rules that matter (selector match is required for a pinned IP; overlapping pools conflict).
 
 ```bash
 kubectl --context kind-poc1 apply -f cilium/lb-ippool.yaml

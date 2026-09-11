@@ -1,59 +1,66 @@
-# LoadBalancer addresses for kind, carved out of the DOCKER NETWORK.
+# LoadBalancer addresses for kind, carved out of the DOCKER NETWORK — in TWO pools.
 #
 # Apply with:
 #   kubectl apply -f cilium/lb-ippool.yaml
 #
-# WHY THIS EXISTS. kind has no cloud provider, so a Service of type LoadBalancer would sit
-# <pending> forever and a Gateway would never be programmed with an address. The usual answers are
-# MetalLB or kube-vip. Neither is used here: Cilium 1.20 ships BOTH halves of the job itself --
-# LB IPAM (hands out the address) and L2 announcements (answers ARP for it so it is reachable) --
-# so using Cilium means one less component to install, and the capability is itself worth demoing.
+# WHY TWO POOLS. A Gateway and a plain LoadBalancer Service are different things to operate: the
+# Gateway range is what DNS points at (the wildcard *.poc.local resolves into it), what a firewall
+# rule names, what a browser bookmark holds. Drawing Gateways and Services from one block means a
+# Gateway's address is wherever allocation order happened to put it. Reserving a sub-range that
+# ONLY Gateway-owned Services can draw from makes "the Gateway range" a property of the design,
+# not of startup order.
 #
-# WHY THIS RANGE. The nodes live on the `kind` docker bridge, 172.18.0.0/16. A LoadBalancer address
-# must be on that same L2 segment for the ARP replies from L2 announcements to reach anything.
-# Docker's own IPAM allocates container addresses from the BOTTOM of the subnet upward
-# (172.18.0.2, .3, .4 ...), so this pool takes a slice from the far TOP of the range. That
-# separation is the whole design: Docker will never allocate up here, so a container and a service
-# can never be handed the same address.
+# HOW THE SPLIT IS ENFORCED. Cilium labels every Service it generates for a Gateway with
+# io.cilium.gateway/owning-gateway (verified on the live cluster; hubble-ui does not carry it).
+# The two serviceSelectors are complementary on that key -- Exists vs DoesNotExist -- so every
+# Service matches exactly one pool. That matters twice over: the docs do not define what happens
+# when a Service matches several pools, and a pinned address (lbipam.cilium.io/ips) is only
+# honoured inside a pool whose selector matches the Service.
 #
-# CHECK BEFORE YOU CHANGE IT. Confirm the subnet on your machine rather than assuming 172.18/16:
-#   docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}'
+# THE RANGES MUST NOT OVERLAP. From the LB IPAM docs: "The last added pool will be marked as
+# Conflicting and no further allocation will happen from that pool." An earlier single pool was
+# .200-.250; it is shrunk to .200-.239 in the SAME apply that adds .240-.250, so the two never
+# overlap at any point.
 #
-# MACOS: THIS IS ONLY HALF THE STORY. These addresses are reachable from inside the cluster and
-# from other containers on the docker network immediately. They are NOT reachable from the macOS
-# host until Docker Desktop's "kernel networking for UDP" is on AND a route is added -- see
-# SETUP.md Step 2.3b. That is a host/VM boundary problem; no in-cluster load balancer, Cilium's or
-# anyone else's, can solve it.
-# apiVersion note: CiliumLoadBalancerIPPool graduated to cilium.io/v2 in Cilium 1.20 and the
-# v2alpha1 form now warns "is deprecated; use cilium.io/v2". The L2 announcement policy below is
-# still v2alpha1-only in this release -- check with `kubectl api-resources | grep -i cilium` rather
-# than assuming both moved together.
+# WHY THIS TOP SLICE OF 172.18.0.0/16. Docker's IPAM allocates container addresses from the
+# bottom upward (.2, .3, ...), so a pool at the far top can never collide with a node. Confirm the
+# subnet on your machine first: docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}'
+#
+# MACOS: these addresses are reachable from the host only with kernelForUDP and the host route
+# (SETUP 2.3b and 3.5). That is a host/VM boundary; no in-cluster load balancer changes it.
 apiVersion: "cilium.io/v2"
 kind: CiliumLoadBalancerIPPool
 metadata:
-  name: kind-docker-pool
+  name: kind-docker-pool          # the SERVICES pool (name kept stable to avoid re-allocation churn)
 spec:
   blocks:
-    # 51 addresses, far above anything Docker will hand a container.
     - start: "172.18.255.200"
-      stop: "172.18.255.250"
+      stop: "172.18.255.239"      # 40 addresses for plain LoadBalancer Services (hubble-ui is .201)
+  serviceSelector:
+    matchExpressions:
+      - key: io.cilium.gateway/owning-gateway
+        operator: DoesNotExist    # anything that is NOT a Gateway
 ---
-# L2 ANNOUNCEMENTS: make the addresses above actually answerable.
-#
-# LB IPAM only ASSIGNS an address; on its own, nothing on the network knows where to send traffic
-# for it. This policy makes Cilium answer ARP requests for those addresses on the node interfaces,
-# so a client on the same L2 segment can reach them. One node is elected the announcer per service
-# via a Kubernetes lease, and election moves if that node goes away.
+apiVersion: "cilium.io/v2"
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: gateway-pool              # RESERVED FOR CILIUM GATEWAY API
+spec:
+  blocks:
+    - start: "172.18.255.240"
+      stop: "172.18.255.250"      # 11 addresses; *.poc.local resolves into this range
+  serviceSelector:
+    matchExpressions:
+      - key: io.cilium.gateway/owning-gateway
+        operator: Exists          # only Services Cilium generated for a Gateway
+---
+# L2 ANNOUNCEMENTS: make the addresses above actually answerable (unchanged; covers both pools).
 apiVersion: "cilium.io/v2alpha1"
 kind: CiliumL2AnnouncementPolicy
 metadata:
   name: kind-l2-announce
 spec:
-  # Announce on the node's primary interface. In a kind node that is eth0, the interface attached
-  # to the docker bridge -- the same segment the pool above is carved from.
   interfaces:
     - ^eth0$
-  # Announce LoadBalancer service IPs. externalIPs is left false: this PoC only assigns addresses
-  # through LB IPAM, and announcing arbitrary externalIPs is a wider claim than intended.
   externalIPs: false
   loadBalancerIPs: true

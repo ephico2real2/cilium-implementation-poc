@@ -76,7 +76,7 @@ hubble:
         # hubble-ui first held .200, lost it during a helm upgrade, and came back on .201 while the
         # Gateway took .200 -- silently invalidating a bookmark and a proxy that pointed at .200.
         # Pinning makes the address a property of the service rather than of startup order.
-        "io.cilium/lb-ipam-ips": "172.18.255.201"
+        "lbipam.cilium.io/ips": "172.18.255.201"
   metrics:
     # These are what make the UI's service map and the flow breakdowns useful. Each entry tells
     # Hubble to emit a Prometheus metric series; without them the UI renders a much emptier graph.

@@ -103,3 +103,39 @@ $ ./scripts/hosts-entries.sh
 172.18.255.201  hubble-direct.poc.local
 # ---- end cilium-kind-poc ----
 
+### 2026-09-11T16:40:18Z
+$ bash -c kubectl --context kind-poc1 get ciliumloadbalancerippool -o custom-columns='NAME:.metadata.name,START:.spec.blocks[0].start,STOP:.spec.blocks[0].stop,CONFLICT:.status.conditions[?(@.type=="cilium.io/PoolConflict")].status,AVAIL:.status.conditions[?(@.type=="cilium.io/IPsAvailable")].message'
+NAME               START            STOP             CONFLICT   AVAIL
+gateway-pool       172.18.255.240   172.18.255.250   False      9
+kind-docker-pool   172.18.255.200   172.18.255.239   False      39
+
+### 2026-09-11T16:40:18Z
+$ bash -c kubectl --context kind-poc1 get svc -A --field-selector spec.type=LoadBalancer -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,IP:.status.loadBalancer.ingress[0].ip,PIN:.metadata.annotations.lbipam\.cilium\.io/ips,GW-LABEL:.metadata.labels.io\.cilium\.gateway/owning-gateway'
+NS            NAME                        IP               PIN              GW-LABEL
+default       cilium-gateway-sw-gateway   172.18.255.241   172.18.255.241   sw-gateway
+kube-system   hubble-ui                   172.18.255.201   172.18.255.201   <none>
+routes        cilium-gateway-routes-gw    172.18.255.240   172.18.255.240   routes-gw
+
+### 2026-09-11T16:40:18Z
+$ bash -c netstat -rn -f inet | grep -E '^Destination|^172\.18'; traceroute -n -m 3 -q 1 -w 2 172.18.255.240 2>&1
+Destination        Gateway            Flags               Netif Expire
+172.18             192.168.64.2       UGSc            bridge100       
+traceroute to 172.18.255.240 (172.18.255.240), 3 hops max, 40 byte packets
+ 1  192.168.64.2  1.781 ms
+ 2  *
+ 3  *
+
+### 2026-09-11T16:40:22Z
+$ bash -c for h in web.poc.local hubble.poc.local anything-at-all.poc.local; do printf '%-28s ' $h; curl -s --max-time 8 --cacert docs/root-ca.crt --resolve $h:443:172.18.255.240 https://$h/ -o /dev/null -w '[http=%{http_code} chain-verified]\n'; done
+web.poc.local                [http=200 chain-verified]
+hubble.poc.local             [http=200 chain-verified]
+anything-at-all.poc.local    [http=200 chain-verified]
+
+### 2026-09-11T16:40:22Z
+$ ./scripts/hosts-entries.sh
+# ---- cilium-kind-poc (generated 2026-09-11T16:40Z by scripts/hosts-entries.sh) ----
+172.18.255.240  hubble.poc.local web.poc.local anything-at-all.poc.local grpc.poc.local exact.example.test
+172.18.255.241  deathstar.poc.local
+172.18.255.201  hubble-direct.poc.local
+# ---- end cilium-kind-poc ----
+

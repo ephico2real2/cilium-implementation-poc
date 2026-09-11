@@ -81,6 +81,9 @@ echo "Denied at L3/L4 instead — the SYN is dropped, so this TIMES OUT rather t
 run "$K exec xwing -- curl -s -XPOST -w '\n[http_code=%{http_code}]\n' --max-time 6 deathstar.default.svc.cluster.local/v1/request-landing"
 
 hdr "5. DEMO 05 — GATEWAY API + LB IPAM (no kube-vip, no MetalLB)"
+SWGW=$($K get gateway sw-gateway -o jsonpath='{.status.addresses[0].value}' 2>/dev/null)
+echo "sw-gateway address read live: ${SWGW:-<none>}  (pinned inside gateway-pool via spec.infrastructure.annotations)"
+run "$K get ciliumloadbalancerippool -o custom-columns='NAME:.metadata.name,START:.spec.blocks[0].start,STOP:.spec.blocks[0].stop,CONFLICT:.status.conditions[?(@.type==\"cilium.io/PoolConflict\")].status'"
 run "$K get gatewayclass"
 run "$K get gateway,httproute"
 run "$K get svc -A --field-selector spec.type=LoadBalancer"
@@ -90,9 +93,9 @@ run "$K -n kube-system get lease | grep l2announce"
 echo "Proof nothing else is installed:"
 run "$K get pods -A | grep -iE 'kube-vip|metallb' || echo 'none — no kube-vip, no MetalLB'"
 echo "From the macOS host, through the Gateway (needs the SETUP Step 3.5 route):"
-run "curl -s -XPOST -w '\n[http_code=%{http_code} time=%{time_total}s]\n' --max-time 8 http://172.18.255.200/v1/request-landing"
+run "curl -s -XPOST -w '\n[http_code=%{http_code} time=%{time_total}s]\n' --max-time 8 http://$SWGW/v1/request-landing"
 echo "Policy still applies to Gateway traffic — the dangerous path is refused here too:"
-run "curl -s -XPUT -w '\n[http_code=%{http_code} time=%{time_total}s]\n' --max-time 8 http://172.18.255.200/v1/exhaust-port"
+run "curl -s -XPUT -w '\n[http_code=%{http_code} time=%{time_total}s]\n' --max-time 8 http://$SWGW/v1/exhaust-port"
 run "curl -s -o /dev/null -w 'hubble-ui http://172.18.255.201/ -> [http_code=%{http_code} time=%{time_total}s]\n' --max-time 8 http://172.18.255.201/"
 
 hdr "6. DEMO 04 — WIREGUARD TRANSPARENT ENCRYPTION"

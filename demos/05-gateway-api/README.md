@@ -98,6 +98,10 @@ app deployed, and — to reach it from a browser on macOS — the route from SET
 
 All output below is in [`output/transcript.txt`](output/transcript.txt).
 
+> **Address changed on 2026-09-11:** `sw-gateway` moved from `172.18.255.200` to **`172.18.255.241`**
+> when a dedicated Gateway pool was reserved (demo 09, Part 7b). Quoted output below shows the old
+> address as captured at the time; use `scripts/hosts-entries.sh` for the live value.
+
 ---
 
 ## Part 1 — install the CRDs and enable it

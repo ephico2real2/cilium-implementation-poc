@@ -26,6 +26,12 @@ Every response names the app that served it, so the output is the evidence.
 
 All output is in [`output/transcript.txt`](output/transcript.txt).
 
+> **Addresses changed on 2026-09-11.** A dedicated pool was reserved for Gateways
+> (`cilium/lb-ippool.yaml`): `routes-gw` moved **`.202 → .240`**, and demo 05's `sw-gateway`
+> **`.200 → .241`**. Command examples below use the new addresses; **captured output quoted from
+> before the change still shows the old ones** — it is a record, not an error. The live values
+> always come from `scripts/hosts-entries.sh`.
+
 ---
 
 ## Part 1 — build and load the image
@@ -56,8 +62,10 @@ name that exists nowhere.
 metadata:
   annotations:
     cert-manager.io/cluster-issuer: ca-issuer      # <- this is how certificates happen
-    io.cilium/lb-ipam-ips: "172.18.255.202"        # pinned (gotcha #13)
 spec:
+  infrastructure:
+    annotations:
+      lbipam.cilium.io/ips: "172.18.255.240"       # pinned INSIDE gateway-pool (gotcha #13, corrected)
   listeners:
     - name: https-wildcard
       protocol: HTTPS
@@ -128,7 +136,7 @@ The Gateway matches on hostname, so requests need a name. On a laptop you have t
 ### 3a. No DNS at all — `curl --resolve` (what the transcript uses)
 
 ```bash
-curl --resolve web.poc.local:443:172.18.255.202 https://web.poc.local/
+curl --resolve web.poc.local:443:172.18.255.240 https://web.poc.local/
 ```
 
 `--resolve` pins one name to one address for that request only, so SNI and `Host` are correct
@@ -150,13 +158,13 @@ and useless for "any subdomain", which is the next option.
 
 ```bash
 brew install dnsmasq
-echo 'address=/.poc.local/172.18.255.202' >> "$(brew --prefix)/etc/dnsmasq.conf"
+echo 'address=/.poc.local/172.18.255.240' >> "$(brew --prefix)/etc/dnsmasq.conf"
 sudo brew services start dnsmasq
 sudo mkdir -p /etc/resolver
 sudo sh -c 'echo "nameserver 127.0.0.1" > /etc/resolver/poc.local'
 ```
 
-`address=/.poc.local/` answers **every** `*.poc.local` with the Gateway address, and the
+`address=/.poc.local/` answers **every** `*.poc.local` with the Gateway's address — which sits in the **reserved Gateway range** `172.18.255.240–250` (`cilium/lb-ippool.yaml`), so the wildcard can never land on a plain Service, and the
 `/etc/resolver/poc.local` file tells macOS to send only that domain to dnsmasq. This is the option
 that makes the wildcard *certificate* useful with a wildcard *name*: invent `foo.poc.local`, add an
 HTTPRoute, and it resolves and terminates TLS with no further change.
@@ -188,7 +196,7 @@ It is served by the wildcard cert, chain-verified, and the app's `"tls":true` (f
 ### The negative test — the one that proves the exact listener is exact
 
 ```bash
-curl --cacert root-ca.crt --resolve nobody.example.test:443:172.18.255.202 https://nobody.example.test/
+curl --cacert root-ca.crt --resolve nobody.example.test:443:172.18.255.240 https://nobody.example.test/
 ```
 
 ```
@@ -206,7 +214,7 @@ certificate SAN, so the Gateway cannot present a certificate for it and verifica
 
 ```bash
 docker run --rm --network kind fullstorydev/grpcurl:latest \
-  -plaintext -authority grpc.poc.local 172.18.255.202:80 grpc.health.v1.Health/Check
+  -plaintext -authority grpc.poc.local 172.18.255.240:80 grpc.health.v1.Health/Check
 ```
 
 ```
@@ -222,7 +230,7 @@ Over TLS, through the wildcard certificate, chain-verified:
 
 ```bash
 docker run --rm --network kind -v "$PWD:/certs:ro" fullstorydev/grpcurl:latest \
-  -cacert /certs/root-ca.crt -authority grpc.poc.local 172.18.255.202:443 grpc.health.v1.Health/Check
+  -cacert /certs/root-ca.crt -authority grpc.poc.local 172.18.255.240:443 grpc.health.v1.Health/Check
 ```
 
 ```
@@ -235,7 +243,7 @@ And because the route also forwards the reflection service, a client can discove
 `.proto`:
 
 ```bash
-docker run --rm --network kind fullstorydev/grpcurl:latest -plaintext -authority grpc.poc.local 172.18.255.202:80 list
+docker run --rm --network kind fullstorydev/grpcurl:latest -plaintext -authority grpc.poc.local 172.18.255.240:80 list
 ```
 
 ```
@@ -264,7 +272,7 @@ spec:
 ```
 
 ```bash
-(echo "ping from the laptop"; sleep 1) | nc -w 5 172.18.255.202 9000
+(echo "ping from the laptop"; sleep 1) | nc -w 5 172.18.255.240 9000
 ```
 
 ```
@@ -359,6 +367,45 @@ X509v3 Subject Alternative Name: DNS:*.poc.local
 issuer=CN=clustermesh-root-ca
 ```
 
+## Part 7b — the Gateway range is reserved, not incidental
+
+Until this point the wildcard pointed at whatever address the Gateway happened to get. That is
+fragile in exactly the way gotcha #13 describes, and it also blurs an operational line: the
+address DNS points at, a firewall names and a bookmark holds should be *a Gateway address by
+construction*, not by allocation order.
+
+`cilium/lb-ippool.yaml` now defines **two pools with complementary selectors** on the label Cilium
+puts on every Gateway-generated Service, `io.cilium.gateway/owning-gateway`:
+
+| Pool | Range | Selector | Draws from it |
+|---|---|---|---|
+| `gateway-pool` | `172.18.255.240–250` | label **Exists** | only Gateway-owned Services |
+| `kind-docker-pool` | `172.18.255.200–239` | label **DoesNotExist** | everything else (hubble-ui is `.201`) |
+
+Every Service matches exactly one pool. The ranges are disjoint because, per the
+[LB IPAM docs](https://docs.cilium.io/en/stable/network/lb-ipam/), *"the last added pool will be
+marked as Conflicting"* if they overlap — so the old single pool was shrunk in the **same apply**
+that added the new one.
+
+```
+NAME               START            STOP             CONFLICT   AVAIL
+gateway-pool       172.18.255.240   172.18.255.250   False      9
+kind-docker-pool   172.18.255.200   172.18.255.239   False      39
+```
+
+Each Gateway is pinned **inside** its pool via `spec.infrastructure.annotations` — the path Cilium
+actually propagates (the earlier `metadata` pin provably did not; see gotcha #13):
+
+```
+NS        NAME                        IP               PIN              GW-LABEL
+default   cilium-gateway-sw-gateway   172.18.255.241   172.18.255.241   sw-gateway
+routes    cilium-gateway-routes-gw    172.18.255.240   172.18.255.240   routes-gw
+kube-system  hubble-ui                172.18.255.201   172.18.255.201   <none>
+```
+
+`PIN` is read from the **generated** Service, not from the Gateway — that is the check that was
+missing before.
+
 ## Part 8 — DNS for a browser: the hosts block, generated from live state
 
 `/etc/hosts` cannot express a wildcard, so every name is listed — and rather than copying addresses
@@ -406,12 +453,15 @@ Then, in a browser:
 
 Both routing prerequisites still apply: `kernelForUDP` (SETUP 2.3b) and the host route (SETUP 3.5).
 Without them the names resolve but nothing answers — and the diagnosis is the same as gotcha #3.
+For what that route turns your Mac into — a router with the Docker VM as next hop and a Cilium node
+answering ARP on the far side, shown with `traceroute` — see SETUP 3.5, *"What the route actually
+makes your Mac"*.
 
 ## Part 9 — the wildcard *name*: dnsmasq
 
 `/etc/hosts` gives you the five names above and nothing else. For `*.poc.local` to resolve — so a
 new HTTPRoute for `foo.poc.local` works with **no hosts edit** — you need a resolver that answers
-the whole domain. See Part 3c for the dnsmasq setup (`address=/.poc.local/172.18.255.202` plus
+the whole domain. See Part 3c for the dnsmasq setup (`address=/.poc.local/172.18.255.240` plus
 `/etc/resolver/poc.local`). That is the pairing that makes the wildcard *certificate* and a
 wildcard *name* meet.
 

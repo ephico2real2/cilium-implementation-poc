@@ -32,9 +32,17 @@ metadata:
   namespace: routes
   annotations:
     cert-manager.io/cluster-issuer: ca-issuer
-    # Pinned, for the reason gotcha #13 records: an unpinned LB address depends on creation order.
-    io.cilium/lb-ipam-ips: "172.18.255.202"
 spec:
+  # THE ADDRESS PIN, on the path Cilium actually propagates. An earlier version put
+  # io.cilium/lb-ipam-ips in metadata.annotations; verified on the live cluster that it never
+  # reached the generated Service (Gateway had it, Service did not) -- the address it "pinned" was
+  # simply the next free one. Gateway API's spec.infrastructure.annotations is defined as
+  # "annotations that SHOULD be applied to any resources created in response to this Gateway",
+  # and Cilium advertises GatewayInfrastructurePropagation. The IP must sit inside gateway-pool
+  # (cilium/lb-ippool.yaml), the only pool whose selector matches a Gateway-owned Service.
+  infrastructure:
+    annotations:
+      lbipam.cilium.io/ips: "172.18.255.240"
   gatewayClassName: cilium
   listeners:
     # --- HTTPS, wildcard certificate ---------------------------------------------------------

@@ -20,6 +20,9 @@ kernel `6.6.12-linuxkit`. Cluster `poc1`: kind 0.33.0, Kubernetes v1.36.4, Ciliu
 | `CiliumLoadBalancerIPPool` | `cilium.io/v2` | `v2alpha1` is deprecated and warns |
 | `CiliumL2AnnouncementPolicy` | `cilium.io/v2alpha1` **only** | Did *not* graduate with the pool; one manifest needs two apiVersions |
 | kind multi-node + Docker restart | cluster destroyed | Container IPs are reassigned; etcd peers and cert SANs break. Settings must be final before cluster creation |
+| Gateway `metadata.annotations` pin | **not propagated** | The generated Service never received it; the address matched by coincidence. Use `spec.infrastructure.annotations` |
+| LB IPAM pools | two, disjoint, selector-split | `.240–.250` Gateway-only (`io.cilium.gateway/owning-gateway` Exists), `.200–.239` everything else; neither `Conflicting` |
+| Mac → overlay path | `traceroute` hop 1 = `192.168.64.2`, then `*` | One `/16` static route; the VM is the next hop; the LB address is L2-announced by a node, so no further hop exists to show |
 
 ## Cluster and Cilium state
 
@@ -279,3 +282,38 @@ pod — with the 403 verdict attributed to it. Two things follow:
 Note the latency difference in the same exchange: `200 in 13ms` measured at the host hop versus
 `2ms` pod-to-pod, and `403 in 9ms` versus `0ms`. The extra milliseconds are the host→VM→Gateway
 path, visible without any instrumentation.
+
+## Finding — a reserved Gateway range, and the pin that had never worked
+
+Reserving a pool for Gateways exposed that an earlier "fix" was not one. Both Gateways carried
+`io.cilium/lb-ipam-ips` in `metadata.annotations`; **neither generated Service had it**:
+
+```
+Gateway routes-gw  metadata.annotations.io.cilium/lb-ipam-ips = 172.18.255.202
+Service cilium-gateway-routes-gw annotations               = {service.cilium.io/lb-algorithm: maglev}
+```
+
+`.202` was simply the next free address. The path Cilium propagates is Gateway API's
+`spec.infrastructure.annotations` (the CRD: *"annotations that SHOULD be applied to any resources
+created in response to this Gateway"*; Cilium advertises `GatewayInfrastructurePropagation`).
+After the change, read from the **generated** Services:
+
+```
+NS        NAME                        IP               PIN              GW-LABEL
+default   cilium-gateway-sw-gateway   172.18.255.241   172.18.255.241   sw-gateway
+routes    cilium-gateway-routes-gw    172.18.255.240   172.18.255.240   routes-gw
+kube-system  hubble-ui                172.18.255.201   172.18.255.201   <none>
+```
+
+The split itself, applied in one `kubectl apply` so the ranges never overlapped:
+
+```
+NAME               START            STOP             CONFLICT   AVAIL
+gateway-pool       172.18.255.240   172.18.255.250   False      9
+kind-docker-pool   172.18.255.200   172.18.255.239   False      39
+```
+
+Selector key: `io.cilium.gateway/owning-gateway`, present on both Gateway-generated Services and
+absent on `hubble-ui` (verified, not assumed). Old address `.202` confirmed dead afterwards
+(`http=000`); new addresses `200 chain-verified` from the Mac; the `/16` host route needed no
+change. Reference: https://docs.cilium.io/en/stable/network/lb-ipam/

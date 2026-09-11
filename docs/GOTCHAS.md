@@ -215,7 +215,7 @@ reconciliation reverts it.
 
 **Fix.** Set it as a **value** (`hubble.ui.service.type`), never with `kubectl patch`.
 
-## <a name="13"></a>13. A LoadBalancer IP moved and broke a bookmark
+## <a name="13"></a>13. A LoadBalancer IP moved and broke a bookmark — and the first "fix" only half worked
 
 **Symptom.** Hubble UI stopped answering on `172.18.255.200`; that address now served the Gateway
 and returned `403`.
@@ -224,12 +224,37 @@ and returned `403`.
 order**. hubble-ui lost `.200` during a helm upgrade and came back on `.201`, while the Gateway
 took `.200`.
 
-**Fix.** Pin it, so the address is a property of the service rather than of startup order:
+**Fix, part 1 — for a Service:** pin it with the documented annotation, so the address is a
+property of the Service rather than of startup order:
 
 ```yaml
 annotations:
-  "io.cilium/lb-ipam-ips": "172.18.255.201"
+  lbipam.cilium.io/ips: "172.18.255.201"
 ```
+
+**Fix, part 2 — for a Gateway, and this is where the first attempt was wrong.** Putting that
+annotation in the Gateway's `metadata.annotations` **does nothing**. Verified on the live cluster:
+the Gateway carried `io.cilium/lb-ipam-ips: 172.18.255.202`, its generated Service carried only
+`service.cilium.io/lb-algorithm: maglev`, and the "pinned" address was simply the next free one
+that happened to coincide. The path Cilium propagates is Gateway API's
+**`spec.infrastructure.annotations`** — the CRD defines it as *"annotations that SHOULD be applied
+to any resources created in response to this Gateway"*, and Cilium advertises
+`GatewayInfrastructurePropagation`:
+
+```yaml
+spec:
+  infrastructure:
+    annotations:
+      lbipam.cilium.io/ips: "172.18.255.240"
+```
+
+**And the pin only works inside a pool whose selector matches the Service** — from the docs,
+*"requested IPs will not be allocated or assigned if the services don't match the pool's
+selector."* Which is why the Gateway range is a **separate pool** selected on
+`io.cilium.gateway/owning-gateway` (see `cilium/lb-ippool.yaml`).
+
+**The lesson:** a pin you never verified propagated is not a pin. Check the *generated* object's
+annotations, not the one you wrote.
 
 ## <a name="14"></a>14. The two LB CRDs are on different API versions
 
