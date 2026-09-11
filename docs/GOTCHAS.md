@@ -51,6 +51,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [41](#41) | `hubble observe` said nothing was wrong while Hubble cost 80 % of the connection rate — `EVENTS LOST: OBSERVER_EVENTS_QUEUE` is the tell | Hubble |
 | [42](#42) | A Cilium agent rollout takes the Gateway off the air for 2–3 minutes; tuning flags need a restart, so every tuning step costs an outage | Cilium |
 | [43](#43) | Resuming a paused kind cluster by starting containers in address order breaks the moment a lower address was freed — pin with `docker network connect --ip` | kind / Docker |
+| [44](#44) | `kind create cluster` silently switches your current kube context; `hubble -P` follows it — three evidence checks failed against a paused cluster's API server | kind / Hubble |
 
 ---
 
@@ -1097,6 +1098,43 @@ run only because nothing had changed in between.
 
 ---
 
+## <a name="44"></a>44. `kind create cluster` silently switches your current kube context; `hubble -P` follows it
+
+**Symptom.** Regenerating `docs/VERIFICATION_RUN.md` after demo 11, three Hubble checks failed
+with nothing else wrong:
+
+```
+$ hubble status -P
+failed to port forward: failed to get service "hubble-relay": Get "https://127.0.0.1:62680/api/v1/namespaces/kube-system/services/hubble-relay": dial tcp 127.0.0.1:62680: connect: connection refused
+```
+
+Hubble Relay was fine (`cilium status`: `Hubble Relay: OK` on poc1).
+
+**Cause.** Two things, stacked. `kind create cluster --config clusters/poc3.yaml` had set the
+kubeconfig's **current context** to `kind-poc3` — it prints *"Set kubectl context to
+kind-poc3"*, one line in twenty, easy to miss. Then `hubble … -P` opens its port-forward through
+the *current* context (its own help: `--kube-context … This option is only considered when
+--port-forward is set`), so it asked poc3's API server — which was paused for memory, hence
+`connection refused` on `127.0.0.1:62680`. Every `kubectl` in the same script was unaffected
+because they all carry `--context`.
+
+**Fix.** Pin the context on the Hubble calls too: `hubble status -P --kube-context kind-poc1`.
+`scripts/verify.sh` now does this on all three. And after creating any cluster, look at what you
+are pointed at:
+
+```bash
+kubectl config current-context           # kind-poc3 — not what you thought
+kubectl config use-context kind-poc1
+```
+
+**The lesson.** It is #34 one more time: an evidence script must pin **every** input it depends
+on — context, namespace, and now the context of a tool that does not take `--context` by that
+name. Any command that has its own idea of "current" is a hidden input until you pin it.
+
+→ `scripts/verify.sh`, section 7
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1115,6 +1153,7 @@ Most of these share a shape: **something reported success while not working.**
 - `helm upgrade` piped through `tail` looked fine while it had created no release (#40)
 - `rollout status` said success while the Gateway refused every HTTP connection for two minutes (#42)
 - the ordered-restart dry run on poc2 passed — and then the same script put poc2-worker on the wrong address (#43)
+- `hubble status -P` reported Relay unreachable — it was asking a different, paused cluster (#44)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

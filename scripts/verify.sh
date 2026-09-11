@@ -115,6 +115,8 @@ echo "The device, and its counters — proof it is carrying real traffic:"
 run "docker exec poc1-worker ip -s link show cilium_wg0"
 
 hdr "7. DEMO 01 — HUBBLE OBSERVABILITY"
+# -P opens its port-forward through the CURRENT kube context unless told otherwise, and `kind create
+# cluster` changes the current context to the newest cluster (gotcha #44). Pin it, like -n default.
 run "hubble status -P --kube-context $CTX 2>&1 | grep -v level=WARN"
 echo "L7 flows, with method, path, status and latency — no application instrumentation:"
 run "hubble observe --last 6 -P --kube-context $CTX --protocol http 2>&1 | grep -v level=WARN"
