@@ -17,7 +17,7 @@ place below, and summarised together in the [README](../README.md#findings-worth
 and [FINDINGS.md](FINDINGS.md):
 
 1. **The macOS host bridge is `bridge100` here, not the `bridge101` guides name.** macOS assigns
-   the number; identify the interface by its `vmenet` member instead. → Step 2.6
+   the number; identify the interface by its `vmenet` member instead. → Step 3.5
 2. **`CiliumLoadBalancerIPPool` is `cilium.io/v2` but `CiliumL2AnnouncementPolicy` is still
    `v2alpha1`.** They did not graduate together, so one manifest needs two apiVersions. → Step 8
 3. **Finish every Docker Desktop setting BEFORE creating a cluster.** A multi-node kind cluster does
@@ -457,7 +457,7 @@ p.write_text(json.dumps(d, indent=2)); print('kernelForUDP ->', d['kernelForUDP'
 kernelForUDP -> True
 ```
 
-The route itself is added **after** the restart, in Step 2.6 — the `bridge101` interface and the
+The route itself is added **after** the restart AND after the first cluster exists, in Step 3.5 — the `bridge101` interface and the
 VM's `eth1` address do not exist until Docker has come back up with the setting on.
 
 **Linux users: skip this step entirely.** Docker bridge networks are already routable from a Linux
@@ -525,6 +525,46 @@ the VM image, so netkit is still unavailable.)
 
 ---
 
+## ⚠ Step 2.7 — ORDERING: finish ALL Docker settings BEFORE creating any cluster
+
+**Read this before Step 3. This build learned it the expensive way.**
+
+A multi-node kind cluster **does not survive a Docker Desktop restart.** Docker reassigns container
+IP addresses on start, in whatever order containers happen to come up, and a kind cluster's etcd
+peer URLs and API server certificate SANs are written around the addresses the nodes had at
+creation time.
+
+Measured here. Before the restart, and after it:
+
+| Container | Before | After |
+|---|---|---|
+| `poc1-control-plane` | 172.18.0.3 | **172.18.0.7** |
+| `poc1-control-plane2` | 172.18.0.4 | **172.18.0.2** |
+| `poc1-control-plane3` | 172.18.0.6 | **172.18.0.5** |
+| `poc1-external-load-balancer` | 172.18.0.7 | **172.18.0.6** |
+
+Every container came back up, and the cluster was still dead:
+
+```
+kube-apiserver ... Exited (attempt 5)
+E run.go:72] "command failed" err="error creating storage factory: context deadline exceeded"
+W grpc: addrConn.createTransport failed to connect to {Addr: "127.0.0.1:2379" ...}
+```
+
+etcd could not form a quorum because its peers' addresses had moved, so the API server could not
+reach its datastore. The cluster had to be deleted and recreated.
+
+**So the rule is:** make **every** Docker Desktop change — memory (2.3), `kernelForUDP` (2.3b) —
+**before** Step 3, and apply them in **one** restart. After that, avoid restarting Docker for the
+life of the cluster. If you must, expect to `kind delete cluster` and rebuild.
+
+**A silver lining that validates an earlier decision.** Across three creations of `poc1` the load
+balancer's IP was `.7`, then `.6`, then `.2` — while its DNS name, `poc1-external-load-balancer`,
+never changed. That is a second, independent reason Step 5 passes Cilium the **name** and not the
+address: had the IP been baked into `cilium/values-poc1.yaml`, every rebuild would have broken it.
+
+---
+
 ## Step 3 — create the poc1 cluster
 
 **Why.** `clusters/poc1.yaml` is the whole cluster definition: three control planes, two workers, no
@@ -586,6 +626,226 @@ No resources found in kube-system namespace.
 
 No kube-proxy, and no kindnet. Later, when Cilium reports `KubeProxyReplacement: True`, this is the
 evidence that there was never anything running alongside it.
+
+---
+
+## Step 3.5 — route the docker network from macOS
+
+**Two preconditions:** Step 2.3b (`kernelForUDP`) is on and Docker has restarted, **and** a cluster
+exists. That second one is easy to miss — the `kind` docker network is created by kind when it
+builds its *first* cluster, so on a fresh machine there is nothing to route to until Step 3 has
+run. (It then persists, even after `kind delete cluster`.)
+
+The whole step is one command, but **do not copy the numbers** — both are specific to a machine.
+This section derives each one.
+
+```bash
+sudo route -n add -net 172.18.0.0/16 192.168.64.2
+```
+
+### Anatomy of the command
+
+| Part | Means | Where it comes from |
+|---|---|---|
+| `route` | macOS routing table tool | built in |
+| `-n` | print addresses numerically, do not try to resolve names | — |
+| `add` | add a route (`delete` removes it) | — |
+| `-net` | this is a **network** route, not a single `-host` route | — |
+| `172.18.0.0/16` | **DESTINATION** — the subnet to route | the `kind` docker network (3.5.1) |
+| `192.168.64.2` | **GATEWAY** — who to send it to | the Docker VM's address (3.5.2) |
+
+Read as a sentence: *"to reach anything in 172.18.0.0/16, hand the packet to 192.168.64.2."*
+
+### Step 3.5.1 — get the DESTINATION: the docker network subnet
+
+This is the network your kind nodes live on.
+
+```bash
+docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}'
+```
+
+```
+172.18.0.0/16 fc00:f853:ccd:e793::/64
+```
+
+Take the **IPv4** one: `172.18.0.0/16`. (The second is IPv6 and this guide routes IPv4 only.)
+
+Sanity-check it against a real node — the node address must fall inside that subnet:
+
+```bash
+docker inspect poc1-control-plane --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'
+```
+
+```
+172.18.0.6
+```
+
+`172.18.0.6` is inside `172.18.0.0/16`. Good.
+
+> **Your subnet may differ.** Docker picks from `172.17.0.0/16` upward as networks are created, so
+> on another machine `kind` may be `172.19.0.0/16` or higher. Always read it; never assume 172.18.
+
+### Step 3.5.2 — get the GATEWAY: the Docker VM's address
+
+With `kernelForUDP` on, Docker Desktop puts the VM on a bridge shared with the host. You need the
+**VM's** address on that bridge.
+
+**First find the bridge** (the host side), and note that **the number is not portable** — guides
+say `bridge101`, this machine got `bridge100`:
+
+```bash
+ifconfig -l | tr ' ' '\n' | grep -E '^bridge'
+```
+
+```
+bridge0
+bridge100
+```
+
+Identify the right one by its **`vmenet` member** — that is the link to the VM — rather than by its
+number:
+
+```bash
+ifconfig bridge100 | grep -E 'inet |member'
+```
+
+```
+	inet 192.168.64.1 netmask 0xffffff00 broadcast 192.168.64.255
+	member: vmenet0 flags=10803<LEARNING,DISCOVER,PRIVATE,CSUM>
+```
+
+`192.168.64.1` is the **host's** address on that segment. The gateway you want is the **VM's**
+address on the same segment — usually `.2`, but read it rather than guessing:
+
+```bash
+docker run --rm --net=host --privileged busybox sh -c "ip -4 addr show eth1 | grep -o 'inet [0-9.]*'"
+```
+
+```
+inet 192.168.64.2
+```
+
+That container runs with `--net=host`, which on Docker Desktop means *the VM's* network namespace,
+not macOS's — which is exactly why it can see `eth1`. `--privileged` is needed to read it.
+
+So: **gateway = `192.168.64.2`**, on the same `192.168.64.0/24` segment as the host's
+`192.168.64.1`. If your two addresses are not on the same subnet, something is wrong — stop and
+recheck Step 2.3b.
+
+### Step 3.5.3 — derive both automatically
+
+Rather than transcribing, let the shell compute them:
+
+```bash
+DOCKER_NET=$(docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' | tr ' ' '\n' | grep -E '^[0-9]+\.' | head -1)
+VM_IP=$(docker run --rm --net=host --privileged busybox sh -c "ip -4 addr show eth1 | grep -o 'inet [0-9.]*'" | awk '{print $2}')
+echo "destination = $DOCKER_NET"
+echo "gateway     = $VM_IP"
+echo "command     = sudo route -n add -net $DOCKER_NET $VM_IP"
+```
+
+```
+destination = 172.18.0.0/16
+gateway     = 192.168.64.2
+command     = sudo route -n add -net 172.18.0.0/16 192.168.64.2
+```
+
+Then run the printed command.
+
+### Step 3.5.4 — run it
+
+**`sudo` cannot prompt for a password from a non-interactive shell** (including Claude Code's `!`
+prefix). You will get:
+
+```
+sudo: a terminal is required to read the password; either use the -S option to read from standard
+input or configure an askpass helper
+```
+
+That is not a Docker problem. Run the command in a normal **Terminal** window:
+
+```bash
+sudo route -n add -net 172.18.0.0/16 192.168.64.2
+```
+
+### Step 3.5.5 — verify
+
+```bash
+netstat -rn -f inet | grep '^172.18'
+```
+
+```
+172.18             192.168.64.2       UGSc            bridge100
+```
+
+Read the flags: `U` up, `G` gateway, `S` static, `c` clones. The `Netif` column confirms it is
+going out of the bridge from 3.5.2.
+
+Now prove it end to end. At this point in the guide the only thing on that network is the cluster
+itself, so test a **node IP** — take one from Step 3.5.1:
+
+```bash
+curl -sk -o /dev/null -w '%{http_code}\n' https://172.18.0.6:6443/version
+```
+
+```
+200
+```
+
+Compare with Step 2.3b, where the identical request returned `000`.
+
+Once **Step 8** has assigned a LoadBalancer address, the same route carries that too — verified
+later in the guide:
+
+```bash
+curl -s -o /dev/null -w '%{http_code} in %{time_total}s\n' http://172.18.255.200/
+```
+
+```
+200 in 0.007111s
+```
+
+Compare with Step 2.3b, where the same node request returned `000` and the routing table had no
+`172.18` entry at all.
+
+### Managing the route
+
+```bash
+sudo route -n delete -net 172.18.0.0/16          # remove it
+netstat -rn -f inet | grep '^172'                # list what is routed
+```
+
+**It is not persistent.** It is lost on reboot, and must be re-added whenever the Docker VM
+restarts or its address changes. Re-run 3.5.3 to re-derive — the VM address can move.
+
+### Step 3.5b — the no-sudo alternative (and why you might keep both)
+
+If you cannot or would rather not use `sudo`, publish a single service through a proxy container on
+the docker network instead. Docker's normal port publishing crosses the VM boundary, so no route is
+involved:
+
+```bash
+docker run -d --name hubble-ui-proxy --network kind -p 18080:80 --restart unless-stopped \
+  alpine/socat tcp-listen:80,fork,reuseaddr tcp-connect:172.18.255.200:80
+```
+
+```bash
+curl -s -o /dev/null -w '%{http_code} in %{time_total}s\n' http://localhost:18080/
+```
+
+```
+200 in 0.004836s
+```
+
+|  | Route (2.6) | Proxy container (2.6b) |
+|---|---|---|
+| Needs `sudo` | yes | no |
+| Survives reboot | **no** — re-add each time | yes, with `--restart unless-stopped` |
+| Reaches | every container and LB address | one service per proxy container |
+| URL | `http://172.18.255.200/` | `http://localhost:18080/` |
+
+They are complementary. The route is the better daily experience; the proxy is useful insurance
+precisely because the route does not persist.
 
 ---
 
@@ -869,257 +1129,6 @@ instead.
 
 ---
 
-## Step 2.6 — route the docker network from macOS (after the restart)
-
-**Only meaningful once Step 2.3b is on and Docker has restarted.**
-
-The whole step is one command, but **do not copy the numbers** — both are specific to a machine.
-This section derives each one.
-
-```bash
-sudo route -n add -net 172.18.0.0/16 192.168.64.2
-```
-
-### Anatomy of the command
-
-| Part | Means | Where it comes from |
-|---|---|---|
-| `route` | macOS routing table tool | built in |
-| `-n` | print addresses numerically, do not try to resolve names | — |
-| `add` | add a route (`delete` removes it) | — |
-| `-net` | this is a **network** route, not a single `-host` route | — |
-| `172.18.0.0/16` | **DESTINATION** — the subnet to route | the `kind` docker network (2.6.1) |
-| `192.168.64.2` | **GATEWAY** — who to send it to | the Docker VM's address (2.6.2) |
-
-Read as a sentence: *"to reach anything in 172.18.0.0/16, hand the packet to 192.168.64.2."*
-
-### Step 2.6.1 — get the DESTINATION: the docker network subnet
-
-This is the network your kind nodes live on.
-
-```bash
-docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}'
-```
-
-```
-172.18.0.0/16 fc00:f853:ccd:e793::/64
-```
-
-Take the **IPv4** one: `172.18.0.0/16`. (The second is IPv6 and this guide routes IPv4 only.)
-
-Sanity-check it against a real node — the node address must fall inside that subnet:
-
-```bash
-docker inspect poc1-control-plane --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'
-```
-
-```
-172.18.0.6
-```
-
-`172.18.0.6` is inside `172.18.0.0/16`. Good.
-
-> **Your subnet may differ.** Docker picks from `172.17.0.0/16` upward as networks are created, so
-> on another machine `kind` may be `172.19.0.0/16` or higher. Always read it; never assume 172.18.
-
-### Step 2.6.2 — get the GATEWAY: the Docker VM's address
-
-With `kernelForUDP` on, Docker Desktop puts the VM on a bridge shared with the host. You need the
-**VM's** address on that bridge.
-
-**First find the bridge** (the host side), and note that **the number is not portable** — guides
-say `bridge101`, this machine got `bridge100`:
-
-```bash
-ifconfig -l | tr ' ' '\n' | grep -E '^bridge'
-```
-
-```
-bridge0
-bridge100
-```
-
-Identify the right one by its **`vmenet` member** — that is the link to the VM — rather than by its
-number:
-
-```bash
-ifconfig bridge100 | grep -E 'inet |member'
-```
-
-```
-	inet 192.168.64.1 netmask 0xffffff00 broadcast 192.168.64.255
-	member: vmenet0 flags=10803<LEARNING,DISCOVER,PRIVATE,CSUM>
-```
-
-`192.168.64.1` is the **host's** address on that segment. The gateway you want is the **VM's**
-address on the same segment — usually `.2`, but read it rather than guessing:
-
-```bash
-docker run --rm --net=host --privileged busybox sh -c "ip -4 addr show eth1 | grep -o 'inet [0-9.]*'"
-```
-
-```
-inet 192.168.64.2
-```
-
-That container runs with `--net=host`, which on Docker Desktop means *the VM's* network namespace,
-not macOS's — which is exactly why it can see `eth1`. `--privileged` is needed to read it.
-
-So: **gateway = `192.168.64.2`**, on the same `192.168.64.0/24` segment as the host's
-`192.168.64.1`. If your two addresses are not on the same subnet, something is wrong — stop and
-recheck Step 2.3b.
-
-### Step 2.6.3 — derive both automatically
-
-Rather than transcribing, let the shell compute them:
-
-```bash
-DOCKER_NET=$(docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' | tr ' ' '\n' | grep -E '^[0-9]+\.' | head -1)
-VM_IP=$(docker run --rm --net=host --privileged busybox sh -c "ip -4 addr show eth1 | grep -o 'inet [0-9.]*'" | awk '{print $2}')
-echo "destination = $DOCKER_NET"
-echo "gateway     = $VM_IP"
-echo "command     = sudo route -n add -net $DOCKER_NET $VM_IP"
-```
-
-```
-destination = 172.18.0.0/16
-gateway     = 192.168.64.2
-command     = sudo route -n add -net 172.18.0.0/16 192.168.64.2
-```
-
-Then run the printed command.
-
-### Step 2.6.4 — run it
-
-**`sudo` cannot prompt for a password from a non-interactive shell** (including Claude Code's `!`
-prefix). You will get:
-
-```
-sudo: a terminal is required to read the password; either use the -S option to read from standard
-input or configure an askpass helper
-```
-
-That is not a Docker problem. Run the command in a normal **Terminal** window:
-
-```bash
-sudo route -n add -net 172.18.0.0/16 192.168.64.2
-```
-
-### Step 2.6.5 — verify
-
-```bash
-netstat -rn -f inet | grep '^172.18'
-```
-
-```
-172.18             192.168.64.2       UGSc            bridge100
-```
-
-Read the flags: `U` up, `G` gateway, `S` static, `c` clones. The `Netif` column confirms it is
-going out of the bridge from 2.6.2.
-
-Now prove it end to end — a LoadBalancer address **and** a raw node IP, both from macOS:
-
-```bash
-curl -s -o /dev/null -w '%{http_code} in %{time_total}s\n' http://172.18.255.200/
-```
-
-```
-200 in 0.007111s
-```
-
-```bash
-curl -sk -o /dev/null -w '%{http_code}\n' https://172.18.0.6:6443/version
-```
-
-```
-200
-```
-
-Compare with Step 2.3b, where the same node request returned `000` and the routing table had no
-`172.18` entry at all.
-
-### Managing the route
-
-```bash
-sudo route -n delete -net 172.18.0.0/16          # remove it
-netstat -rn -f inet | grep '^172'                # list what is routed
-```
-
-**It is not persistent.** It is lost on reboot, and must be re-added whenever the Docker VM
-restarts or its address changes. Re-run 2.6.3 to re-derive — the VM address can move.
-
-### Step 2.6b — the no-sudo alternative (and why you might keep both)
-
-If you cannot or would rather not use `sudo`, publish a single service through a proxy container on
-the docker network instead. Docker's normal port publishing crosses the VM boundary, so no route is
-involved:
-
-```bash
-docker run -d --name hubble-ui-proxy --network kind -p 18080:80 --restart unless-stopped \
-  alpine/socat tcp-listen:80,fork,reuseaddr tcp-connect:172.18.255.200:80
-```
-
-```bash
-curl -s -o /dev/null -w '%{http_code} in %{time_total}s\n' http://localhost:18080/
-```
-
-```
-200 in 0.004836s
-```
-
-|  | Route (2.6) | Proxy container (2.6b) |
-|---|---|---|
-| Needs `sudo` | yes | no |
-| Survives reboot | **no** — re-add each time | yes, with `--restart unless-stopped` |
-| Reaches | every container and LB address | one service per proxy container |
-| URL | `http://172.18.255.200/` | `http://localhost:18080/` |
-
-They are complementary. The route is the better daily experience; the proxy is useful insurance
-precisely because the route does not persist.
-
----
-
-## ⚠ Step 2.7 — ORDERING: finish ALL Docker settings BEFORE creating any cluster
-
-**Read this before Step 3. This build learned it the expensive way.**
-
-A multi-node kind cluster **does not survive a Docker Desktop restart.** Docker reassigns container
-IP addresses on start, in whatever order containers happen to come up, and a kind cluster's etcd
-peer URLs and API server certificate SANs are written around the addresses the nodes had at
-creation time.
-
-Measured here. Before the restart, and after it:
-
-| Container | Before | After |
-|---|---|---|
-| `poc1-control-plane` | 172.18.0.3 | **172.18.0.7** |
-| `poc1-control-plane2` | 172.18.0.4 | **172.18.0.2** |
-| `poc1-control-plane3` | 172.18.0.6 | **172.18.0.5** |
-| `poc1-external-load-balancer` | 172.18.0.7 | **172.18.0.6** |
-
-Every container came back up, and the cluster was still dead:
-
-```
-kube-apiserver ... Exited (attempt 5)
-E run.go:72] "command failed" err="error creating storage factory: context deadline exceeded"
-W grpc: addrConn.createTransport failed to connect to {Addr: "127.0.0.1:2379" ...}
-```
-
-etcd could not form a quorum because its peers' addresses had moved, so the API server could not
-reach its datastore. The cluster had to be deleted and recreated.
-
-**So the rule is:** make **every** Docker Desktop change — memory (2.3), `kernelForUDP` (2.3b) —
-**before** Step 3, and apply them in **one** restart. After that, avoid restarting Docker for the
-life of the cluster. If you must, expect to `kind delete cluster` and rebuild.
-
-**A silver lining that validates an earlier decision.** Across three creations of `poc1` the load
-balancer's IP was `.7`, then `.6`, then `.2` — while its DNS name, `poc1-external-load-balancer`,
-never changed. That is a second, independent reason Step 5 passes Cilium the **name** and not the
-address: had the IP been baked into `cilium/values-poc1.yaml`, every rebuild would have broken it.
-
----
-
 ## Step 8 — LoadBalancer addresses without a cloud (and without MetalLB or kube-vip)
 
 **Why this is needed.** kind has no cloud provider, so a `type: LoadBalancer` Service stays
@@ -1207,7 +1216,7 @@ docker run --rm --network kind curlimages/curl:latest   -s -o /dev/null -w 'http
 http_code=200 time=0.003746s
 ```
 
-**From the macOS browser**, `http://172.18.255.200/` works only once Step 2.6's route is added.
+**From the macOS browser**, `http://172.18.255.200/` works only once Step 3.5's route is added.
 Without it you will get a timeout — and that is a host routing problem, not a Cilium one. The two
 tests above tell those apart: if the container test returns 200 and the browser does not, the
 cluster is fine and the route is missing.

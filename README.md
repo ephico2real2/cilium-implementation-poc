@@ -71,7 +71,7 @@ inet 192.168.64.1 netmask 0xffffff00 broadcast 192.168.64.255
 	member: vmenet0 flags=10803<LEARNING,DISCOVER,PRIVATE,CSUM>
 ```
 
-See SETUP.md Step 2.6.
+See SETUP.md Step 3.5.
 
 ### 2. An API-version trap: the two Cilium LB CRDs did not graduate together
 

@@ -219,5 +219,5 @@ container addresses from the bottom upward — they cannot collide. Cilium's own
 announcements do the job; **MetalLB and kube-vip are not installed.**
 
 The curl runs from a container **on the docker network** on purpose: it proves the load balancer
-works independently of whether the macOS host has the Step 2.6 route. If that test returns 200 and
+works independently of whether the macOS host has the Step 3.5 route. If that test returns 200 and
 a browser does not, the cluster is fine and the host route is missing.
