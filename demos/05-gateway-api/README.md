@@ -21,6 +21,61 @@ So the full request `curl http://172.18.255.200/v1/request-landing` → Gateway 
 served end to end by one dataplane, observed by one tool (Hubble), and governed by one policy
 engine.
 
+### Confirming it yourself — two commands worth running
+
+**The proxy is a DaemonSet, one per node, on the host network.** This is the single most useful
+thing to internalise about how Cilium serves a Gateway:
+
+```bash
+kubectl -n kube-system get pods -owide | grep cilium-envoy
+```
+
+```
+cilium-envoy-4ht26   1/1   Running   0   9h   172.18.0.5   poc1-worker
+cilium-envoy-9p6mq   1/1   Running   0   9h   172.18.0.4   poc1-worker2
+cilium-envoy-r5c6d   1/1   Running   0   9h   172.18.0.7   poc1-control-plane2
+cilium-envoy-v9lk2   1/1   Running   0   9h   172.18.0.3   poc1-control-plane3
+cilium-envoy-w7759   1/1   Running   0   9h   172.18.0.6   poc1-control-plane
+```
+
+Read the IP column against the node column: **every pod's IP is its node's IP.** That is not a
+coincidence — the DaemonSet runs with `hostNetwork: true`:
+
+```bash
+kubectl -n kube-system get ds cilium-envoy \
+  -o jsonpath='hostNetwork={.spec.template.spec.hostNetwork} desired={.status.desiredNumberScheduled} ready={.status.numberReady}'
+```
+
+```
+hostNetwork=true desired=5 ready=5
+```
+
+Five nodes, five Envoys, each on its node's own network namespace. **There is no separate ingress
+deployment to scale, schedule or fail over** — the proxy is already everywhere, which is also why
+the L2 announcement lease can move the Gateway's address to any node and still find an Envoy there.
+
+**The pool's actual boundaries.** `kubectl get` shows a count; `describe` shows the range, which is
+what you need when checking for an overlap with Docker's own allocations:
+
+```bash
+kubectl describe ciliumloadbalancerippool kind-docker-pool
+```
+
+```
+Name:         kind-docker-pool
+API Version:  cilium.io/v2
+Kind:         CiliumLoadBalancerIPPool
+Spec:
+  Blocks:
+    Start:   172.18.255.200
+    Stop:    172.18.255.250
+  Disabled:  false
+```
+
+Note `API Version: cilium.io/v2` — the graduated version, not the deprecated `v2alpha1` (see the
+README's findings section). And confirm `Start`/`Stop` sit far above anything Docker will hand a
+container from `172.18.0.0/16`.
+
 ## Summary context
 
 **What Gateway API is.** The successor to Ingress. Ingress put every non-trivial behaviour behind

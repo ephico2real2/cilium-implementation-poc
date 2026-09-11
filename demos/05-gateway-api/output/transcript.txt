@@ -74,3 +74,61 @@ $ bash -c kubectl --context kind-poc1 -n kube-system get lease | grep -i l2annou
 cilium-l2announce-default-cilium-gateway-sw-gateway   poc1-worker2                                                                4m8s
 cilium-l2announce-kube-system-hubble-ui               poc1-control-plane2                                                         3m18s
 
+### 2026-09-11T05:49:13Z
+$ bash -c kubectl --context kind-poc1 -n kube-system get pods -owide | grep -i cilium-envoy
+cilium-envoy-4ht26                            1/1     Running   0          9h    172.18.0.5    poc1-worker           <none>           <none>
+cilium-envoy-9p6mq                            1/1     Running   0          9h    172.18.0.4    poc1-worker2          <none>           <none>
+cilium-envoy-r5c6d                            1/1     Running   0          9h    172.18.0.7    poc1-control-plane2   <none>           <none>
+cilium-envoy-v9lk2                            1/1     Running   0          9h    172.18.0.3    poc1-control-plane3   <none>           <none>
+cilium-envoy-w7759                            1/1     Running   0          9h    172.18.0.6    poc1-control-plane    <none>           <none>
+
+### 2026-09-11T05:49:13Z
+$ kubectl --context kind-poc1 describe ciliumloadbalancerippool kind-docker-pool
+Name:         kind-docker-pool
+Namespace:    
+Labels:       <none>
+Annotations:  <none>
+API Version:  cilium.io/v2
+Kind:         CiliumLoadBalancerIPPool
+Metadata:
+  Creation Timestamp:  2026-09-10T20:23:46Z
+  Generation:          1
+  Resource Version:    102074
+  UID:                 9b386627-c1f6-408a-ad05-e9880731c364
+Spec:
+  Blocks:
+    Start:   172.18.255.200
+    Stop:    172.18.255.250
+  Disabled:  false
+Status:
+  Conditions:
+    Last Transition Time:  2026-09-10T20:23:46Z
+    Message:               
+    Observed Generation:   1
+    Reason:                resolved
+    Status:                False
+    Type:                  cilium.io/PoolConflict
+    Last Transition Time:  2026-09-10T20:23:46Z
+    Message:               51
+    Observed Generation:   1
+    Reason:                noreason
+    Status:                Unknown
+    Type:                  cilium.io/IPsTotal
+    Last Transition Time:  2026-09-10T20:23:46Z
+    Message:               49
+    Observed Generation:   1
+    Reason:                noreason
+    Status:                Unknown
+    Type:                  cilium.io/IPsAvailable
+    Last Transition Time:  2026-09-10T20:23:46Z
+    Message:               2
+    Observed Generation:   1
+    Reason:                noreason
+    Status:                Unknown
+    Type:                  cilium.io/IPsUsed
+Events:                    <none>
+
+### 2026-09-11T05:49:14Z
+$ bash -c kubectl --context kind-poc1 -n kube-system get ds cilium-envoy -o jsonpath='hostNetwork={.spec.template.spec.hostNetwork} desired={.status.desiredNumberScheduled} ready={.status.numberReady}'; echo
+hostNetwork=true desired=5 ready=5
+
