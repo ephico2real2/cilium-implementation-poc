@@ -871,11 +871,64 @@ instead.
 
 ## Step 2.6 — route the docker network from macOS (after the restart)
 
-**Only meaningful once Step 2.3b is on and Docker has restarted.** With `kernelForUDP` enabled,
-Docker Desktop creates a bridge on the host and an `eth1` inside the VM. Find both, then route.
+**Only meaningful once Step 2.3b is on and Docker has restarted.**
 
-**Find the bridge.** The docs say `bridge101`; on this machine it came up as **`bridge100`**. macOS
-assigns the number, so look it up rather than copying a number out of a guide:
+The whole step is one command, but **do not copy the numbers** — both are specific to a machine.
+This section derives each one.
+
+```bash
+sudo route -n add -net 172.18.0.0/16 192.168.64.2
+```
+
+### Anatomy of the command
+
+| Part | Means | Where it comes from |
+|---|---|---|
+| `route` | macOS routing table tool | built in |
+| `-n` | print addresses numerically, do not try to resolve names | — |
+| `add` | add a route (`delete` removes it) | — |
+| `-net` | this is a **network** route, not a single `-host` route | — |
+| `172.18.0.0/16` | **DESTINATION** — the subnet to route | the `kind` docker network (2.6.1) |
+| `192.168.64.2` | **GATEWAY** — who to send it to | the Docker VM's address (2.6.2) |
+
+Read as a sentence: *"to reach anything in 172.18.0.0/16, hand the packet to 192.168.64.2."*
+
+### Step 2.6.1 — get the DESTINATION: the docker network subnet
+
+This is the network your kind nodes live on.
+
+```bash
+docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}'
+```
+
+```
+172.18.0.0/16 fc00:f853:ccd:e793::/64
+```
+
+Take the **IPv4** one: `172.18.0.0/16`. (The second is IPv6 and this guide routes IPv4 only.)
+
+Sanity-check it against a real node — the node address must fall inside that subnet:
+
+```bash
+docker inspect poc1-control-plane --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'
+```
+
+```
+172.18.0.6
+```
+
+`172.18.0.6` is inside `172.18.0.0/16`. Good.
+
+> **Your subnet may differ.** Docker picks from `172.17.0.0/16` upward as networks are created, so
+> on another machine `kind` may be `172.19.0.0/16` or higher. Always read it; never assume 172.18.
+
+### Step 2.6.2 — get the GATEWAY: the Docker VM's address
+
+With `kernelForUDP` on, Docker Desktop puts the VM on a bridge shared with the host. You need the
+**VM's** address on that bridge.
+
+**First find the bridge** (the host side), and note that **the number is not portable** — guides
+say `bridge101`, this machine got `bridge100`:
 
 ```bash
 ifconfig -l | tr ' ' '\n' | grep -E '^bridge'
@@ -886,22 +939,20 @@ bridge0
 bridge100
 ```
 
-`bridge0` pre-existed; `bridge100` is the new one. Confirm it is the VM's by looking for a
-`vmenet` member:
+Identify the right one by its **`vmenet` member** — that is the link to the VM — rather than by its
+number:
 
 ```bash
-ifconfig bridge100
+ifconfig bridge100 | grep -E 'inet |member'
 ```
 
 ```
-bridge100: flags=8a63<UP,BROADCAST,SMART,RUNNING,ALLMULTI,SIMPLEX,MULTICAST> mtu 1500
 	inet 192.168.64.1 netmask 0xffffff00 broadcast 192.168.64.255
 	member: vmenet0 flags=10803<LEARNING,DISCOVER,PRIVATE,CSUM>
 ```
 
-The host is `192.168.64.1` on that segment.
-
-**Find the VM's address on the same segment**, by asking from inside a container:
+`192.168.64.1` is the **host's** address on that segment. The gateway you want is the **VM's**
+address on the same segment — usually `.2`, but read it rather than guessing:
 
 ```bash
 docker run --rm --net=host --privileged busybox sh -c "ip -4 addr show eth1 | grep -o 'inet [0-9.]*'"
@@ -911,17 +962,50 @@ docker run --rm --net=host --privileged busybox sh -c "ip -4 addr show eth1 | gr
 inet 192.168.64.2
 ```
 
-**Add the route** — this needs `sudo`, so run it yourself:
+That container runs with `--net=host`, which on Docker Desktop means *the VM's* network namespace,
+not macOS's — which is exactly why it can see `eth1`. `--privileged` is needed to read it.
+
+So: **gateway = `192.168.64.2`**, on the same `192.168.64.0/24` segment as the host's
+`192.168.64.1`. If your two addresses are not on the same subnet, something is wrong — stop and
+recheck Step 2.3b.
+
+### Step 2.6.3 — derive both automatically
+
+Rather than transcribing, let the shell compute them:
+
+```bash
+DOCKER_NET=$(docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' | tr ' ' '\n' | grep -E '^[0-9]+\.' | head -1)
+VM_IP=$(docker run --rm --net=host --privileged busybox sh -c "ip -4 addr show eth1 | grep -o 'inet [0-9.]*'" | awk '{print $2}')
+echo "destination = $DOCKER_NET"
+echo "gateway     = $VM_IP"
+echo "command     = sudo route -n add -net $DOCKER_NET $VM_IP"
+```
+
+```
+destination = 172.18.0.0/16
+gateway     = 192.168.64.2
+command     = sudo route -n add -net 172.18.0.0/16 192.168.64.2
+```
+
+Then run the printed command.
+
+### Step 2.6.4 — run it
+
+**`sudo` cannot prompt for a password from a non-interactive shell** (including Claude Code's `!`
+prefix). You will get:
+
+```
+sudo: a terminal is required to read the password; either use the -S option to read from standard
+input or configure an askpass helper
+```
+
+That is not a Docker problem. Run the command in a normal **Terminal** window:
 
 ```bash
 sudo route -n add -net 172.18.0.0/16 192.168.64.2
 ```
 
-**`sudo` cannot prompt for a password from a non-interactive shell** (including Claude Code's `!`
-prefix) — you will get `sudo: a terminal is required to read the password`. Run it in a normal
-Terminal window.
-
-**Check** — verified on this machine:
+### Step 2.6.5 — verify
 
 ```bash
 netstat -rn -f inet | grep '^172.18'
@@ -930,6 +1014,11 @@ netstat -rn -f inet | grep '^172.18'
 ```
 172.18             192.168.64.2       UGSc            bridge100
 ```
+
+Read the flags: `U` up, `G` gateway, `S` static, `c` clones. The `Netif` column confirms it is
+going out of the bridge from 2.6.2.
+
+Now prove it end to end — a LoadBalancer address **and** a raw node IP, both from macOS:
 
 ```bash
 curl -s -o /dev/null -w '%{http_code} in %{time_total}s\n' http://172.18.255.200/
@@ -947,11 +1036,18 @@ curl -sk -o /dev/null -w '%{http_code}\n' https://172.18.0.6:6443/version
 200
 ```
 
-The whole docker network is now reachable from the host: a LoadBalancer address **and** a raw node
-IP both answer. Compare with the `000` in Step 2.3b, before the change.
+Compare with Step 2.3b, where the same node request returned `000` and the routing table had no
+`172.18` entry at all.
 
-The route is **not persistent** — it is lost on reboot, and must be re-added whenever the Docker VM
-restarts or gets a new address.
+### Managing the route
+
+```bash
+sudo route -n delete -net 172.18.0.0/16          # remove it
+netstat -rn -f inet | grep '^172'                # list what is routed
+```
+
+**It is not persistent.** It is lost on reboot, and must be re-added whenever the Docker VM
+restarts or its address changes. Re-run 2.6.3 to re-derive — the VM address can move.
 
 ### Step 2.6b — the no-sudo alternative (and why you might keep both)
 
