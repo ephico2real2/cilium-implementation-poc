@@ -465,6 +465,74 @@ the whole domain. See Part 3c for the dnsmasq setup (`address=/.poc.local/172.18
 `/etc/resolver/poc.local`). That is the pairing that makes the wildcard *certificate* and a
 wildcard *name* meet.
 
+## Part 10 — re-checking access from outside, scripted (2026-09-11)
+
+Everything above was captured while the demo was built. `scripts/check-routes.sh` re-proves it from
+the laptop in one run — every route kind, both TLS listeners, the negative case, and Hubble UI
+through the Gateway — and exits with the number of failed checks. It pins names with
+`curl --resolve`, so it needs **no `/etc/hosts` entries**; the transcript is
+`output/access-check.txt`.
+
+```bash
+scripts/record.sh demos/09-routes/output/access-check.txt scripts/check-routes.sh
+```
+
+```
+Gateway routes-gw address: 172.18.255.240   (must be inside gateway-pool 172.18.255.240-250)
+KIND        NAME       HOSTS                         ACCEPTED   RESOLVED
+HTTPRoute   anything   [anything-at-all.poc.local]   True       True
+HTTPRoute   exact      [exact.example.test]          True       True
+HTTPRoute   hubble     [hubble.poc.local]            True       True
+HTTPRoute   web        [web.poc.local]               True       True
+GRPCRoute   grpc       [grpc.poc.local]              True       True
+TCPRoute    echo       <none>                        True       True
+
+1. HTTPRoute x3 over HTTPS, certificate chain verified against the enterprise root (docs/root-ca.crt)
+  PASS  https://web.poc.local/ (wildcard listener, *.poc.local cert) -> 200
+  PASS  https://anything-at-all.poc.local/ (wildcard listener, *.poc.local cert) -> 200
+  PASS  https://exact.example.test/ (exact listener, its own cert) -> 200
+  PASS  https://nobody.poc.local/ (under the wildcard but NO route -> Gateway 404) -> 404
+   SNI -> certificate presented:
+     web.poc.local        DNS:*.poc.local
+     exact.example.test   DNS:exact.example.test
+
+2. HTTPRoute over plain HTTP :80 (Host header selects the route)
+  PASS  http://172.18.255.240/ Host: web.poc.local -> 200
+
+3. GRPCRoute (grpcurl runs in a container on the docker network; -authority is the route's hostname)
+  PASS  h2c :80 Health/Check -> {"status":"SERVING"}
+  PASS  TLS :443 Health/Check, wildcard cert verified -> {"status":"SERVING"}
+
+4. TCPRoute :9000 (bytes in, bytes back — no HTTP involved)
+  PASS  tcp echo -> hello from echo (tcp echo)|echo echoed: ping from check-routes|
+
+5. Hubble UI through the SAME Gateway URL: https://hubble.poc.local (HTTPRoute in routes -> Service in kube-system via ReferenceGrant)
+  PASS  https://hubble.poc.local/ (index) -> 200
+  PASS  page title <title>Hubble UI</title>
+  PASS  asset /bundle.main.811eb2d9fcafb97bbf36.js -> 200
+  PASS  asset /bundle.main.0f16d72c3dee99c3b95a.css -> 200
+  PASS  same UI direct at its own LB address (kind-docker-pool) for comparison -> 200
+   Hubble's own view of that request (world -> hubble-ui, through the Gateway):
+     Sep 11 17:14:43.240: 10.10.4.35:52729 (world) -> kube-system/hubble-ui-778c684b94-xmp6n:8081 (ID:73875) to-overlay FORWARDED (TCP Flags: ACK, FIN)
+
+FAILED CHECKS: 0
+```
+
+**What the Hubble check does and does not prove.** It proves the page, its 1.7 MB JS bundle and
+its CSS are served through the Gateway with the wildcard certificate, and that the request arrives
+at the `hubble-ui` pod as identity `world` (it entered from outside). The UI's *data* channel is a
+grpc-web stream under `/api/` that only the browser's bundle opens; a hand-made `POST
+/api/ui.UI/GetControlStream` returns the backend's `404 page not found` **identically** via the
+Gateway (as `grpc-status: 12`, `server: envoy`) and via the direct address — which shows the Gateway
+is transparent to it, not that the stream works. The last step is the browser: add the hosts line
+and open the URL — the service map must fill.
+
+```bash
+scripts/hosts-entries.sh            # prints; you append it yourself
+sudo sh -c 'scripts/hosts-entries.sh >> /etc/hosts'
+open https://hubble.poc.local       # macOS; trust docs/root-ca.crt in Keychain first, or click through
+```
+
 ## What to take away
 
 | Claim | Evidence |

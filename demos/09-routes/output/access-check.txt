@@ -1,0 +1,42 @@
+### 2026-09-11T17:14:39Z
+$ scripts/check-routes.sh
+Gateway routes-gw address: 172.18.255.240   (must be inside gateway-pool 172.18.255.240-250)
+KIND        NAME       HOSTS                         ACCEPTED   RESOLVED
+HTTPRoute   anything   [anything-at-all.poc.local]   True       True
+HTTPRoute   exact      [exact.example.test]          True       True
+HTTPRoute   hubble     [hubble.poc.local]            True       True
+HTTPRoute   web        [web.poc.local]               True       True
+GRPCRoute   grpc       [grpc.poc.local]              True       True
+TCPRoute    echo       <none>                        True       True
+
+1. HTTPRoute x3 over HTTPS, certificate chain verified against the enterprise root (docs/root-ca.crt)
+  PASS  https://web.poc.local/ (wildcard listener, *.poc.local cert) -> 200
+  PASS  https://anything-at-all.poc.local/ (wildcard listener, *.poc.local cert) -> 200
+  PASS  https://exact.example.test/ (exact listener, its own cert) -> 200
+  PASS  https://nobody.poc.local/ (under the wildcard but NO route -> Gateway 404) -> 404
+   SNI -> certificate presented:
+     web.poc.local        DNS:*.poc.local
+     exact.example.test   DNS:exact.example.test
+
+2. HTTPRoute over plain HTTP :80 (Host header selects the route)
+  PASS  http://172.18.255.240/ Host: web.poc.local -> 200
+
+3. GRPCRoute (grpcurl runs in a container on the docker network; -authority is the route's hostname)
+  PASS  h2c :80 Health/Check -> {"status":"SERVING"}
+  PASS  TLS :443 Health/Check, wildcard cert verified -> {"status":"SERVING"}
+
+4. TCPRoute :9000 (bytes in, bytes back — no HTTP involved)
+  PASS  tcp echo -> hello from echo (tcp echo)|echo echoed: ping from check-routes|
+
+5. Hubble UI through the SAME Gateway URL: https://hubble.poc.local (HTTPRoute in routes -> Service in kube-system via ReferenceGrant)
+  PASS  https://hubble.poc.local/ (index) -> 200
+  PASS  page title <title>Hubble UI</title>
+  PASS  asset /bundle.main.811eb2d9fcafb97bbf36.js -> 200
+  PASS  asset /bundle.main.0f16d72c3dee99c3b95a.css -> 200
+  PASS  same UI direct at its own LB address (kind-docker-pool) for comparison -> 200
+   Hubble's own view of that request (world -> hubble-ui, through the Gateway):
+     Sep 11 17:14:43.240: 10.10.4.35:52729 (world) -> kube-system/hubble-ui-778c684b94-xmp6n:8081 (ID:73875) to-overlay FORWARDED (TCP Flags: ACK, FIN)
+     Sep 11 17:14:43.242: 10.10.4.35:52729 (world) -> kube-system/hubble-ui-778c684b94-xmp6n:8081 (ID:73875) to-overlay FORWARDED (TCP Flags: ACK)
+
+FAILED CHECKS: 0
+

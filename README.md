@@ -173,6 +173,12 @@ creations of `poc1` the load balancer's IP was `.7`, then `.6`, then `.2` — wh
 the **name** and not the address for `k8sServiceHost`: had the IP been baked into
 `cilium/values-poc1.yaml`, every rebuild would have broken it.
 
+## Parked
+
+- **BGP with an FRR router (demo 11)** — researched and planned, not built:
+  [docs/summary/BGP_FRR_PLAN.md](docs/summary/BGP_FRR_PLAN.md). Every VIP is reachable by L2 today and
+  nothing on the docker network speaks BGP (measured), so the router *is* the demo.
+
 ## Status
 
 Build in progress. See `docs/SETUP.md` for what is verified so far and `docs/FINDINGS.md` for

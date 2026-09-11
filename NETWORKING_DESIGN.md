@@ -452,7 +452,10 @@ route to it. Two options, in order of how close they are to production:
 | **B. Announce with BGP** | Enable Cilium's BGP control plane (`bgpControlPlane.enabled=true`), peer the nodes with your router in a `CiliumBGPClusterConfig`, and advertise the pool addresses with a `CiliumBGPAdvertisement` of `advertisementType: Service`, `service.addresses: [LoadBalancerIP]` (its `selector` can restrict it to, e.g., Gateway-owned Services). Names verified against the Cilium v1.20.1 CRDs — BGP is off in this PoC, so those CRDs are not installed here. | Exactly what you would do on bare metal/VMware: the nodes peer with the ToR/router and the VIP block is learned, not configured |
 
 Option A is enough for a shared lab. Option B is the design conversation with the network team
-(§7); it is not built in this PoC because a kind bridge has no router to peer with.
+(§7); it is not built in this PoC because a kind bridge has no router to peer with — measured: 0
+listeners on TCP 179 in the Docker VM, `172.18.0.1:179` refuses. The plan to add one (an FRR
+container on the `kind` network as the ToR, a third pool off the LAN so BGP is the only way in) is
+parked in [docs/summary/BGP_FRR_PLAN.md](docs/summary/BGP_FRR_PLAN.md).
 
 ---
 
@@ -508,4 +511,5 @@ Take `scripts/network-plan.sh` output and this table into the meeting.
 | Pinning a Gateway's address on the path that propagates | `docs/GOTCHAS.md` #13, `demos/09-routes/01-gateway.yaml` |
 | Wildcard TLS + DNS into the Gateway range | `demos/09-routes/README.md`, `scripts/hosts-entries.sh` |
 | Reprint the live plan | `scripts/network-plan.sh` |
+| Parked: prove BGP with an FRR router (demo 11 plan) | `docs/summary/BGP_FRR_PLAN.md` |
 | Cilium references | [LB IPAM](https://docs.cilium.io/en/stable/network/lb-ipam/), [L2 announcements](https://docs.cilium.io/en/stable/network/l2-announcements/), [BGP control plane](https://docs.cilium.io/en/stable/network/bgp-control-plane/bgp-control-plane/) |
