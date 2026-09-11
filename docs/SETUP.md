@@ -1272,7 +1272,85 @@ IPAM:  IPv4: 6/254 allocated from 10.20.1.0/24,
 
 `10.20.x` — poc2's subnet. poc1 uses `10.10.x`.
 
-### Step 9.3 — share the CA BEFORE connecting
+### Step 9.3 — establish trust BEFORE connecting
+
+**Two routes. Pick one before you go any further — trust is a prerequisite of joining, not
+something to retrofit.**
+
+| Route | Use when | Where |
+|---|---|---|
+| **A — enterprise CA with cert-manager** | anything beyond a throwaway lab | Step 9.3a, and [demo 08](../demos/08-certmanager-ca/README.md) |
+| **B — copy Cilium's self-signed CA** | quick start only | Step 9.3b |
+
+Route A is the one to learn. Route B is kept because Cilium's own docs show it and you will meet
+it, but it generates the CA as a side effect of installing a CNI, distributes it by hand with no
+record, and renews leaf certificates on a CronJob you do not control.
+
+### Step 9.3a — ROUTE A: an enterprise root CA with cert-manager (recommended)
+
+Full walkthrough in [demo 08](../demos/08-certmanager-ca/README.md); the sequence is:
+
+```bash
+# 1. cert-manager in BOTH clusters — each issues its own leaf certs locally
+helm repo add jetstack https://charts.jetstack.io && helm repo update jetstack
+for ctx in kind-poc1 kind-poc2; do
+  helm install cert-manager jetstack/cert-manager --version v1.21.1 \
+    --namespace cert-manager --create-namespace --kube-context "$ctx" --set crds.enabled=true
+done
+```
+
+```bash
+# 2. the root CA, in poc1 (bootstrap Issuer -> root Certificate -> ClusterIssuer "ca-issuer")
+kubectl --context kind-poc1 apply -f demos/08-certmanager-ca/01-root-ca-poc1.yaml
+```
+
+```bash
+# 3. distribute ONLY the root Secret to poc2, then create the SAME issuer name there
+#    (the Python rebuild is deliberate: the obvious sed pipeline is a GNU-ism BSD sed rejects)
+kubectl --context kind-poc1 -n cert-manager get secret clustermesh-root-ca -o json \
+  | python3 -c 'import json,sys; s=json.load(sys.stdin); print(json.dumps({"apiVersion":"v1","kind":"Secret","type":s.get("type","kubernetes.io/tls"),"metadata":{"name":s["metadata"]["name"],"namespace":"cert-manager"},"data":s["data"]}))' \
+  | kubectl --context kind-poc2 apply -f -
+kubectl --context kind-poc2 apply -f demos/08-certmanager-ca/02-issuer-poc2.yaml
+```
+
+```bash
+# 4. verify ONE trust anchor before going further — compare, do not assume
+for c in kind-poc1 kind-poc2; do
+  kubectl --context $c -n cert-manager get secret clustermesh-root-ca \
+    -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -fingerprint -sha256
+done
+```
+
+The two fingerprints must be **identical**.
+
+```bash
+# 5. point Cilium at the issuer, in BOTH clusters
+for ctx in kind-poc1 kind-poc2; do
+  helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context "$ctx" --reuse-values \
+    --set clustermesh.apiserver.tls.auto.enabled=true \
+    --set clustermesh.apiserver.tls.auto.method=certmanager \
+    --set clustermesh.apiserver.tls.auto.certManagerIssuerRef.group=cert-manager.io \
+    --set clustermesh.apiserver.tls.auto.certManagerIssuerRef.kind=ClusterIssuer \
+    --set clustermesh.apiserver.tls.auto.certManagerIssuerRef.name=ca-issuer
+done
+```
+
+```bash
+# 6. confirm the mesh certs chain to YOUR root before joining
+for c in kind-poc1 kind-poc2; do
+  kubectl --context $c -n kube-system get secret clustermesh-apiserver-server-cert \
+    -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -issuer
+done
+```
+
+```
+issuer=CN=clustermesh-root-ca
+issuer=CN=clustermesh-root-ca
+```
+
+Now continue to Step 9.4. **Skip 9.3b entirely** — the routes are alternatives, not steps.
+
+### Step 9.3b — ROUTE B: copy Cilium's self-signed CA (quick start)
 
 **Do this before `clustermesh connect`, or you will hit gotcha #20.** Each cluster generates its
 own Cilium CA at install, and the mesh refuses mismatched CAs.

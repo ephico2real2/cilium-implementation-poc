@@ -1,0 +1,16 @@
+# poc2's issuer. The ROOT CA ITSELF IS NOT CREATED HERE -- it is minted in poc1 and its Secret is
+# copied across (see the README). This object only says "sign with the key in that Secret".
+#
+# Apply to poc2 ONLY, AFTER copying the clustermesh-root-ca Secret into its cert-manager namespace:
+#   kubectl --context kind-poc2 apply -f demos/08-certmanager-ca/02-issuer-poc2.yaml
+#
+# THE NAME MUST MATCH poc1's. Cilium's certManagerIssuerRef names `ca-issuer`, and the same Helm
+# values are applied to both clusters -- so the issuer has to be called the same thing on each
+# side even though only poc1 created the authority.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: ca-issuer
+spec:
+  ca:
+    secretName: clustermesh-root-ca

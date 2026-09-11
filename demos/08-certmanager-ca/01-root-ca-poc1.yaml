@@ -1,0 +1,64 @@
+# THE ENTERPRISE ROOT CA — created in poc1, which is the authority for the whole mesh.
+#
+# Apply to poc1 ONLY:
+#   kubectl --context kind-poc1 apply -f demos/08-certmanager-ca/01-root-ca-poc1.yaml
+#
+# THE CHAIN OF THREE OBJECTS, and why each exists:
+#
+#   1. Issuer "selfsigned-bootstrap"  — can only sign self-signed certificates. It exists purely to
+#      sign the root below, because a root CA is by definition self-signed and cert-manager needs
+#      *some* issuer to do it. It signs nothing else.
+#
+#   2. Certificate "clustermesh-root-ca" — the actual root. isCA: true makes it a CA certificate
+#      rather than a leaf. Its private key lands in the Secret named by secretName, and THAT SECRET
+#      IS THE CROWN JEWELS: anyone holding it can mint a certificate the whole mesh will trust.
+#
+#   3. ClusterIssuer "ca-issuer" — the thing Cilium points at. `ca:` means "sign with the key in
+#      this Secret". ClusterIssuer (not Issuer) because it must be usable from kube-system, and a
+#      namespaced Issuer would only work inside cert-manager's own namespace.
+#
+# WHY A ROOT AND NOT PER-CLUSTER INTERMEDIATES. Cilium's requirement is that "every cluster must
+# trust the certificates presented by the other clusters". A single shared root satisfies that with
+# one trust anchor. Per-cluster intermediates signed by a common root ALSO work in principle, but
+# each cluster must then carry the full chain -- cilium/cilium#43099 is exactly that going wrong
+# ("x509: certificate signed by unknown authority"), affecting v1.18.4-v1.19.0 and fixed in
+# #43230. We are on 1.20.1 so the fix is present, but a shared root avoids the whole class.
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned-bootstrap
+  namespace: cert-manager
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: clustermesh-root-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: clustermesh-root-ca
+  # A long life because rotating a root means re-trusting it everywhere. Leaf certificates
+  # issued FROM it rotate far more often, which is the point of having a hierarchy.
+  duration: 87600h    # 10 years
+  renewBefore: 720h   # 30 days
+  secretName: clustermesh-root-ca      # <- the Secret that gets copied to poc2
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: selfsigned-bootstrap
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  # This NAME is what Cilium's certManagerIssuerRef points at, and it must be identical in both
+  # clusters so one set of Helm values works for both.
+  name: ca-issuer
+spec:
+  ca:
+    secretName: clustermesh-root-ca

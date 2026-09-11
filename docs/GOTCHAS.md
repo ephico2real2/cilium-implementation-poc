@@ -32,6 +32,9 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [22](#22) | Benchmarks fail in the `default` namespace | misc |
 | [23](#23) | A kubectl context outlives its cluster | misc |
 | [24](#24) | A benchmark conclusion that did not survive a re-run | performance |
+| [25](#25) | **A full Docker disk looks like a TLS/etcd bug** | cluster |
+| [26](#26) | A GitHub release is not a Helm chart release | toolchain |
+| [27](#27) | GNU `sed` range syntax that BSD/macOS `sed` rejects | misc |
 
 ---
 
@@ -439,6 +442,87 @@ before a conclusion is written. If the difference does not exceed the spread, th
 
 **Why it is in this list:** the wrong conclusion was written into a README first and only caught by
 re-running. Measuring once and moving on is how it gets published.
+
+## <a name="25"></a>25. A full Docker disk looks like a TLS/etcd bug
+
+**The most misleading failure in this build.**
+
+**Symptom.** Immediately after switching ClusterMesh to cert-manager certificates, both clusters'
+`clustermesh-apiserver` pods began crash-looping. `etcd-init` hung at `"Configuring root user"`
+and exited 255 after its 2-minute timeout.
+
+**Three wrong hypotheses, in order:** pod contention (two replicas fighting), a live mesh
+interfering with a cert change, and an etcd init timeout too short for a loaded disk. All plausible
+given what had just changed. All wrong.
+
+**The actual cause** was in the `etcd` container's log — a container nobody had looked at, because
+the suspicion was on the thing just modified:
+
+```
+{"level":"error","msg":"writing data failed: write /var/run/etcd/member/snap/db: no space left on device"}
+{"level":"fatal","msg":"failed to commit tx","error":"... no space left on device"}
+```
+
+```bash
+docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -n -i df -h /var/lib
+```
+
+```
+/dev/vda1   58.4G  55.4G  0  100%  /var/lib
+```
+
+**Zero bytes free on the Docker VM disk.** Nothing to do with certificates.
+
+**Where the space goes.** Every kind node's writable layer, every image and every volume share one
+pool inside the VM. `docker system df` showed 104 images totalling 28.9 GB with 27 GB reclaimable.
+
+**Fix:**
+
+```bash
+docker builder prune -af
+docker image prune -af      # reclaimed 24.63 GB here
+```
+
+Both apiservers then reached `3/3 Running` with **zero restarts in 40 seconds**.
+
+**Related: where does etcd data live in kind?** Not on your Mac directly. Each node is a container
+on the VM disk, and `clustermesh-apiserver`'s etcd uses an **`emptyDir`** — a directory inside that
+container. So mesh etcd, cluster etcd, images and volumes all compete for the same 58 G. The
+`emptyDir` also means mesh etcd is deliberately **ephemeral**: a cache rebuildable from the
+Kubernetes API, not a database of record, which is why restarts are safe.
+
+**The lesson:** a component failing right after you changed X is not evidence that X caused it.
+**Read the failing container's own logs before theorising about what you just touched** — one `df`
+would have replaced three hypotheses.
+
+## <a name="26"></a>26. A GitHub release is not a Helm chart release
+
+**Symptom.**
+`Error: INSTALLATION FAILED: chart "cert-manager" matching v1.21.2 not found in jetstack index`
+
+**Cause.** cert-manager v1.21.2 was tagged on GitHub that morning; the Helm repo index still had
+v1.21.1. The two publish independently.
+
+**Fix.** Take the version from the chart repo, not a releases page:
+
+```bash
+helm search repo jetstack/cert-manager --versions | head -3
+```
+
+## <a name="27"></a>27. GNU `sed` range syntax that BSD/macOS `sed` rejects
+
+**Symptom.**
+`sed: 1: "/annotations:/,/^  [a-z ...": extra characters at the end of d command`
+
+**Cause.** A range address with multiple patterns and an embedded `d` — a GNU extension. macOS
+ships BSD sed.
+
+**Fix.** For stripping fields out of Kubernetes objects, rebuild the object instead of editing its
+text. It is portable and states exactly which fields survive:
+
+```bash
+kubectl get secret X -o json | python3 -c 'import json,sys; s=json.load(sys.stdin); print(json.dumps({...}))'
+```
 
 ---
 
