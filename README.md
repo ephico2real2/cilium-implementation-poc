@@ -69,6 +69,20 @@ Two notes on reading it. It is **read-only** apart from HTTP requests to the dem
 is exactly what an L3 policy denial looks like, and it is recorded as `[exit code: 28]` rather than
 hidden. It is an evidence report, not a pass/fail gate; read the output.
 
+## Every gotcha, in one place
+
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 22 traps this build actually hit — not things that
+*could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
+you start; several cost an hour each.
+
+They share a shape worth naming up front: **most of them reported success while not working.**
+`brew` said "already installed"; every container came back `Up` while the cluster was dead; the API
+server answered `curl -k` with 200 while Cilium could not reach it; `kubectl patch` succeeded and
+was silently reverted; a policy fix "worked" and opened a hole; `--enable-bandwidth-manager='true'`
+appeared in the log for a feature that was off.
+
+The three most expensive are expanded below.
+
 ## Findings worth your attention
 
 Three things this build learned the hard way. Each is documented in full where it belongs in

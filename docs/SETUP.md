@@ -1222,3 +1222,130 @@ tests above tell those apart: if the container test returns 200 and the browser 
 cluster is fine and the route is missing.
 
 ---
+## Step 9 — the second cluster and ClusterMesh
+
+Only needed for demo 07. It adds two more nodes, so check headroom first:
+`docker stats --no-stream --format '{{.MemUsage}}'`.
+
+### Step 9.1 — create poc2
+
+```bash
+kind create cluster --config clusters/poc2.yaml
+```
+
+```bash
+docker ps --filter "name=poc2" --format '{{.Names}}'
+```
+
+```
+poc2-control-plane
+poc2-worker
+```
+
+**Note what is NOT there: no `poc2-external-load-balancer`.** With a single control plane kind
+creates none. That changes one value in the next step, and it is the simpler of the two cases.
+
+### Step 9.2 — install Cilium on poc2
+
+```bash
+helm install cilium cilium/cilium --version 1.20.1 \
+  --namespace kube-system --kube-context kind-poc2 \
+  -f cilium/values-poc2.yaml \
+  --set k8sServiceHost=poc2-control-plane \
+  --set k8sServicePort=6443
+```
+
+`k8sServiceHost` is the **control-plane node**, not a load balancer — because there is no load
+balancer. **The naming rule from Step 5.3 still applies:** pass the NAME. The certificate lists
+`DNS:poc2-control-plane`, and Docker reassigns addresses on restart.
+
+Check the CIDR is poc2's own, proving the clusters do not overlap:
+
+```bash
+kubectl --context kind-poc2 -n kube-system exec ds/cilium -c cilium-agent -- \
+  cilium-dbg status | grep IPAM
+```
+
+```
+IPAM:  IPv4: 6/254 allocated from 10.20.1.0/24,
+```
+
+`10.20.x` — poc2's subnet. poc1 uses `10.10.x`.
+
+### Step 9.3 — share the CA BEFORE connecting
+
+**Do this before `clustermesh connect`, or you will hit gotcha #20.** Each cluster generates its
+own Cilium CA at install, and the mesh refuses mismatched CAs.
+
+The clean way is to pass the same `tls.ca.cert`/`tls.ca.key` to **both** `helm install` commands.
+If you did not (as here), copy the CA while the second cluster is still empty:
+
+```bash
+kubectl --context kind-poc1 -n kube-system get secret cilium-ca -o yaml \
+  | grep -v '^\s*\(resourceVersion\|uid\|creationTimestamp\|selfLink\)' \
+  | kubectl --context kind-poc2 -n kube-system apply -f -
+```
+
+Then delete the certs issued under the old CA and **regenerate them** — note that neither a pod
+restart nor `helm upgrade` will do it (gotcha #21):
+
+```bash
+kubectl --context kind-poc2 -n kube-system delete secret \
+  clustermesh-apiserver-{admin,server,remote,local}-cert
+```
+
+```bash
+kubectl --context kind-poc2 -n kube-system create job clustermesh-certgen-manual \
+  --from=cronjob/clustermesh-apiserver-generate-certs
+```
+
+Confirm the new cert carries the **shared** CA — the dates must match poc1's exactly:
+
+```bash
+kubectl --context kind-poc2 -n kube-system get secret clustermesh-apiserver-server-cert \
+  -o jsonpath='{.data.ca\.crt}' | base64 -d | openssl x509 -noout -dates
+```
+
+```
+notBefore=Sep 10 20:21:40 2026 GMT
+notAfter=Sep  9 20:21:40 2029 GMT
+```
+
+### Step 9.4 — enable and connect
+
+```bash
+cilium clustermesh enable --context kind-poc1 --service-type NodePort
+cilium clustermesh enable --context kind-poc2 --service-type NodePort
+```
+
+`NodePort` because kind has no cloud load balancer for the mesh API server. The CLI warns it "may
+fail when nodes are removed" — heed that in production, ignore it on a laptop.
+
+```bash
+cilium clustermesh connect --context kind-poc1 --destination-context kind-poc2
+```
+
+```
+✅ Connected cluster kind-poc1 <=> kind-poc2!
+```
+
+### Step 9.5 — verify (connecting ≠ connected)
+
+```bash
+cilium clustermesh status --context kind-poc1 --wait
+```
+
+```
+✅ All 5 nodes are connected to all clusters [min:1 / avg:1.0 / max:1]
+✅ All 1 KVStoreMesh replicas are connected to all clusters [min:1 / avg:1.0 / max:1]
+
+🔌 Cluster Connections:
+  - poc2: 5/5 configured, 5/5 connected - KVStoreMesh: 1/1 configured, 1/1 connected
+```
+
+Run it on **both** sides. `--wait` matters: the first attempts legitimately report
+`3 nodes are not ready` while the mesh converges, and it settles within about a minute.
+
+Demo 07 then deploys the global service. → [demos/07-clustermesh/README.md](../demos/07-clustermesh/README.md)
+
+---
