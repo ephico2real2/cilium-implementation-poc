@@ -41,6 +41,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [31](#31) | A hostPath log reader must run as root | tracing |
 | [32](#32) | A cross-namespace route returns 500 with `Accepted=True` | Gateway API |
 | [33](#33) | gRPC over TLS through the Gateway works for `grpcurl` and fails for a current grpc-go client — no ALPN | Gateway API |
+| [34](#34) | Every un-namespaced check in the evidence script reported `NotFound` — the kubeconfig's namespace had moved | tooling |
 
 ---
 
@@ -756,6 +757,49 @@ against a server that violates it. Verify with the client your applications will
 
 ---
 
+## <a name="34"></a>34. Every un-namespaced check in the evidence script reported `NotFound` — the kubeconfig's namespace had moved
+
+**Symptom.** A regenerated `docs/VERIFICATION_RUN.md` suddenly showed demo 02, 05 and 07 broken:
+
+```
+$ kubectl --context kind-poc1 get ciliumnetworkpolicy
+No resources found in routes namespace.
+$ kubectl --context kind-poc1 exec tiefighter -- curl …
+Error from server (NotFound): pods "tiefighter" not found
+$ curl … http:///v1/request-landing            <- the Gateway address resolved to nothing
+```
+
+The cluster was fine: `kubectl -n default get pods tiefighter xwing` → both `Running`.
+
+**Cause.** The word `routes` in the first error. The kubeconfig's **current namespace for the
+context** had been changed (`kubectl config set-context --current --namespace routes`, or
+`kubens`) while working on demo 09:
+
+```
+$ kubectl config get-contexts
+CURRENT   NAME        CLUSTER     AUTHINFO    NAMESPACE
+*         kind-poc1   kind-poc1   kind-poc1   routes
+```
+
+`scripts/verify.sh` built every command on `kubectl --context kind-poc1` and relied on the
+namespace being `default` — a hidden input that lives on the laptop, not in the cluster, and that
+any other terminal can change. Eleven checks failed at once and none of them said why.
+
+**Fix.** The script no longer depends on it: `K="kubectl --context $CTX -n default"`, with the
+explicit `-n kube-system` / `-n routes` on individual commands still winning because **kubectl
+takes the last `-n` on the line** (measured: `-n default -n kube-system get pods` lists cilium
+pods, and the reverse lists `deathstar`). Regenerated: only the three expected non-zero exits
+remain (a `head` SIGPIPE, the L3 timeout that *is* the demo, and the absent `cilium_wg0` since
+WireGuard is off).
+
+**The lesson.** An evidence script must pin every input it depends on — context *and* namespace —
+or it measures the operator's shell state instead of the cluster. The same discipline as
+`--context` on every command (gotcha #23) applied one level down.
+
+→ `scripts/verify.sh`, header comment
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -768,6 +812,7 @@ Most of these share a shape: **something reported success while not working.**
 - `--enable-bandwidth-manager='true'` appeared in the log (#17)
 - `clustermesh connect` printed `✅ Connected` (#20 — before status was checked)
 - `grpcurl` said `SERVING` over TLS (#33 — from a version too old to notice the missing ALPN)
+- the evidence script itself reported eleven failures that were not there (#34 — it was reading the shell's namespace, not the cluster)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

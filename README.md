@@ -41,7 +41,7 @@ unchanged, with BGP substituted for L2 in production.
 6. **`scripts/verify.sh`** — regenerate every piece of evidence on *your* cluster and diff it
    against [docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md). `scripts/check-routes.sh` is the
    external-access proof for demo 09.
-7. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 33 traps, each with the real error
+7. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 34 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -52,7 +52,7 @@ unchanged, with BGP substituted for L2 in production.
 | ✅ | Demos 01–10, each with a recorded transcript | done |
 | ✅ | Networking design, two reserved pools, host route, hosts block generated from live state | done |
 | ✅ | Enterprise CA from day 1; ClusterMesh on cert-manager certs (`issuer=CN=clustermesh-root-ca`) | done |
-| ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (644 lines, 13 sections) | regenerable |
+| ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (662 lines, 13 sections, including the native client) | regenerable |
 | ⏳ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | agreed, not started; needs a disk/memory headroom check first |
 | ⏳ | **BGP with an FRR router (demo 11)** | researched and planned in [docs/summary/BGP_FRR_PLAN.md](docs/summary/BGP_FRR_PLAN.md); parked |
 | ⏳ | Hubble UI **data stream** through the Gateway — only a browser can exercise it | HTML/JS/CSS proven at 200 via `https://hubble.poc.local`; browser confirmation pending (demo 09 Part 10) |
@@ -130,9 +130,9 @@ scripts/verify.sh                              # to the terminal
 scripts/verify.sh > docs/VERIFICATION_RUN.md   # as a document
 ```
 
-The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 644 lines of
-real console output in 13 sections: versions, cluster state, full Cilium status, and every demo
-through 10.
+The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 662 lines of
+real console output in 13 sections: versions, cluster state, full Cilium status, every demo
+through 10, and the native route client.
 
 Two notes on reading it. It is **read-only** apart from HTTP requests to the demo app. And it
 **always exits 0**, deliberately: several checks are *supposed* to fail — a `curl` that times out
@@ -141,7 +141,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 33 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 34 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

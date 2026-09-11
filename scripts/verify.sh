@@ -19,7 +19,10 @@
 set -uo pipefail
 
 CTX="${CTX:-kind-poc1}"
-K="kubectl --context $CTX"
+# Pinned to -n default on purpose: the kubeconfig's current namespace is whatever the last person
+# left it (a `kubens routes` made every un-namespaced check here report NotFound — gotcha #34).
+# A later -n on a command line overrides this one, so the explicit -n kube-system etc. below still win.
+K="kubectl --context $CTX -n default"
 
 hdr() {
   echo
@@ -139,7 +142,7 @@ run "$K get clusterissuer"
 hdr "10. DEMO 09 — WILDCARD TLS + HTTPRoute / GRPCRoute / TCPRoute"
 run "$K -n routes get gateway,httproute,grpcroute,tcproute"
 run "$K -n routes get certificate"
-CA=$(mktemp); $K -n cert-manager get secret clustermesh-root-ca -o jsonpath='{.data.tls\\.crt}' 2>/dev/null | base64 -d > "$CA"
+CA=$(mktemp); $K -n cert-manager get secret clustermesh-root-ca -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d > "$CA"
 GW=$($K -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}' 2>/dev/null)
 echo "HTTPS, chain-verified against the exported root (never -k). The wildcard covers a name with no cert of its own:"
 run "for h in web.poc.local anything-at-all.poc.local exact.example.test hubble.poc.local; do printf '%-28s ' \$h; curl -s --max-time 8 --cacert $CA --resolve \$h:443:$GW https://\$h/ -o /dev/null -w '[http=%{http_code}]\\n'; done"
@@ -147,6 +150,14 @@ echo "NEGATIVE — a name no listener covers must fail the handshake (curl exit 
 run "curl -s --max-time 8 --cacert $CA --resolve nobody.example.test:443:$GW https://nobody.example.test/ -o /dev/null -w '[http=%{http_code}]\\n'; echo \"exit=\$?\""
 run "docker run --rm --network kind fullstorydev/grpcurl:latest -plaintext -authority grpc.poc.local $GW:80 grpc.health.v1.Health/Check"
 run "(echo 'ping from verify.sh'; sleep 1) | nc -w 5 $GW 9000"
+# ALPN must be negotiated on the TLS listeners or current gRPC clients refuse them (gotcha #33).
+run "for s in grpc.poc.local web.poc.local exact.example.test; do printf '%-20s ' \$s; echo | openssl s_client -connect $GW:443 -servername \$s -alpn h2,http/1.1 2>/dev/null | grep ALPN; done"
+# The native client (demo 09 Part 11): all three routes from a current grpc-go, no Docker. Needs Go.
+if command -v go >/dev/null 2>&1; then
+  run "(cd demos/09-routes/app && go run . -mode client -target $GW -ca ../../../docs/root-ca.crt)"
+else
+  echo '(go not installed: skipping the native client; see demos/09-routes/README.md Part 11)'; echo
+fi
 rm -f "$CA"
 
 hdr "11. DEMO 10 — HUBBLE FLOW EXPORT -> OTEL"

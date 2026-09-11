@@ -156,3 +156,7 @@ encryption:
 #
 # encryption / bandwidthManager / gatewayAPI — deliberately off here. They are enabled per demo in
 #   Phase 3 with `helm upgrade --reuse-values`, so each demo shows its own before/after.
+#   gatewayAPI.enabled AND gatewayAPI.enableAlpn go on together in demo 05 (ALPN is off by default and
+#   gRPC over TLS fails for current grpc-go clients without it — gotcha #33). Both are operator-side
+#   flags read at startup: every `helm upgrade` that changes them needs `rollout restart
+#   deploy/cilium-operator`, or the old pod keeps the old flags while `rollout status` says success.

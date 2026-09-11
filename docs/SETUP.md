@@ -1303,6 +1303,28 @@ tests above tell those apart: if the container test returns 200 and the browser 
 cluster is fine and the route is missing.
 
 ---
+## Step 8b — Gateway API flags, and the rule for operator-side flags
+
+Gateway API itself is switched on in **demo 05** (CRDs first, then two helm values), so it is not
+repeated here — but the rule it teaches applies to every later upgrade in this guide:
+
+```bash
+helm upgrade cilium cilium/cilium --version 1.20.1 --namespace kube-system \
+  --reuse-values --set gatewayAPI.enabled=true --set gatewayAPI.enableAlpn=true
+kubectl -n kube-system rollout restart deployment/cilium-operator daemonset/cilium
+```
+
+- **`gatewayAPI.enableAlpn=true` goes on with `gatewayAPI.enabled`.** Off by default; without it
+  the Gateway's HTTPS listeners negotiate no ALPN and gRPC over TLS fails for any grpc-go ≥ 1.67
+  client while older tools (`grpcurl`) still report success — gotcha #33, found in demo 09.
+- **A helm value that only changes `cilium-config` does not restart the operator.** The operator
+  reads its flags at startup; `helm upgrade` rewrites the ConfigMap, the Deployment template is
+  unchanged, `kubectl rollout status` says "successfully rolled out", and the same pod keeps the old
+  flags. Measured in demo 09: 60 s of polling after the upgrade, no change; ALPN appeared only after
+  `rollout restart deploy/cilium-operator`. The same rule bit once before with a CRD (gotcha #28).
+  **After any operator-side flag change, restart the operator and prove the effect** — here with
+  `echo | openssl s_client -connect <gateway>:443 -servername <host> -alpn h2,http/1.1 | grep ALPN`.
+
 ## Step 9 — the second cluster and ClusterMesh
 
 Only needed for demo 07. It adds two more nodes, so check headroom first:

@@ -120,9 +120,22 @@ client-side apply uses to store its last-applied state.
 
 ```bash
 helm upgrade cilium cilium/cilium --version 1.20.1 --namespace kube-system \
-  --reuse-values --set gatewayAPI.enabled=true
+  --reuse-values --set gatewayAPI.enabled=true --set gatewayAPI.enableAlpn=true
 kubectl -n kube-system rollout restart deployment/cilium-operator daemonset/cilium
 ```
+
+**Enable ALPN in the same upgrade.** Cilium ships `gatewayAPI.enableAlpn: false`, and with it off
+the HTTPS listeners negotiate no ALPN at all — HTTP/1.1 clients never notice, but **gRPC over TLS
+fails for any grpc-go ≥ 1.67 client** (`missing selected ALPN property`); this build found it in
+demo 09 with a native client after `grpcurl` had reported success (gotcha #33). It costs nothing
+for HTTP/1.1 backends; a backend that wants HTTP/2 declares `appProtocol: kubernetes.io/h2c` on
+its Service port.
+
+**The `rollout restart` line is not optional, and not only for the agents.** Both flags are
+operator-side and land in the `cilium-config` ConfigMap; the operator reads them **at startup**. A
+helm upgrade that changes only the ConfigMap leaves the running operator pod untouched — and
+`rollout status` reports "successfully rolled out" because nothing rolled. Without the restart, the
+GatewayClass (and later ALPN) never appears.
 
 ```bash
 kubectl get gatewayclass
