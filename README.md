@@ -49,6 +49,26 @@ an untested combination.
 | 06 | Performance | Bandwidth manager + BBR, BIG TCP, measured with iperf3 |
 | 07 | ClusterMesh | A global Service backed by pods in a second cluster, with failover |
 
+## Regenerating the evidence
+
+Every README here quotes captured output, and quoted output goes stale. `scripts/verify.sh` re-runs
+all of it in one pass so you can compare against your own cluster rather than trusting a snapshot
+from someone else's laptop:
+
+```bash
+scripts/verify.sh                              # to the terminal
+scripts/verify.sh > docs/VERIFICATION_RUN.md   # as a document
+```
+
+The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 433 lines of
+real console output covering versions, cluster state, full Cilium status, and all five working
+demos.
+
+Two notes on reading it. It is **read-only** apart from HTTP requests to the demo app. And it
+**always exits 0**, deliberately: several checks are *supposed* to fail — a `curl` that times out
+is exactly what an L3 policy denial looks like, and it is recorded as `[exit code: 28]` rather than
+hidden. It is an evidence report, not a pass/fail gate; read the output.
+
 ## Findings worth your attention
 
 Three things this build learned the hard way. Each is documented in full where it belongs in
