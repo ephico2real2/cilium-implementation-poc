@@ -656,6 +656,22 @@ cd ../../..
 demos/09-routes/app/routedemo -mode client -target "$(kubectl -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}')" -ca docs/root-ca.crt
 ```
 
+To test one route type only — the gRPC question on its own, for example — add `-only`:
+
+```bash
+demos/09-routes/app/routedemo -mode client -only grpc -target 172.18.255.240 -ca docs/root-ca.crt
+```
+```
+3. GRPCRoute -- grpc.health.v1.Health/Check, over h2c (:80) and over TLS (:443)
+  PASS  h2c  grpc.poc.local:80   SERVING
+  PASS  TLS  grpc.poc.local:443  SERVING
+
+FAILED CHECKS: 0
+```
+
+`-only http` and `-only tcp` do the same for the other two; the exit code is still the number of
+failed checks in what ran.
+
 Recorded run (`output/client-check.txt`, after Part 5b's ALPN fix):
 
 ```

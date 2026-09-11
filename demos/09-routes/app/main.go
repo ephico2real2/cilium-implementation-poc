@@ -163,8 +163,10 @@ func httpGet(client *http.Client, url string) (int, string, error) {
 	return resp.StatusCode, strings.TrimSpace(string(body)), nil
 }
 
-func runClient(target, caPath, domain, exact string) int {
+func runClient(target, caPath, domain, exact, only string) int {
 	c := &checker{}
+	// -only narrows the run to one route type (http | grpc | tcp); "all" runs every section.
+	want := func(section string) bool { return only == "all" || only == section }
 	roots := loadRoots(caPath)
 	dial := pinnedDialer(target)
 	https := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
@@ -173,88 +175,97 @@ func runClient(target, caPath, domain, exact string) int {
 
 	fmt.Printf("Gateway %s, root CA %s, wildcard domain *.%s, exact host %s\n\n", target, caPath, domain, exact)
 
-	fmt.Println("1. HTTPRoute over HTTPS -- chain verified against the root, SNI selects the listener")
-	for _, h := range []string{"web." + domain, "anything-at-all." + domain, exact} {
-		code, body, err := httpGet(https, "https://"+h+"/")
-		switch {
-		case err != nil:
-			c.fail("https://%s/  %v", h, err)
-		case code != 200:
-			c.fail("https://%s/  http %d", h, code)
-		case !strings.Contains(body, `"host":"`+h+`"`) || !strings.Contains(body, `"tls":true`):
-			c.fail("https://%s/  200 but the app did not echo host+tls: %s", h, body)
-		default:
-			c.pass("https://%s/  200, app echoed host and tls=true", h)
-		}
-	}
-	if code, _, err := httpGet(https, "https://nobody."+domain+"/"); err != nil || code != 404 {
-		c.fail("https://nobody.%s/  want 404 (under the wildcard, no route), got %d %v", domain, code, err)
-	} else {
-		c.pass("https://nobody.%s/  404 -- wildcard cert served it, no HTTPRoute claimed it", domain)
-	}
-	if _, _, err := httpGet(https, "https://nobody.example.test/"); err == nil {
-		c.fail("https://nobody.example.test/  the exact listener must NOT present a cert for another name")
-	} else {
-		c.pass("https://nobody.example.test/  TLS refused as expected: %v", errString(err))
-	}
-
-	fmt.Println("\n2. HTTPRoute over plain HTTP :80 -- the Host header picks the route")
-	req, _ := http.NewRequest("GET", "http://"+target+"/", nil)
-	req.Host = "web." + domain
-	if resp, err := plain.Do(req); err != nil || resp.StatusCode != 200 {
-		c.fail("http://%s/ Host: web.%s  %v", target, domain, err)
-	} else {
-		resp.Body.Close()
-		c.pass("http://%s/ Host: web.%s  200", target, domain)
-	}
-
-	fmt.Println("\n3. GRPCRoute -- grpc.health.v1.Health/Check, over h2c (:80) and over TLS (:443)")
-	grpcHost := "grpc." + domain
-	grpcCheck := func(label string, port string, creds credentials.TransportCredentials) {
-		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		defer cancel()
-		// grpc-go dials the target string; the authority (and TLS ServerName) is the route hostname.
-		conn, err := grpc.NewClient(net.JoinHostPort(target, port),
-			grpc.WithTransportCredentials(creds), grpc.WithAuthority(grpcHost))
-		if err != nil {
-			c.fail("%s  dial: %v", label, err)
-			return
-		}
-		defer conn.Close()
-		resp, err := healthpb.NewHealthClient(conn).Check(ctx, &healthpb.HealthCheckRequest{})
-		if err != nil {
-			c.fail("%s  %v", label, err)
-			return
-		}
-		if resp.GetStatus() != healthpb.HealthCheckResponse_SERVING {
-			c.fail("%s  status %s", label, resp.GetStatus())
-			return
-		}
-		c.pass("%s  SERVING", label)
-	}
-	grpcCheck("h2c  "+grpcHost+":80 ", "80", insecure.NewCredentials())
-	grpcCheck("TLS  "+grpcHost+":443", "443", credentials.NewTLS(&tls.Config{RootCAs: roots, ServerName: grpcHost}))
-
-	fmt.Println("\n4. TCPRoute :9000 -- greeting on connect, then a line echoed back")
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(target, "9000"), 5*time.Second)
-	if err != nil {
-		c.fail("tcp %s:9000  %v", target, err)
-	} else {
-		defer conn.Close()
-		conn.SetDeadline(time.Now().Add(5 * time.Second))
-		r := bufio.NewReader(conn)
-		greet, err := r.ReadString('\n')
-		if err != nil || !strings.Contains(greet, "(tcp echo)") {
-			c.fail("tcp greeting: %q %v", greet, err)
-		} else {
-			fmt.Fprintf(conn, "ping from routedemo client\n")
-			echo, err := r.ReadString('\n')
-			if err != nil || !strings.Contains(echo, "echoed: ping from routedemo client") {
-				c.fail("tcp echo: %q %v", echo, err)
-			} else {
-				c.pass("tcp  greeting %q then %q", strings.TrimSpace(greet), strings.TrimSpace(echo))
+	if want("http") {
+		fmt.Println("1. HTTPRoute over HTTPS -- chain verified against the root, SNI selects the listener")
+		for _, h := range []string{"web." + domain, "anything-at-all." + domain, exact} {
+			code, body, err := httpGet(https, "https://"+h+"/")
+			switch {
+			case err != nil:
+				c.fail("https://%s/  %v", h, err)
+			case code != 200:
+				c.fail("https://%s/  http %d", h, code)
+			case !strings.Contains(body, `"host":"`+h+`"`) || !strings.Contains(body, `"tls":true`):
+				c.fail("https://%s/  200 but the app did not echo host+tls: %s", h, body)
+			default:
+				c.pass("https://%s/  200, app echoed host and tls=true", h)
 			}
 		}
+		if code, _, err := httpGet(https, "https://nobody."+domain+"/"); err != nil || code != 404 {
+			c.fail("https://nobody.%s/  want 404 (under the wildcard, no route), got %d %v", domain, code, err)
+		} else {
+			c.pass("https://nobody.%s/  404 -- wildcard cert served it, no HTTPRoute claimed it", domain)
+		}
+		if _, _, err := httpGet(https, "https://nobody.example.test/"); err == nil {
+			c.fail("https://nobody.example.test/  the exact listener must NOT present a cert for another name")
+		} else {
+			c.pass("https://nobody.example.test/  TLS refused as expected: %v", errString(err))
+		}
+
+		fmt.Println("\n2. HTTPRoute over plain HTTP :80 -- the Host header picks the route")
+		req, _ := http.NewRequest("GET", "http://"+target+"/", nil)
+		req.Host = "web." + domain
+		if resp, err := plain.Do(req); err != nil || resp.StatusCode != 200 {
+			c.fail("http://%s/ Host: web.%s  %v", target, domain, err)
+		} else {
+			resp.Body.Close()
+			c.pass("http://%s/ Host: web.%s  200", target, domain)
+		}
+
+	}
+
+	if want("grpc") {
+		fmt.Println("\n3. GRPCRoute -- grpc.health.v1.Health/Check, over h2c (:80) and over TLS (:443)")
+		grpcHost := "grpc." + domain
+		grpcCheck := func(label string, port string, creds credentials.TransportCredentials) {
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			// grpc-go dials the target string; the authority (and TLS ServerName) is the route hostname.
+			conn, err := grpc.NewClient(net.JoinHostPort(target, port),
+				grpc.WithTransportCredentials(creds), grpc.WithAuthority(grpcHost))
+			if err != nil {
+				c.fail("%s  dial: %v", label, err)
+				return
+			}
+			defer conn.Close()
+			resp, err := healthpb.NewHealthClient(conn).Check(ctx, &healthpb.HealthCheckRequest{})
+			if err != nil {
+				c.fail("%s  %v", label, err)
+				return
+			}
+			if resp.GetStatus() != healthpb.HealthCheckResponse_SERVING {
+				c.fail("%s  status %s", label, resp.GetStatus())
+				return
+			}
+			c.pass("%s  SERVING", label)
+		}
+		grpcCheck("h2c  "+grpcHost+":80 ", "80", insecure.NewCredentials())
+		grpcCheck("TLS  "+grpcHost+":443", "443", credentials.NewTLS(&tls.Config{RootCAs: roots, ServerName: grpcHost}))
+
+	}
+
+	if want("tcp") {
+		fmt.Println("\n4. TCPRoute :9000 -- greeting on connect, then a line echoed back")
+		conn, err := net.DialTimeout("tcp", net.JoinHostPort(target, "9000"), 5*time.Second)
+		if err != nil {
+			c.fail("tcp %s:9000  %v", target, err)
+		} else {
+			defer conn.Close()
+			conn.SetDeadline(time.Now().Add(5 * time.Second))
+			r := bufio.NewReader(conn)
+			greet, err := r.ReadString('\n')
+			if err != nil || !strings.Contains(greet, "(tcp echo)") {
+				c.fail("tcp greeting: %q %v", greet, err)
+			} else {
+				fmt.Fprintf(conn, "ping from routedemo client\n")
+				echo, err := r.ReadString('\n')
+				if err != nil || !strings.Contains(echo, "echoed: ping from routedemo client") {
+					c.fail("tcp echo: %q %v", echo, err)
+				} else {
+					c.pass("tcp  greeting %q then %q", strings.TrimSpace(greet), strings.TrimSpace(echo))
+				}
+			}
+		}
+
 	}
 
 	fmt.Printf("\nFAILED CHECKS: %d\n", c.failed)
@@ -277,6 +288,7 @@ func main() {
 	caPath := flag.String("ca", "docs/root-ca.crt", "client: root CA to verify the Gateway's certificates")
 	domain := flag.String("domain", "poc.local", "client: the wildcard domain (*.poc.local)")
 	exact := flag.String("exact", "exact.example.test", "client: the exact-listener hostname")
+	only := flag.String("only", "all", "client: run only one route type: http | grpc | tcp")
 	flag.Parse()
 	switch *mode {
 	case "http":
@@ -289,7 +301,12 @@ func main() {
 		if *target == "" {
 			log.Fatal("-mode client needs -target <gateway address>")
 		}
-		os.Exit(runClient(*target, *caPath, *domain, *exact))
+		switch *only {
+		case "all", "http", "grpc", "tcp":
+		default:
+			log.Fatalf("unknown -only %q (want http, grpc, tcp or all)", *only)
+		}
+		os.Exit(runClient(*target, *caPath, *domain, *exact, *only))
 	default:
 		log.Fatalf("unknown -mode %q (want http, grpc, tcp or client)", *mode)
 	}
