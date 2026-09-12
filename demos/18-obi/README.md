@@ -315,3 +315,32 @@ log (`trace_printer: text`) shows whether it sees requests, `hubble_http_request
 any exist, and the generator's `active_series` falls to 0 within minutes of silence by design. A lab
 with no load generator is quiet most of the day; `demos/15-bank/exercise.sh 20` is the switch.
 
+## Evidence
+
+Captured 2026-09-12 with `scripts/evidence/capture.js` and `scripts/evidence/collect.sh` (both re-runnable; the pod and Cilium output is the recorded file [`output/evidence.txt`](output/evidence.txt)). Every image is what the browser saw, with traffic running.
+
+**grafana l7 accounts poc2** — the poc2 side of a payment (accounts), as Hubble sees it — OBI’s spans of the same requests are in Tempo (demo 21 drilldown)
+
+![grafana-l7-accounts-poc2](output/screenshots/grafana-l7-accounts-poc2.png)
+
+**grafana traces drilldown** — Traces Drilldown grouped by service.name: the OBI-instrumented bank services of both clusters, zero code changed
+
+![grafana-traces-drilldown](output/screenshots/grafana-traces-drilldown.png)
+
+**Running pods** (from `output/evidence.txt`):
+
+```console
+$ kubectl --context kind-poc1 -n obi get pods -o wide
+NAME        READY   STATUS    RESTARTS   AGE   IP           NODE           NOMINATED NODE   READINESS GATES
+obi-8xxhx   1/1     Running   0          48m   172.18.0.5   poc1-worker    <none>           <none>
+obi-smtrp   1/1     Running   0          48m   172.18.0.4   poc1-worker2   <none>           <none>
+```
+
+```console
+$ kubectl --context kind-poc2 -n obi get pods -o wide
+NAME        READY   STATUS    RESTARTS   AGE   IP           NODE          NOMINATED NODE   READINESS GATES
+obi-j5874   1/1     Running   0          47m   172.18.0.9   poc2-worker   <none>           <none>
+```
+
+The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
+

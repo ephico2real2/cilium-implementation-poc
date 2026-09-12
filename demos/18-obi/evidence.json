@@ -1,0 +1,16 @@
+{
+ "captures": [
+  {
+   "name": "grafana-l7-accounts-poc2",
+   "url": "https://grafana.poc.local/d/3g264CZVz/hubble-l7-http-metrics-by-workload?orgId=1&from=now-30m&to=now&var-cluster=poc2&var-destination_namespace=bank&var-destination_workload=accounts&var-reporter=server&var-source_namespace=All&var-source_workload=All",
+   "wait": "text:Request",
+   "look": "the poc2 side of a payment (accounts), as Hubble sees it \u2014 OBI\u2019s spans of the same requests are in Tempo (demo 21 drilldown)"
+  },
+  {
+   "name": "grafana-traces-drilldown",
+   "url": "https://grafana.poc.local/a/grafana-exploretraces-app/explore?from=now-30m&to=now&timezone=browser&var-ds=tempo&var-primarySignal=nestedSetParent%3C0&var-filters=&var-metric=rate&var-groupBy=resource.service.name",
+   "wait": "text:service.name",
+   "look": "Traces Drilldown grouped by service.name: the OBI-instrumented bank services of both clusters, zero code changed"
+  }
+ ]
+}

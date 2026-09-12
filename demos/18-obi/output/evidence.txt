@@ -1,0 +1,23 @@
+# evidence for demos/18-obi — recorded 2026-09-12T22:24Z by scripts/evidence/collect.sh
+### 2026-09-12T22:24:49Z
+$ kubectl --context kind-poc1 -n obi get pods -o wide
+NAME        READY   STATUS    RESTARTS   AGE   IP           NODE           NOMINATED NODE   READINESS GATES
+obi-8xxhx   1/1     Running   0          48m   172.18.0.5   poc1-worker    <none>           <none>
+obi-smtrp   1/1     Running   0          48m   172.18.0.4   poc1-worker2   <none>           <none>
+
+### 2026-09-12T22:24:50Z
+$ kubectl --context kind-poc2 -n obi get pods -o wide
+NAME        READY   STATUS    RESTARTS   AGE   IP           NODE          NOMINATED NODE   READINESS GATES
+obi-j5874   1/1     Running   0          47m   172.18.0.9   poc2-worker   <none>           <none>
+
+### 2026-09-12T22:24:51Z
+$ bash -c for c in poc1 poc2; do kubectl --context kind-$c -n obi logs ds/obi --tail=3 2>/dev/null 
+bash: -c: line 2: syntax error: unexpected end of file
+[exit code: 2]
+
+### 2026-09-12T22:24:51Z
+$ bash -c  cut -c1-160; done
+bash: -c: line 1: syntax error near unexpected token `done'
+bash: -c: line 1: ` cut -c1-160; done'
+[exit code: 2]
+
