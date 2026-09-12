@@ -226,6 +226,8 @@ demo 16 used for Cilium:
 - a **ConfigMap** carrying grafana.com dashboard 19004, *Spring Boot 3.x Statistics*, with its
   datasource input resolved to the demo 16 Prometheus, labelled `grafana_dashboard=1` so Grafana's
   sidecar loads it from the `springboot` namespace exactly as it loads Cilium's from `kube-system`.
+  How that ConfigMap was made (download, placeholder resolution, uid, label) is documented once,
+  in demo 16 Part 1b, and is now `demos/16-monitoring/dashboard-configmap.sh`, which regenerates it.
 
 ```bash
 kubectl --context kind-poc1 apply -f demos/20-springboot/40-monitoring.yaml

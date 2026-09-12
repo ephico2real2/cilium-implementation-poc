@@ -116,6 +116,38 @@ No red targets — that is what the four `enabled: false` lines in the values bo
 Prometheus is up and scraping everything *it* knows about; it knows nothing about Cilium. Section B
 is the single helm change that fixes that. Keep this "before" state in mind: it is the control.
 
+### 1b. How any dashboard gets in — the sidecar contract, and the one demo 20 added
+
+The sidecar is the third container of the Grafana pod (`grafana-sc-dashboard`). Section A's values
+switched it on and told it to watch **every** namespace (`grafana.sidecar.dashboards.enabled: true`,
+`searchNamespace: ALL`); it provisions the JSON of any ConfigMap labelled `grafana_dashboard=1` as a
+file-based dashboard. Cilium's chart used that contract for its six dashboards (Section B, Part 5).
+Demo 20 used it for a dashboard that is not from any chart — grafana.com's 19004, *Spring Boot 3.x
+Statistics* — and the steps are now a script, [`dashboard-configmap.sh`](dashboard-configmap.sh):
+
+1. download the latest revision's JSON from grafana.com's API
+   (`https://grafana.com/api/dashboards/19004/revisions/latest/download`);
+2. resolve the import-time placeholder `${DS_PROMETHEUS}` to the live Prometheus datasource uid
+   (read from `https://grafana.poc.local/api/datasources`) — the sidecar does no input resolution, and an
+   unresolved placeholder renders empty panels;
+3. drop `__inputs`/`__requires`, clear the numeric `id`, pin a stable `uid` (it is the URL:
+   `/d/springboot-19004/…`) and a title suffix so the copy is recognisable;
+4. wrap it in a ConfigMap with the label, in the namespace of the thing it describes, and `kubectl apply`.
+   The sidecar picked it up within a minute (the Grafana search call in demo 20's transcript).
+
+```bash
+demos/16-monitoring/dashboard-configmap.sh 19004 springboot grafana-dashboard-springboot springboot-19004 " (petclinic)" "Spring Boot" \
+  | kubectl --context kind-poc1 apply -f -
+kubectl --context kind-poc1 -n monitoring logs deploy/monitoring-grafana -c grafana-sc-dashboard --since=5m | grep -i springboot
+kubectl --context kind-poc1 get cm -A -l grafana_dashboard=1
+```
+
+Two consequences of provisioning instead of clicking *Import*: it is declarative (survives Grafana
+restarts and a reinstall of the stack; delete the ConfigMap and the dashboard goes), and it is
+read-only in the UI — edit the JSON and re-apply, or *Save as* a copy. The committed file for demo 20
+is `demos/20-springboot/40-monitoring.yaml`; the script reproduces it byte-for-byte in uid, title,
+panel count and resolved datasource (checked).
+
 ## Part 2 — Grafana on the Gateway as `https://grafana.poc.local`
 
 The demo 09 Gateway (`routes-gw`, `172.18.255.240`) terminates TLS with a wildcard `*.poc.local`

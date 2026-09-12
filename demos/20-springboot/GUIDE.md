@@ -369,6 +369,8 @@ open https://grafana.poc.local/d/springboot-19004/spring-boot-3-x-statistics-pet
 ```
 *Why:* Micrometer's `/actuator/prometheus` on the four application JVMs, relabeled so the standard dashboard's `application`
 and `instance` variables work; the dashboard arrives through the same sidecar path as Cilium's (a labelled ConfigMap).
+The ConfigMap was generated, not hand-written — demo 16 Part 1b and `demos/16-monitoring/dashboard-configmap.sh 19004 springboot
+grafana-dashboard-springboot springboot-19004 " (petclinic)" "Spring Boot"` reproduce it.
 *Expect:* four `up` targets under Prometheus → Status → Targets (`podMonitor/springboot/petclinic`), and per-service request
 rate, latency, heap and GC on the dashboard after a minute of traffic. Traces are **not** in Grafana: there is no trace store
 in this lab (README Part 4).
