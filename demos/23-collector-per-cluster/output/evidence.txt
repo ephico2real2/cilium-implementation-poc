@@ -1,0 +1,42 @@
+# evidence for demos/23-collector-per-cluster — recorded 2026-09-12T22:24Z by scripts/evidence/collect.sh
+### 2026-09-12T22:24:57Z
+$ kubectl --context kind-poc1 -n otel get pods -o wide
+NAME                   READY   STATUS    RESTARTS   AGE     IP            NODE                  NOMINATED NODE   READINESS GATES
+otel-collector-5qwgc   1/1     Running   0          7h39m   10.10.1.96    poc1-control-plane2   <none>           <none>
+otel-collector-7vbhr   1/1     Running   0          7h39m   10.10.4.220   poc1-worker           <none>           <none>
+otel-collector-cfgjr   1/1     Running   0          7h39m   10.10.2.196   poc1-control-plane3   <none>           <none>
+otel-collector-lntgk   1/1     Running   0          7h39m   10.10.3.58    poc1-worker2          <none>           <none>
+otel-collector-xvft4   1/1     Running   0          7h39m   10.10.0.189   poc1-control-plane    <none>           <none>
+
+### 2026-09-12T22:24:57Z
+$ kubectl --context kind-poc2 -n otel get pods -o wide
+NAME                             READY   STATUS    RESTARTS     AGE   IP           NODE          NOMINATED NODE   READINESS GATES
+otel-collector-8f8c6fd76-79qwk   1/1     Running   2 (8h ago)   9h    10.20.1.3    poc2-worker   <none>           <none>
+otel-collector-8f8c6fd76-dtdzn   1/1     Running   1 (8h ago)   9h    10.20.1.41   poc2-worker   <none>           <none>
+
+### 2026-09-12T22:24:57Z
+$ bash -c demos/23-collector-per-cluster/check.sh 60
+== poc1 ==
+  otel-collector 10.11.115.140:4318 backends (as poc1-worker's agent sees them):
+    68   10.11.115.140:4318/TCP    ClusterIP      1 => 10.10.0.189:4318/TCP (active)    
+                                                  2 => 10.10.1.96:4318/TCP (active)     
+                                                  3 => 10.10.2.196:4318/TCP (active)    
+                                                  4 => 10.10.3.58:4318/TCP (active)     
+                                                  5 => 10.10.4.220:4318/TCP (active)    
+  annotations: global=[] affinity=[]
+  otel-collector-5qwgc               queue=0 sent=0 failed=0
+  otel-collector-7vbhr               queue=0 sent=1655 failed=0
+  otel-collector-cfgjr               queue=0 sent=1556 failed=0
+  otel-collector-lntgk               queue=0 sent=0 failed=0
+  otel-collector-xvft4               queue=0 sent=233 failed=0
+== poc2 ==
+  otel-collector 10.21.35.73:4318 backends (as poc2-worker's agent sees them):
+    25   10.21.35.73:4318/TCP     ClusterIP      1 => 10.20.1.3:4318/TCP (active)          
+                                                 2 => 10.20.1.41:4318/TCP (active)         
+  annotations: global=[] affinity=[]
+  otel-collector-8f8c6fd76-79qwk     queue=0 sent=3628 failed=0
+  otel-collector-8f8c6fd76-dtdzn     queue=0 sent=0 failed=0
+== Tempo (central): traces per cluster, last 60 min ==
+  k8s.cluster.name=poc1: 0 traces
+  k8s.cluster.name=poc2: 0 traces
+

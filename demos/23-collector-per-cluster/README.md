@@ -141,3 +141,29 @@ See [`GUIDE.md`](GUIDE.md).
   the outage is a delay.
 - **Two `kubectl` traps on the way:** a global service needs the annotation on both sides, and
   `kubectl annotate` bypasses `apply`'s ownership — remove with `annotate key-`.
+
+## Evidence
+
+Captured 2026-09-12 with `scripts/evidence/capture.js` and `scripts/evidence/collect.sh` (both re-runnable; the pod and Cilium output is the recorded file [`output/evidence.txt`](output/evidence.txt)). Every image is what the browser saw, with traffic running.
+
+**Running pods** (from `output/evidence.txt`):
+
+```console
+$ kubectl --context kind-poc1 -n otel get pods -o wide
+NAME                   READY   STATUS    RESTARTS   AGE     IP            NODE                  NOMINATED NODE   READINESS GATES
+otel-collector-5qwgc   1/1     Running   0          7h39m   10.10.1.96    poc1-control-plane2   <none>           <none>
+otel-collector-7vbhr   1/1     Running   0          7h39m   10.10.4.220   poc1-worker           <none>           <none>
+otel-collector-cfgjr   1/1     Running   0          7h39m   10.10.2.196   poc1-control-plane3   <none>           <none>
+otel-collector-lntgk   1/1     Running   0          7h39m   10.10.3.58    poc1-worker2          <none>           <none>
+otel-collector-xvft4   1/1     Running   0          7h39m   10.10.0.189   poc1-control-plane    <none>           <none>
+```
+
+```console
+$ kubectl --context kind-poc2 -n otel get pods -o wide
+NAME                             READY   STATUS    RESTARTS     AGE   IP           NODE          NOMINATED NODE   READINESS GATES
+otel-collector-8f8c6fd76-79qwk   1/1     Running   2 (8h ago)   9h    10.20.1.3    poc2-worker   <none>           <none>
+otel-collector-8f8c6fd76-dtdzn   1/1     Running   1 (8h ago)   9h    10.20.1.41   poc2-worker   <none>           <none>
+```
+
+The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
+
