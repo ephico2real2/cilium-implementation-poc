@@ -429,6 +429,29 @@ the honest upgrade; the `Cilium Flows over Time` table already builds a data lin
 and, once `verdictFilter: none` is used, the `l7` field (DNS queries, HTTP method/path) are the next
 panels the data supports.
 
+## Part 10 — everything on the fork's `develop`, deployed from it
+
+The fork now has a **`develop`** branch = upstream `main` 21319b7 + all of this demo's upstream work:
+PR #9 (the policy fix), PR #10 (the image document), PR #11 (`fieldMask` / `extraArgs`), and the two
+dashboard panels added **to the chart's own dashboard file** (`dashboard/cilium-hubble-flows.json`,
+which is byte-for-byte the grafana.com 23862 export — verified — so
+[`extend-dashboard.py`](extend-dashboard.py) applies to both, idempotently). Commit `f1f5ead`, six
+commits over upstream.
+
+Deployed from it (Part 10 of the transcript): `chart-from-fork.sh develop f1f5ead` → revision 15, the
+policy on (`4245/53`), the mask in the running command, the agent image at the agents' digest; the
+dashboard ConfigMap regenerated from the **chart's** file with `dashboard-from-file.sh` (same uid,
+folder Hubble) → Grafana `Cilium Flows - Hubble Observer` with `Flows per Drop Reason` and `Flows per
+Denying Policy` among its panels; a fresh probe → 7/7 nodes, 476 DROPPED flows stored over the hour,
+cf2cnp healthy, the [capture](output/screenshots/ho-dashboard-develop.png) with zero empty panels.
+The vendored copy at [`chart/`](chart/) is that commit ([`chart/UPSTREAM-COMMIT.txt`](chart/UPSTREAM-COMMIT.txt)).
+
+The one thing the chart's own dashboard mechanism still cannot do here: it ships as a `GrafanaDashboard`
+CR for the Grafana Operator, so on this stack the same file is provisioned through the sidecar
+ConfigMap (Part 9 explains the label and the annotation). The dashboard panels are not yet a pull
+request upstream; they are ready to be one from `develop` (`git diff upstream/main --
+helm/hubble-observer/dashboard/`).
+
 ## Exercises
 
 See [`GUIDE.md`](GUIDE.md).

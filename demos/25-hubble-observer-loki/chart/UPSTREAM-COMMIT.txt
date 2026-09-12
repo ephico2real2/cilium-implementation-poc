@@ -1,2 +1,2 @@
-6aa3a8deadbb71aa5e50cd836fa022dd05cd10be 2026-09-12 15:32:23 -0500
-https://github.com/ephico2real2/hubble-observer (fork of onzack/hubble-observer, Apache-2.0), helm/hubble-observer at branch demo25-integration = upstream main 21319b7 + PR #9 (policy fix) + PR #10 (docs) + PR #11 (fieldMask/extraArgs); vendored 2026-09-12 after live validation (README Parts 8–9)
+f1f5ead05daf9ac7f864adba0a5527d4b90e3e44 2026-09-12 15:49:54 -0500
+https://github.com/ephico2real2/hubble-observer (fork of onzack/hubble-observer, Apache-2.0), helm/hubble-observer at branch develop = upstream main 21319b7 + PR #9 (policy fix) + PR #10 (docs) + PR #11 (fieldMask/extraArgs) + the extended dashboard (drop reason, denying policy) in dashboard/cilium-hubble-flows.json; deployed from it 2026-09-12 (README Part 10)

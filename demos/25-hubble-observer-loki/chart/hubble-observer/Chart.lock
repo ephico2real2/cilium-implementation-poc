@@ -3,4 +3,4 @@ dependencies:
   repository: oci://ghcr.io/onzack/helm-charts
   version: 0.4.0
 digest: sha256:7b0a4a72d7e2c3db6ed6727422a964dbdd72000f2da00af31c88a363873f7a95
-generated: "2026-09-12T15:36:20.673749-05:00"
+generated: "2026-09-12T15:54:09.426651-05:00"

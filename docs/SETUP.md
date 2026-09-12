@@ -1830,11 +1830,11 @@ demos/25-hubble-observer-loki/chart-prep.sh                                     
 helm install loki grafana/loki --version 7.3.0 -n monitoring --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-loki.yaml --wait
 helm install hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer -n hubble-observer --create-namespace \
   --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --wait          # vendored from the operator's fork (PR #9 fix + docs): policy ON, cf2cnp on
-# to validate a fork branch before vendoring it: demos/25-hubble-observer-loki/chart-from-fork.sh <branch> <commit>
+# to validate a fork branch before vendoring it: demos/25-hubble-observer-loki/chart-from-fork.sh develop <commit>   # the fork's develop = every change of this demo
 kubectl --context kind-poc1 apply -f demos/25-hubble-observer-loki/20-cf2cnp-route.yaml                 # cf2cnp.poc.local through the demo 09 Gateway
 kubectl --context kind-poc1 apply -f demos/10-tracing/otel-collector.yaml; kubectl --context kind-poc1 -n otel rollout restart ds/otel-collector   # observer stdout → Loki
 helm upgrade monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml   # the Loki data source
-demos/25-hubble-observer-loki/dashboard-from-file.sh demos/25-hubble-observer-loki/dashboard-23862-rev5-extended.json monitoring grafana-dashboard-hubble-observer hubble-observer-23862 Hubble | kubectl --context kind-poc1 apply -f -
+demos/25-hubble-observer-loki/dashboard-from-file.sh demos/25-hubble-observer-loki/chart/hubble-observer/dashboard/cilium-hubble-flows.json monitoring grafana-dashboard-hubble-observer hubble-observer-23862 Hubble | kubectl --context kind-poc1 apply -f -
 sudo sh -c 'demos/25-hubble-observer-loki/hosts-entries.sh >> /etc/hosts'                               # cf2cnp.poc.local on the Mac
 demos/25-hubble-observer-loki/check.sh
 # Part 5 — the relays on mTLS (both clusters), the observer and the operators with their own certificates

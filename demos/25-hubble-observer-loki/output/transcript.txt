@@ -550,3 +550,27 @@ REVISION: 14
 hubble-observer-6f865f8f94-h5vfh   true   0
   mask in the running command: 1
 
+### Part 10 — deployed from the fork's develop branch (all changes: policy fix, docs, field mask, the extended dashboard in the chart itself)
+### 2026-09-12T20:50:18Z
+$ bash -c demos/25-hubble-observer-loki/chart-from-fork.sh develop f1f5ead 2>&1 | tail -3; kubectl --context kind-poc1 -n hubble-observer rollout status deploy/hubble-observer --timeout=3m | tail -1; echo "dashboard ConfigMap from the CHART's dashboard file (develop), same uid, folder Hubble:"; demos/25-hubble-observer-loki/dashboard-from-file.sh .tmp/hubble-observer-fork/helm/hubble-observer/dashboard/cilium-hubble-flows.json monitoring grafana-dashboard-hubble-observer hubble-observer-23862 Hubble | kubectl --context kind-poc1 apply -f -; sleep 45; GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana https://grafana.poc.local/api/dashboards/uid/hubble-observer-23862 | python3 -c "
+import json,sys; d=json.load(sys.stdin)[\"dashboard\"]
+def t(ps):
+    for p in ps:
+        yield p.get(\"title\")
+        if p.get(\"panels\"): yield from t(p[\"panels\"])
+print(\"  Grafana:\", d[\"title\"], \"version\", d.get(\"version\"), \"| panels:\", [x for x in t(d[\"panels\"]) if x and \"Flows per\" in x])"; kubectl --context kind-poc1 -n bank delete pod egress-test --wait=true >/dev/null 2>&1; echo "cell probe: $(demos/19-zero-trust-cell/egress-test.sh poc1 2>&1 | grep -c DENIED) DENIED"; sleep 40; demos/25-hubble-observer-loki/check.sh 1 2>&1 | grep -E "POD|relay as|poc1|poc2|health" | sed "s/^/  /"; echo "  running command has the mask: $(kubectl --context kind-poc1 -n hubble-observer get deploy hubble-observer -o jsonpath="{.spec.template.spec.containers[0].args[0]}" | grep -c field-mask) | policy: $(kubectl --context kind-poc1 -n hubble-observer get cnp allow-hubble-observer-to-hubble-relay -o jsonpath="{.spec.egress[0].toPorts[0].ports[0].port}/{.spec.egress[1].toPorts[0].ports[0].port}") | image: $(kubectl --context kind-poc1 -n hubble-observer get deploy hubble-observer -o jsonpath="{.spec.template.spec.containers[0].image}" | cut -c1-40)…"
+dependencies: cf2cnp-0.4.0.tgz
+STATUS: deployed
+REVISION: 15
+deployment "hubble-observer" successfully rolled out
+dashboard ConfigMap from the CHART's dashboard file (develop), same uid, folder Hubble:
+configmap/grafana-dashboard-hubble-observer configured
+  Grafana: Cilium Flows - Hubble Observer version 3 | panels: ['Flows per Verdict', 'Flows per Direction', 'Flows per Source Namespace', 'Flows per Destination', 'Flows per Drop Reason', 'Flows per Denying Policy']
+cell probe: 6 DENIED
+  hubble-observer-6f865f8f94-h5vfh          true   0     poc1-worker2
+  hubble-observer-cf2cnp-7d6576479c-jh4n7   true   0     poc1-worker2
+    relay as the observer sees it: Connected Nodes: 7/7
+      {'flow_source_cluster_name': 'poc1', 'flow_verdict': 'DROPPED'} 476
+    health: OK
+  running command has the mask: 1 | policy: 4245/53 | image: quay.io/cilium/cilium:v1.20.1@sha256:ae9…
+
