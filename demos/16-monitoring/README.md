@@ -530,6 +530,55 @@ topk(8, sum by (source, destination) (rate(hubble_flows_processed_total{source_n
 count by (cluster) ({__name__=~"(hubble|cilium)_.+"})      1.16e+04  cluster=poc1     (no unlabelled series left)
 ```
 
+## Part 10 — see the panels move (the walkthrough, in order)
+
+After Part 3's hosts block is in place. Every line is something you run on the Mac:
+
+```bash
+cd /Users/olasumbo/gitRepos/cilium-kind-poc
+demos/16-monitoring/hosts-entries.sh                                  # 1. review the block first
+sudo sh -c 'demos/16-monitoring/hosts-entries.sh >> /etc/hosts'      #    add it (you run this)
+grep -c 'grafana.poc.local' /etc/hosts                                #    expect 1
+dscacheutil -flushcache; sudo killall -HUP mDNSResponder              #    drop the macOS resolver cache
+
+curl -s --cacert docs/root-ca.crt https://grafana.poc.local/api/health   # 2. the name, through the Gateway
+open https://grafana.poc.local                                        #    admin / poc-grafana
+
+demos/15-bank/exercise.sh 40                                          # 3. traffic: 40 payments across both clusters
+open https://grafana.poc.local/d/3g264CZVz/hubble-l7-http-metrics-by-workload
+open https://grafana.poc.local/d/_f0DUpY4k/hubble-dns-overview-namespace
+open https://grafana.poc.local/d/nlsO8tYVz/hubble-network-overview-namespace
+```
+
+Expected from the health line:
+
+```
+{"database": "ok", "version": "13.2.1", …}
+```
+
+On **Hubble L7 HTTP Metrics by Workload** set `reporter` to `server` and `destination_namespace` to
+`bank`: `web`, `api` and `payments` appear with their request rate by status and their p95 latency.
+The Gateway hop shows as `-` under `reporter=client` — that is gotcha #58, not a missing label. On
+the two **(Namespace)** dashboards pick `bank` as the source namespace; the DNS one lists the names
+asked for (`payments.bank.svc.cluster.local.` and its search-path variants), the Network one names
+peers across nodes and across the mesh (`payments → accounts` in poc2).
+
+If `.240` is unreachable after a reboot, the demo 09 route to the kind network is gone:
+
+```bash
+sudo route -n add -net 172.18.0.0/16 192.168.64.2
+```
+
+**Does the flow diagram move to Grafana now? No.** Hubble UI still owns the service map — drawn
+live from each agent's ring buffer through the relay (gotcha #47), no history, no metrics view in
+any version. Grafana now owns the time series — rates, latency, drops, DNS, per namespace and per
+workload, with retention — and draws no topology from them. The one plugin that put a Hubble node
+graph into Grafana, Isovalent's *Hubble Data Source*, needed Hubble Timescape (the Enterprise flow
+store) as its backend and is now listed as **deprecated** on grafana.com. On the open-source stack
+you keep both open: Hubble UI for *who talks to whom right now*, Grafana for *how much, how fast,
+how often, over time*. The closest Grafana gets to a map is the Network Overview's
+`by (source, destination)` tables, which after Part 9 name the peers.
+
 ## What to take away
 
 - **Order matters, and the chart enforces it.** Prometheus Operator CRDs first (Section A), Cilium
