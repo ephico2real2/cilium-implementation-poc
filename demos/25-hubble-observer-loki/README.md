@@ -239,6 +239,48 @@ The fork is `ephico2real2/hubble-observer`, branch `fix/cnp-dns-egress`, one com
 operator. Our vendored chart stays at upstream `main` (21319b7) with the policy off in our values
 until the PR lands; the live cluster was returned to that state after each test (revision 8).
 
+## Part 7 — the image, as-is: what `quay.io/cilium/hubble` brings, and why it stays at v1.16.4
+
+That image is nothing more than the Hubble CLI, `hubble v1.16.4`, in a 36 MB busybox base (measured:
+`cmd=[/usr/bin/hubble]`, `/bin/sh → /bin/busybox`). Everything the observer does is one CLI
+invocation, and five capabilities of that binary carry the whole design:
+
+1. **`observe` is a client of the relay's Observer gRPC API.** The chart runs
+   `hubble observe … --server hubble-relay…:443`; the CLI captures nothing itself. It asks the relay,
+   and the relay aggregates every node's Hubble server — since demo 24, both clusters'. That is why one
+   pod in poc1 captures poc2's drops.
+2. **`--follow` turns a query into a stream.** Without it `observe` prints the ring buffers and exits;
+   with it the CLI holds the gRPC stream open and prints each flow as it happens — and doubles as the
+   liveness signal: if the stream dies the process exits and the kubelet restarts it.
+3. **`--verdict` and `--not --drop-reason-desc` are server-side filters.** The CLI sends them to the
+   relay as whitelist/blacklist filters (`--not`: "Reverses the next filter to be blacklist"), so only
+   DROPPED flows minus the unsupported-L3 noise cross the wire — tens of lines per minute, not the
+   5,000 that `verdictFilter: none` produces.
+4. **`-o json` with `--ip-translation` (default on) produces the record the dashboard depends on.**
+   One JSON object per line: `verdict`, `drop_reason_desc`, `traffic_direction`, `node_name`, and
+   `source`/`destination` with `namespace`, `pod_name`, `labels`, `identity` and, in a mesh,
+   `cluster_name`. Loki's `| json` flattens them into `flow_verdict`, `flow_source_cluster_name`, … —
+   exactly the labels every panel of dashboard 23862 filters on.
+5. **TLS from environment variables.** `HUBBLE_TLS`, `HUBBLE_TLS_SERVER_NAME`, `HUBBLE_TLS_CA_CERT_FILES`
+   and the client cert/key paths — how Part 5 enabled mTLS without changing the command, and how the
+   exec probes (plain `hubble status`) inherit the same settings.
+
+Two more facts, and they answer "should we bump the image in the PR?" — **no**:
+
+- **The CLI is 1.16.4 against a 1.20.1 relay**, and it works because the Observer API is stable across
+  those releases (7/7 nodes, every JSON field the dashboard needs, 68 of 68 flows end to end); the
+  CLI prints one version warning at connect time and nothing more. There is **no newer image to bump
+  to**: `quay.io/cilium/hubble` has no release tag after `v1.16.4` (checked `v1.17.0` … `v1.20.1`: all
+  absent; `latest` = `hubble v0.9.0-dev@HEAD-3ca3c10 compiled with go1.17.1 on linux/amd64`), the Hubble CLI project publishes only tarballs since, and the only
+  newer CLI is the one inside the Cilium agent image (`hubble v1.20.1` there, measured) — a
+  several-hundred-MB image nobody should run an observer from. The chart's default is the newest
+  published CLI image, so a "bump" PR would have nothing correct to change. Building our own
+  `busybox + hubble 1.20.1` image is possible and is the day a field the dashboard needs changes.
+- **The busybox shell is load-bearing.** The chart's command is `sh -c "hubble observe … > /proc/1/fd/1"`:
+  the shell redirects the CLI's stdout to the container's PID 1 stdout, which the kubelet writes to
+  `/var/log/pods/…/hubble-observer/*.log` — the file the demo 10 collector tails. A distroless CLI
+  image would need the chart's command changed, not only the tag.
+
 ## Exercises
 
 See [`GUIDE.md`](GUIDE.md).
