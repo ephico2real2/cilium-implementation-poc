@@ -543,3 +543,39 @@ kubectl --context kind-poc1 delete -f demos/07-clustermesh/global-service.yaml
 kubectl --context kind-poc2 delete -f demos/07-clustermesh/global-service.yaml
 cilium clustermesh disconnect --context kind-poc1 --destination-context kind-poc2
 ```
+
+## Evidence
+
+Captured 2026-09-12 with `scripts/evidence/capture.js` and `scripts/evidence/collect.sh` (both re-runnable; the pod and Cilium output is the recorded file [`output/evidence.txt`](output/evidence.txt)). Every image is what the browser saw, with traffic running.
+
+**hubble ui default mesh** — the default namespace seen through one relay that peers both clusters: the global services with backends in poc2
+
+![hubble-ui-default-mesh](output/screenshots/hubble-ui-default-mesh.png)
+
+**Running pods** (from `output/evidence.txt`):
+
+```console
+$ kubectl --context kind-poc1 -n default get pods -o wide
+NAME                          READY   STATUS    RESTARTS      AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+deathstar-d7f446dc5-6wgwz     1/1     Running   2 (24h ago)   41h   10.10.4.244   poc1-worker    <none>           <none>
+deathstar-d7f446dc5-dkgqt     1/1     Running   2 (24h ago)   41h   10.10.3.155   poc1-worker2   <none>           <none>
+inventory-69ccd48cd-bzswq     1/1     Running   2 (24h ago)   31h   10.10.3.167   poc1-worker2   <none>           <none>
+inventory-69ccd48cd-mv2hh     1/1     Running   2 (24h ago)   31h   10.10.4.117   poc1-worker    <none>           <none>
+rebel-base-5bbc557b76-26q6b   1/1     Running   2 (24h ago)   31h   10.10.3.53    poc1-worker2   <none>           <none>
+rebel-base-5bbc557b76-gvk68   1/1     Running   2 (24h ago)   31h   10.10.4.238   poc1-worker    <none>           <none>
+tiefighter                    1/1     Running   2 (24h ago)   41h   10.10.4.191   poc1-worker    <none>           <none>
+xwing                         1/1     Running   2 (24h ago)   41h   10.10.4.57    poc1-worker    <none>           <none>
+```
+
+```console
+$ kubectl --context kind-poc2 -n default get pods -o wide
+NAME                          READY   STATUS      RESTARTS      AGE   IP            NODE          NOMINATED NODE   READINESS GATES
+payments-857785457d-96plh     1/1     Running     2 (24h ago)   31h   10.20.1.113   poc2-worker   <none>           <none>
+payments-857785457d-q6d2z     1/1     Running     2 (24h ago)   31h   10.20.1.121   poc2-worker   <none>           <none>
+rebel-base-5bbc557b76-jrgj2   1/1     Running     2 (24h ago)   31h   10.20.1.46    poc2-worker   <none>           <none>
+rebel-base-5bbc557b76-lgn9x   1/1     Running     2 (24h ago)   31h   10.20.1.190   poc2-worker   <none>           <none>
+xcheck                        0/1     Completed   0             31h   <none>        poc2-worker   <none>           <none>
+```
+
+The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
+

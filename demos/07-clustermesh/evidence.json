@@ -1,0 +1,10 @@
+{
+ "captures": [
+  {
+   "name": "hubble-ui-default-mesh",
+   "url": "https://hubble.poc.local/?namespace=default",
+   "wait": "text:rebel-base",
+   "look": "the default namespace seen through one relay that peers both clusters: the global services with backends in poc2"
+  }
+ ]
+}

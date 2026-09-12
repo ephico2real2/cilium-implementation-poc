@@ -1,0 +1,58 @@
+# evidence for demos/07-clustermesh — recorded 2026-09-12T22:24Z by scripts/evidence/collect.sh
+### 2026-09-12T22:24:21Z
+$ kubectl --context kind-poc1 -n default get pods -o wide
+NAME                          READY   STATUS    RESTARTS      AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+deathstar-d7f446dc5-6wgwz     1/1     Running   2 (24h ago)   41h   10.10.4.244   poc1-worker    <none>           <none>
+deathstar-d7f446dc5-dkgqt     1/1     Running   2 (24h ago)   41h   10.10.3.155   poc1-worker2   <none>           <none>
+inventory-69ccd48cd-bzswq     1/1     Running   2 (24h ago)   31h   10.10.3.167   poc1-worker2   <none>           <none>
+inventory-69ccd48cd-mv2hh     1/1     Running   2 (24h ago)   31h   10.10.4.117   poc1-worker    <none>           <none>
+rebel-base-5bbc557b76-26q6b   1/1     Running   2 (24h ago)   31h   10.10.3.53    poc1-worker2   <none>           <none>
+rebel-base-5bbc557b76-gvk68   1/1     Running   2 (24h ago)   31h   10.10.4.238   poc1-worker    <none>           <none>
+tiefighter                    1/1     Running   2 (24h ago)   41h   10.10.4.191   poc1-worker    <none>           <none>
+xwing                         1/1     Running   2 (24h ago)   41h   10.10.4.57    poc1-worker    <none>           <none>
+
+### 2026-09-12T22:24:21Z
+$ kubectl --context kind-poc2 -n default get pods -o wide
+NAME                          READY   STATUS      RESTARTS      AGE   IP            NODE          NOMINATED NODE   READINESS GATES
+payments-857785457d-96plh     1/1     Running     2 (24h ago)   31h   10.20.1.113   poc2-worker   <none>           <none>
+payments-857785457d-q6d2z     1/1     Running     2 (24h ago)   31h   10.20.1.121   poc2-worker   <none>           <none>
+rebel-base-5bbc557b76-jrgj2   1/1     Running     2 (24h ago)   31h   10.20.1.46    poc2-worker   <none>           <none>
+rebel-base-5bbc557b76-lgn9x   1/1     Running     2 (24h ago)   31h   10.20.1.190   poc2-worker   <none>           <none>
+xcheck                        0/1     Completed   0             31h   <none>        poc2-worker   <none>           <none>
+
+### 2026-09-12T22:24:21Z
+$ bash -c cilium clustermesh status --context kind-poc1; cilium clustermesh status --context kind-poc2; kubectl --context kind-poc1 -n default get svc -o custom-columns='NAME:.metadata.name,GLOBAL:.metadata.annotations.service\.cilium\.io/global,CLUSTER-IP:.spec.clusterIP'
+⚠️  Service type NodePort detected! Service may fail when nodes are removed from the cluster!
+✅ Service "clustermesh-apiserver" of type "NodePort" found
+✅ Cluster access information is available:
+  - 172.18.0.6:32379
+✅ Deployment clustermesh-apiserver is ready
+ℹ️  KVStoreMesh is enabled
+
+✅ All 5 nodes are connected to all clusters [min:1 / avg:1.0 / max:1]
+✅ All 1 KVStoreMesh replicas are connected to all clusters [min:1 / avg:1.0 / max:1]
+
+🔌 Cluster Connections:
+  - poc2: 5/5 configured, 5/5 connected - KVStoreMesh: 1/1 configured, 1/1 connected
+
+⚠️  Service type NodePort detected! Service may fail when nodes are removed from the cluster!
+✅ Service "clustermesh-apiserver" of type "NodePort" found
+✅ Cluster access information is available:
+  - 172.18.0.10:32379
+✅ Deployment clustermesh-apiserver is ready
+ℹ️  KVStoreMesh is enabled
+
+✅ All 2 nodes are connected to all clusters [min:1 / avg:1.0 / max:1]
+✅ All 1 KVStoreMesh replicas are connected to all clusters [min:1 / avg:1.0 / max:1]
+
+🔌 Cluster Connections:
+  - poc1: 2/2 configured, 2/2 connected - KVStoreMesh: 1/1 configured, 1/1 connected
+
+NAME                        GLOBAL   CLUSTER-IP
+cilium-gateway-sw-gateway   <none>   10.11.10.55
+deathstar                   <none>   10.11.20.88
+inventory                   true     10.11.63.215
+kubernetes                  <none>   10.11.0.1
+payments                    true     10.11.165.19
+rebel-base                  true     10.11.100.76
+
