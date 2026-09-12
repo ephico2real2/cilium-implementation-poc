@@ -273,3 +273,51 @@ kubectl --context kind-poc2 delete -f demos/22-multicluster-observability/30-ote
 for c in poc1 poc2; do kubectl --context kind-$c delete -f demos/22-multicluster-observability/10-remote-write-service.yaml -f demos/22-multicluster-observability/20-tempo-central-service.yaml --ignore-not-found; done
 helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc2 -f .tmp/poc2-values-before-demo22.yaml   # Cilium metrics off again on poc2
 ```
+
+## Evidence
+
+Captured 2026-09-12 with `scripts/evidence/capture.js` and `scripts/evidence/collect.sh` (both re-runnable; the pod and Cilium output is the recorded file [`output/evidence.txt`](output/evidence.txt)). Every image is what the browser saw, with traffic running.
+
+**grafana multicluster compute** — both clusters named in one table — poc2’s rows arrive by remote write, poc1’s carry the cluster label from the scrape class
+
+![grafana-multicluster-compute](output/screenshots/grafana-multicluster-compute.png)
+
+**grafana network overview bank poc2** — the same Hubble dashboard, cluster=poc2: metrics scraped by the edge Prometheus and written to the hub
+
+![grafana-network-overview-bank-poc2](output/screenshots/grafana-network-overview-bank-poc2.png)
+
+**grafana cilium metrics poc2** — Cilium metrics of poc2 in the hub Grafana
+
+![grafana-cilium-metrics-poc2](output/screenshots/grafana-cilium-metrics-poc2.png)
+
+**Running pods** (from `output/evidence.txt`):
+
+```console
+$ kubectl --context kind-poc1 -n monitoring get pods -o wide
+NAME                                                     READY   STATUS    RESTARTS        AGE     IP            NODE                  NOMINATED NODE 
+alertmanager-monitoring-kube-prometheus-alertmanager-0   2/2     Running   0               19h     10.10.3.207   poc1-worker2          <none>         
+loki-0                                                   2/2     Running   0               7h49m   10.10.3.140   poc1-worker2          <none>         
+monitoring-grafana-85f995b8c8-gqnc8                      3/3     Running   0               11h     10.10.4.99    poc1-worker           <none>         
+monitoring-kube-prometheus-operator-57b74d8f5b-zw957     1/1     Running   9 (103s ago)    19h     10.10.3.227   poc1-worker2          <none>         
+monitoring-kube-state-metrics-7f584dc46d-dpxkb           1/1     Running   11 (114s ago)   19h     10.10.4.165   poc1-worker           <none>         
+monitoring-prometheus-node-exporter-d9h5h                1/1     Running   3 (2m2s ago)    19h     172.18.0.7    poc1-control-plane2   <none>         
+monitoring-prometheus-node-exporter-fzxrc                1/1     Running   2 (101s ago)    19h     172.18.0.3    poc1-control-plane3   <none>         
+monitoring-prometheus-node-exporter-jwqp7                1/1     Running   4 (7h31m ago)   19h     172.18.0.5    poc1-worker           <none>         
+monitoring-prometheus-node-exporter-n6jl7                1/1     Running   3 (7h31m ago)   19h     172.18.0.6    poc1-control-plane    <none>         
+monitoring-prometheus-node-exporter-nqvbt                1/1     Running   1 (8h ago)      19h     172.18.0.4    poc1-worker2          <none>         
+prometheus-monitoring-kube-prometheus-prometheus-0       2/2     Running   1 (69s ago)     177m    10.10.3.98    poc1-worker2          <none>         
+tempo-0                                                  1/1     Running   6 (79s ago)     8h      10.10.3.228   poc1-worker2          <none>         
+```
+
+```console
+$ kubectl --context kind-poc2 -n monitoring get pods -o wide
+NAME                                                   READY   STATUS    RESTARTS        AGE   IP            NODE                 NOMINATED NODE   REA
+edge-kube-prometheus-stack-operator-8578f59fbd-mpc69   1/1     Running   5 (80s ago)     9h    10.20.1.230   poc2-worker          <none>           <no
+edge-kube-state-metrics-5886d7cc86-n4pzc               1/1     Running   6 (7h31m ago)   9h    10.20.1.152   poc2-worker          <none>           <no
+edge-prometheus-node-exporter-fjfvm                    1/1     Running   2 (8h ago)      9h    172.18.0.10   poc2-control-plane   <none>           <no
+edge-prometheus-node-exporter-jxv9n                    1/1     Running   3 (69s ago)     9h    172.18.0.9    poc2-worker          <none>           <no
+prometheus-edge-kube-prometheus-stack-prometheus-0     1/2     Running   1 (8s ago)      9h    10.20.1.178   poc2-worker          <none>           <no
+```
+
+The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
+

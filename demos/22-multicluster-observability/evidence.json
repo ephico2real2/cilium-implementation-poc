@@ -1,0 +1,22 @@
+{
+ "captures": [
+  {
+   "name": "grafana-multicluster-compute",
+   "url": "https://grafana.poc.local/d/b59e6c9f2fcbe2e16d77fc492374cc4f/kubernetes-compute-resources-multi-cluster?orgId=1&from=now-1h&to=now&var-datasource=prometheus",
+   "wait": "text:CPU Quota",
+   "look": "both clusters named in one table \u2014 poc2\u2019s rows arrive by remote write, poc1\u2019s carry the cluster label from the scrape class"
+  },
+  {
+   "name": "grafana-network-overview-bank-poc2",
+   "url": "https://grafana.poc.local/d/nlsO8tYVz/hubble-network-overview-namespace?orgId=1&from=now-30m&to=now&var-cluster=poc2&var-source_namespace=bank&var-destination_namespace=All",
+   "wait": "text:Flows",
+   "look": "the same Hubble dashboard, cluster=poc2: metrics scraped by the edge Prometheus and written to the hub"
+  },
+  {
+   "name": "grafana-cilium-metrics-poc2",
+   "url": "https://grafana.poc.local/d/vtuWtdumz/cilium-metrics?orgId=1&from=now-30m&to=now&var-cluster=poc2",
+   "wait": "text:Endpoints",
+   "look": "Cilium metrics of poc2 in the hub Grafana"
+  }
+ ]
+}

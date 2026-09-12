@@ -1,0 +1,57 @@
+# evidence for demos/22-multicluster-observability — recorded 2026-09-12T22:24Z by scripts/evidence/collect.sh
+### 2026-09-12T22:24:55Z
+$ kubectl --context kind-poc1 -n monitoring get pods -o wide
+NAME                                                     READY   STATUS    RESTARTS        AGE     IP            NODE                  NOMINATED NODE   READINESS GATES
+alertmanager-monitoring-kube-prometheus-alertmanager-0   2/2     Running   0               19h     10.10.3.207   poc1-worker2          <none>           <none>
+loki-0                                                   2/2     Running   0               7h49m   10.10.3.140   poc1-worker2          <none>           <none>
+monitoring-grafana-85f995b8c8-gqnc8                      3/3     Running   0               11h     10.10.4.99    poc1-worker           <none>           <none>
+monitoring-kube-prometheus-operator-57b74d8f5b-zw957     1/1     Running   9 (103s ago)    19h     10.10.3.227   poc1-worker2          <none>           <none>
+monitoring-kube-state-metrics-7f584dc46d-dpxkb           1/1     Running   11 (114s ago)   19h     10.10.4.165   poc1-worker           <none>           <none>
+monitoring-prometheus-node-exporter-d9h5h                1/1     Running   3 (2m2s ago)    19h     172.18.0.7    poc1-control-plane2   <none>           <none>
+monitoring-prometheus-node-exporter-fzxrc                1/1     Running   2 (101s ago)    19h     172.18.0.3    poc1-control-plane3   <none>           <none>
+monitoring-prometheus-node-exporter-jwqp7                1/1     Running   4 (7h31m ago)   19h     172.18.0.5    poc1-worker           <none>           <none>
+monitoring-prometheus-node-exporter-n6jl7                1/1     Running   3 (7h31m ago)   19h     172.18.0.6    poc1-control-plane    <none>           <none>
+monitoring-prometheus-node-exporter-nqvbt                1/1     Running   1 (8h ago)      19h     172.18.0.4    poc1-worker2          <none>           <none>
+prometheus-monitoring-kube-prometheus-prometheus-0       2/2     Running   1 (69s ago)     177m    10.10.3.98    poc1-worker2          <none>           <none>
+tempo-0                                                  1/1     Running   6 (79s ago)     8h      10.10.3.228   poc1-worker2          <none>           <none>
+
+### 2026-09-12T22:24:55Z
+$ kubectl --context kind-poc2 -n monitoring get pods -o wide
+NAME                                                   READY   STATUS    RESTARTS        AGE   IP            NODE                 NOMINATED NODE   READINESS GATES
+edge-kube-prometheus-stack-operator-8578f59fbd-mpc69   1/1     Running   5 (80s ago)     9h    10.20.1.230   poc2-worker          <none>           <none>
+edge-kube-state-metrics-5886d7cc86-n4pzc               1/1     Running   6 (7h31m ago)   9h    10.20.1.152   poc2-worker          <none>           <none>
+edge-prometheus-node-exporter-fjfvm                    1/1     Running   2 (8h ago)      9h    172.18.0.10   poc2-control-plane   <none>           <none>
+edge-prometheus-node-exporter-jxv9n                    1/1     Running   3 (69s ago)     9h    172.18.0.9    poc2-worker          <none>           <none>
+prometheus-edge-kube-prometheus-stack-prometheus-0     1/2     Running   1 (8s ago)      9h    10.20.1.178   poc2-worker          <none>           <none>
+
+### 2026-09-12T22:24:56Z
+$ bash -c for c in poc1 poc2; do kubectl --context kind-$c -n monitoring get svc prometheus-remote-write tempo-central -o custom-columns='NAME:.metadata.name,GLOBAL:.metadata.annotations.service\.cilium\.io/global,CLUSTER-IP:.spec.clusterIP'; done; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count%20by%20(cluster)%20(up)" 
+NAME                      GLOBAL   CLUSTER-IP
+prometheus-remote-write   true     10.11.143.105
+tempo-central             true     10.11.18.60
+NAME                      GLOBAL   CLUSTER-IP
+prometheus-remote-write   true     10.21.38.20
+tempo-central             true     10.21.178.167
+{"status":"success","data":{"resultType":"vector","result":[{"metric":{"cluster":"poc1"},"value":[1789251896.822,"54"]},{"metric":{"cluster":"poc2"},"value":[1789251896.822,"33"]}]}}
+### 2026-09-12T22:24:56Z
+$ bash -c  python3 -c 'import json,sys; [print("cluster=%s up=%s" % (r["metric"].get("cluster"), r["value"][1])) for r in json.load(sys.stdin)["data"]["result"]]'
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json,sys; [print("cluster=%s up=%s" % (r["metric"].get("cluster"), r["value"][1])) for r in json.load(sys.stdin)["data"]["result"]]
+                                                                                                       ~~~~~~~~~^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+[exit code: 1]
+
