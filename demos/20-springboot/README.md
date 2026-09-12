@@ -12,6 +12,8 @@ spans to the demo 10 collector, and then measures both instrumentation paths.
 
 Everything below is recorded in [`output/transcript.txt`](output/transcript.txt).
 
+> **Step by step, as exercises, every manifest and every command with its reason: [`GUIDE.md`](GUIDE.md).**
+
 ## Part 0 — make room (scale the bank and routes down, and back up)
 
 Six JVMs need ~2.5 GB. The Docker Desktop VM has 16 GB for three kind clusters and everything the
