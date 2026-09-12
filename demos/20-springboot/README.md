@@ -209,3 +209,45 @@ demos/20-springboot/javaagent.sh off                                   # the pla
 kubectl --context kind-poc1 delete -f demos/20-springboot/20-gateway.yaml -f demos/20-springboot/10-petclinic.yaml   # remove the lab
 demos/20-springboot/scale.sh up                                        # the bank and demo 09 back
 ```
+
+## Part 4 — petclinic on Grafana
+
+Two things put it there, both in [`40-monitoring.yaml`](40-monitoring.yaml), the same mechanisms
+demo 16 used for Cilium:
+
+- a **PodMonitor** for the four application JVMs' `/actuator/prometheus` (Micrometer). The
+  discovery server answers 404 there and the config server exposes no JVM metrics — neither loads the
+  shared config — so they are not selected. Relabelings give the series what the standard dashboard's
+  variables query: `application` = the pod's `app` label, `instance` = the pod name, plus `node` and
+  `cluster`. (Two services also send their own `application="petclinic"` tag; with `honor_labels`
+  off it becomes `exported_application` and the relabeled one wins.)
+- a **ConfigMap** carrying grafana.com dashboard 19004, *Spring Boot 3.x Statistics*, with its
+  datasource input resolved to the demo 16 Prometheus, labelled `grafana_dashboard=1` so Grafana's
+  sidecar loads it from the `springboot` namespace exactly as it loads Cilium's from `kube-system`.
+
+```bash
+kubectl --context kind-poc1 apply -f demos/20-springboot/40-monitoring.yaml
+```
+
+```
+  vets-service       http://10.10.3.1:8083/actuator/prometheus    up
+  visits-service     http://10.10.3.182:8082/actuator/prometheus  up
+  api-gateway        http://10.10.3.5:8080/actuator/prometheus    up
+  customers-service  http://10.10.3.212:8081/actuator/prometheus  up
+  jvm_info: application=api-gateway|customers-service|vets-service|visits-service  version=17.0.16+8
+  heap in use (MiB): vets-service 104 · api-gateway 89 · visits-service 83 · customers-service 83
+  Spring Boot 3.x Statistics (petclinic)   https://grafana.poc.local/d/springboot-19004/spring-boot-3-x-statistics-petclinic
+```
+
+**Where to look, in order:**
+
+| What you want | Where | Notes |
+|---|---|---|
+| JVM heap, GC, threads, HTTP request rate and latency per service | Grafana → *Spring Boot 3.x Statistics (petclinic)*, pick `application` | Micrometer, scraped every 15 s |
+| flows and drops of the namespace, identity-aware | Grafana → *Hubble / Network Overview (Namespace)*, `source_namespace=springboot` | L4 only: `springboot` has no L7 policy (demo 19's cell was the bank) |
+| per-route HTTP metrics from the kernel side | *Hubble L7 HTTP Metrics by Workload* | empty for `springboot` until it gets an `http: [{}]` policy like the bank's |
+| a request as a tree of spans | the collector's log — `kubectl -n otel logs ds/otel-collector \| demos/18-obi/tracetree.py "GET /api/gateway"` | Grafana shows no traces: there is no trace store (Tempo) in this lab, only the debug exporter |
+
+The last row is the honest gap: spans are collected, not stored. A Grafana Tempo instance behind the
+collector is the missing piece for a traces view, and on this VM it is another JVM-sized allocation
+— a follow-up, not a default.

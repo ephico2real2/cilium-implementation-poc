@@ -361,3 +361,52 @@ one request as a tree (api-gateway → customers/visits fan-out), from the Java 
           SELECT org.springframework.samples.petclinic.visits.model.Visit  [Internal]  poc1/visits-service  11.1 ms  
             SELECT 66bb6564-4690-43e4-950e-d974f7585416.visits  [Client]  poc1/visits-service  0.6 ms  
 
+
+### 2026-09-12T10:04:47Z
+$ [PART 4 — petclinic on Grafana: PodMonitor for /actuator/prometheus + the standard Spring Boot 3.x dashboard (19004) via the sidecar]
+
+### 2026-09-12T10:04:47Z
+$ kubectl --context kind-poc1 apply -f demos/20-springboot/40-monitoring.yaml
+podmonitor.monitoring.coreos.com/petclinic created
+configmap/grafana-dashboard-springboot created
+
+### 2026-09-12T10:06:06Z
+$ sh -c echo "Prometheus targets for the PodMonitor:"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/targets?state=active" | python3 -c "import json,sys; [print(\"  %s %s %s\" % (t[\"labels\"].get(\"application\"), t[\"scrapeUrl\"], t[\"health\"])) for t in json.load(sys.stdin)[\"data\"][\"activeTargets\"] if \"petclinic\" in t[\"scrapePool\"]]"; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "jvm_info" application,instance,version; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (application, uri, status) (increase(http_server_requests_seconds_count{namespace=\"springboot\", uri!~\"/actuator.*\"}[10m]) > 0)" application,uri,status; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (application) (jvm_memory_used_bytes{area=\"heap\"}) / 1048576" application
+Prometheus targets for the PodMonitor:
+  vets-service http://10.10.3.1:8083/actuator/prometheus up
+  visits-service http://10.10.3.182:8082/actuator/prometheus up
+  api-gateway http://10.10.3.5:8080/actuator/prometheus up
+  customers-service http://10.10.3.212:8081/actuator/prometheus up
+  jvm_info
+             1  application=api-gateway instance=api-gateway-6b5786978b-x2z7r version=17.0.16+8
+             1  application=customers-service instance=customers-service-5d9d6dc9f5-2knhd version=17.0.16+8
+             1  application=visits-service instance=visits-service-7f4d95f97c-7zcbd version=17.0.16+8
+             1  application=vets-service instance=vets-service-544bc7f4fc-ss5l2 version=17.0.16+8
+  sum by (application, uri, status) (increase(http_server_requests_seconds_count{namespace="springboot", uri!~"/actuator.*"}[10m]) > 0)
+    (no series)
+  sum by (application) (jvm_memory_used_bytes{area="heap"}) / 1048576
+           104  application=vets-service
+         88.68  application=api-gateway
+         83.25  application=visits-service
+         82.75  application=customers-service
+
+### 2026-09-12T10:06:08Z
+$ sh -c GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana "https://grafana.poc.local/api/search?query=Spring" | python3 -c "import json,sys; [print(\"  %-45s folder=%-12s https://grafana.poc.local%s\" % (x[\"title\"], x.get(\"folderTitle\",\"-\"), x[\"url\"])) for x in json.load(sys.stdin)]"
+  Spring Boot 3.x Statistics (petclinic)        folder=-            https://grafana.poc.local/d/springboot-19004/spring-boot-3-x-statistics-petclinic
+
+### 2026-09-12T10:07:20Z
+$ sh -c echo "requests per service and route in the last 5 min (the counters were first scraped after the earlier check ran):"; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (application, uri, status) (increase(http_server_requests_seconds_count{namespace=\"springboot\", uri!~\"/actuator.*\"}[5m]) > 0)" application,uri,status; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "histogram_quantile(0.95, sum by (le, application) (rate(http_server_requests_seconds_bucket{namespace=\"springboot\", uri!~\"/actuator.*\"}[5m]))) * 1000" application
+requests per service and route in the last 5 min (the counters were first scraped after the earlier check ran):
+  sum by (application, uri, status) (increase(http_server_requests_seconds_count{namespace="springboot", uri!~"/actuator.*"}[5m]) > 0)
+         11.32  application=customers-service uri=/owners/{ownerId} status=200
+         10.22  application=api-gateway uri=/api/gateway/owners/{ownerId} status=200
+         10.12  application=visits-service uri=/pets/visits status=200
+         4.544  application=api-gateway uri=UNKNOWN status=200
+         1.136  application=api-gateway uri=UNKNOWN status=201
+         1.132  application=customers-service uri=/owners status=200
+         1.124  application=visits-service uri=/owners/*/pets/{petId}/visits status=200
+         1.124  application=visits-service uri=/owners/*/pets/{petId}/visits status=201
+         1.095  application=vets-service uri=/vets status=200
+  histogram_quantile(0.95, sum by (le, application) (rate(http_server_requests_seconds_bucket{namespace="springboot", uri!~"/actuator.*"}[5m]))) * 1000
+    (no series)
+

@@ -1736,6 +1736,7 @@ kubectl --context kind-poc1 apply -f demos/20-springboot/20-gateway.yaml      # 
 sudo sh -c 'demos/20-springboot/hosts-entries.sh >> /etc/hosts'               # you run this
 sleep 90 ; demos/20-springboot/check.sh 5                                      # gotcha #65: Eureka needs ~90 s after any rollout
 demos/20-springboot/javaagent.sh on                                            # the OpenTelemetry Java agent, one Deployment at a time
+kubectl --context kind-poc1 apply -f demos/20-springboot/40-monitoring.yaml    # Micrometer → Prometheus, the Spring Boot dashboard in Grafana
 demos/20-springboot/scale.sh up                                                # when done with the lab
 ```
 
