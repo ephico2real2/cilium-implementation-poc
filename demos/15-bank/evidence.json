@@ -1,0 +1,28 @@
+{
+ "captures": [
+  {
+   "name": "bank-web-ui",
+   "url": "https://bank.poc.local/",
+   "wait": 8000,
+   "look": "the bank web UI through the Gateway"
+  },
+  {
+   "name": "hubble-ui-bank",
+   "url": "https://hubble.poc.local/?namespace=bank",
+   "wait": 20000,
+   "look": "the bank service map: web/api/payments in poc1, payments/accounts/postgres in poc2 \u2014 one map, two clusters"
+  },
+  {
+   "name": "grafana-network-overview-bank-poc1",
+   "url": "https://grafana.poc.local/d/nlsO8tYVz/hubble-network-overview-namespace?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-source_namespace=bank&var-destination_namespace=All",
+   "wait": "text:Flows",
+   "look": "flows by verdict and the top peers by name for the bank in poc1"
+  },
+  {
+   "name": "grafana-l7-bank-api",
+   "url": "https://grafana.poc.local/d/3g264CZVz/hubble-l7-http-metrics-by-workload?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-destination_namespace=bank&var-destination_workload=api&var-reporter=server&var-source_namespace=All&var-source_workload=All",
+   "wait": "text:Request",
+   "look": "HTTP request rate, status codes and latency percentiles of api, reported by the server side"
+  }
+ ]
+}

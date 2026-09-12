@@ -554,3 +554,51 @@ script scales by hand).
 kubectl --context kind-poc1 delete -f demos/15-bank/30-gateway.yaml -f demos/15-bank/20-poc1.yaml
 kubectl --context kind-poc2 delete -f demos/15-bank/10-poc2.yaml        # PVCs go with the namespace
 ```
+
+## Evidence
+
+Captured 2026-09-12 with `scripts/evidence/capture.js` and `scripts/evidence/collect.sh` (both re-runnable; the pod and Cilium output is the recorded file [`output/evidence.txt`](output/evidence.txt)). Every image is what the browser saw, with traffic running.
+
+**bank web ui** — the bank web UI through the Gateway
+
+![bank-web-ui](output/screenshots/bank-web-ui.png)
+
+**hubble ui bank** — the bank service map: web/api/payments in poc1, payments/accounts/postgres in poc2 — one map, two clusters
+
+![hubble-ui-bank](output/screenshots/hubble-ui-bank.png)
+
+**grafana network overview bank poc1** — flows by verdict and the top peers by name for the bank in poc1
+
+![grafana-network-overview-bank-poc1](output/screenshots/grafana-network-overview-bank-poc1.png)
+
+**grafana l7 bank api** — HTTP request rate, status codes and latency percentiles of api, reported by the server side
+
+![grafana-l7-bank-api](output/screenshots/grafana-l7-bank-api.png)
+
+**Running pods** (from `output/evidence.txt`):
+
+```console
+$ kubectl --context kind-poc1 -n bank get pods -o wide
+NAME                        READY   STATUS    RESTARTS   AGE     IP            NODE           NOMINATED NODE   READINESS GATES
+api-5d6d8cfd55-n4z82        1/1     Running   0          9h      10.10.3.254   poc1-worker2   <none>           <none>
+api-5d6d8cfd55-sj27m        1/1     Running   0          9h      10.10.4.135   poc1-worker    <none>           <none>
+egress-test                 1/1     Running   0          6m55s   10.10.3.107   poc1-worker2   <none>           <none>
+payments-778c6c78f6-j7szh   1/1     Running   0          9h      10.10.4.172   poc1-worker    <none>           <none>
+postgres-standby-0          1/1     Running   0          20h     10.10.4.188   poc1-worker    <none>           <none>
+redis-0                     1/1     Running   0          20h     10.10.4.114   poc1-worker    <none>           <none>
+web-794494d985-5jrv4        1/1     Running   0          9h      10.10.3.219   poc1-worker2   <none>           <none>
+web-794494d985-q2hd6        1/1     Running   0          9h      10.10.4.194   poc1-worker    <none>           <none>
+```
+
+```console
+$ kubectl --context kind-poc2 -n bank get pods -o wide
+NAME                        READY   STATUS    RESTARTS   AGE   IP            NODE          NOMINATED NODE   READINESS GATES
+accounts-6544fcc9b8-5qt5k   1/1     Running   0          9h    10.20.1.221   poc2-worker   <none>           <none>
+accounts-6544fcc9b8-jkxgc   1/1     Running   0          9h    10.20.1.128   poc2-worker   <none>           <none>
+egress-test                 1/1     Running   0          12m   10.20.1.9     poc2-worker   <none>           <none>
+payments-7dbb8cdfdb-5bsf5   1/1     Running   0          9h    10.20.1.17    poc2-worker   <none>           <none>
+postgres-0                  1/1     Running   0          20h   10.20.1.217   poc2-worker   <none>           <none>
+```
+
+The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
+
