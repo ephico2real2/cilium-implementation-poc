@@ -274,3 +274,8 @@ behaviour that saved the cluster.
 kubectl --context kind-poc1 delete ns forensic; kubectl --context kind-poc3 delete ns forensic
 scripts/cluster-pause.sh poc3                       # or: kind delete cluster --name poc3 && docker network rm kind-classic
 ```
+
+## Evidence
+
+**Captures not taken yet** — poc3 (kindnet + kube-proxy) is paused to keep memory for the observability stack; its forensic comparison is recorded in the transcript. Captures to add when poc3 runs again: the iptables chain counts on a poc3 node vs `cilium-dbg bpf lb list` on poc1, and `scripts/forensic.sh` output from both. See [`output/screenshots/MISSING-CAPTURE.md`](output/screenshots/MISSING-CAPTURE.md) and [`/missing-captures.md`](../../missing-captures.md).
+
