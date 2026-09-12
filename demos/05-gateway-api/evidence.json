@@ -1,0 +1,16 @@
+{
+ "captures": [
+  {
+   "name": "web-poc-local",
+   "url": "https://web.poc.local/",
+   "wait": 6000,
+   "look": "the HTTPRoute web.poc.local answered through the Gateway, wildcard certificate *.poc.local"
+  },
+  {
+   "name": "anything-at-all-poc-local",
+   "url": "https://anything-at-all.poc.local/",
+   "wait": 6000,
+   "look": "any hostname under the wildcard listener is routed; the echo shows the request the backend saw"
+  }
+ ]
+}

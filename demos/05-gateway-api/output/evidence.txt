@@ -1,0 +1,35 @@
+# evidence for demos/05-gateway-api — recorded 2026-09-12T22:24Z by scripts/evidence/collect.sh
+### 2026-09-12T22:24:20Z
+$ kubectl --context kind-poc1 -n routes get pods -o wide
+NAME                    READY   STATUS    RESTARTS   AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+echo-5dd4997b94-4vg4k   1/1     Running   0          9h    10.10.4.207   poc1-worker    <none>           <none>
+echo-5dd4997b94-b2s9s   1/1     Running   0          9h    10.10.3.136   poc1-worker2   <none>           <none>
+grpc-57c4b8cdf5-8fpgv   1/1     Running   0          9h    10.10.3.97    poc1-worker2   <none>           <none>
+grpc-57c4b8cdf5-l9gfj   1/1     Running   0          9h    10.10.4.177   poc1-worker    <none>           <none>
+web-775dfff659-hgw8w    1/1     Running   0          9h    10.10.3.8     poc1-worker2   <none>           <none>
+web-775dfff659-ndjw7    1/1     Running   0          9h    10.10.4.235   poc1-worker    <none>           <none>
+
+### 2026-09-12T22:24:20Z
+$ bash -c kubectl --context kind-poc1 get gatewayclass; kubectl --context kind-poc1 -n routes get gateway,httproute,grpcroute,tcproute -o wide
+NAME     CONTROLLER                     ACCEPTED   AGE
+cilium   io.cilium/gateway-controller   True       41h
+NAME                                          CLASS    ADDRESS          PROGRAMMED   AGE
+gateway.gateway.networking.k8s.io/routes-gw   cilium   172.18.255.240   True         30h
+
+NAME                                            HOSTNAMES                       AGE
+httproute.gateway.networking.k8s.io/anything    ["anything-at-all.poc.local"]   30h
+httproute.gateway.networking.k8s.io/bank        ["bank.poc.local"]              21h
+httproute.gateway.networking.k8s.io/bank-api    ["bankapi.poc.local"]           21h
+httproute.gateway.networking.k8s.io/cf2cnp      ["cf2cnp.poc.local"]            7h38m
+httproute.gateway.networking.k8s.io/exact       ["exact.example.test"]          30h
+httproute.gateway.networking.k8s.io/grafana     ["grafana.poc.local"]           19h
+httproute.gateway.networking.k8s.io/hubble      ["hubble.poc.local"]            29h
+httproute.gateway.networking.k8s.io/petclinic   ["petclinic.poc.local"]         16h
+httproute.gateway.networking.k8s.io/web         ["web.poc.local"]               30h
+
+NAME                                       HOSTNAMES            AGE
+grpcroute.gateway.networking.k8s.io/grpc   ["grpc.poc.local"]   30h
+
+NAME                                      AGE
+tcproute.gateway.networking.k8s.io/echo   30h
+

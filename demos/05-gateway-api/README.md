@@ -368,3 +368,31 @@ stale ARP entry, to duplicate a capability Cilium already ships.
 kubectl delete -f demos/05-gateway-api/allow-ingress-policy.yaml
 kubectl delete -f demos/05-gateway-api/gateway.yaml
 ```
+
+## Evidence
+
+Captured 2026-09-12 with `scripts/evidence/capture.js` and `scripts/evidence/collect.sh` (both re-runnable; the pod and Cilium output is the recorded file [`output/evidence.txt`](output/evidence.txt)). Every image is what the browser saw, with traffic running.
+
+**web poc local** — the HTTPRoute web.poc.local answered through the Gateway, wildcard certificate *.poc.local
+
+![web-poc-local](output/screenshots/web-poc-local.png)
+
+**anything at all poc local** — any hostname under the wildcard listener is routed; the echo shows the request the backend saw
+
+![anything-at-all-poc-local](output/screenshots/anything-at-all-poc-local.png)
+
+**Running pods** (from `output/evidence.txt`):
+
+```console
+$ kubectl --context kind-poc1 -n routes get pods -o wide
+NAME                    READY   STATUS    RESTARTS   AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+echo-5dd4997b94-4vg4k   1/1     Running   0          9h    10.10.4.207   poc1-worker    <none>           <none>
+echo-5dd4997b94-b2s9s   1/1     Running   0          9h    10.10.3.136   poc1-worker2   <none>           <none>
+grpc-57c4b8cdf5-8fpgv   1/1     Running   0          9h    10.10.3.97    poc1-worker2   <none>           <none>
+grpc-57c4b8cdf5-l9gfj   1/1     Running   0          9h    10.10.4.177   poc1-worker    <none>           <none>
+web-775dfff659-hgw8w    1/1     Running   0          9h    10.10.3.8     poc1-worker2   <none>           <none>
+web-775dfff659-ndjw7    1/1     Running   0          9h    10.10.4.235   poc1-worker    <none>           <none>
+```
+
+The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
+
