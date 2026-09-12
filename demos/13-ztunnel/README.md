@@ -172,3 +172,8 @@ cluster config stay so the exercise can be re-run in ~5 minutes. The ztunnel key
 | It breaks Cilium network policy for enrolled traffic, L4 **and** L7 | allowed peer dropped (`Policy denied` on :15008); L7 policy 000/000/000 |
 | It costs 73 % of throughput here | 1,216 vs 4,536 Mbit/s, same pods |
 | Not the standard; WireGuard + identity policy is | GA, coexists with everything, ~50 % cost (demo 04) |
+
+## Evidence
+
+**Captures not taken yet** — poc4, the throwaway cluster ztunnel was evaluated on, was deleted (ztunnel cannot run with a `cluster.id`, so never on the meshed clusters). Captures to add if rebuilt: the WireGuard vs ztunnel encryption status and the −73 % throughput comparison. See [`output/screenshots/MISSING-CAPTURE.md`](output/screenshots/MISSING-CAPTURE.md) and [`/missing-captures.md`](../../missing-captures.md).
+
