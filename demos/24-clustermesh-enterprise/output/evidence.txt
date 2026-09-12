@@ -1,0 +1,92 @@
+# evidence for demos/24-clustermesh-enterprise — recorded 2026-09-12T22:25Z by scripts/evidence/collect.sh
+### 2026-09-12T22:25:08Z
+$ kubectl --context kind-poc1 -n kube-system get pods -o wide
+NAME                                          READY   STATUS    RESTARTS        AGE    IP            NODE                  NOMINATED NODE   READINESS GATES
+cilium-envoy-4ht26                            1/1     Running   2 (24h ago)     2d2h   172.18.0.5    poc1-worker           <none>           <none>
+cilium-envoy-9p6mq                            1/1     Running   2 (24h ago)     2d2h   172.18.0.4    poc1-worker2          <none>           <none>
+cilium-envoy-r5c6d                            1/1     Running   2 (24h ago)     2d2h   172.18.0.7    poc1-control-plane2   <none>           <none>
+cilium-envoy-v9lk2                            1/1     Running   2 (24h ago)     2d2h   172.18.0.3    poc1-control-plane3   <none>           <none>
+cilium-envoy-w7759                            1/1     Running   2 (24h ago)     2d2h   172.18.0.6    poc1-control-plane    <none>           <none>
+cilium-ntbb4                                  1/1     Running   0               11h    172.18.0.7    poc1-control-plane2   <none>           <none>
+cilium-operator-79d6b9ffd7-57lpg              1/1     Running   8 (119s ago)    8h     172.18.0.7    poc1-control-plane2   <none>           <none>
+cilium-pv958                                  1/1     Running   0               11h    172.18.0.3    poc1-control-plane3   <none>           <none>
+cilium-qt6nm                                  1/1     Running   0               11h    172.18.0.5    poc1-worker           <none>           <none>
+cilium-s2wxk                                  1/1     Running   0               11h    172.18.0.4    poc1-worker2          <none>           <none>
+cilium-zdgfx                                  1/1     Running   0               11h    172.18.0.6    poc1-control-plane    <none>           <none>
+clustermesh-apiserver-844c48bb9b-sngg7        3/3     Running   2 (8h ago)      8h     10.10.4.2     poc1-worker           <none>           <none>
+coredns-789c5fbdb4-qhj2d                      1/1     Running   0               17h    10.10.1.35    poc1-control-plane2   <none>           <none>
+coredns-789c5fbdb4-vb8r9                      1/1     Running   0               17h    10.10.0.232   poc1-control-plane    <none>           <none>
+etcd-poc1-control-plane                       1/1     Running   2 (24h ago)     2d2h   172.18.0.6    poc1-control-plane    <none>           <none>
+etcd-poc1-control-plane2                      1/1     Running   2 (24h ago)     2d2h   172.18.0.7    poc1-control-plane2   <none>           <none>
+etcd-poc1-control-plane3                      1/1     Running   2 (24h ago)     2d2h   172.18.0.3    poc1-control-plane3   <none>           <none>
+hubble-relay-556c4dbb98-g4kpv                 1/1     Running   0               6h5m   10.10.3.35    poc1-worker2          <none>           <none>
+hubble-ui-6c4bfdfb4c-vbqjb                    2/2     Running   0               6h5m   10.10.3.59    poc1-worker2          <none>           <none>
+kube-apiserver-poc1-control-plane             1/1     Running   4 (7h29m ago)   2d2h   172.18.0.6    poc1-control-plane    <none>           <none>
+kube-apiserver-poc1-control-plane2            1/1     Running   3 (11h ago)     2d2h   172.18.0.7    poc1-control-plane2   <none>           <none>
+kube-apiserver-poc1-control-plane3            1/1     Running   3 (24h ago)     2d2h   172.18.0.3    poc1-control-plane3   <none>           <none>
+kube-controller-manager-poc1-control-plane    1/1     Running   7 (7h31m ago)   2d2h   172.18.0.6    poc1-control-plane    <none>           <none>
+kube-controller-manager-poc1-control-plane2   1/1     Running   7 (2m21s ago)   2d2h   172.18.0.7    poc1-control-plane2   <none>           <none>
+kube-controller-manager-poc1-control-plane3   1/1     Running   7 (7h34m ago)   2d2h   172.18.0.3    poc1-control-plane3   <none>           <none>
+kube-scheduler-poc1-control-plane             1/1     Running   8 (2m24s ago)   2d2h   172.18.0.6    poc1-control-plane    <none>           <none>
+kube-scheduler-poc1-control-plane2            1/1     Running   7 (48m ago)     2d2h   172.18.0.7    poc1-control-plane2   <none>           <none>
+kube-scheduler-poc1-control-plane3            1/1     Running   8 (7h31m ago)   2d2h   172.18.0.3    poc1-control-plane3   <none>           <none>
+
+### 2026-09-12T22:25:08Z
+$ kubectl --context kind-poc2 -n kube-system get pods -o wide
+NAME                                         READY   STATUS    RESTARTS         AGE    IP            NODE                 NOMINATED NODE   READINESS GATES
+cilium-envoy-2gtwr                           1/1     Running   2 (24h ago)      32h    172.18.0.10   poc2-control-plane   <none>           <none>
+cilium-envoy-dbxr2                           1/1     Running   2 (24h ago)      32h    172.18.0.9    poc2-worker          <none>           <none>
+cilium-operator-65c84b698c-9rgnj             1/1     Running   7 (110s ago)     8h     172.18.0.10   poc2-control-plane   <none>           <none>
+cilium-rr5z8                                 1/1     Running   0                9h     172.18.0.9    poc2-worker          <none>           <none>
+cilium-sqf2x                                 1/1     Running   0                9h     172.18.0.10   poc2-control-plane   <none>           <none>
+clustermesh-apiserver-cd9779c97-p24zd        3/3     Running   2 (8h ago)       8h     10.20.1.239   poc2-worker          <none>           <none>
+coredns-879947797-f4bdb                      1/1     Running   0                17h    10.20.1.136   poc2-worker          <none>           <none>
+coredns-879947797-k8xkh                      1/1     Running   0                17h    10.20.1.168   poc2-worker          <none>           <none>
+etcd-poc2-control-plane                      1/1     Running   2 (24h ago)      32h    172.18.0.10   poc2-control-plane   <none>           <none>
+hubble-relay-556c4dbb98-2zslj                1/1     Running   0                6h4m   10.20.1.195   poc2-worker          <none>           <none>
+kube-apiserver-poc2-control-plane            1/1     Running   2 (24h ago)      32h    172.18.0.10   poc2-control-plane   <none>           <none>
+kube-controller-manager-poc2-control-plane   1/1     Running   15 (2m24s ago)   32h    172.18.0.10   poc2-control-plane   <none>           <none>
+kube-scheduler-poc2-control-plane            1/1     Running   15 (2m25s ago)   32h    172.18.0.10   poc2-control-plane   <none>           <none>
+
+### 2026-09-12T22:25:08Z
+$ bash -c demos/24-clustermesh-enterprise/check.sh
+== poc1 ==
+  ClusterIssuer ca-issuer ready=True  root sha256 72:16:61:3E:82:57:59:05…
+  clustermesh-apiserver-admin-cert    True   ca-issuer   2027-05-13T08:10:11Z
+  clustermesh-apiserver-local-cert    True   ca-issuer   2027-05-13T08:10:11Z
+  clustermesh-apiserver-remote-cert   True   ca-issuer   2027-05-13T08:10:12Z
+  clustermesh-apiserver-server-cert   True   ca-issuer   2027-05-13T08:10:11Z
+  hubble-cli-client-certs             True   ca-issuer   2026-11-26T16:22:04Z
+  hubble-relay-client-certs           True   ca-issuer   2028-09-11T13:36:48Z
+  hubble-relay-server-certs           True   ca-issuer   2028-09-11T16:19:52Z
+  hubble-server-certs                 True   ca-issuer   2028-09-11T13:36:48Z
+  hubble-ui-client-certs              True   ca-issuer   2028-09-11T16:19:52Z
+  clustermesh-apiserver-server-cert signed by: CN=clustermesh-root-ca
+  hubble-server-certs signed by: CN=clustermesh-root-ca
+  hubble-relay-client-certs signed by: CN=clustermesh-root-ca
+== poc2 ==
+  ClusterIssuer ca-issuer ready=True  root sha256 72:16:61:3E:82:57:59:05…
+  clustermesh-apiserver-admin-cert    True   ca-issuer   2027-05-12T23:04:07Z
+  clustermesh-apiserver-local-cert    True   ca-issuer   2027-05-12T23:04:07Z
+  clustermesh-apiserver-remote-cert   True   ca-issuer   2027-05-12T23:04:07Z
+  clustermesh-apiserver-server-cert   True   ca-issuer   2027-05-12T23:04:07Z
+  hubble-cli-client-certs             True   ca-issuer   2026-11-26T16:22:05Z
+  hubble-relay-client-certs           True   ca-issuer   2028-09-11T13:37:21Z
+  hubble-relay-server-certs           True   ca-issuer   2028-09-11T16:20:16Z
+  hubble-server-certs                 True   ca-issuer   2028-09-11T13:37:21Z
+  clustermesh-apiserver-server-cert signed by: CN=clustermesh-root-ca
+  hubble-server-certs signed by: CN=clustermesh-root-ca
+  hubble-relay-client-certs signed by: CN=clustermesh-root-ca
+== Hubble Relay on poc1 ==
+  Connected Nodes: 7/7
+  poc1/poc1-control-plane Connected
+  poc1/poc1-control-plane2 Connected
+  poc1/poc1-control-plane3 Connected
+  poc1/poc1-worker Connected
+  poc1/poc1-worker2 Connected
+  poc2/poc2-control-plane Connected
+  poc2/poc2-worker Connected
+== mesh ==
+  poc1 →   - poc2: 5/5 configured, 5/5 connected - KVStoreMesh: 1/1 configured, 1/1 connected
+  poc2 →   - poc1: 2/2 configured, 2/2 connected - KVStoreMesh: 1/1 configured, 1/1 connected
+

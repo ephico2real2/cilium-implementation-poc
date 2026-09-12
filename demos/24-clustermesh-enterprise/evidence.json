@@ -1,0 +1,10 @@
+{
+ "captures": [
+  {
+   "name": "hubble-ui-7-of-7",
+   "url": "https://hubble.poc.local/?namespace=bank",
+   "wait": 20000,
+   "look": "the header\u2019s node count: 7/7 \u2014 poc1\u2019s relay reaches every node of both clusters once Hubble\u2019s certificates come from the one root"
+  }
+ ]
+}

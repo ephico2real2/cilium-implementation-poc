@@ -142,3 +142,52 @@ See [`GUIDE.md`](GUIDE.md).
 - **Declare the mesh.** `clusters.yaml` + per-cluster files are what the guide, and a pipeline, carry.
 - **Read what the upgrade renders before running it,** and measure it while it runs: a three-line
   TLS change came with a Deployment change nobody asked for.
+
+## Evidence
+
+Captured 2026-09-12 with `scripts/evidence/capture.js` and `scripts/evidence/collect.sh` (both re-runnable; the pod and Cilium output is the recorded file [`output/evidence.txt`](output/evidence.txt)). Every image is what the browser saw, with traffic running.
+
+**hubble ui 7 of 7** — the header’s node count: 7/7 — poc1’s relay reaches every node of both clusters once Hubble’s certificates come from the one root
+
+![hubble-ui-7-of-7](output/screenshots/hubble-ui-7-of-7.png)
+
+**Running pods** (from `output/evidence.txt`):
+
+```console
+$ kubectl --context kind-poc1 -n kube-system get pods -o wide
+NAME                                          READY   STATUS    RESTARTS        AGE    IP            NODE                  NOMINATED NODE   READINESS 
+cilium-envoy-4ht26                            1/1     Running   2 (24h ago)     2d2h   172.18.0.5    poc1-worker           <none>           <none>
+cilium-envoy-9p6mq                            1/1     Running   2 (24h ago)     2d2h   172.18.0.4    poc1-worker2          <none>           <none>
+cilium-envoy-r5c6d                            1/1     Running   2 (24h ago)     2d2h   172.18.0.7    poc1-control-plane2   <none>           <none>
+cilium-envoy-v9lk2                            1/1     Running   2 (24h ago)     2d2h   172.18.0.3    poc1-control-plane3   <none>           <none>
+cilium-envoy-w7759                            1/1     Running   2 (24h ago)     2d2h   172.18.0.6    poc1-control-plane    <none>           <none>
+cilium-ntbb4                                  1/1     Running   0               11h    172.18.0.7    poc1-control-plane2   <none>           <none>
+cilium-operator-79d6b9ffd7-57lpg              1/1     Running   8 (119s ago)    8h     172.18.0.7    poc1-control-plane2   <none>           <none>
+cilium-pv958                                  1/1     Running   0               11h    172.18.0.3    poc1-control-plane3   <none>           <none>
+cilium-qt6nm                                  1/1     Running   0               11h    172.18.0.5    poc1-worker           <none>           <none>
+cilium-s2wxk                                  1/1     Running   0               11h    172.18.0.4    poc1-worker2          <none>           <none>
+cilium-zdgfx                                  1/1     Running   0               11h    172.18.0.6    poc1-control-plane    <none>           <none>
+clustermesh-apiserver-844c48bb9b-sngg7        3/3     Running   2 (8h ago)      8h     10.10.4.2     poc1-worker           <none>           <none>
+coredns-789c5fbdb4-qhj2d                      1/1     Running   0               17h    10.10.1.35    poc1-control-plane2   <none>           <none>
+```
+
+```console
+$ kubectl --context kind-poc2 -n kube-system get pods -o wide
+NAME                                         READY   STATUS    RESTARTS         AGE    IP            NODE                 NOMINATED NODE   READINESS G
+cilium-envoy-2gtwr                           1/1     Running   2 (24h ago)      32h    172.18.0.10   poc2-control-plane   <none>           <none>
+cilium-envoy-dbxr2                           1/1     Running   2 (24h ago)      32h    172.18.0.9    poc2-worker          <none>           <none>
+cilium-operator-65c84b698c-9rgnj             1/1     Running   7 (110s ago)     8h     172.18.0.10   poc2-control-plane   <none>           <none>
+cilium-rr5z8                                 1/1     Running   0                9h     172.18.0.9    poc2-worker          <none>           <none>
+cilium-sqf2x                                 1/1     Running   0                9h     172.18.0.10   poc2-control-plane   <none>           <none>
+clustermesh-apiserver-cd9779c97-p24zd        3/3     Running   2 (8h ago)       8h     10.20.1.239   poc2-worker          <none>           <none>
+coredns-879947797-f4bdb                      1/1     Running   0                17h    10.20.1.136   poc2-worker          <none>           <none>
+coredns-879947797-k8xkh                      1/1     Running   0                17h    10.20.1.168   poc2-worker          <none>           <none>
+etcd-poc2-control-plane                      1/1     Running   2 (24h ago)      32h    172.18.0.10   poc2-control-plane   <none>           <none>
+hubble-relay-556c4dbb98-2zslj                1/1     Running   0                6h4m   10.20.1.195   poc2-worker          <none>           <none>
+kube-apiserver-poc2-control-plane            1/1     Running   2 (24h ago)      32h    172.18.0.10   poc2-control-plane   <none>           <none>
+kube-controller-manager-poc2-control-plane   1/1     Running   15 (2m24s ago)   32h    172.18.0.10   poc2-control-plane   <none>           <none>
+kube-scheduler-poc2-control-plane            1/1     Running   15 (2m25s ago)   32h    172.18.0.10   poc2-control-plane   <none>           <none>
+```
+
+The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
+
