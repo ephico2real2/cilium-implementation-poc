@@ -335,6 +335,117 @@ knows it is in a mesh.
 | **Durability is the volume's, availability is the topology's** | a StatefulSet re-mounts the same PV; one primary means a short outage | Postgres: same PV, balances identical, 3 s of failed reads |
 | **Observability survives the split** | Hubble on each cluster sees its half; the response bodies carry the cross-cluster path end to end | `served_by` chains; demo 01/10 for the flows |
 
+## Part 8 — the database survives its cluster: a hot standby in poc1, streaming from poc2 across the mesh
+
+Part 6 proved data survives a *pod*. This part makes the database survive the **cluster** it lives
+in — the operator's requirement: *"DB failures too won't affect the app"*. The mechanism is
+PostgreSQL's own streaming replication, run across ClusterMesh; nothing new is invented.
+
+### The design
+
+```
+   poc2                                                    poc1
+  ┌─────────────────────────────────┐   WAL stream, pod→pod   ┌──────────────────────────────────┐
+  │ postgres-0        PRIMARY (PVC) │ ──────────────────────▶ │ postgres-standby-0  HOT STANDBY   │
+  │   role replicator, slot         │  through the mesh       │   (PVC) replays continuously,    │
+  │   standby_poc1, pg_hba line     │                         │   answers reads, promotable      │
+  │                                 │                         │                                  │
+  │ accounts ──writes/reads──▶ postgres-primary (global Svc) │                                  │
+  │          ──reads if primary is down──▶ postgres-standby (global Svc) ──▶ poc1               │
+  └─────────────────────────────────┘                         └──────────────────────────────────┘
+```
+
+| Piece | File | What it does |
+|---|---|---|
+| primary prep | `10-poc2.yaml` (`postgres-init` ConfigMap; applied by hand on the running primary, transcript) | `replicator` role, a **physical replication slot** so WAL is kept while the standby is away (`wal_keep_size` is 0 by default), the `host replication` line the image does not write |
+| the "replication pod" | `40-postgres-standby-poc1.yaml` | an init container runs `pg_basebackup … -R --slot` **against the primary in the other cluster**; the stock image then starts as a streaming hot standby (`hot_standby=on` default) |
+| global Services | both manifests | `postgres-primary` (backends poc2) and `postgres-standby` (backends poc1), defined in both clusters — the same rule as every other global Service here |
+| app fallback | `accounts` (`PG_STANDBY_DSN`) | reads go to the primary and **fall back to the standby** if it does not answer; writes only ever go to the primary — promotion is an operator's decision, not a request's |
+| symmetric bootstrap | `10-poc2.yaml` init container `BOOTSTRAP_FROM` | empty volume + unset → `initdb` a primary; empty volume + a host → base backup from it and come up as its standby. Roles are decided by **data** (`standby.signal`), never by which cluster a pod is in — this is what makes failback a rebuild |
+
+Facts read from the live primary before building (not assumed): `wal_level=replica`,
+`max_wal_senders=10`, `hot_standby=on` — PostgreSQL 16 defaults, so no restart was needed; only the
+role, the slot and the `pg_hba` line were missing.
+
+### The test cases (`dbfailover.sh`, recorded in `output/transcript.txt` — three runs, the first two with failures kept)
+
+**Case 1 — replication is live and crosses the mesh.**
+
+```
+primary (poc2) pg_stat_replication:   10.10.4.17/32 state=streaming sync=async replay_lag=0
+standby (poc1) pg_stat_wal_receiver:  in_recovery=true status=streaming sender=postgres-primary.bank.svc.cluster.local
+the standby's client address is a poc1 pod: 10.10.4.17 — the WAL stream is pod-to-pod across the mesh
+write on poc2 (a $0.77 payment) … primary says chk-1001 = 52343   standby says chk-1001 = 52343
+standby refuses writes: ERROR:  cannot execute UPDATE in a read-only transaction
+```
+
+**Case 2 — the primary pod dies.** Reads keep working from the standby; writes pause for the pod's
+restart and resume; replication reattaches through the slot:
+
+```
+>>> 02:06:21 deleting postgres-0 (poc2 primary)      >>> 02:06:26 new primary pod Ready ~6s later
+loop 45s: reads ok=38 (from standby: 4) failed=0 | writes ok=34 failed=4 longest write outage 4s
+replication resumed? primary sees: 1 standby(s) state=streaming
+```
+
+**Case 3 — the primary is lost (scaled to 0): promote, repoint, resume.**
+
+```
+with the primary gone: read -> 249798 from standby; a payment -> http 500   (reads served by the standby, writes refused: expected)
+>>> promoting the standby: SELECT pg_promote()        pg_promote returned t     in_recovery=f
+>>> repointing accounts: PG_DSN -> the poc1 database (one env change, one rollout)
+payments now (accounts in poc2 writing to the promoted database in poc1, through the mesh): 20 in a row, counted
+    20 payments: 20 ok, 0 failed; balance 247798 from primary
+```
+
+`accounts` stays in poc2; its writes now cross the mesh to poc1's database. One env change.
+
+**Case 4 — failback to the original topology, gated at every step.**
+
+```
+safety net first: pg_dump of the current primary (poc1) -> .tmp/bank-20260912T022302Z.sql
+>>> step 1: rebuild poc2 from poc1 as a STANDBY      poc2 in_recovery=t; poc1 sees 1 standby streaming; chk-1001 on poc2 = 247798
+>>> step 2: promote poc2, repoint accounts, VERIFY a write lands there      poc2 in_recovery=f timeline=5; a payment -> http 201
+>>> step 3: only now rebuild poc1 as poc2's standby   poc1 standby rebuilt after ~12s: in_recovery=t
+final: primary(poc2) sees 1 standby, state=streaming; balances primary=247797 standby=247797; a payment -> http 201
+```
+
+### What the first two runs got wrong — all kept in the transcript
+
+1. **The standby's readiness probe required `pg_is_in_recovery() = true`.** So the instant it was
+   promoted it went NotReady, left its own Service, and nothing could reach the new primary:
+   *"pg_promote returned t"* and every write still 500. A readiness probe must never encode a
+   **role** (gotcha #54). Fixed: `pg_isready` only.
+2. **The failback deleted both volumes without verifying anything** — the poc2 rebuild was waiting
+   on a Service with no endpoints (fault 1), the script did not check, went on to delete poc1's
+   volume too, and the two init containers deadlocked on each other's empty Service. The ledger
+   from before the failback was lost; the primary was re-initialised with seed data. Demo data —
+   and exactly the outage a real runbook exists to prevent (gotcha #55). Fixed: `pg_dump` first;
+   promote only a **verified streaming** standby; rebuild the other side only after a **verified
+   write** on the new primary; stop at the first check that fails.
+3. **One 500 after the repoint (second run).** `rollout status` had reported success while the old
+   `accounts` pods were still in their 4-second drain — still Ready, still wired to the dead
+   primary, still receiving *new* requests. A draining pod must fail readiness immediately and
+   finish only what is in flight (gotcha #56). Fixed: `/healthz` returns 503 on SIGTERM; probes
+   `periodSeconds: 2, failureThreshold: 1`. Third run: 20/20.
+
+### The runbook, as it now stands
+
+| Event | Action | Downtime seen by the app |
+|---|---|---|
+| primary pod restarts | nothing — StatefulSet + slot | reads 0 s (standby), writes ≈ pod restart (4 s measured) |
+| primary cluster's database lost | `SELECT pg_promote()` on the standby; `kubectl set env deploy/accounts PG_DSN=<standby DSN>` | reads 0 s; writes until the operator promotes + one rollout |
+| failback | dump → rebuild the old side as standby → verify streaming → promote → verify a write → rebuild the other side | writes: two short rollouts |
+
+**Honest limits.** Replication is asynchronous (`sync_state=async`, lag measured at 0–0.16 s): a
+promotion can lose the last un-replayed transactions — `synchronous_commit` with the standby named
+in `synchronous_standby_names` removes that at the cost of write latency across the mesh. Promotion
+is manual by design here; production wants an operator with automatic failover and fencing
+(CloudNativePG's replica clusters or Patroni), and the volumes are still node-local. What this part
+proves is the *shape*: one primary, a continuously replicated standby in the other cluster reached
+through the mesh, an app that degrades to read-only rather than failing, and a failback that
+verifies before it destroys.
+
 ## What to take away
 
 | Claim | Evidence |
@@ -351,6 +462,9 @@ knows it is in a mesh.
 | The ledger stays consistent across clusters | before − after == sum of payments, every run |
 | No labels or annotations on workloads — one annotation on the Service | live Deployments carry none; docs require only `service.cilium.io/global` + same name/namespace |
 | Data survives the pod, not the node | Postgres/Redis deleted: same PV, balances and keys intact; 3 s read outage; local-path caveat |
+| The database survives its cluster | hot standby in poc1 streaming from poc2 (lag 0–0.16 s); primary lost → promote + one env change → 20/20 writes on poc1's database; failback verified at every step |
+| A readiness probe must never encode a role | the promoted standby went NotReady and left its Service; every write failed until the probe was `pg_isready` only |
+| Never destroy a copy you have not replaced | first failback lost the ledger; now `pg_dump` first and a verified write before any volume is deleted |
 
 ## Clean up
 

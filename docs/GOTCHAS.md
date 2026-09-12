@@ -61,6 +61,9 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [51](#51) | `kubectl exec a -- curl … \| kubectl exec b -- jq` prints nothing — the second exec has no stdin; run the pipeline inside one exec | tooling |
 | [52](#52) | `api.bank.poc.local` failed with curl exit 60 on the `*.poc.local` Gateway — a wildcard matches exactly one DNS label, in the listener and in the certificate | Gateway API / TLS |
 | [53](#53) | One 502 at the exact second of a scale-down — the pod died with a connection open; zero-loss failover needs the app to outlive endpoint withdrawal and drain | app + platform |
+| [54](#54) | A readiness probe that encodes a ROLE (`pg_is_in_recovery()=true`) takes the pod out of its Service the moment the role changes — the promoted standby was unreachable | Kubernetes / Postgres |
+| [55](#55) | The failback destroyed the surviving copy: a rebuild waited on an empty Service, the script did not check, then deleted the other volume too — the ledger was lost | DR runbooks |
+| [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 
 ---
 
@@ -1375,6 +1378,73 @@ that outlives endpoint removal, and a grace period that outlives the handler.
 
 ---
 
+## <a name="54"></a>54. A readiness probe that encodes a ROLE takes the pod out of its Service the moment the role changes
+
+**Symptom.** Demo 15 case 3: `SELECT pg_promote()` on the poc1 standby returned `t`,
+`pg_is_in_recovery()` flipped to `f` — and every write through `accounts`, repointed at
+`postgres-standby`, returned 500. The database was up and writable; nothing could reach it.
+
+**Cause.** The standby's readiness probe was *"pg_isready AND pg_is_in_recovery() = true"* — it
+asserted the pod's **role**. Promotion made the assertion false, the kubelet marked the pod
+NotReady, the Service dropped its only endpoint, and the promoted primary became invisible to the
+app that had just been pointed at it. It also stalled the failback: the poc2 rebuild waited on a
+Service with no backends (#55).
+
+**Fix.** Readiness answers one question — *can this pod serve?* — never *what is this pod?*:
+`pg_isready -U bank`. Role belongs in labels or a separate status check, not in the gate that
+controls traffic.
+
+→ demo 15, Part 8; `40-postgres-standby-poc1.yaml`
+
+---
+
+## <a name="55"></a>55. The failback destroyed the surviving copy — never delete a volume before its replacement is verified
+
+**Symptom.** Demo 15 case 4, first run: poc2 was to be rebuilt as a standby of the promoted poc1,
+then promoted, then poc1 rebuilt. The transcript shows `poc2 … after ~timeouts: in_recovery=;
+poc1 sees 0 standby streaming` — the rebuild never happened (#54) — and the script went on to
+delete poc1's volume anyway. Both init containers then waited on each other's empty Service, and
+the ledger from before the failback was gone; the primary had to be re-initialised with seed data.
+
+**Cause.** A runbook that did not check its own preconditions. Every step assumed the previous one
+had worked; the destructive step ran unconditionally.
+
+**Fix.** The script now (1) takes a `pg_dump` of the current primary before touching anything,
+(2) promotes the rebuilt side only if it is `in_recovery=t` **and** the primary sees it
+`streaming`, (3) deletes the old primary's volume only after a **verified write** (`http 201`)
+landed on the new primary, and (4) stops at the first failed check, saying where the dump is.
+Third run: every gate passed, balances identical on both sides afterwards.
+
+**The lesson.** Demo data made this cheap. The same script in production would have been the
+outage. A failback is a rebuild, and a rebuild is a delete — gate it.
+
+→ demo 15, Part 8; `dbfailover.sh` case 4
+
+---
+
+## <a name="56"></a>56. A draining pod that stays Ready keeps receiving NEW requests
+
+**Symptom.** Demo 15 case 3, second run: after `kubectl set env deploy/accounts PG_DSN=…` and
+`rollout status … successfully rolled out`, the third payment returned 500; the next twenty were
+fine.
+
+**Cause (from the timeline; the pod's log was gone by the time it was looked for).** The graceful
+shutdown from #53 keeps a pod serving for 4 s after SIGTERM so the endpoint can be withdrawn —
+but it left readiness at 200, so the endpoint was *not* withdrawn: an old pod, still wired to the
+dead primary, stayed in the Service and accepted a new request. `rollout status` is satisfied when
+the new pods are Ready; it says nothing about the old ones still draining.
+
+**Fix.** On SIGTERM the app flips `/healthz` to **503 first**, then serves in-flight requests
+through the drain; readiness probes at `periodSeconds: 2, failureThreshold: 1` so the endpoint is
+gone within the 4-second window. Third run: 20/20 after the repoint.
+
+**The lesson.** #53 was "outlive endpoint withdrawal". This is its other half: *cause* the
+withdrawal. Drain = fail readiness, then finish, then exit.
+
+→ demo 15, Part 8; `demos/15-bank/app/main.go` (`serve`, `healthz`)
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1398,6 +1468,8 @@ Most of these share a shape: **something reported success while not working.**
 - `helm upgrade` accepted `socketLB.hostNamespaceOnly=false` and rendered the opposite (#49)
 - a load-balancing test reported one backend forever because the client reused one connection (#50)
 - two failover loops reported 0 failures — they had not sent a request in the one second that fails (#53)
+- `pg_promote returned t` while every write failed — the promoted database had just left its own Service (#54)
+- `rollout status` said success while an old pod wired to a dead database still took requests (#56)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

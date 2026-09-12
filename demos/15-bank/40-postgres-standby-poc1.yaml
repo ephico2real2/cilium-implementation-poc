@@ -1,0 +1,53 @@
+# The "replication pod": a Postgres HOT STANDBY in poc1 whose only job is to stream and replay the
+# poc2 primary's WAL, continuously, across the mesh — and to be promotable if poc2's database is lost.
+#
+#   kubectl --context kind-poc1 apply -f demos/15-bank/40-postgres-standby-poc1.yaml
+#
+# HOW IT BOOTSTRAPS. On an empty volume the init container runs `pg_basebackup` against
+# postgres-primary (a global Service; the pod is in poc2) with -R, which writes standby.signal and
+# primary_conninfo into PGDATA, and --slot so the primary keeps WAL for us while we are down. The
+# main container is the stock image: it finds standby.signal and starts as a streaming standby
+# (hot_standby=on is the default, so it answers read-only queries). A later restart skips the
+# basebackup because PG_VERSION exists and resumes streaming from the slot.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: postgres-standby, namespace: bank}
+spec:
+  serviceName: postgres-standby
+  replicas: 1
+  selector: {matchLabels: {app: postgres-standby}}
+  template:
+    metadata: {labels: {app: postgres-standby}}
+    spec:
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: basebackup
+          image: postgres:16-alpine
+          env:
+            - {name: PGPASSWORD, value: replicator}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              if [ -s "$PGDATA/PG_VERSION" ]; then echo "data present, resuming as standby"; exit 0; fi
+              echo "empty volume: base backup from postgres-primary (poc2) through the mesh"
+              until pg_isready -h postgres-primary.bank.svc.cluster.local -U replicator; do sleep 2; done
+              pg_basebackup -h postgres-primary.bank.svc.cluster.local -U replicator -D "$PGDATA" -Fp -Xs -P -R --slot=standby_poc1
+              chmod 700 "$PGDATA"
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - {name: POSTGRES_PASSWORD, value: bank}      # unused on a standby (no initdb) but the image insists
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports: [{containerPort: 5432}]
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+          # Role-agnostic on purpose. The first version required pg_is_in_recovery()=true, so the moment the
+          # standby was PROMOTED it went NotReady, left its own Service, and nothing could reach the new
+          # primary — the promotion "worked" and every write still failed (Part 8, case 3, first run).
+          readinessProbe: {exec: {command: [pg_isready, -U, bank]}, periodSeconds: 5}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 1Gi}}}

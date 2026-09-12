@@ -701,3 +701,219 @@ $ demos/15-bank/resilience.sh
   The PVs are kind's local-path volumes: /var/local-path-provisioner/pvc-3cdad16b-b687-44cb-89dc-17319768fa72_bank_data-postgres-0 on poc2-worker.
   Data survives a POD restart on the same node. It does not survive that NODE. A production system needs replicated storage or a managed database, and a Postgres HA topology — one primary here is a deliberate simplification.
 
+### 2026-09-12T02:01:58Z
+$ [DB REPLICATION — prepare the poc2 primary live (role, slot, pg_hba, reload); the manifests get the same as an initdb script for fresh installs]
+
+### 2026-09-12T02:01:58Z
+$ sh -c kubectl --context kind-poc2 -n bank exec postgres-0 -- psql -U bank -d bank -c "CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD 'replicator'" -c "SELECT pg_create_physical_replication_slot('standby_poc1')"
+CREATE ROLE
+ pg_create_physical_replication_slot 
+-------------------------------------
+ (standby_poc1,)
+(1 row)
+
+
+### 2026-09-12T02:01:58Z
+$ sh -c kubectl --context kind-poc2 -n bank exec postgres-0 -- sh -c "echo \"host replication replicator all scram-sha-256\" >> \$PGDATA/pg_hba.conf && psql -U bank -d bank -Atc \"SELECT pg_reload_conf()\" && tail -2 \$PGDATA/pg_hba.conf"
+t
+host all all all scram-sha-256
+host replication replicator all scram-sha-256
+
+### 2026-09-12T02:01:59Z
+$ kubectl --context kind-poc2 apply -f demos/15-bank/10-poc2.yaml
+namespace/bank unchanged
+secret/postgres configured
+service/postgres unchanged
+service/postgres-primary created
+service/postgres-standby created
+configmap/postgres-init created
+statefulset.apps/postgres configured
+service/accounts unchanged
+deployment.apps/accounts unchanged
+service/payments unchanged
+deployment.apps/payments unchanged
+service/redis unchanged
+
+### 2026-09-12T02:02:01Z
+$ kubectl --context kind-poc1 apply -f demos/15-bank/20-poc1.yaml
+namespace/bank unchanged
+service/redis unchanged
+statefulset.apps/redis configured
+service/postgres-primary created
+service/postgres-standby created
+service/accounts unchanged
+service/payments unchanged
+deployment.apps/payments unchanged
+service/api unchanged
+deployment.apps/api unchanged
+service/web unchanged
+deployment.apps/web unchanged
+
+### 2026-09-12T02:02:03Z
+$ kubectl --context kind-poc1 apply -f demos/15-bank/40-postgres-standby-poc1.yaml
+statefulset.apps/postgres-standby created
+
+### 2026-09-12T02:02:25Z
+$ sh -c kubectl --context kind-poc1 -n bank logs postgres-standby-0 -c basebackup 2>&1 | tail -4; kubectl --context kind-poc1 -n bank logs postgres-standby-0 -c postgres 2>&1 | grep -E "standby|streaming|recovery|entering|ready to accept" | tail -4
+waiting for checkpoint
+23141/30798 kB (75%), 0/1 tablespace
+30808/30808 kB (100%), 0/1 tablespace
+30808/30808 kB (100%), 1/1 tablespace
+2026-09-12 02:02:24.893 UTC [41] LOG:  completed backup recovery with redo LSN 0/2000028 and end LSN 0/2000100
+2026-09-12 02:02:24.893 UTC [41] LOG:  consistent recovery state reached at 0/2000100
+2026-09-12 02:02:24.893 UTC [1] LOG:  database system is ready to accept read-only connections
+2026-09-12 02:02:24.937 UTC [42] LOG:  started streaming WAL from primary at 0/3000000 on timeline 1
+
+### 2026-09-12T02:02:26Z
+$ sh -c echo "--- on the PRIMARY (poc2): who is streaming from me? ---"; kubectl --context kind-poc2 -n bank exec postgres-0 -- psql -U bank -d bank -c "SELECT client_addr, state, sync_state, sent_lsn, replay_lsn, write_lag, replay_lag FROM pg_stat_replication"; echo "--- on the STANDBY (poc1): am I in recovery, from whom, and how far behind? ---"; kubectl --context kind-poc1 -n bank exec postgres-standby-0 -c postgres -- psql -U bank -d bank -c "SELECT pg_is_in_recovery() AS in_recovery, status, sender_host, received_lsn, latest_end_lsn, now()-pg_last_xact_replay_timestamp() AS replay_delay FROM pg_stat_wal_receiver"
+--- on the PRIMARY (poc2): who is streaming from me? ---
+ client_addr |   state   | sync_state | sent_lsn  | replay_lsn |    write_lag    |   replay_lag    
+-------------+-----------+------------+-----------+------------+-----------------+-----------------
+ 10.10.4.17  | streaming | async      | 0/3000000 | 0/3000000  | 00:00:00.000319 | 00:00:00.000319
+(1 row)
+
+--- on the STANDBY (poc1): am I in recovery, from whom, and how far behind? ---
+ERROR:  column "received_lsn" does not exist
+LINE 1: ...n_recovery() AS in_recovery, status, sender_host, received_l...
+                                                             ^
+HINT:  Perhaps you meant to reference the column "pg_stat_wal_receiver.received_tli".
+command terminated with exit code 1
+[exit code: 1]
+
+### 2026-09-12T02:06:07Z
+$ [DB TEST CASES — replication live, primary pod dies, primary lost + promotion, failback]
+
+### 2026-09-12T02:06:07Z
+$ demos/15-bank/dbfailover.sh
+
+== 1. replication is live, and it crosses the mesh
+  primary (poc2) pg_stat_replication:
+    10.10.4.17/32 state=streaming sync=async replay_lag=0
+  standby (poc1) pg_stat_wal_receiver:
+    in_recovery=true status=streaming sender=postgres-primary.bank.svc.cluster.local written=0/3000110 flushed=0/3000110
+  the standby's client address is a poc1 pod: 10.10.4.17 — the WAL stream is pod-to-pod across the mesh
+  write on poc2 (a $0.77 payment) …
+  primary says chk-1001 = 52343   standby says chk-1001 = 52343   (was 52420; both must be 52343)
+  standby refuses writes (it is read-only until promoted): ERROR:  cannot execute UPDATE in a read-only transaction
+
+== 2. the primary POD dies — reads continue from the standby, writes pause briefly
+  >>> 02:06:21 deleting postgres-0 (poc2 primary)
+  >>> 02:06:26 new primary pod Ready ~6s later
+  loop 45s: reads ok=38 (from standby: 4) failed=0 | writes ok=34 failed=4 longest write outage 4s
+  replication resumed? primary sees: 1 standby(s) state=streaming
+
+== 3. the primary is LOST (scaled to 0) — promote the poc1 standby, repoint accounts, payments resume on poc1's database
+  balance before: 52309 from primary
+  with the primary gone: read -> 52309 from standby; a payment -> http 500   (reads served by the standby, writes refused: expected)
+  >>> promoting the standby: SELECT pg_promote()
+    pg_promote returned t
+  standby now: in_recovery=f  timeline=2
+  >>> repointing accounts: PG_DSN -> the poc1 database (one env change, one rollout)
+    deployment "accounts" successfully rolled out
+  payments now (accounts in poc2 writing to the promoted database in poc1, through the mesh):
+    pay -> http 500  52309 from primary
+    pay -> http 500  52309 from primary
+    pay -> http 500  52309 from standby
+  ledger on the promoted database: chk-1001=52309 chk-1002=135761 
+
+== 4. failback to the original topology (a rebuild, never a rewind): poc2 becomes a standby of poc1, is promoted, then poc1 is rebuilt as its standby
+  >>> rebuilding poc2 from poc1: BOOTSTRAP_FROM=postgres-standby, empty volume, scale up
+  poc2 postgres-0 back as a STANDBY of poc1 after ~timeouts: in_recovery=; poc1 sees 0 standby streaming; chk-1001 on poc2 = 
+  >>> promoting poc2 back to primary, repointing accounts to postgres-primary
+    error: timed out waiting for the condition
+  >>> rebuilding poc1 as the standby of poc2 again (delete its volume, the init container base-backs-up from postgres-primary)
+### 2026-09-12T02:17:44Z
+$ [RECOVERY from the failed failback: both volumes were destroyed by the script (its own defect — see Part 8), the two init containers deadlocked on each other's empty Service. poc2 re-initdbs as a fresh primary (seed data), poc1 re-bootstraps from it, accounts restarts to seed the schema.]
+
+### 2026-09-12T02:17:44Z
+$ sh -c kubectl --context kind-poc2 -n bank get sts postgres -o jsonpath="BOOTSTRAP_FROM in the template: [{.spec.template.spec.initContainers[0].env[?(@.name==\"BOOTSTRAP_FROM\")].value}]{\"\n\"}"; kubectl --context kind-poc2 -n bank delete pod postgres-0 --wait=false
+BOOTSTRAP_FROM in the template: []
+pod "postgres-0" deleted
+
+### 2026-09-12T02:17:55Z
+$ sh -c kubectl --context kind-poc2 -n bank logs postgres-0 -c bootstrap --tail=1; kubectl --context kind-poc2 -n bank exec postgres-0 -c postgres -- psql -U bank -d bank -Atc "SELECT 'in_recovery='||pg_is_in_recovery()||' slots='||(SELECT string_agg(slot_name,',') FROM pg_replication_slots)||' roles='||(SELECT string_agg(rolname,',') FROM pg_roles WHERE rolname IN ('bank','replicator'))"
+empty volume, no BOOTSTRAP_FROM: the image will initdb a new PRIMARY
+in_recovery=false slots=standby_poc1 roles=bank,replicator
+
+### 2026-09-12T02:17:59Z
+$ kubectl --context kind-poc2 -n bank rollout restart deploy/accounts
+deployment.apps/accounts restarted
+
+### 2026-09-12T02:18:02Z
+$ sh -c kubectl --context kind-poc2 -n bank exec postgres-0 -c postgres -- psql -U bank -d bank -Atc "SELECT client_addr||' '||state||' lag='||coalesce(replay_lag::text,'0') FROM pg_stat_replication"; kubectl --context kind-poc1 -n bank exec postgres-standby-0 -c postgres -- psql -U bank -d bank -Atc "SELECT id||'='||balance_cents FROM accounts ORDER BY id"; echo "(fresh seed balances: the ledger from before the failback is gone — demo data, and the lesson of Part 8)"
+10.10.3.73/32 streaming lag=00:00:00.155797
+chk-1001=250000
+chk-1002=120000
+(fresh seed balances: the ledger from before the failback is gone — demo data, and the lesson of Part 8)
+
+### 2026-09-12T02:18:32Z
+$ kubectl --context kind-poc1 apply -f demos/15-bank/40-postgres-standby-poc1.yaml
+statefulset.apps/postgres-standby configured
+
+### 2026-09-12T02:18:36Z
+$ sh -c kubectl --context kind-poc1 -n bank get sts postgres-standby -o jsonpath="standby readiness now: {.spec.template.spec.containers[0].readinessProbe.exec.command}{\"\n\"}"; kubectl --context kind-poc1 -n bank exec postgres-standby-0 -c postgres -- psql -U bank -d bank -Atc "SELECT 'in_recovery='||pg_is_in_recovery()||' status='||status FROM pg_stat_wal_receiver"
+standby readiness now: ["pg_isready","-U","bank"]
+in_recovery=true status=streaming
+
+### 2026-09-12T02:18:37Z
+$ [cases 3-4 re-run after the fixes: role-agnostic readiness on the standby; failback gated on verification with a pg_dump first]
+
+### 2026-09-12T02:18:37Z
+$ demos/15-bank/dbfailover.sh
+
+== 3. the primary is LOST (scaled to 0) — promote the poc1 standby, repoint accounts, payments resume on poc1's database
+  balance before: 250000 from primary
+  with the primary gone: read -> 250000 from standby; a payment -> http 500   (reads served by the standby, writes refused: expected)
+  >>> promoting the standby: SELECT pg_promote()
+    pg_promote returned t
+  standby now: in_recovery=f  timeline=1
+  >>> repointing accounts: PG_DSN -> the poc1 database (one env change, one rollout)
+    deployment "accounts" successfully rolled out
+  payments now (accounts in poc2 writing to the promoted database in poc1, through the mesh):
+    pay -> http 201  249900 from primary
+    pay -> http 201  249800 from primary
+    pay -> http 500  249800 from primary
+  ledger on the promoted database: chk-1001=249800 chk-1002=120000 
+
+== 4. failback to the original topology (a rebuild, never a rewind): poc2 becomes a standby of poc1, is promoted, then poc1 is rebuilt as its standby
+  safety net first: pg_dump of the current primary (poc1) -> .tmp/bank-20260912T021853Z.sql
+    1 data statements, 1392 bytes
+  >>> step 1: rebuild poc2 from poc1 as a STANDBY (BOOTSTRAP_FROM=postgres-standby, empty volume, scale up)
+  poc2 postgres-0 after ~12s: in_recovery=t; poc1 sees 1 standby streaming; chk-1001 on poc2 = 249800
+  >>> step 2: promote poc2, repoint accounts to postgres-primary, VERIFY a write lands there
+    deployment "accounts" successfully rolled out
+  poc2 in_recovery=f timeline=3; a payment through accounts -> http 201
+  >>> step 3: only now rebuild poc1 as poc2's standby (its old timeline is obsolete; a rebuild, never a rewind)
+  poc1 standby rebuilt after ~10s: in_recovery=t
+  final: primary(poc2) sees 1 standby, state=streaming; balances primary=249799 standby=249799; a payment -> http 201; read -> 249798 from primary
+
+### 2026-09-12T02:22:44Z
+$ [cases 3-4, third run: readiness now fails on SIGTERM (drain), probes period 2 s / failureThreshold 1; case 3 counts 20 payments after the repoint]
+
+### 2026-09-12T02:22:44Z
+$ demos/15-bank/dbfailover.sh
+
+== 3. the primary is LOST (scaled to 0) — promote the poc1 standby, repoint accounts, payments resume on poc1's database
+  balance before: 249798 from primary
+  with the primary gone: read -> 249798 from standby; a payment -> http 500   (reads served by the standby, writes refused: expected)
+  >>> promoting the standby: SELECT pg_promote()
+    pg_promote returned t
+  standby now: in_recovery=f  timeline=4
+  >>> repointing accounts: PG_DSN -> the poc1 database (one env change, one rollout)
+    deployment "accounts" successfully rolled out
+  payments now (accounts in poc2 writing to the promoted database in poc1, through the mesh): 20 in a row, counted
+    20 payments: 20 ok, 0 failed; balance 247798 from primary
+  ledger on the promoted database: chk-1001=247798 chk-1002=120000 
+
+== 4. failback to the original topology (a rebuild, never a rewind): poc2 becomes a standby of poc1, is promoted, then poc1 is rebuilt as its standby
+  safety net first: pg_dump of the current primary (poc1) -> .tmp/bank-20260912T022302Z.sql
+    1 data statements, 1392 bytes
+  >>> step 1: rebuild poc2 from poc1 as a STANDBY (BOOTSTRAP_FROM=postgres-standby, empty volume, scale up)
+  poc2 postgres-0 after ~12s: in_recovery=t; poc1 sees 1 standby streaming; chk-1001 on poc2 = 247798
+  >>> step 2: promote poc2, repoint accounts to postgres-primary, VERIFY a write lands there
+    deployment "accounts" successfully rolled out
+  poc2 in_recovery=f timeline=5; a payment through accounts -> http 201
+  >>> step 3: only now rebuild poc1 as poc2's standby (its old timeline is obsolete; a rebuild, never a rewind)
+  poc1 standby rebuilt after ~12s: in_recovery=t
+  final: primary(poc2) sees 1 standby, state=streaming; balances primary=247797 standby=247797; a payment -> http 201; read -> 247796 from primary
+

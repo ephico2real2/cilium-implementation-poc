@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -105,7 +106,12 @@ func serve(role, addr string, mux *http.ServeMux) {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 		<-sig
-		log.Printf("%s: SIGTERM — serving for %s more so the endpoint is withdrawn first, then draining", role, drainDelay)
+		// Fail readiness FIRST so the endpoint is withdrawn while we still finish what is in flight.
+		// Without this a draining pod stays Ready for the whole grace period and keeps receiving NEW
+		// requests — during a config repoint (demo 15 Part 8, case 3) an old pod still wired to the
+		// dead primary answered one payment with 500 after "rollout status" had reported success.
+		draining.Store(true)
+		log.Printf("%s: SIGTERM — readiness now 503; serving in-flight for %s while the endpoint is withdrawn, then draining", role, drainDelay)
 		time.Sleep(drainDelay)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -120,8 +126,16 @@ func serve(role, addr string, mux *http.ServeMux) {
 
 const drainDelay = 4 * time.Second
 
+var draining atomic.Bool
+
 func healthz(mux *http.ServeMux) {
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintln(w, "ok") })
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		if draining.Load() {
+			http.Error(w, "draining", http.StatusServiceUnavailable)
+			return
+		}
+		fmt.Fprintln(w, "ok")
+	})
 }
 
 // ---- accounts: the system of record (Postgres) ---------------------------------------------------
@@ -151,21 +165,43 @@ INSERT INTO accounts (id, owner, balance_cents) VALUES ('chk-1001','Ada Lovelace
 	if _, err := db.Exec(schema); err != nil {
 		log.Fatalf("accounts: schema: %v", err)
 	}
+	// The hot standby (demo 15 Part 8): a second connection pool, used for READS ONLY and only when
+	// the primary does not answer. Writes never go there — a standby is read-only until promoted,
+	// and promotion is an operator's decision (the runbook), not something a request should trigger.
+	var standby *sql.DB
+	if dsn := os.Getenv("PG_STANDBY_DSN"); dsn != "" {
+		if standby, err = sql.Open("pgx", dsn); err != nil {
+			log.Printf("accounts: standby DSN rejected: %v", err)
+			standby = nil
+		} else {
+			log.Printf("accounts: read fallback to standby configured")
+		}
+	}
 	mux := http.NewServeMux()
 	healthz(mux)
 	mux.HandleFunc("GET /accounts/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var owner string
 		var bal int64
-		err := db.QueryRowContext(r.Context(), `SELECT owner, balance_cents FROM accounts WHERE id=$1`, r.PathValue("id")).Scan(&owner, &bal)
+		source := "primary"
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		err := db.QueryRowContext(ctx, `SELECT owner, balance_cents FROM accounts WHERE id=$1`, r.PathValue("id")).Scan(&owner, &bal)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) && standby != nil {
+			log.Printf("accounts: primary read failed (%v) — trying the standby", err)
+			source = "standby"
+			ctx2, cancel2 := context.WithTimeout(r.Context(), 2*time.Second)
+			defer cancel2()
+			err = standby.QueryRowContext(ctx2, `SELECT owner, balance_cents FROM accounts WHERE id=$1`, r.PathValue("id")).Scan(&owner, &bal)
+		}
 		if errors.Is(err, sql.ErrNoRows) {
 			writeJSON(w, 404, map[string]any{"error": "no such account", "served_by": me("accounts")})
 			return
 		}
 		if err != nil {
-			writeJSON(w, 500, map[string]any{"error": err.Error(), "served_by": me("accounts")})
+			writeJSON(w, 503, map[string]any{"error": err.Error(), "served_by": me("accounts"), "db": source})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"account": r.PathValue("id"), "owner": owner, "balance_cents": bal, "served_by": me("accounts")})
+		writeJSON(w, 200, map[string]any{"account": r.PathValue("id"), "owner": owner, "balance_cents": bal, "served_by": me("accounts"), "db": source})
 	})
 	// debit is the money-moving call: one UPDATE guarded by the balance, so two concurrent debits
 	// cannot overdraw — the database is the arbiter, not the caller.

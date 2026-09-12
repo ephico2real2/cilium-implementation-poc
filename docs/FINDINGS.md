@@ -401,3 +401,17 @@ name/namespace. Drills: `payments` poc1 → 0 statically: 20/20 from poc2, ledge
 failed reads, same PV, balances identical; `redis-0` deleted: 1,161 keys replayed from the AOF,
 history intact, the old idempotency key still refused a second debit. Before graceful shutdown was
 added, one payment in the scale-down second returned 502; after it, 60/60 (gotcha #53).
+
+## Finding — the database survives its cluster: streaming replication across the mesh (demo 15, Part 8)
+
+A PostgreSQL hot standby in poc1 streams from the poc2 primary pod-to-pod through ClusterMesh
+(`pg_stat_replication`: a `10.10.x` client, `streaming`, lag 0–0.16 s); the standby is read-only
+until promoted; `accounts` falls back to it for reads. Measured: primary pod killed → 0 failed
+reads (4 served by the standby), 4 s write pause; primary lost → `pg_promote()` + one env change →
+20/20 writes on poc1's database from poc2's `accounts`; failback → dump, rebuild poc2 as a verified
+streaming standby, promote, verified write, then rebuild poc1 — balances identical on both sides.
+Three defects found and fixed on the way, kept in the transcript: a readiness probe that encoded
+the role (#54), a failback that deleted the surviving volume without checking (#55, the demo
+ledger was lost and re-seeded), and a draining pod that stayed Ready (#56). Replication is
+asynchronous and promotion manual by design; the production answer is an operator (CloudNativePG,
+Patroni) and replicated storage.

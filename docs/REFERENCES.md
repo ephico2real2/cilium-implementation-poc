@@ -53,3 +53,9 @@ cert-manager **v1.21.1**, Gateway API **v1.6.1**.
 | `postgres:16-alpine`, `redis:7-alpine` | Docker Hub | demo 15 |
 | `otel/opentelemetry-collector-contrib:0.160.0` | Docker Hub | demo 10 |
 | Go modules: `google.golang.org/grpc` v1.76.0, `github.com/jackc/pgx/v5` v5.11.0 (needs Go ≥ 1.25), `github.com/redis/go-redis/v9` v9.22.0 | Go proxy | demos 09, 15 |
+
+## Standard references relied on but not re-fetched
+
+| Topic | Source | Used in |
+|---|---|---|
+| PostgreSQL 16 streaming replication, hot standby, `pg_basebackup -R`, replication slots, `pg_promote()` | [PostgreSQL 16 manual, ch. 27 High Availability](https://www.postgresql.org/docs/16/high-availability.html) · [`pg_basebackup`](https://www.postgresql.org/docs/16/app-pgbasebackup.html) | demo 15 Part 8 — every setting was read back from the live server rather than assumed |

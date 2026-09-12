@@ -24,6 +24,43 @@ spec:
   selector: {app: postgres}
   ports: [{port: 5432}]
 ---
+# Cross-cluster replication (demo 15 Part 8). The STANDBY in poc1 streams WAL from this primary
+# through the mesh, so both Services are global and defined in both clusters: `postgres-primary`
+# has backends only here, `postgres-standby` only in poc1.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-primary
+  namespace: bank
+  annotations: {service.cilium.io/global: "true"}
+spec:
+  selector: {app: postgres}
+  ports: [{port: 5432}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-standby
+  namespace: bank
+  annotations: {service.cilium.io/global: "true"}     # backends in poc1 only
+spec:
+  selector: {app: postgres-standby}
+  ports: [{port: 5432}]
+---
+# Runs ONCE, at first initdb, on a fresh volume: the replication role, a physical slot (so WAL is
+# kept while the standby is away — wal_keep_size is 0 by default), and the pg_hba line the image
+# does not write. On the already-running primary the same three steps were applied by hand and are
+# in the transcript.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: postgres-init, namespace: bank}
+data:
+  10-replication.sh: |
+    #!/bin/sh
+    set -e
+    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD 'replicator'" -c "SELECT pg_create_physical_replication_slot('standby_poc1')"
+    echo "host replication replicator all scram-sha-256" >> "$PGDATA/pg_hba.conf"
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata: {name: postgres, namespace: bank}
@@ -34,14 +71,39 @@ spec:
   template:
     metadata: {labels: {app: postgres}}
     spec:
+      # Symmetric bootstrap (Part 8 failback). Empty volume + BOOTSTRAP_FROM unset -> the image runs
+      # initdb and this is a PRIMARY (fresh install). Empty volume + BOOTSTRAP_FROM=<host> -> base
+      # backup from that host and this comes up as a STANDBY of it. After a promotion in poc1 the old
+      # primary is rebuilt this way; roles are decided by data, never by which cluster a pod is in.
+      initContainers:
+        - name: bootstrap
+          image: postgres:16-alpine
+          env:
+            - {name: PGPASSWORD, value: replicator}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+            - {name: BOOTSTRAP_FROM, value: ""}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              if [ -s "$PGDATA/PG_VERSION" ]; then echo "data present: role decided by standby.signal ($(test -f $PGDATA/standby.signal && echo standby || echo primary))"; exit 0; fi
+              if [ -z "$BOOTSTRAP_FROM" ]; then echo "empty volume, no BOOTSTRAP_FROM: the image will initdb a new PRIMARY"; exit 0; fi
+              echo "empty volume: base backup from $BOOTSTRAP_FROM -> this pod becomes a STANDBY of it"
+              until pg_isready -h "$BOOTSTRAP_FROM" -U replicator; do sleep 2; done
+              pg_basebackup -h "$BOOTSTRAP_FROM" -U replicator -D "$PGDATA" -Fp -Xs -P -R --slot=standby_poc2 --create-slot
+              chmod 700 "$PGDATA"
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
       containers:
         - name: postgres
           image: postgres:16-alpine
           envFrom: [{secretRef: {name: postgres}}]
           env: [{name: PGDATA, value: /var/lib/postgresql/data/pgdata}]
           ports: [{containerPort: 5432}]
-          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+            - {name: init, mountPath: /docker-entrypoint-initdb.d}
           readinessProbe: {exec: {command: [pg_isready, -U, bank]}, periodSeconds: 5}
+      volumes: [{name: init, configMap: {name: postgres-init, defaultMode: 0755}}]
   volumeClaimTemplates:
     - metadata: {name: data}
       spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 1Gi}}}   # StorageClass "standard" (kind's local-path), WaitForFirstConsumer
@@ -75,9 +137,12 @@ spec:
             - {name: CLUSTER, value: poc2}
             - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
             - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
-            - {name: PG_DSN, value: "postgres://bank:bank@postgres.bank.svc.cluster.local:5432/bank?sslmode=disable"}
+            # writes and first-choice reads go to the PRIMARY through its global Service; reads fall back
+            # to the STANDBY (poc1, through the mesh) when the primary does not answer (Part 8)
+            - {name: PG_DSN, value: "postgres://bank:bank@postgres-primary.bank.svc.cluster.local:5432/bank?sslmode=disable"}
+            - {name: PG_STANDBY_DSN, value: "postgres://bank:bank@postgres-standby.bank.svc.cluster.local:5432/bank?sslmode=disable"}
           ports: [{containerPort: 8080}]
-          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 2, failureThreshold: 1}   # a draining pod answers 503 and must leave the Service within the 4 s drain
 ---
 apiVersion: v1
 kind: Service
@@ -109,7 +174,7 @@ spec:
             - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
             - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
           ports: [{containerPort: 8080}]
-          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 2, failureThreshold: 1}   # a draining pod answers 503 and must leave the Service within the 4 s drain
 ---
 apiVersion: v1
 kind: Service

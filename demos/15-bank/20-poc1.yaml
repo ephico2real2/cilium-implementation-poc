@@ -41,6 +41,26 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  name: postgres-primary
+  namespace: bank
+  annotations: {service.cilium.io/global: "true"}     # backends in poc2 only — the standby below streams from it through the mesh
+spec:
+  selector: {app: postgres}
+  ports: [{port: 5432}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-standby
+  namespace: bank
+  annotations: {service.cilium.io/global: "true"}     # backends HERE; poc2's accounts falls back to it through the mesh
+spec:
+  selector: {app: postgres-standby}
+  ports: [{port: 5432}]
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: accounts
   namespace: bank
   annotations: {service.cilium.io/global: "true"}     # NO backends here — every call crosses to poc2
@@ -78,7 +98,7 @@ spec:
             - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
             - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
           ports: [{containerPort: 8080}]
-          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 2, failureThreshold: 1}   # a draining pod answers 503 and must leave the Service within the 4 s drain
 ---
 apiVersion: v1
 kind: Service
@@ -107,7 +127,7 @@ spec:
             - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
             - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
           ports: [{containerPort: 8080}]
-          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 2, failureThreshold: 1}   # a draining pod answers 503 and must leave the Service within the 4 s drain
 ---
 apiVersion: v1
 kind: Service
@@ -136,4 +156,4 @@ spec:
             - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
             - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
           ports: [{containerPort: 8080}]
-          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 2, failureThreshold: 1}   # a draining pod answers 503 and must leave the Service within the 4 s drain
