@@ -49,7 +49,7 @@ unchanged, with BGP substituted for L2 in production.
    external-access proof for demo 09.
 8. **[docs/REFERENCES.md](docs/REFERENCES.md)** — every external source the PoC was built against,
    with what each was used for; the place to check a claim's origin.
-9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 67 traps, each with the real error
+9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 68 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -175,7 +175,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 67 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 68 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

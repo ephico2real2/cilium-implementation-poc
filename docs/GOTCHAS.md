@@ -66,6 +66,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [68](#68) | "connection refused" from Grafana to Tempo: the first Traces Drilldown page's two TraceQL metrics queries OOM-killed the 512Mi single binary; 1Gi, and size from the kill, not the graph | Tempo |
 | [67](#67) | The Tempo chart's port template dereferences `receivers.jaeger.protocols` unconditionally: `jaeger: null` fails the render; keep the default listeners | Tempo / helm |
 | [66](#66) | A 12-hour Hubble dashboard walk drove the VM to load 300: API servers restarted on liveness (graceful, no OOM) and the admin got transient 403s while RBAC re-synced; kernel + iowait, not a pod, had the CPU | Docker Desktop / control plane |
 | [65](#65) | Eureka-routed calls fail for a minute after a rollout: Spring Cloud Gateway keeps the dead pod IP (client-side registry cache); Hubble shows `STALE_OR_UNROUTABLE_IP` | Spring Boot / discovery |
@@ -1681,6 +1682,27 @@ sends to) and set only the OTLP block. Recorded in demo 21 Part 1.
 
 ---
 
+## <a name="68"></a>68. Grafana says "connection refused" to Tempo — Tempo was OOM-killed by the first Traces Drilldown page
+
+**Symptom.** Traces Drilldown: `Query error: Get "http://tempo.monitoring…:3200/api/metrics/query_range?…"
+dial tcp 10.11.194.232:3200: connect: connection refused`. Seconds earlier the datasource had
+tested fine and Explore had returned traces.
+
+**Cause.** `tempo-0: last=OOMKilled exit=137` at a 512Mi limit; its previous log ends with the
+Drilldown's two TraceQL metrics queries over 30 minutes (`{true && true} | rate()` and the same
+`by (resource.service.name)`). With the metrics-generator's blocks in memory the first page load
+spiked past the limit; kubelet restarted the container and, for those seconds, nothing listened on
+:3200 — hence "refused", not a timeout and not a routing problem.
+
+**Fix.** `resources.limits.memory: 1Gi` in `demos/21-tempo/values-tempo.yaml` (one helm upgrade).
+Reloaded: 0 restarts, peak working set 159 MiB at 15-s scrape resolution — the spike is shorter than
+a scrape, so size from the kill, not from the graph. On a real cluster: run the generator and the
+querier as separate components, not the single binary.
+
+→ demo 21, Part 6b
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1711,6 +1733,7 @@ Most of these share a shape: **something reported success while not working.**
 - a policy that read "any endpoint in this namespace" matched none of the namespace's pods in the other cluster (#62)
 - every petclinic pod was Ready while the gateway kept calling a pod that no longer existed (#65)
 - `kubectl` told the cluster admin "Forbidden" — the API server was restarting, RBAC was fine (#66)
+- Grafana said Tempo refused the connection — Tempo had just been OOM-killed by the page asking (#68)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

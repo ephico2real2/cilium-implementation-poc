@@ -7,7 +7,10 @@ tempo:
       protocols:                       # `jaeger: null` fails the render ("nil pointer evaluating interface {}.protocols",
         grpc: {endpoint: 0.0.0.0:4317}   # measured). Extra listeners nobody talks to cost nothing.
         http: {endpoint: 0.0.0.0:4318}
-  resources: {requests: {cpu: 50m, memory: 256Mi}, limits: {memory: 512Mi}}   # measured headroom ~2 GB with petclinic up
+  resources: {requests: {cpu: 50m, memory: 256Mi}, limits: {memory: 1Gi}}
+    # 512Mi was enough for ingest + generator (working set 250 MiB, Part 5) and NOT for the first Traces Drilldown
+    # page: two TraceQL metrics queries over 30 min ("{true && true} | rate()" and "… | rate() by (resource.service.name)")
+    # pushed it past the limit → OOMKilled, exit 137, and Grafana saw "connection refused" (gotcha #68). 1Gi, measured.
   metricsGenerator:                    # Part 5: the Service Graph. Tempo derives RED metrics and service-to-service edges
     enabled: true                      # from the spans it receives and remote-writes them into Prometheus; Grafana's
     remoteWriteUrl: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090/api/v1/write

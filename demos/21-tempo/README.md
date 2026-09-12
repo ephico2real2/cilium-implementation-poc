@@ -194,6 +194,25 @@ customers-service, discovery-server, config-server — each with Include/Exclude
 *Service structure*, *Comparison* and *Traces* tabs ([screenshot](output/screenshots/grafana-traces-drilldown.png)).
 This is the RED overview computed from spans alone, for every service that sends any.
 
+**Part 6b — the first Drilldown page killed Tempo.** Captured while taking the screenshots: *Query
+error … dial tcp 10.11.194.232:3200: connect: connection refused*. Not a wiring problem — Tempo was
+being restarted:
+
+```
+tempo-0: restarts=1 last=OOMKilled exit=137 at=2026-09-12T12:15:55Z limit=512Mi
+  last queries before the kill:  "{true && true} | rate()"                                        range 30 min
+                                 "{true && true && resource.service.name != nil} | rate() by(resource.service.name)"
+```
+
+The Drilldown's opening page fires two TraceQL metrics queries over the whole time range; with the
+generator holding its blocks in memory, that pushed the container past 512Mi (working set had been
+250 MiB with the generator alone, Part 5). The limit is now 1Gi (`values-tempo.yaml`, revision 4);
+the page reloaded with no restart and a peak working set of 159 MiB at the 15-second scrape
+resolution — the spike that killed it lasted less than a scrape interval. Gotcha #68. The captures
+below are from after the change: [breakdown](output/screenshots/grafana-traces-drilldown-breakdown.png),
+[traces tab](output/screenshots/grafana-traces-drilldown-traces.png) (200 root spans);
+[`browser-drilldown.js`](browser-drilldown.js) retakes them.
+
 The three generator processors and what each one feeds:
 
 | Processor | Produces | Consumed by |

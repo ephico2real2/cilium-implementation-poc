@@ -196,3 +196,22 @@ after: the same query
     ['api-gateway', None] p90 ≈ 67.1 ms
 
 drilldown: Root spans | Span rate | Attributes are ordered by their rate of requests per second. | Rate | rootName | rootServiceName | api-gateway | vets-service | visits-service | customers-service
+
+### 2026-09-12T12:17:37Z
+$ [PART 6b — the first Drilldown page OOM-killed Tempo at 512Mi; limit raised to 1Gi]
+
+### 2026-09-12T12:17:37Z
+$ sh -c kubectl --context kind-poc1 -n monitoring get pod tempo-0 -o jsonpath="tempo-0: restarts={.status.containerStatuses[0].restartCount} last={.status.containerStatuses[0].lastState.terminated.reason} exit={.status.containerStatuses[0].lastState.terminated.exitCode} at={.status.containerStatuses[0].lastState.terminated.finishedAt} limit={.spec.containers[0].resources.limits.memory}{\"\n\"}"; kubectl --context kind-poc1 -n monitoring logs tempo-0 --previous --tail=200 2>/dev/null | grep "query range request" | tail -2 | sed "s/.*query=/  last queries before the kill: query=/" | cut -c1-160; helm upgrade tempo grafana/tempo --version 1.24.4 -n monitoring --kube-context kind-poc1 -f demos/21-tempo/values-tempo.yaml 2>&1 | grep -E "^REVISION|Error"; kubectl --context kind-poc1 -n monitoring rollout status sts/tempo --timeout=4m 2>&1 | tail -1; kubectl --context kind-poc1 -n monitoring get pod tempo-0 -o jsonpath="  limit now: {.spec.containers[0].resources.limits.memory}{\"\n\"}"
+tempo-0: restarts=1 last=OOMKilled exit=137 at=2026-09-12T12:15:55Z limit=512Mi
+  last queries before the kill: query="{true && true} | rate() " range_nanos=1800000000000 mode= step=28000000000
+  last queries before the kill: query="{true && true && resource.service.name != nil} | rate() by(resource.service.name)" range_nanos=1800000000000 mode= step=2
+REVISION: 4
+statefulset rolling update complete 1 pods at revision tempo-55b68dbb5c...
+  limit now: 1Gi
+
+page: Traces | Traces | Traces Drilldown | Root spans | Span rate | Traces200 | Duration
+### 2026-09-12T12:21:00Z
+$ sh -c kubectl --context kind-poc1 -n monitoring get pod tempo-0 -o jsonpath="after the Drilldown page: restarts={.status.containerStatuses[0].restartCount}{\"\n\"}"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=max_over_time(container_memory_working_set_bytes%7Bnamespace%3D%22monitoring%22,pod%3D%22tempo-0%22,container%3D%22tempo%22%7D%5B3m%5D)%2F1048576" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print(\"  peak working set during the page load: %.0f MiB\" % float(r[0][\"value\"][1]) if r else \"  (no sample)\")"
+after the Drilldown page: restarts=0
+  peak working set during the page load: 159 MiB
+
