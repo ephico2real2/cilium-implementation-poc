@@ -468,6 +468,69 @@ chart's own dashboard file on `develop` (unchanged from the previous apply — s
 cell probe → 68 lines on stdout at 947 bytes each, `{poc1, DROPPED} 68` in Loki within 45 s, Grafana
 listing the six "Flows per" panels including *Drop Reason* and *Denying Policy*, cf2cnp `OK`.
 
+## Part 11 — cf2cnp through its UI, through Grafana, and through the API: learned from the project, then done
+
+cf2cnp ([onzack/cf2cnp](https://github.com/onzack/cf2cnp), Apache-2.0) "generates CiliumNetworkPolicies from
+Hubble flow data": one flow JSON in, one policy YAML out — aggregation of same-source/destination flows
+into one rule with several ports, `toFQDNs` with the DNS rule it needs for external destinations,
+namespace labels for cross-namespace traffic, and label selection that keeps only `app.kubernetes.io/*`
+(or `app`, `k8s-app`, `name`, `component`, `instance` as fallback). Its README warns: created with AI
+help, "always review generated policies before applying them". Read it, then tried every path:
+
+**1. The cf2cnp page** (`https://cf2cnp.poc.local/`, Part 2b's Gateway route): paste a Hubble flow JSON
+into *Try it out*, click **Generate Policy**, the YAML appears inline
+([capture](output/screenshots/cf2cnp-ui-generated.png)). Done with a real DROPPED flow to
+`api.stripe.com` taken from the observer's log; the result is an egress policy for `app: egress-test` with
+`toFQDNs: api.stripe.com` on port 80 **plus** the `kube-dns` rule with `matchPattern: '*'` that `toFQDNs`
+requires — exactly the shape demo 19's cell uses.
+
+**2. From the Grafana dashboard** — the path the chart built the dashboard for, driven with a browser:
+
+1. In *Cilium Flows over Time* scroll right to the **Flow UUID** column and click a UUID. A menu opens
+   with two links and one action: *Open this Flow UUID in a new tab*, *Download CiliumNetworkPolicy
+   (first click "Generate..")*, and the button **Generate CiliumNetworkPolicy from Flow**
+   ([capture](output/screenshots/grafana-flow-uuid-menu.png)).
+2. Click *Generate*. Grafana asks **Confirm action** ([capture](output/screenshots/grafana-generate-confirm.png)).
+   On *Confirm*, Grafana itself POSTs the row's raw log line to `${hubbleobservercf2cnpurl}/generate` —
+   measured on the wire: `POST https://cf2cnp.poc.local/generate` with `x-grafana-action: 1` and
+   `accept: application/json`, answered `200 {"download_url": ".../download/<flow uuid>", "filename":
+   "bank-egress-test.yaml", "message": "Policy generated successfully…"}`. That is a Grafana **Action**
+   (`fieldConfig.overrides[Flow UUID].actions[].fetch`, Grafana ≥ 12; this stack runs 13.2.1), and the
+   dashboard's constant `hubbleobservercf2cnpurl` is what `dashboard-from-file.sh` set to the route.
+3. Click the UUID again and take *Download CiliumNetworkPolicy*: it opens `/download/<flow uuid>`,
+   `200 application/x-yaml`, `Content-Disposition: attachment; filename="bank-egress-test.yaml"` — the
+   browser saves the file.
+
+Why the order matters, from the server source: `/generate` returns YAML to anyone, but returns the JSON
+with a download URL only when the request carries `Accept: application/json` **or** `X-Grafana-Action`,
+and only then does it **cache the policy under the flow's UUID** — for 10 minutes (a cleanup runs every
+5). *Download* before *Generate*, or after 10 minutes, is `404 Download not found or expired`, which is
+what the link's own label warns about. CORS is open (`Access-Control-Allow-Origin: *`, the Grafana headers
+allow-listed), so Grafana's browser-side fetch to another hostname works without a proxy.
+
+**3. The API**, as `curl` or any pipeline would: `POST /generate` with the flow JSON → YAML; add
+`Accept: application/json` → the download-URL JSON and the cached copy; `GET /download/<uuid>`;
+`GET /health` → `OK`; and the README's easter egg, `POST /generate` with the body `yolo ns bank` → an
+allow-all-within-namespace policy (`endpointSelector: {}`, `fromEndpoints/toEndpoints: [{}]`) — for a dev
+namespace only, as it says.
+
+**Three flows, three shapes, and one warning worth more than the tool.** From the same probe:
+
+| Flow (as Hubble saw it) | Policy cf2cnp wrote |
+|---|---|
+| `egress-test` → `api.stripe.com:80`, DROPPED (FQDN, world) | egress `toFQDNs: api.stripe.com` :80 + the DNS rule |
+| `egress-test` → `reserved:kube-apiserver:6443`, POLICY_DENY | egress `toEntities: [kube-apiserver]` :6443 |
+| ingress → `api:8080` (`POST /api/pay` via the Gateway), FORWARDED | ingress `fromEntities: [ingress]` :8080 on `app: api` |
+| `egress-test` → `api.bank.svc.cluster.local:8080`, DROPPED | egress **`toFQDNs: api.bank.svc.cluster.local`** :8080 |
+
+The last row is the warning: that flow is gotcha #64 — a ClusterIP on a port that is not a Service port
+is not translated, so Hubble saw identity `world` with a DNS name, and cf2cnp faithfully wrote an FQDN
+egress rule for an in-cluster Service. It is a correct description of the flow and the wrong policy for
+the intent (the intent is `toEndpoints` the `api` pods on their real port, or simply the right port).
+A reply packet errors out on purpose (`this is a reply packet - you need to allow the original request`).
+Every generated policy is a *transcript of what happened*, to be read against demo 19's `intent.yaml`
+before it is applied; that is the tool's own caution, measured.
+
 ## Exercises
 
 See [`GUIDE.md`](GUIDE.md).

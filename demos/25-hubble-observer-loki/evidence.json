@@ -11,6 +11,12 @@
    "url": "https://cf2cnp.poc.local/",
    "wait": 6000,
    "look": "cf2cnp behind the Gateway: paste a flow, get a CiliumNetworkPolicy"
+  },
+  {
+   "name": "cf2cnp-ui-generated",
+   "url": "https://cf2cnp.poc.local/",
+   "wait": 6000,
+   "look": "the cf2cnp page after pasting a flow and clicking Generate Policy (this capture is taken by the Part 11 Playwright script, which drives the form; the runner only reloads the page)"
   }
  ]
 }

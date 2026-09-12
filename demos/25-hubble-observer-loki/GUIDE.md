@@ -46,12 +46,15 @@ On the dashboard, type `poc2` into *Source Cluster*. *Expect:* only the poc2 pro
 Destination* shows 1.1.1.1 only. Then `poc1`: the six cell-probe destinations. That is the
 `source.cluster_name` field Hubble stamps in a mesh, and the reason one observer suffices.
 
-## Exercise 5 — generate a policy from a flow (cf2cnp)
+## Exercise 5 — generate a policy from a flow (cf2cnp), three ways
 
-Open a DROPPED row's link on the dashboard (or `https://cf2cnp.poc.local`), paste one flow JSON from
-`kubectl -n hubble-observer logs deploy/hubble-observer --tail=1`, generate. *Expect:* a
-CiliumNetworkPolicy YAML that would ALLOW that flow — read it against demo 19's `intent.yaml` before
-even thinking of applying it: the cell denied that flow on purpose.
+1. `https://cf2cnp.poc.local/`: paste one line of `kubectl -n hubble-observer logs deploy/hubble-observer --tail=1`, *Generate Policy*.
+2. The dashboard: *Cilium Flows over Time* → scroll to **Flow UUID** → click a UUID → **Generate CiliumNetworkPolicy from Flow** → *Confirm* → click the UUID again → *Download CiliumNetworkPolicy*. Then try *Download* first on another row: `404 … expired` (the cache is keyed by UUID, filled by *Generate*, kept 10 minutes).
+3. `curl -X POST https://cf2cnp.poc.local/generate -H 'Content-Type: application/json' --data-binary @flow.json` — add `-H 'Accept: application/json'` and see the download URL instead of YAML.
+
+*Expect* a policy that would ALLOW the flow. Read it against demo 19's `intent.yaml` before even thinking
+of applying it: the cell denied that flow on purpose, and for a gotcha #64 flow the generator writes a
+`toFQDNs` rule for an in-cluster Service name (README Part 11).
 
 ## Exercise 6 — the chart's own policy (why it is off, and the fix)
 
