@@ -1,0 +1,29 @@
+# Demo 22 — kube-prometheus-stack on poc2: a FULL Prometheus (local retention, local queries and alerting stay
+# possible) that also remote-writes everything to the central store — the per-cluster half of the standard.
+# Every value is a deviation from the chart default, with its reason.
+# Release name `edge`, NOT `monitoring`: the operator labels the Prometheus pod with the release name, and the global
+# Service prometheus-remote-write (10-…) selects poc1's `monitoring-…`; a poc2 release of the same name would be selected
+# too and receive half the writes with its receiver off — HTTP 404, measured (gotcha #69).
+#   helm install edge prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --create-namespace \
+#     --kube-context kind-poc2 -f demos/22-multicluster-observability/values-prometheus-poc2.yaml
+prometheus:
+  prometheusSpec:
+    remoteWrite:
+      - url: http://prometheus-remote-write.monitoring.svc.cluster.local:9090/api/v1/write   # the global Service (10-…)
+        # defaults kept: queue capacity 10000, max_samples_per_send 2000 (prometheus.io/docs/practices/remote_write)
+    externalLabels: {cluster: poc2}        # stamped on every forwarded series: the label every dashboard filters on
+    retention: 6h                          # local copy for local queries; the central store keeps the history
+    serviceMonitorSelectorNilUsesHelmValues: false   # gotcha #57: Cilium's ServiceMonitors carry no release label
+    podMonitorSelectorNilUsesHelmValues: false
+    resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 768Mi}}
+    enableFeatures: [exemplar-storage]     # Hubble's httpV2 exemplars, as on poc1
+defaultRules: {create: false}              # the stack's alert rules fire per cluster; without an Alertmanager here they would
+                                           # only accumulate — alerting is done centrally in this lab (poc1)
+grafana: {enabled: false}                  # Grafana is central (poc1, demo 16); this cluster is a data source, not a UI
+alertmanager: {enabled: false}             # memory; an enterprise keeps one per cluster for local paging
+kubeStateMetrics: {enabled: true}          # poc2's workload metrics, forwarded like everything else
+nodeExporter: {enabled: true}
+kubeControllerManager: {enabled: false}    # kind binds these to 127.0.0.1 (demo 16 Section A)
+kubeScheduler: {enabled: false}
+kubeEtcd: {enabled: false}
+kubeProxy: {enabled: false}                # poc2 has no kube-proxy (demo 03)

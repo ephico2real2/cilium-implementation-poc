@@ -1763,3 +1763,18 @@ Seeing traces: Grafana → Explore → datasource *Tempo* → *Search* (service 
 (`{ resource.service.name="api-gateway" && duration > 100ms }`), or click an exemplar dot on the Hubble
 L7 dashboard (`reporter=server`). Details and working links: `demos/21-tempo/README.md` Part 4.
 
+## Step 19 — poc2 as a spoke of the observability hub (demo 22)
+
+```bash
+kubectl --context kind-poc1 -n springboot scale deploy --all --replicas=0 ; demos/20-springboot/scale.sh up      # memory
+helm install edge prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --create-namespace \
+  --kube-context kind-poc2 -f demos/22-multicluster-observability/values-prometheus-poc2.yaml --wait          # release `edge`, NOT `monitoring` (#69)
+for c in poc1 poc2; do kubectl --context kind-$c apply -f demos/22-multicluster-observability/10-remote-write-service.yaml \
+  -f demos/22-multicluster-observability/20-tempo-central-service.yaml; done                                 # the hub's role-named global Services
+kubectl --context kind-poc2 apply -f demos/22-multicluster-observability/30-otel-collector-poc2.yaml           # a collector per cluster
+demos/22-multicluster-observability/apply-poc2.sh                                                             # Cilium metrics on poc2, cluster=poc2
+demos/15-bank/exercise.sh 20 ; sleep 60                                                                       # then any dashboard with cluster=poc2
+```
+
+Proof and the standard: `demos/22-multicluster-observability/README.md`.
+

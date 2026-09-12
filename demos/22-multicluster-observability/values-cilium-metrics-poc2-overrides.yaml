@@ -1,0 +1,5 @@
+# Demo 22 — applied AFTER the poc1 metrics values (with every `replacement: poc1` rewritten to poc2 by apply-poc2.sh):
+# poc2 has no Grafana, so the dashboard ConfigMaps would land in a namespace nobody reads.
+dashboards: {enabled: false}
+operator: {dashboards: {enabled: false}}
+hubble: {metrics: {dashboards: {enabled: false}}}

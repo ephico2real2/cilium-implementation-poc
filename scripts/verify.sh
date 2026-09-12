@@ -210,6 +210,10 @@ run "kubectl --context $CTX get --raw '/api/v1/namespaces/monitoring/services/te
 echo "one Hubble exemplar trace id from the last hour, looked up in Tempo:"
 run "ID=\$(kubectl --context $CTX get --raw \"/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query_exemplars?query=hubble_http_request_duration_seconds_bucket&start=\$(( \$(date +%s) - 3600 ))&end=\$(date +%s)\" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin)[\"data\"]; print(next((e[\"labels\"][\"traceID\"] for x in d for e in x[\"exemplars\"]), \"\"))'); echo \"exemplar traceID: \${ID:-none}\"; [ -n \"\$ID\" ] && kubectl --context $CTX get --raw \"/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/traces/\$ID\" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); b=d.get(\"batches\") or []; print(\"in Tempo:\", sum(len(ss.get(\"spans\",[])) for rs in b for ss in rs.get(\"scopeSpans\",[])), \"spans\")'"
 
+hdr "19. DEMO 22 — poc2 → the hub (remote write across the mesh)"
+run "kubectl --context $CTX get --raw '/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count%20by%20(cluster)%20(up)' 2>/dev/null | python3 -c 'import json,sys; [print(\"cluster=%s up-series=%s\" % (r[\"metric\"].get(\"cluster\",\"-\"), r[\"value\"][1])) for r in json.load(sys.stdin)[\"data\"][\"result\"]]'"
+run "kubectl --context $CTX get --raw '/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=time()%20-%20max(timestamp(up%7Bcluster%3D%22poc2%22%7D))' 2>/dev/null | python3 -c 'import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print(\"newest poc2 sample: %.0f s old\" % float(r[0][\"value\"][1]) if r else \"no poc2 samples\")'"
+
 hdr "12. HOST ROUTING (macOS)"
 run "netstat -rn -f inet | grep '^172.18' || echo 'no route — see SETUP Step 3.5'"
 run "ifconfig -l | tr ' ' '\n' | grep -E '^bridge'"

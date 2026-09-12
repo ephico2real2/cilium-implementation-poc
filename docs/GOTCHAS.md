@@ -66,6 +66,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [69](#69) | A global Service for a hub service (Prometheus remote write) selected the spoke's same-named Prometheus too — 404s from the spoke itself; distinct release names per cluster, role-named central Services | ClusterMesh / monitoring |
 | [68](#68) | "connection refused" from Grafana to Tempo: the first Traces Drilldown page's two TraceQL metrics queries OOM-killed the 512Mi single binary; 1Gi, and size from the kill, not the graph | Tempo |
 | [67](#67) | The Tempo chart's port template dereferences `receivers.jaeger.protocols` unconditionally: `jaeger: null` fails the render; keep the default listeners | Tempo / helm |
 | [66](#66) | A 12-hour Hubble dashboard walk drove the VM to load 300: API servers restarted on liveness (graceful, no OOM) and the admin got transient 403s while RBAC re-synced; kernel + iowait, not a pod, had the CPU | Docker Desktop / control plane |
@@ -1703,6 +1704,27 @@ querier as separate components, not the single binary.
 
 ---
 
+## <a name="69"></a>69. A global Service for a shared hub service selected the spoke's look-alike too — remote write got 404 from the spoke's own Prometheus
+
+**Symptom.** Demo 22: poc2's Prometheus remote-writing to poc1 through a global Service; the hub
+received one minute of data, then nothing; poc2 logged `non-recoverable error … HTTP status 404 Not
+Found: remote write receiver needs to be enabled` and `samples_failed_total` reached 576,000.
+
+**Cause.** The global Service exists in both clusters with the same selector, the operator's default
+labels including `operator.prometheus.io/name: <release>-kube-prometheus-prometheus`. poc2's stack
+had the same release name, so in poc2 the Service had two backends: the hub (receiver on) and poc2's
+own Prometheus (receiver off). The client kept the connection it landed on after an agent restart.
+
+**Fix.** The spoke's stack is installed under a different release name (`edge`), so nothing in poc2
+matches the hub-named selector; the central Service is role-named (`prometheus-remote-write`) and
+keeps its hub-specific selector. `service.cilium.io/shared: "false"` does not help (it stops export,
+not local use). General rule: application HA uses global annotations on the app's own Service; a
+shared platform service gets a Service whose selector can only match the hub.
+
+→ demo 22, Parts 2b–2c
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1734,6 +1756,7 @@ Most of these share a shape: **something reported success while not working.**
 - every petclinic pod was Ready while the gateway kept calling a pod that no longer existed (#65)
 - `kubectl` told the cluster admin "Forbidden" — the API server was restarting, RBAC was fine (#66)
 - Grafana said Tempo refused the connection — Tempo had just been OOM-killed by the page asking (#68)
+- the hub's remote-write Service answered 404 — half the time it was the spoke talking to itself (#69)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

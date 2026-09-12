@@ -1,0 +1,353 @@
+### 2026-09-12T12:32:06Z
+$ [PART 0 — memory: petclinic (6 JVMs) down, the bank up in both clusters; the poc2 baseline]
+
+### 2026-09-12T12:32:06Z
+$ sh -c kubectl --context kind-poc1 -n springboot scale deploy --all --replicas=0 | wc -l | sed "s/^/  springboot deployments scaled to 0: /"; demos/20-springboot/scale.sh up 2>&1 | tail -4
+  springboot deployments scaled to 0:        6
+  accounts   2     2
+  payments   1     1
+VM available: 2530 MB
+106.75 103.44 55.97
+
+### 2026-09-12T12:32:17Z
+$ sh -c echo "poc2 before:"; kubectl --context kind-poc2 get crd servicemonitors.monitoring.coreos.com 2>&1 | tail -1 | sed "s/^/  /"; kubectl --context kind-poc2 -n kube-system get cm cilium-config -o jsonpath="  cilium: prometheus-serve-addr=[{.data.prometheus-serve-addr}] hubble-metrics-server=[{.data.hubble-metrics-server}]{\"\n\"}"; echo "poc1 Prometheus: series with cluster=poc2 today:"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count(%7Bcluster%3D%22poc2%22%7D)" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print(\"  \", r[0][\"value\"][1] if r else 0)"; echo "Tempo: traces with k8s.cluster.name=poc2 today: $(kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/search?q=%7B%20resource.k8s.cluster.name%3D%22poc2%22%20%7D&limit=1&start=$(( $(date +%s) - 86400 ))&end=$(date +%s)" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get(\"traces\",[])))")"
+poc2 before:
+  Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "servicemonitors.monitoring.coreos.com" not found
+  cilium: prometheus-serve-addr=[] hubble-metrics-server=[]
+poc1 Prometheus: series with cluster=poc2 today:
+   0
+Tempo: traces with k8s.cluster.name=poc2 today: 0
+
+
+### 2026-09-12T12:32:18Z
+$ [PART 1 — a full Prometheus on poc2 (kube-prometheus-stack, no Grafana/Alertmanager) remote-writing to poc1 through a global Service]
+
+### 2026-09-12T12:32:18Z
+$ sh -c helm install monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --create-namespace --kube-context kind-poc2 -f demos/22-multicluster-observability/values-prometheus-poc2.yaml --wait --timeout 10m 2>&1 | grep -E "^NAME|^STATUS|Error"; kubectl --context kind-poc2 -n monitoring get pods -o custom-columns="POD:.metadata.name,READY:.status.containerStatuses[*].ready,NODE:.spec.nodeName"; kubectl --context kind-poc2 -n monitoring get prometheus -o custom-columns="PROMETHEUS:.metadata.name,REMOTEWRITE:.spec.remoteWrite[0].url,EXTERNAL:.spec.externalLabels,RETENTION:.spec.retention"
+NAME: monitoring
+NAMESPACE: monitoring
+STATUS: deployed
+POD                                                    READY         NODE
+monitoring-kube-prometheus-operator-57b74d8f5b-wdvhf   true          poc2-worker
+monitoring-kube-state-metrics-7f584dc46d-v9lrt         true          poc2-worker
+monitoring-prometheus-node-exporter-rf4vz              true          poc2-control-plane
+monitoring-prometheus-node-exporter-wjzcg              true          poc2-worker
+prometheus-monitoring-kube-prometheus-prometheus-0     false,false   poc2-worker
+PROMETHEUS                              REMOTEWRITE                                                                     EXTERNAL            RETENTION
+monitoring-kube-prometheus-prometheus   http://prometheus-remote-write.monitoring.svc.cluster.local:9090/api/v1/write   map[cluster:poc2]   6h
+
+### 2026-09-12T12:33:11Z
+$ sh -c for c in poc1 poc2; do kubectl --context kind-$c apply -f demos/22-multicluster-observability/10-remote-write-service.yaml -f demos/22-multicluster-observability/20-tempo-central-service.yaml | grep -v unchanged | sed "s/^/  $c: /"; done; sleep 6; echo "  the two global Services as poc2 sees them (backends are poc1 pod IPs, 10.10.x):"; kubectl --context kind-poc2 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | grep -E ":9090/TCP|:4317/TCP" -A1 | grep -E "ClusterIP|=>" | grep -B1 "=> 10.10" | sed "s/^/    /" | head -6
+Warning: resource namespaces/monitoring is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
+  poc1: namespace/monitoring configured
+  poc1: service/prometheus-remote-write created
+  poc1: service/tempo-central created
+Warning: resource namespaces/monitoring is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
+  poc2: namespace/monitoring configured
+  poc2: service/prometheus-remote-write created
+  poc2: service/tempo-central created
+  the two global Services as poc2 sees them (backends are poc1 pod IPs, 10.10.x):
+    24   10.21.35.73:4317/TCP     ClusterIP      1 => 10.10.0.54:4317/TCP (active)         
+                                                 2 => 10.10.1.52:4317/TCP (active)         
+                                                 3 => 10.10.2.70:4317/TCP (active)         
+                                                 4 => 10.10.3.175:4317/TCP (active)        
+                                                 5 => 10.10.4.245:4317/TCP (active)        
+    25   10.21.35.73:4318/TCP     ClusterIP      1 => 10.10.0.54:4318/TCP (active)         
+
+### 2026-09-12T12:33:20Z
+$ sh -c kubectl --context kind-poc2 apply -f demos/22-multicluster-observability/30-otel-collector-poc2.yaml | sed "s/^/  /"; kubectl --context kind-poc2 -n otel rollout status deploy/otel-collector --timeout=3m | tail -1; kubectl --context kind-poc2 -n otel get svc otel-collector -o jsonpath="  otel-collector in poc2: global={.metadata.annotations.service\.cilium\.io/global} affinity={.metadata.annotations.service\.cilium\.io/affinity}{\"\n\"}"
+  namespace/otel unchanged
+  configmap/otel-collector created
+  deployment.apps/otel-collector created
+  service/otel-collector configured
+deployment "otel-collector" successfully rolled out
+  otel-collector in poc2: global=true affinity=local
+
+### 2026-09-12T12:34:35Z
+$ sh -c echo "poc1 Prometheus: what arrives with cluster=poc2 (by job)"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count%20by%20(job)%20(up%7Bcluster%3D%22poc2%22%7D)" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; [print(\"  %-48s %s targets\" % (x[\"metric\"].get(\"job\"), x[\"value\"][1])) for x in sorted(r, key=lambda x:x[\"metric\"].get(\"job\",\"\"))] or print(\"  nothing yet\")"; echo "poc2 Prometheus, locally (its own API through poc2's API server): the same targets"; kubectl --context kind-poc2 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count(up)" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print(\"  up series locally:\", r[0][\"value\"][1] if r else 0)"; kubectl --context kind-poc2 -n monitoring logs sts/prometheus-monitoring-kube-prometheus-prometheus -c prometheus --since=5m 2>/dev/null | grep -iE "remote_write|remote write|err|404|401" | tail -3 | cut -c1-200 | sed "s/^/  poc2 prometheus log: /"; echo "  prometheus_remote_storage_samples_total on poc2 (samples sent):"; kubectl --context kind-poc2 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=prometheus_remote_storage_samples_total" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; [print(\"   \", x[\"metric\"].get(\"url\"), x[\"value\"][1]) for x in r]"
+poc1 Prometheus: what arrives with cluster=poc2 (by job)
+  apiserver                                        1 targets
+  coredns                                          2 targets
+  kube-state-metrics                               1 targets
+  kubelet                                          6 targets
+  monitoring-kube-prometheus-operator              1 targets
+  monitoring-kube-prometheus-prometheus            2 targets
+  node-exporter                                    2 targets
+poc2 Prometheus, locally (its own API through poc2's API server): the same targets
+  up series locally: 15
+  prometheus_remote_storage_samples_total on poc2 (samples sent):
+    http://prometheus-remote-write.monitoring.svc.cluster.local:9090/api/v1/write 97792
+
+
+### 2026-09-12T12:35:23Z
+$ [PART 2 — Cilium metrics on poc2: the demo 16 values with cluster=poc2, no dashboards; one agent rollout on poc2]
+
+### 2026-09-12T12:35:23Z
+$ demos/22-multicluster-observability/apply-poc2.sh
+  cluster=poc2 relabelings: 7
+Release "cilium" has been upgraded. Happy Helming!
+daemon set "cilium" successfully rolled out
+SERVICEMONITOR          PORT
+cilium-agent            metrics
+cilium-envoy            envoy-metrics
+cilium-operator         metrics
+clustermesh-apiserver   apiserv-metrics
+hubble                  hubble-metrics
+hubble-relay            metrics
+
+
+### 2026-09-12T12:37:24Z
+$ [PART 3 — the proof, central side (poc1): Hubble metrics, targets, traces from poc2]
+
+### 2026-09-12T12:37:24Z
+$ sh -c echo "poc1 Prometheus: poc2 scrape pools now (Cilium included):"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count%20by%20(job)%20(up%7Bcluster%3D%22poc2%22%7D)" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; [print(\"  %-48s %s\" % (x[\"metric\"].get(\"job\"), x[\"value\"][1])) for x in sorted(r, key=lambda x:x[\"metric\"].get(\"job\",\"\"))]"; echo "Hubble flows by cluster and namespace, last 5 min:"; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (cluster, source_namespace) (rate(hubble_flows_processed_total{source_namespace=\"bank\"}[5m]))" cluster,source_namespace; echo "the bank's HTTP per cluster, last 5 min (the cell's L7 rules apply in both):"; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (cluster, destination_workload, reporter) (rate(hubble_http_requests_total{destination_namespace=\"bank\", reporter=\"server\"}[5m]) > 0)" cluster,destination_workload,reporter; echo "one query, both clusters — the cross-mesh edge from each side:"; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (cluster, source, destination) (rate(hubble_flows_processed_total{source_namespace=\"bank\", destination=\"accounts\"}[5m]) > 0)" cluster,source,destination
+poc1 Prometheus: poc2 scrape pools now (Cilium included):
+  apiserver                                        1
+  coredns                                          2
+  kube-state-metrics                               1
+  kubelet                                          6
+  monitoring-kube-prometheus-operator              1
+  monitoring-kube-prometheus-prometheus            2
+  node-exporter                                    2
+Hubble flows by cluster and namespace, last 5 min:
+  sum by (cluster, source_namespace) (rate(hubble_flows_processed_total{source_namespace="bank"}[5m]))
+         16.13  cluster=poc1 source_namespace=bank
+the bank's HTTP per cluster, last 5 min (the cell's L7 rules apply in both):
+  sum by (cluster, destination_workload, reporter) (rate(hubble_http_requests_total{destination_namespace="bank", reporter="server"}[5m]) > 0)
+       0.06269  cluster=poc1 destination_workload=api reporter=server
+       0.01138  cluster=poc1 destination_workload=payments reporter=server
+one query, both clusters — the cross-mesh edge from each side:
+  sum by (cluster, source, destination) (rate(hubble_flows_processed_total{source_namespace="bank", destination="accounts"}[5m]) > 0)
+       0.06419  cluster=poc1 source=api destination=accounts
+       0.06103  cluster=poc1 source=payments destination=accounts
+
+### 2026-09-12T12:37:26Z
+$ sh -c echo "poc2 collector: spans received from poc2's OBI (debug log, last 5 min):"; kubectl --context kind-poc2 -n otel logs deploy/otel-collector --since=5m 2>/dev/null | grep "k8s.cluster.name\|service.name:" | sort | uniq -c | sort -rn | head -6 | sed "s/^/  /"; echo "central Tempo: traces with k8s.cluster.name=poc2, last 15 min:"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/search?q=%7B%20resource.k8s.cluster.name%3D%22poc2%22%20%7D&limit=5&start=$(( $(date +%s) - 900 ))&end=$(date +%s)" | python3 -c "import json,sys; d=json.load(sys.stdin); ts=d.get(\"traces\",[]); print(\"  poc2 traces:\", len(ts)); [print(\"   \", t[\"traceID\"], t.get(\"rootServiceName\"), t.get(\"rootTraceName\"), str(t.get(\"durationMs\"))+\"ms\") for t in ts[:4]]"; echo "one trace that crosses the mesh, both clusters in Tempo (a payment: api poc1 -> payments poc2 -> accounts poc2):"; ID=$(kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/search?q=%7B%20resource.service.name%3D%22api%22%20%26%26%20name%3D%22POST%20/api/pay%22%20%7D&limit=1&start=$(( $(date +%s) - 900 ))&end=$(date +%s)" | python3 -c "import json,sys; ts=json.load(sys.stdin).get(\"traces\",[]); print(ts[0][\"traceID\"] if ts else \"\")"); [ -n "$ID" ] && kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/traces/$ID" | python3 -c "
+import json,sys,collections; d=json.load(sys.stdin); c=collections.Counter()
+for rs in d.get(\"batches\",[]):
+    a={x[\"key\"]:x[\"value\"].get(\"stringValue\") for x in rs.get(\"resource\",{}).get(\"attributes\",[])}; n=sum(len(ss.get(\"spans\",[])) for ss in rs.get(\"scopeSpans\",[])); c[(a.get(\"k8s.cluster.name\"), a.get(\"service.name\"))]+=n
+print(\"  trace $ID\"); [print(\"    cluster=%-5s service=%-10s %d spans\" % (k[0],k[1],v)) for k,v in sorted(c.items())]" || echo "  (no /api/pay trace in the window)"
+poc2 collector: spans received from poc2's OBI (debug log, last 5 min):
+    20      -> k8s.cluster.name: Str(poc2)
+    13      -> service.name: Str(accounts)
+     7      -> service.name: Str(payments)
+central Tempo: traces with k8s.cluster.name=poc2, last 15 min:
+  poc2 traces: 5
+    32f138979ef93401bb77e63475d7aa78 api POST /api/pay 81ms
+    123895c493f1506372df41e10519c92d api POST /api/pay 112ms
+    3bd4931964f07c296556efd4d2ff9566 api POST /api/pay 122ms
+    1699b0d91300a8889a38fec6c955e6c1 api POST /api/pay 336ms
+one trace that crosses the mesh, both clusters in Tempo (a payment: api poc1 -> payments poc2 -> accounts poc2):
+  trace 123895c493f1506372df41e10519c92d
+    cluster=poc1  service=api        4 spans
+    cluster=poc1  service=payments   8 spans
+    cluster=poc2  service=accounts   4 spans
+
+net-poc2-bank: [Data Source=default | Data Source | default | cluster=poc2 | cluster | poc2 | Source Namespace=bank | Source Namespace] noData=6
+l7-poc2-accounts: [Prometheus=Prometheus | Prometheus | Prometheus | Cluster=poc2 | Cluster | poc2 | Destination Namespace=bank | Destination Namespace] noData=7
+cilium-poc2: [Prometheus=Prometheus | Prometheus | Prometheus | pod=All | pod | All] noData=0
+cluster dropdown options: All, poc1
+
+### 2026-09-12T12:41:05Z
+$ [PART 2b — remote write failing: 404 "receiver needs to be enabled" — from poc2's OWN Prometheus, because the global Service's selector matches it too (gotcha #69)]
+
+### 2026-09-12T12:41:05Z
+$ sh -c kubectl --context kind-poc2 -n monitoring logs sts/prometheus-monitoring-kube-prometheus-prometheus -c prometheus --since=15m 2>/dev/null | grep "non-recoverable" | tail -1 | sed "s/.*err=/  poc2 sender: err=/" | cut -c1-200; echo "  the global Service prometheus-remote-write as poc2 sees it — ALL backends:"; kubectl --context kind-poc2 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | grep -A3 "$(kubectl --context kind-poc2 -n monitoring get svc prometheus-remote-write -o jsonpath="{.spec.clusterIP}"):9090" | sed "s/^/    /"; echo "  poc2 Prometheus pod: $(kubectl --context kind-poc2 -n monitoring get pod prometheus-monitoring-kube-prometheus-prometheus-0 -o jsonpath="{.status.podIP}") (receiver OFF)   poc1 Prometheus pod: $(kubectl --context kind-poc1 -n monitoring get pod prometheus-monitoring-kube-prometheus-prometheus-0 -o jsonpath="{.status.podIP}") (receiver ON)"; echo "  → both match the selector {app.kubernetes.io/name: prometheus, operator.prometheus.io/name: monitoring-kube-prometheus-prometheus}: same release name in both clusters"
+  poc2 sender: err="server returned HTTP status 404 Not Found: remote write receiver needs to be enabled with --web.enable-remote-write-receiver\n"
+  the global Service prometheus-remote-write as poc2 sees it — ALL backends:
+    32   10.21.38.20:9090/TCP     ClusterIP      1 => 10.10.4.97:9090/TCP (active)    
+                                                 2 => 10.20.1.232:9090/TCP (active)   
+    33   10.21.178.167:4317/TCP   ClusterIP      1 => 10.10.4.84:4317/TCP (active)    
+  poc2 Prometheus pod: 10.20.1.232 (receiver OFF)   poc1 Prometheus pod: 10.10.4.97 (receiver ON)
+  → both match the selector {app.kubernetes.io/name: prometheus, operator.prometheus.io/name: monitoring-kube-prometheus-prometheus}: same release name in both clusters
+
+### 2026-09-12T12:41:07Z
+$ sh -c helm upgrade monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml 2>&1 | grep -E "^REVISION|Error"; kubectl --context kind-poc1 -n monitoring rollout status sts/prometheus-monitoring-kube-prometheus-prometheus --timeout=4m 2>&1 | tail -1; kubectl --context kind-poc1 -n monitoring get pod prometheus-monitoring-kube-prometheus-prometheus-0 -o jsonpath="  poc1 Prometheus pod labels: observability-role={.metadata.labels.observability-role}{\"\n\"}"; for c in poc1 poc2; do kubectl --context kind-$c apply -f demos/22-multicluster-observability/10-remote-write-service.yaml | grep service | sed "s/^/  $c: /"; done; sleep 8; echo "  backends now, from poc2:"; kubectl --context kind-poc2 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | grep -A3 "$(kubectl --context kind-poc2 -n monitoring get svc prometheus-remote-write -o jsonpath="{.spec.clusterIP}"):9090" | grep "=>" | sed "s/^/    /"
+
+### 2026-09-12T12:42:42Z
+$ [PART 2c — per the global-services docs: EndpointSlice synchronization on, both clusters; the central Services opt in]
+
+### 2026-09-12T12:42:42Z
+$ sh -c for c in poc1 poc2; do echo "-- $c --"; helm upgrade cilium cilium/cilium --version 1.20.1 --namespace kube-system --kube-context kind-$c --reuse-values --set clustermesh.enableEndpointSliceSynchronization=true 2>&1 | grep -E "Release|Error"; kubectl --context kind-$c -n kube-system rollout restart deployment/cilium-operator; kubectl --context kind-$c -n kube-system rollout status deployment/cilium-operator --timeout=3m 2>&1 | tail -1; kubectl --context kind-$c -n kube-system get cm cilium-config -o jsonpath="  clustermesh-enable-endpoint-sync={.data.clustermesh-enable-endpoint-sync}{\"\n\"}"; done
+-- poc1 --
+Release "cilium" has been upgraded. Happy Helming!
+deployment.apps/cilium-operator restarted
+deployment "cilium-operator" successfully rolled out
+  clustermesh-enable-endpoint-sync=true
+-- poc2 --
+Release "cilium" has been upgraded. Happy Helming!
+deployment.apps/cilium-operator restarted
+deployment "cilium-operator" successfully rolled out
+  clustermesh-enable-endpoint-sync=true
+
+### 2026-09-12T12:43:37Z
+$ sh -c kubectl --context kind-poc1 -n monitoring rollout status sts/prometheus-monitoring-kube-prometheus-prometheus --timeout=4m 2>&1 | tail -1; kubectl --context kind-poc1 -n monitoring get pod prometheus-monitoring-kube-prometheus-prometheus-0 -o jsonpath="  poc1 Prometheus pod: observability-role={.metadata.labels.observability-role}{\"\n\"}"; for c in poc1 poc2; do kubectl --context kind-$c apply -f demos/22-multicluster-observability/10-remote-write-service.yaml -f demos/22-multicluster-observability/20-tempo-central-service.yaml | grep service | sed "s/^/  $c: /"; done; sleep 15; echo "  synchronized EndpointSlices in poc2 (remote backends, written by the operator):"; kubectl --context kind-poc2 -n monitoring get endpointslices -l endpointslice.kubernetes.io/managed-by=endpointslicemesh.cilium.io -o custom-columns="ENDPOINTSLICE:.metadata.name,SERVICE:.metadata.labels.kubernetes\.io/service-name,CLUSTER:.metadata.labels.mesh\.cilium\.io/source-cluster,ENDPOINTS:.endpoints[*].addresses[0]" 2>&1 | head -6; echo "  datapath backends of prometheus-remote-write in poc2 now:"; kubectl --context kind-poc2 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | grep -A3 "$(kubectl --context kind-poc2 -n monitoring get svc prometheus-remote-write -o jsonpath="{.spec.clusterIP}"):9090" | grep "=>" | sed "s/^/    /"
+statefulset rolling update complete 1 pods at revision prometheus-monitoring-kube-prometheus-prometheus-8cc5897c...
+  poc1 Prometheus pod: observability-role=
+  poc1: service/prometheus-remote-write configured
+  poc1: service/tempo-central configured
+  poc2: service/prometheus-remote-write configured
+  poc2: service/tempo-central configured
+  synchronized EndpointSlices in poc2 (remote backends, written by the operator):
+ENDPOINTSLICE   SERVICE   CLUSTER   ENDPOINTS
+  datapath backends of prometheus-remote-write in poc2 now:
+    33   10.21.178.167:4317/TCP   ClusterIP      1 => 10.10.4.84:4317/TCP (active)    
+
+
+### 2026-09-12T12:45:34Z
+$ [PART 2c — the fix: poc2 reinstalled as release `edge` (the operator labels the Prometheus pod with the release name; the central Service selects poc1's `monitoring`)]
+
+### 2026-09-12T12:45:35Z
+$ sh -c helm upgrade monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml 2>&1 | grep -E "^REVISION|Error"; echo "  (poc1: the interim pod-label workaround removed from the values; Prometheus rolls once)"; helm uninstall monitoring -n monitoring --kube-context kind-poc2 2>&1 | tail -1; helm install edge prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --create-namespace --kube-context kind-poc2 -f demos/22-multicluster-observability/values-prometheus-poc2.yaml --wait --timeout 10m 2>&1 | grep -E "^NAME|^STATUS|Error"; kubectl --context kind-poc2 -n monitoring get pods -o custom-columns="POD:.metadata.name,READY:.status.containerStatuses[*].ready"; kubectl --context kind-poc2 -n monitoring get pod -l app.kubernetes.io/name=prometheus -o jsonpath="  poc2 Prometheus pod labels: operator.prometheus.io/name={.items[0].metadata.labels.operator\.prometheus\.io/name}{\"\n\"}"
+Error: UPGRADE FAILED: another operation (install/upgrade/rollback) is in progress
+  (poc1: the interim pod-label workaround removed from the values; Prometheus rolls once)
+release "monitoring" uninstalled
+NAME: edge
+NAMESPACE: monitoring
+STATUS: deployed
+POD                                                    READY
+edge-kube-prometheus-stack-operator-8578f59fbd-mpc69   true
+edge-kube-state-metrics-5886d7cc86-n4pzc               true
+edge-prometheus-node-exporter-fjfvm                    true
+edge-prometheus-node-exporter-jxv9n                    true
+prometheus-edge-kube-prometheus-stack-prometheus-0     true,true
+prometheus-monitoring-kube-prometheus-prometheus-0     true,false
+  poc2 Prometheus pod labels: operator.prometheus.io/name=edge-kube-prometheus-stack-prometheus
+
+### 2026-09-12T12:46:17Z
+$ sh -c for c in poc1 poc2; do kubectl --context kind-$c apply -f demos/22-multicluster-observability/10-remote-write-service.yaml | grep service | sed "s/^/  $c: /"; done; kubectl --context kind-poc1 -n monitoring rollout status sts/prometheus-monitoring-kube-prometheus-prometheus --timeout=4m 2>&1 | tail -1; sleep 10; echo "  backends of prometheus-remote-write as poc2 sees them (must be poc1's pod only, 10.10.x):"; kubectl --context kind-poc2 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | grep -A3 "$(kubectl --context kind-poc2 -n monitoring get svc prometheus-remote-write -o jsonpath="{.spec.clusterIP}"):9090" | grep "=>" | sed "s/^/    /"
+  poc1: service/prometheus-remote-write configured
+  poc2: service/prometheus-remote-write configured
+statefulset rolling update complete 1 pods at revision prometheus-monitoring-kube-prometheus-prometheus-8cc5897c...
+  backends of prometheus-remote-write as poc2 sees them (must be poc1's pod only, 10.10.x):
+    32   10.21.38.20:9090/TCP     ClusterIP      1 => 10.10.4.97:9090/TCP (active)                     
+                                                 2 => 10.20.1.232:9090/TCP (terminating-not-serving)   
+    33   10.21.178.167:4317/TCP   ClusterIP      1 => 10.10.4.84:4317/TCP (active)                     
+    34   10.21.163.234:8080/TCP   ClusterIP      1 => 10.20.1.152:8080/TCP (active)                    
+
+### 2026-09-12T12:48:11Z
+$ sh -c echo "poc2 sender (release edge):"; P2=$(kubectl --context kind-poc2 -n monitoring get pod -l app.kubernetes.io/name=prometheus -o jsonpath="{.items[0].metadata.name}"); kubectl --context kind-poc2 -n monitoring logs $P2 -c prometheus --since=3m 2>/dev/null | grep -c "non-recoverable" | sed "s/^/  non-recoverable errors in the last 3 min: /"; kubectl --context kind-poc2 get --raw "/api/v1/namespaces/monitoring/services/edge-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=prometheus_remote_storage_samples_failed_total" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print(\"  samples_failed_total:\", r[0][\"value\"][1] if r else 0)"; kubectl --context kind-poc2 get --raw "/api/v1/namespaces/monitoring/services/edge-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=rate(prometheus_remote_storage_samples_total%5B1m%5D)" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print(\"  samples sent/s (1m): %.0f\" % float(r[0][\"value\"][1]) if r else \"  none\")"; echo "poc1 receiver: poc2 jobs (Cilium included) and the newest sample age:"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count%20by%20(job)%20(up%7Bcluster%3D%22poc2%22%7D)" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; [print(\"  %-40s %s\" % (x[\"metric\"].get(\"job\"), x[\"value\"][1])) for x in sorted(r, key=lambda x:x[\"metric\"].get(\"job\",\"\"))]"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=time()%20-%20max(timestamp(up%7Bcluster%3D%22poc2%22%7D))" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print(\"  newest up{cluster=poc2} sample: %.0f s old\" % float(r[0][\"value\"][1]))"
+poc2 sender (release edge):
+  non-recoverable errors in the last 3 min: 0
+Error from server (NotFound): services "edge-kube-prometheus-prometheus" not found
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json,sys; r=json.load(sys.stdin)["data"]["result"]; print("  samples_failed_total:", r[0]["value"][1] if r else 0)
+                       ~~~~~~~~~^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Error from server (NotFound): services "edge-kube-prometheus-prometheus" not found
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json,sys; r=json.load(sys.stdin)["data"]["result"]; print("  samples sent/s (1m): %.0f" % float(r[0]["value"][1]) if r else "  none")
+                       ~~~~~~~~~^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+poc1 receiver: poc2 jobs (Cilium included) and the newest sample age:
+  apiserver                                1
+  cilium-agent                             2
+  cilium-envoy                             2
+  cilium-operator                          1
+  clustermesh-apiserver-metrics            3
+  coredns                                  2
+  edge-kube-prometheus-stack-operator      1
+  edge-kube-prometheus-stack-prometheus    2
+  hubble-metrics                           2
+  hubble-relay-metrics                     1
+  kube-state-metrics                       1
+  kubelet                                  12
+  node-exporter                            2
+  newest up{cluster=poc2} sample: 1 s old
+
+
+### 2026-09-12T12:50:29Z
+$ [PART 3 — the proof: poc2 locally, poc1 centrally, Tempo, Grafana]
+
+### 2026-09-12T12:50:29Z
+$ sh -c echo "1. poc2, LOCALLY (its own Prometheus, release edge, via poc2's API server): the bank in poc2 by Hubble"; kubectl --context kind-poc2 get --raw "/api/v1/namespaces/monitoring/services/edge-kube-prometheus-stack-prometheus:9090/proxy/api/v1/query?query=sum%20by%20(source,%20destination)%20(rate(hubble_flows_processed_total%7Bsource_namespace%3D%22bank%22%7D%5B5m%5D)%20%3E%200)" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; [print(\"   %8.3f  %s -> %s\" % (float(x[\"value\"][1]), x[\"metric\"].get(\"source\"), x[\"metric\"].get(\"destination\"))) for x in sorted(r, key=lambda x:-float(x[\"value\"][1]))[:6]]"; echo "   (no cluster label locally: external labels are added on the way out)"; echo; echo "2. poc1, CENTRALLY: the same query with cluster=poc2 — identical numbers, plus the label"; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (cluster, source, destination) (rate(hubble_flows_processed_total{cluster=\"poc2\", source_namespace=\"bank\"}[5m]) > 0)" cluster,source,destination; echo "3. one query across BOTH clusters: the bank's HTTP by cluster and workload (reporter=server; the cell's L7 rules run in both)"; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (cluster, destination_workload) (rate(hubble_http_requests_total{destination_namespace=\"bank\", reporter=\"server\"}[5m]) > 0)" cluster,destination_workload; echo "4. Cilium itself, per cluster: agents up, endpoints ready, ClusterMesh peers"; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "count by (cluster) (up{job=\"cilium-agent\"} == 1)" cluster; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (cluster) (cilium_endpoint_state{endpoint_state=\"ready\"})" cluster; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (cluster, target_cluster) (cilium_clustermesh_remote_cluster_readiness_status)" cluster,target_cluster
+1. poc2, LOCALLY (its own Prometheus, release edge, via poc2's API server): the bank in poc2 by Hubble
+      3.504  accounts -> reserved:host
+      1.706  payments -> reserved:host
+      0.897  payments -> kube-dns
+      0.364  payments -> accounts
+      0.298  accounts -> payments
+      0.168  api -> payments
+   (no cluster label locally: external labels are added on the way out)
+
+2. poc1, CENTRALLY: the same query with cluster=poc2 — identical numbers, plus the label
+  sum by (cluster, source, destination) (rate(hubble_flows_processed_total{cluster="poc2", source_namespace="bank"}[5m]) > 0)
+         3.514  cluster=poc2 source=accounts destination=reserved:host
+         1.711  cluster=poc2 source=payments destination=reserved:host
+        0.8996  cluster=poc2 source=payments destination=kube-dns
+        0.3655  cluster=poc2 source=payments destination=accounts
+        0.2987  cluster=poc2 source=accounts destination=payments
+        0.1687  cluster=poc2 source=api destination=payments
+        0.1652  cluster=poc2 source=payments destination=api
+        0.1265  cluster=poc2 source=api destination=accounts
+         0.123  cluster=poc2 source=accounts destination=api
+         0.123  cluster=poc2 source=postgres destination=accounts
+         0.123  cluster=poc2 source=accounts destination=postgres
+       0.09488  cluster=poc2 source=postgres-standby destination=postgres
+       0.09488  cluster=poc2 source=postgres destination=postgres-standby
+       0.03514  cluster=poc2 source=redis destination=payments
+3. one query across BOTH clusters: the bank's HTTP by cluster and workload (reporter=server; the cell's L7 rules run in both)
+  sum by (cluster, destination_workload) (rate(hubble_http_requests_total{destination_namespace="bank", reporter="server"}[5m]) > 0)
+       0.07931  cluster=poc1 destination_workload=api
+       0.07139  cluster=poc2 destination_workload=accounts
+       0.03103  cluster=poc1 destination_workload=payments
+       0.02816  cluster=poc2 destination_workload=payments
+4. Cilium itself, per cluster: agents up, endpoints ready, ClusterMesh peers
+  count by (cluster) (up{job="cilium-agent"} == 1)
+             5  cluster=poc1
+             2  cluster=poc2
+  sum by (cluster) (cilium_endpoint_state{endpoint_state="ready"})
+            63  cluster=poc1
+            25  cluster=poc2
+  sum by (cluster, target_cluster) (cilium_clustermesh_remote_cluster_readiness_status)
+             5  cluster=poc1 target_cluster=poc2
+             2  cluster=poc2 target_cluster=poc1
+
+### 2026-09-12T12:50:33Z
+$ sh -c echo "5. Tempo, centrally: traces per originating cluster (last 15 min), and one payment that crosses the mesh"; for c in poc1 poc2; do n=$(kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/search?q=%7B%20resource.k8s.cluster.name%3D%22$c%22%20%7D&limit=200&start=$(( $(date +%s) - 900 ))&end=$(date +%s)" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get(\"traces\",[])))"); echo "   k8s.cluster.name=$c: $n traces (limit 200)"; done; ID=$(kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/search?q=%7B%20resource.service.name%3D%22api%22%20%26%26%20name%3D%22POST%20/api/pay%22%20%7D&limit=1&start=$(( $(date +%s) - 900 ))&end=$(date +%s)" | python3 -c "import json,sys; ts=json.load(sys.stdin).get(\"traces\",[]); print(ts[0][\"traceID\"] if ts else \"\")"); kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/traces/$ID" | python3 -c "
+import json,sys,collections; d=json.load(sys.stdin); c=collections.Counter()
+for rs in d.get(\"batches\",[]):
+    a={x[\"key\"]:x[\"value\"].get(\"stringValue\") for x in rs.get(\"resource\",{}).get(\"attributes\",[])}; c[(a.get(\"k8s.cluster.name\"), a.get(\"service.name\"))]+=sum(len(ss.get(\"spans\",[])) for ss in rs.get(\"scopeSpans\",[]))
+print(\"   trace $ID\"); [print(\"     cluster=%-5s service=%-10s %d spans\" % (k[0],k[1],v)) for k,v in sorted(c.items())]"; echo "   poc2's collector forwarded them (its debug log, last 5 min, by cluster attribute):"; kubectl --context kind-poc2 -n otel logs deploy/otel-collector --since=5m 2>/dev/null | grep -c "k8s.cluster.name: Str(poc2)" | sed "s/^/     poc2-tagged ResourceSpans: /"
+5. Tempo, centrally: traces per originating cluster (last 15 min), and one payment that crosses the mesh
+   k8s.cluster.name=poc1: 51 traces (limit 200)
+   k8s.cluster.name=poc2: 49 traces (limit 200)
+   trace 1081533b5c37893633767d1166ab1344
+     cluster=poc1  service=api        4 spans
+     cluster=poc1  service=payments   8 spans
+     cluster=poc2  service=accounts   4 spans
+   poc2's collector forwarded them (its debug log, last 5 min, by cluster attribute):
+     poc2-tagged ResourceSpans: 20
+
+net-poc2-bank: [Data Source=default | Data Source | default | cluster=poc2 | cluster | poc2 | Source Namespace=bank | Source Namespace] noData=1
+l7-poc2-accounts: [Prometheus=Prometheus | Prometheus | Prometheus | Cluster=poc2 | Cluster | poc2 | Destination Namespace=bank | Destination Namespace] noData=0
+cilium-poc2: [Prometheus=Prometheus | Prometheus | Prometheus | pod=All | pod | All] noData=0
+cluster dropdown options: All, poc1, poc2

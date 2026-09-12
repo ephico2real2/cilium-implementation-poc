@@ -1,0 +1,67 @@
+# Demo 22 — a collector IN poc2 (the per-cluster gateway of the standard): receives OTLP from poc2's OBI (demo 18)
+# and any app there, keeps the debug log for tracetree.py, and forwards every span to the central Tempo through the
+# global Service tempo-central. A Deployment, not the demo 10 DaemonSet: poc2 has no Hubble flow export to tail.
+#   kubectl --context kind-poc2 apply -f demos/22-multicluster-observability/30-otel-collector-poc2.yaml
+apiVersion: v1
+kind: Namespace
+metadata: {name: otel}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: otel-collector, namespace: otel}
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc: {endpoint: 0.0.0.0:4317}
+          http: {endpoint: 0.0.0.0:4318}
+    processors:
+      batch: {}
+      resource:                                   # stamp the cluster on anything that arrives without it
+        attributes: [{key: k8s.cluster.name, value: poc2, action: insert}]
+    exporters:
+      debug: {verbosity: detailed}
+      otlp/tempo-central:
+        endpoint: tempo-central.monitoring.svc.cluster.local:4317   # the global Service → poc1's Tempo, across the mesh
+        tls: {insecure: true}
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [resource, batch]
+          exporters: [debug, otlp/tempo-central]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: otel-collector, namespace: otel, labels: {app: otel-collector}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: otel-collector}}
+  template:
+    metadata: {labels: {app: otel-collector}}
+    spec:
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.160.0     # the demo 10 image and version
+          args: ["--config=/etc/otelcol/config.yaml"]
+          ports: [{containerPort: 4317, name: otlp-grpc}, {containerPort: 4318, name: otlp-http}]
+          resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 256Mi}}
+          volumeMounts: [{name: config, mountPath: /etc/otelcol}]
+      volumes: [{name: config, configMap: {name: otel-collector}}]
+---
+# The demo 18 global Service, re-declared for poc2 with LOCAL affinity: poc2's OBI (hostNetwork pods) reaches
+# otel-collector.otel.svc.cluster.local; with backends now in BOTH clusters, `affinity: local` keeps poc2's spans on
+# poc2's collector and falls back to poc1's only if it is gone (the demo 15 Failover B behaviour).
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: otel
+  annotations: {service.cilium.io/global: "true", service.cilium.io/affinity: local}
+spec:
+  selector: {app: otel-collector}
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: 4317}
+    - {name: otlp-http, port: 4318, targetPort: 4318}
+    - {name: zipkin,    port: 9411, targetPort: 9411}

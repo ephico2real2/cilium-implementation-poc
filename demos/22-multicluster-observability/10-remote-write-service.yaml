@@ -1,0 +1,29 @@
+# Demo 22 — poc1's Prometheus as a GLOBAL Service, so poc2's Prometheus can remote-write to it across the mesh.
+# The same object in BOTH clusters (the ClusterMesh rule, demo 07): in poc1 it selects the Prometheus pod the
+# operator runs; in poc2 it has no backends, so Cilium sends poc2's writes to poc1's. The remote-write receiver on
+# that Prometheus was switched on in demo 21 Part 5 (prometheusSpec.enableRemoteWriteReceiver).
+# In production this endpoint is a Thanos Receive / Mimir / Cortex, not a Prometheus; the client side is identical.
+# The selector must match ONLY the central pod — see the comment on it (the poc2 release is named `edge` for that reason).
+#   kubectl --context kind-poc1 apply -f demos/22-multicluster-observability/10-remote-write-service.yaml
+#   kubectl --context kind-poc2 apply -f demos/22-multicluster-observability/10-remote-write-service.yaml
+apiVersion: v1
+kind: Namespace
+metadata: {name: monitoring}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-remote-write
+  namespace: monitoring
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/global-sync-endpoint-slices: "true"   # docs: the remote backends are also written as EndpointSlices
+                                                           # in this cluster, so DNS/controllers (not only the datapath) see them
+spec:
+  # The operator labels a Prometheus pod with its RELEASE name. This selector names poc1's release (`monitoring`).
+  # The first poc2 install used the same release name, so this Service — being global, hence present in poc2 with the
+  # same selector — matched poc2's own Prometheus as a local backend too, and half of poc2's writes went to a Prometheus
+  # whose receiver is off: HTTP 404, measured (gotcha #69). poc2 is therefore installed as release `edge`: nothing in
+  # poc2 carries operator.prometheus.io/name=monitoring-…, so this Service has no local backend there.
+  selector: {app.kubernetes.io/name: prometheus, operator.prometheus.io/name: monitoring-kube-prometheus-prometheus}
+  ports: [{name: http-web, port: 9090, targetPort: 9090}]

@@ -1,0 +1,17 @@
+# Demo 22 — the central Tempo as a GLOBAL Service (OTLP/gRPC), the same object in both clusters: poc2's collector
+# forwards its spans here; in poc1 it selects the tempo-0 pod (demo 21), in poc2 it has no backends of its own.
+#   kubectl --context kind-poc1 apply -f demos/22-multicluster-observability/20-tempo-central-service.yaml
+#   kubectl --context kind-poc2 apply -f demos/22-multicluster-observability/20-tempo-central-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo-central
+  namespace: monitoring
+  annotations:
+    service.cilium.io/global: "true"
+    service.cilium.io/global-sync-endpoint-slices: "true"   # docs: the remote backends are also written as EndpointSlices
+                                                           # in this cluster, so DNS/controllers (not only the datapath) see them
+spec:
+  selector: {app.kubernetes.io/name: tempo, app.kubernetes.io/instance: tempo}   # same caveat as 10-…: if poc2 ever runs a
+                                                                                 # release named `tempo`, this selects it too
+  ports: [{name: grpc-otlp, port: 4317, targetPort: 4317}]
