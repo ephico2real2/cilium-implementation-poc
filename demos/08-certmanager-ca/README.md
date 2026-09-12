@@ -325,3 +325,28 @@ copy — and `openssl verify` failed both ways; both CAs are named `CN=Cilium CA
 line shows it. Fixed by deleting the two leaf secrets, `helm upgrade --reuse-values`, and restarting
 agents + relay; recorded in `output/transcript.txt`, gotcha #48. **When you replace a CA, verify
 every leaf against it, on every cluster.**
+
+## Evidence
+
+Captured 2026-09-12 with `scripts/evidence/capture.js` and `scripts/evidence/collect.sh` (both re-runnable; the pod and Cilium output is the recorded file [`output/evidence.txt`](output/evidence.txt)). Every image is what the browser saw, with traffic running.
+
+**Running pods** (from `output/evidence.txt`):
+
+```console
+$ kubectl --context kind-poc1 -n cert-manager get pods -o wide
+NAME                                       READY   STATUS    RESTARTS       AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+cert-manager-b4d6d58d4-94n6x               1/1     Running   13 (77s ago)   30h   10.10.3.130   poc1-worker2   <none>           <none>
+cert-manager-cainjector-6fbb9c8cd6-ctg5d   1/1     Running   10 (96s ago)   31h   10.10.4.180   poc1-worker    <none>           <none>
+cert-manager-webhook-646c95c5ff-lmqlj      1/1     Running   4 (8h ago)     31h   10.10.4.19    poc1-worker    <none>           <none>
+```
+
+```console
+$ kubectl --context kind-poc2 -n cert-manager get pods -o wide
+NAME                                       READY   STATUS    RESTARTS      AGE   IP            NODE          NOMINATED NODE   READINESS GATES
+cert-manager-689c4c5575-4qg9v              1/1     Running   8 (79s ago)   31h   10.20.1.175   poc2-worker   <none>           <none>
+cert-manager-cainjector-6fbb9c8cd6-7nrmp   1/1     Running   9 (84s ago)   31h   10.20.1.194   poc2-worker   <none>           <none>
+cert-manager-webhook-646c95c5ff-cx8gv      1/1     Running   6 (57s ago)   31h   10.20.1.12    poc2-worker   <none>           <none>
+```
+
+The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
+

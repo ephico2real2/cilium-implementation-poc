@@ -1,0 +1,43 @@
+# evidence for demos/08-certmanager-ca — recorded 2026-09-12T22:24Z by scripts/evidence/collect.sh
+### 2026-09-12T22:24:42Z
+$ kubectl --context kind-poc1 -n cert-manager get pods -o wide
+NAME                                       READY   STATUS    RESTARTS       AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+cert-manager-b4d6d58d4-94n6x               1/1     Running   13 (77s ago)   30h   10.10.3.130   poc1-worker2   <none>           <none>
+cert-manager-cainjector-6fbb9c8cd6-ctg5d   1/1     Running   10 (96s ago)   31h   10.10.4.180   poc1-worker    <none>           <none>
+cert-manager-webhook-646c95c5ff-lmqlj      1/1     Running   4 (8h ago)     31h   10.10.4.19    poc1-worker    <none>           <none>
+
+### 2026-09-12T22:24:42Z
+$ kubectl --context kind-poc2 -n cert-manager get pods -o wide
+NAME                                       READY   STATUS    RESTARTS      AGE   IP            NODE          NOMINATED NODE   READINESS GATES
+cert-manager-689c4c5575-4qg9v              1/1     Running   8 (79s ago)   31h   10.20.1.175   poc2-worker   <none>           <none>
+cert-manager-cainjector-6fbb9c8cd6-7nrmp   1/1     Running   9 (84s ago)   31h   10.20.1.194   poc2-worker   <none>           <none>
+cert-manager-webhook-646c95c5ff-cx8gv      1/1     Running   6 (57s ago)   31h   10.20.1.12    poc2-worker   <none>           <none>
+
+### 2026-09-12T22:24:42Z
+$ bash -c for c in poc1 poc2; do echo "== $c =="; kubectl --context kind-$c get clusterissuer; kubectl --context kind-$c -n kube-system get certificates; done
+== poc1 ==
+NAME        READY   AGE
+ca-issuer   True    31h
+NAME                                READY   SECRET                              AGE
+clustermesh-apiserver-admin-cert    True    clustermesh-apiserver-admin-cert    22h
+clustermesh-apiserver-local-cert    True    clustermesh-apiserver-local-cert    22h
+clustermesh-apiserver-remote-cert   True    clustermesh-apiserver-remote-cert   22h
+clustermesh-apiserver-server-cert   True    clustermesh-apiserver-server-cert   22h
+hubble-cli-client-certs             True    hubble-cli-client-certs             6h2m
+hubble-relay-client-certs           True    hubble-relay-client-certs           8h
+hubble-relay-server-certs           True    hubble-relay-server-certs           6h4m
+hubble-server-certs                 True    hubble-server-certs                 8h
+hubble-ui-client-certs              True    hubble-ui-client-certs              6h4m
+== poc2 ==
+NAME        READY   AGE
+ca-issuer   True    31h
+NAME                                READY   SECRET                              AGE
+clustermesh-apiserver-admin-cert    True    clustermesh-apiserver-admin-cert    31h
+clustermesh-apiserver-local-cert    True    clustermesh-apiserver-local-cert    31h
+clustermesh-apiserver-remote-cert   True    clustermesh-apiserver-remote-cert   31h
+clustermesh-apiserver-server-cert   True    clustermesh-apiserver-server-cert   31h
+hubble-cli-client-certs             True    hubble-cli-client-certs             6h2m
+hubble-relay-client-certs           True    hubble-relay-client-certs           8h
+hubble-relay-server-certs           True    hubble-relay-server-certs           6h4m
+hubble-server-certs                 True    hubble-server-certs                 8h
+
