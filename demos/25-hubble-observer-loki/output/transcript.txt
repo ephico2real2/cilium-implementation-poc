@@ -488,3 +488,32 @@ hubble-observer-868875d86f-4zwgn   true   0     quay.io/cilium/cilium:v1.20.1@sh
   Loki, last 3 min: {'poc1': '68'}
   JSON fields per line now: 46
 
+### Part 8 — validated from the operator's fork: the chart at ephico2real2/hubble-observer docs/hubble-cli-image (PR #9 fix + the image docs), policy ON
+### 2026-09-12T20:09:43Z
+$ bash -c demos/25-hubble-observer-loki/chart-from-fork.sh docs/hubble-cli-image c459f3c; kubectl --context kind-poc1 -n hubble-observer rollout restart deploy/hubble-observer >/dev/null; kubectl --context kind-poc1 -n hubble-observer rollout status deploy/hubble-observer --timeout=3m | tail -1; kubectl --context kind-poc1 -n hubble-observer get pods -o custom-columns="  POD:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount,IMAGE:.spec.containers[0].image" --no-headers | cut -c1-120; echo "policy from the fork chart: $(kubectl --context kind-poc1 -n hubble-observer get cnp allow-hubble-observer-to-hubble-relay -o jsonpath="relay-pods:{.spec.egress[0].toPorts[0].ports[0].port} dns:{.spec.egress[1].toPorts[0].ports[0].port} l7dns:{.spec.egress[1].toPorts[0].rules.dns[0].matchPattern}")"; kubectl --context kind-poc1 -n bank delete pod egress-test --wait=true >/dev/null 2>&1; echo "cell probe: $(demos/19-zero-trust-cell/egress-test.sh poc1 2>&1 | grep -c DENIED) DENIED"; sleep 45; echo "dropped FROM the observer pod (its own egress) in the last 2 min: $(hubble observe -P --kube-context kind-poc1 --from-pod hubble-observer/ --verdict DROPPED --since 2m -o compact 2>/dev/null | wc -l | tr -d " ")"; echo "relay as the observer sees it: $(kubectl --context kind-poc1 -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 2>/dev/null | grep "Connected Nodes")"; NOW=$(date +%s); Q=$(python3 -c "import urllib.parse; print(urllib.parse.quote(\"sum by (flow_source_cluster_name) (count_over_time({namespace=\\\"hubble-observer\\\",container=\\\"hubble-observer\\\"} | json | __error__=\\\"\\\" [3m]))\"))"); echo "Loki, last 3 min: $(kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query?query=$Q&time=$NOW" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print({x[\"metric\"].get(\"flow_source_cluster_name\",\"-\"): x[\"value\"][1] for x in r} or \"none\")")"
+fork: https://github.com/ephico2real2/hubble-observer.git  branch: docs/hubble-cli-image  commit: c459f3c docs: the default image is unmaintained — run the CLI from t
+dependencies: cf2cnp-0.4.0.tgz
+STATUS: deployed
+REVISION: 11
+deployment "hubble-observer" successfully rolled out
+hubble-observer-749f7f5b8c-qzk2r          true   0     quay.io/cilium/cilium:v1.20.1@sha256:ae9ea21f7427fe24bc6ea7247eb5
+hubble-observer-868875d86f-4zwgn          true   0     quay.io/cilium/cilium:v1.20.1@sha256:ae9ea21f7427fe24bc6ea7247eb5
+hubble-observer-cf2cnp-7d6576479c-jh4n7   true   0     ghcr.io/onzack/cf2cnp:0.3.1
+policy from the fork chart: relay-pods:4245 dns:53 l7dns:*
+cell probe: 6 DENIED
+dropped FROM the observer pod (its own egress) in the last 2 min: 0
+relay as the observer sees it: Connected Nodes: 7/7
+Loki, last 3 min: {'poc1': '68'}
+
+### 2026-09-12T20:12:34Z
+$ bash -c echo "re-vendored from the fork: $(head -1 demos/25-hubble-observer-loki/chart/UPSTREAM-COMMIT.txt | cut -c1-50)…"; helm upgrade hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer -n hubble-observer --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --wait --timeout 4m 2>&1 | grep -E "REVISION|rror"; kubectl --context kind-poc1 -n hubble-observer get pods -l app.kubernetes.io/name=hubble-observer -o custom-columns="  POD:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount" --no-headers; echo "  policy: $(kubectl --context kind-poc1 -n hubble-observer get cnp -o name | tr "\n" " ")"; demos/25-hubble-observer-loki/check.sh 1 2>&1 | grep -E "relay as|poc1|poc2|health" | sed "s/^/  /"
+re-vendored from the fork: c459f3c625931832fae35c53d6ef0f689576ed20 2026-09-1…
+REVISION: 12
+hubble-observer-749f7f5b8c-qzk2r   true   0
+  policy: ciliumnetworkpolicy.cilium.io/allow-hubble-observer-cf2cnp-ingress ciliumnetworkpolicy.cilium.io/allow-hubble-observer-to-cf2cnp ciliumnetworkpolicy.cilium.io/allow-hubble-observer-to-hubble-relay 
+  hubble-observer-749f7f5b8c-qzk2r          true   0     poc1-worker2
+  hubble-observer-cf2cnp-7d6576479c-jh4n7   true   0     poc1-worker2
+    relay as the observer sees it: Connected Nodes: 7/7
+      {'flow_source_cluster_name': 'poc1', 'flow_verdict': 'DROPPED'} 272
+    health: OK
+

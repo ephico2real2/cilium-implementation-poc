@@ -1,2 +1,2 @@
-21319b7241624fcc562c0ec533e2fcadf2a8fcb3 2026-08-21 16:07:59 +0200
-https://github.com/onzack/hubble-observer (Apache-2.0), helm/hubble-observer at the commit above, vendored unchanged on 2026-09-12 because the published 2.5.0 chart's probes dial the relay's short name (README Part 2)
+c459f3c625931832fae35c53d6ef0f689576ed20 2026-09-12 15:02:37 -0500
+https://github.com/ephico2real2/hubble-observer (fork of onzack/hubble-observer, Apache-2.0), helm/hubble-observer at branch docs/hubble-cli-image = upstream main 21319b7 + PR #9 (fix/cnp-dns-egress: DNS egress rule + relay pod port) + docs/HUBBLE-CLI-IMAGE.md; vendored 2026-09-12 after live validation (README Part 8)

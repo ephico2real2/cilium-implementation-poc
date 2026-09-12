@@ -35,8 +35,10 @@ grafanaDashboard:
   enabled: false                         # default true: it is a GrafanaDashboard CR for the Grafana OPERATOR, which this stack does
                                          # not run; the same JSON is provisioned as a ConfigMap for the demo 16 sidecar (dashboard-from-file.sh)
 ciliumNetworkPolicy:
-  enabled: false                         # (default) the chart's policy allows egress to the relay only — no DNS rule — so with it on
-                                         # the pod cannot resolve hubble-relay.kube-system.svc (README Part 5, exercise)
+  enabled: true                          # default false. ON since Part 8: the chart's policy never worked upstream (no DNS rule,
+                                         # and the Service port where Cilium enforces the pod port — issue #8); the vendored chart
+                                         # carries PR #9, whose defaults (dns.enabled: true, kube-dns in kube-system, relayPort 4245)
+                                         # are validated live in Part 8: policy on, 0 drops from the observer, 7/7 nodes.
 cf2cnp:                                  # the README's "Configuration" section: CF2CNP turns observed flows into CiliumNetworkPolicies
   enabled: true                          # default false: on — the dashboard links to it (POST /generate + a small UI). Subchart 0.4.0,
                                          # image ghcr.io/onzack/cf2cnp:0.3.1, defaults in default-values/cf2cnp-0.4.0.yaml

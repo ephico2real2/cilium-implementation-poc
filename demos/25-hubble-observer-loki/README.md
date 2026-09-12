@@ -332,6 +332,28 @@ demo 01 pins the agents. Recorded (Part 7d): revision 10, one pod `Ready`, `hubb
 Part pinned it — the digest-pinned revision 10 replaced it and only that pod remains. Rule for every
 image in this repo, gotcha #78: an image with no maintainer is a finding, whatever its version compatibility.
 
+## Part 8 — validated from the operator's fork, then vendored from it
+
+Our upstream work (PR #9's policy fix, PR #10's documentation) lives on
+`ephico2real2/hubble-observer`, branch `docs/hubble-cli-image` = upstream `main` 21319b7 + the fix +
+the docs. [`chart-from-fork.sh`](chart-from-fork.sh) clones that branch at a pinned commit into
+`.tmp/`, builds the cf2cnp dependency and installs **with the chart's own CiliumNetworkPolicy on** —
+the policy is what the fix is about, so a Ready observer behind it is the validation. Recorded
+(Part 8): commit `c459f3c`, revision 11, the rendered policy `relay-pods:4245 dns:53 l7dns:*`, a fresh
+cell probe → `dropped FROM the observer pod: 0`, `Connected Nodes: 7/7`, Loki `{poc1: 68}`.
+
+Then the vendored copy at [`chart/hubble-observer`](chart/hubble-observer) was replaced with that
+commit ([`chart/UPSTREAM-COMMIT.txt`](chart/UPSTREAM-COMMIT.txt) says so; the document is at
+[`chart/docs/HUBBLE-CLI-IMAGE.md`](chart/docs/HUBBLE-CLI-IMAGE.md)), and
+[`values-hubble-observer.yaml`](values-hubble-observer.yaml) sets `ciliumNetworkPolicy.enabled: true`
+— off since Part 2 because the upstream policy never worked, on now because ours does. The release
+was upgraded from the vendored path: one observer pod `Ready`, three policies (the relay rule, and the
+two cf2cnp rules the chart adds), 7/7, 272 DROPPED flows stored over the hour.
+
+Upstream: [PR #9](https://github.com/onzack/hubble-observer/pull/9) (the fix, `Closes #8`) and
+[PR #10](https://github.com/onzack/hubble-observer/pull/10) (the documentation, rebased on `main`,
+independent of #9). Both are authored by the operator from the fork.
+
 ## Exercises
 
 See [`GUIDE.md`](GUIDE.md).
