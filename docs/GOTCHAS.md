@@ -66,6 +66,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [79](#79) | 0 traces / 0 RED series / no service graph with every pod Running = no traffic: OBI ignores /healthz, the generator's series expire; look for load before restarting | observability |
 | [78](#78) | The hubble-observer default image (quay.io/cilium/hubble:v1.16.4) is unmaintained — 2024 push, EOL Go, 5 CRITICAL; run the CLI from the agent image at the agents' digest | supply chain |
 | [77](#77) | The hub Prometheus kept the single-cluster 1Gi limit — 51 OOM kills once poc2 wrote in; 2Gi + an out-of-order window | monitoring |
 | [76](#76) | A policy's egress `toPorts` must be the backend pod's port (relay 4245), not the Service port (443) — Cilium enforces after service translation | Cilium policy |
@@ -1896,6 +1897,23 @@ the last push date and scan it; an image with no maintainer is a finding whateve
 
 ---
 
+## <a name="79"></a>79. "Tracing stopped, pods are running" — no application traffic looks exactly like a broken pipeline
+
+**Symptom.** Demo 18 Part 6: 0 traces in Tempo, 0 OBI RED series, no service-graph metrics for
+3 h, every pod Running, every target up, every data source healthy.
+
+**Cause.** No requests other than the kubelet's `/healthz`, which OBI ignores for traces and
+metrics by configuration. Tempo's metrics-generator drops its series minutes after spans stop.
+Silence, not failure — and a restart (done before the re-read) changed nothing.
+
+**Fix.** Look for traffic before restarting: OBI's `trace_printer` output, `hubble_http_requests_total`,
+`tempo_metrics_generator_registry_active_series`. Generate load (`demos/15-bank/exercise.sh 20`) and
+allow poc2's OBI its attach delay (#61); everything reappears within a minute.
+
+→ demo 18, Part 6
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1937,6 +1955,7 @@ Most of these share a shape: **something reported success while not working.**
 - the policy allowed the port the client dialled, not the port the pod listens on (#76)
 - the hub was budgeted like a spoke (#77)
 - it worked, so nobody asked who maintained it (#78)
+- nothing was broken; nothing was happening (#79)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

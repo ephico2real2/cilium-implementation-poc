@@ -286,3 +286,32 @@ kubectl --context kind-poc1 delete -f demos/18-obi/30-podmonitor.yaml --ignore-n
 > missing `security_socket_accept` as Part 3. Java on this rig traces through the OpenTelemetry Java
 > agent instead (demo 20, Part 3).
 
+## Part 6 — "tracing stopped and the pods are running" (2026-09-12, 21:40Z): it had not stopped
+
+**The report.** Traces, the OBI RED metrics and the service graph were empty; every pod was Running.
+
+**What the pipeline said.** Hub Prometheus: 87 targets up, none down; Hubble and Envoy metrics
+seconds old; Grafana's three data sources healthy. Tempo: 0 traces from either cluster in 15 min,
+metrics-generator `active_series 0`, no `traces_*` series in the hub for over 3 h. OBI: every pod's
+`:9464` exporting **0** `http_server_*` series. Everything pointed at OBI.
+
+**What OBI said.** Its `trace_printer` was printing live HTTP at that very minute — all of it
+`GET /healthz` from the kubelet, which the config **ignores for traces and metrics**
+(`ignored_patterns: [/healthz]`, `ignore_mode: all`, Part 2). The bank had no other traffic: the
+last payments were hours old. No application requests → no spans → no RED series; the generator's
+service-graph series expire when spans stop; Grafana shows "No data". **Nothing was broken; nothing
+was happening.**
+
+**What was done, and what was not needed.** OBI was restarted in both clusters before that
+re-read — recorded, unnecessary, harmless. Then 20 payments through the Gateway: poc1's OBI exported
+series within 40 s; poc2's after its usual attach delay (gotcha #61, 60 s more): Tempo `poc1 38,
+poc2 9` traces in 10 min, `http_server_request_duration_seconds_count` `poc1 7, poc2 2` series in the
+hub, 115 `traces_service_graph_*` series, and the graph's edges over 10 min: `user→api 42`,
+`api→payments 14`, `payments→accounts 6`, `api→accounts 2`, `user→accounts 2` — the cross-cluster
+payment path, seen again ([capture](../21-tempo/output/screenshots/service-graph-after-incident.png)).
+
+**The lesson (gotcha #79).** Before restarting anything, separate *no data* from *broken*: OBI's own
+log (`trace_printer: text`) shows whether it sees requests, `hubble_http_requests_total` shows whether
+any exist, and the generator's `active_series` falls to 0 within minutes of silence by design. A lab
+with no load generator is quiet most of the day; `demos/15-bank/exercise.sh 20` is the switch.
+

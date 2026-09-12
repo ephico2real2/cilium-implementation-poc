@@ -522,3 +522,61 @@ $ sh -c echo "== the Go services are unaffected by Part 3 (6 payments, then the 
     18      -> service.name: Str(api)
      6      -> service.name: Str(payments)
 
+### Part 6 — incident 2026-09-12 ~21:40Z: traces, OBI metrics and the service graph stopped while every pod was Running
+### 2026-09-12T21:35:50Z
+$ bash -c echo "OBI pods (poc1 started 06:17, poc2 05:03; the bank pods they instrument were recreated 12:29; the API servers restarted 14:50-14:55):"; for c in poc1 poc2; do for P in $(kubectl --context kind-$c -n obi get pods -o name | cut -d/ -f2); do echo "--- $c/$P: last 6 log lines ---"; kubectl --context kind-$c -n obi logs $P --tail=6 2>/dev/null | cut -c1-200 | sed "s/^/  /"; echo "  instrumented processes announced in the log since 12:29: $(kubectl --context kind-$c -n obi logs $P --since-time=2026-09-12T12:29:00Z 2>/dev/null | grep -ci "instrument")  | http_server series exported now: $(kubectl --context kind-$c get --raw "/api/v1/namespaces/obi/pods/$P:9464/proxy/metrics" 2>/dev/null | grep -c "^http_server_request_duration_seconds_count")"; done; done
+OBI pods (poc1 started 06:17, poc2 05:03; the bank pods they instrument were recreated 12:29; the API servers restarted 14:50-14:55):
+--- poc1/obi-78j2n: last 6 log lines ---
+  2026-09-12 21:35:46.91293546 (560.717µs[459.057µs]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.10.4.35 as 10.10.4.35:46722]->[10.10.4.135 as api.bank:8080] contentLen:0B responseLen:0B svc=[bank/a
+  2026-09-12 21:35:46.91293546 (978.657µs[565.469µs]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.10.4.35 as 10.10.4.35:42970]->[10.10.4.172 as payments.bank:8080] contentLen:0B responseLen:0B svc=[b
+  2026-09-12 21:35:46.91293546 (873.665µs[736.616µs]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.10.4.35 as 10.10.4.35:46610]->[10.10.4.194 as web.bank:8080] contentLen:0B responseLen:0B svc=[bank/w
+  2026-09-12 21:35:48.91293548 (815.457µs[752.237µs]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.10.4.35 as 10.10.4.35:46738]->[10.10.4.135 as api.bank:8080] contentLen:0B responseLen:0B svc=[bank/a
+  2026-09-12 21:35:48.91293548 (1.045284ms[962.105µs]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.10.4.35 as 10.10.4.35:42982]->[10.10.4.172 as payments.bank:8080] contentLen:0B responseLen:0B svc=[
+  2026-09-12 21:35:48.91293548 (913.955µs[795.69µs]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.10.4.35 as 10.10.4.35:46616]->[10.10.4.194 as web.bank:8080] contentLen:0B responseLen:0B svc=[bank/we
+  instrumented processes announced in the log since 12:29: 0  | http_server series exported now: 0
+--- poc1/obi-dv49d: last 6 log lines ---
+  2026-09-12 21:35:43.91293543 (745.425µs[654.668µs]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.10.3.168 as 10.10.3.168:37348]->[10.10.3.254 as api.bank:8080] contentLen:0B responseLen:0B svc=[bank
+  2026-09-12 21:35:43.91293543 (1.149114ms[1.051233ms]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.10.3.168 as 10.10.3.168:49414]->[10.10.3.219 as web.bank:8080] contentLen:0B responseLen:0B svc=[ba
+  2026-09-12 21:35:45.91293545 (512.121µs[406.345µs]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.10.3.168 as 10.10.3.168:37358]->[10.10.3.254 as api.bank:8080] contentLen:0B responseLen:0B svc=[bank
+  2026-09-12 21:35:45.91293545 (1.421341ms[772.799µs]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.10.3.168 as 10.10.3.168:49416]->[10.10.3.219 as web.bank:8080] contentLen:0B responseLen:0B svc=[ban
+  2026-09-12 21:35:47.91293547 (1.67201ms[1.64088ms]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.10.3.168 as 10.10.3.168:37360]->[10.10.3.254 as api.bank:8080] contentLen:0B responseLen:0B svc=[bank
+  2026-09-12 21:35:47.91293547 (562.697µs[429.535µs]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.10.3.168 as 10.10.3.168:49420]->[10.10.3.219 as web.bank:8080] contentLen:0B responseLen:0B svc=[bank
+  instrumented processes announced in the log since 12:29: 0  | http_server series exported now: 0
+--- poc2/obi-4crm7: last 6 log lines ---
+  2026-09-12 21:35:47.91293547 (462.422µs[355.376µs]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.20.1.24 as 10.20.1.24:56774]->[10.20.1.221 as accounts.bank:8080] contentLen:0B responseLen:0B svc=[b
+  2026-09-12 21:35:47.91293547 (558.914µs[450.838µs]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.20.1.24 as 10.20.1.24:57782]->[10.20.1.128 as accounts.bank:8080] contentLen:0B responseLen:0B svc=[b
+  2026-09-12 21:35:47.91293547 (1.53232ms[1.443086ms]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.20.1.24 as 10.20.1.24:35434]->[10.20.1.17 as payments.bank:8080] contentLen:0B responseLen:0B svc=[b
+  2026-09-12 21:35:49.91293549 (1.027958ms[700.281µs]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.20.1.24 as 10.20.1.24:56782]->[10.20.1.221 as accounts.bank:8080] contentLen:0B responseLen:0B svc=[
+  2026-09-12 21:35:49.91293549 (565.622µs[517.631µs]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.20.1.24 as 10.20.1.24:57790]->[10.20.1.128 as accounts.bank:8080] contentLen:0B responseLen:0B svc=[b
+  2026-09-12 21:35:49.91293549 (930.782µs[853.546µs]) HTTP(subType=0) 200 GET /healthz(/healthz) [10.20.1.24 as 10.20.1.24:35442]->[10.20.1.17 as payments.bank:8080] contentLen:0B responseLen:0B svc=[ba
+  instrumented processes announced in the log since 12:29: 0  | http_server series exported now: 0
+
+### 2026-09-12T21:35:54Z
+$ bash -c echo "--- restart OBI, both clusters ---"; for c in poc1 poc2; do kubectl --context kind-$c -n obi rollout restart ds/obi >/dev/null; kubectl --context kind-$c -n obi rollout status ds/obi --timeout=3m | tail -1; done; sleep 20; echo "--- traffic: 20 bank payments through the Gateway ---"; demos/15-bank/exercise.sh 20 chk-1001 2>&1 | tail -1; sleep 40; echo "OBI exports now:"; for c in poc1 poc2; do for P in $(kubectl --context kind-$c -n obi get pods -o name | cut -d/ -f2); do echo "  $c/$P http_server series: $(kubectl --context kind-$c get --raw "/api/v1/namespaces/obi/pods/$P:9464/proxy/metrics" 2>/dev/null | grep -c "^http_server_request_duration_seconds_count")"; done; done; NOW=$(date +%s); for c in poc1 poc2; do n=$(kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/search?q=$(python3 -c "import urllib.parse; print(urllib.parse.quote(\"{ resource.k8s.cluster.name = \\\"$c\\\" }\"))")&start=$((NOW-300))&end=$NOW&limit=500" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get(\"traces\",[])))"); echo "  Tempo, last 5 min, $c: $n traces"; done; echo "  Tempo generator active series: $(kubectl --context kind-poc1 get --raw /api/v1/namespaces/monitoring/services/tempo:3200/proxy/metrics 2>/dev/null | grep "^tempo_metrics_generator_registry_active_series" | awk "{print \$NF}")"
+--- restart OBI, both clusters ---
+daemon set "obi" successfully rolled out
+daemon set "obi" successfully rolled out
+--- traffic: 20 bank payments through the Gateway ---
+  balance 48807 -> 48707 (must differ by exactly 100)
+OBI exports now:
+  poc1/obi-8xxhx http_server series: 1
+  poc1/obi-smtrp http_server series: 3
+  poc2/obi-j5874 http_server series: 0
+  Tempo, last 5 min, poc1: 11 traces
+  Tempo, last 5 min, poc2: 0 traces
+  Tempo generator active series: 137
+
+### 2026-09-12T21:39:07Z
+$ bash -c echo "re-read of the evidence: OBI was NOT broken — its trace_printer showed live HTTP at 21:35, all /healthz, which the config ignores for traces AND metrics (ignore_mode: all). No application traffic → no spans, no RED series, the generator's series expired. The restart was unnecessary; recorded as such."; echo "--- more traffic, and 60 s for poc2's OBI (gotcha #61: it attaches after a delay) ---"; demos/15-bank/exercise.sh 20 chk-1002 2>&1 | grep -c "served by poc2" | sed "s/^/  calls served by poc2: /"; sleep 60; for c in poc1 poc2; do for P in $(kubectl --context kind-$c -n obi get pods -o name | cut -d/ -f2); do echo "  $c/$P http_server series: $(kubectl --context kind-$c get --raw "/api/v1/namespaces/obi/pods/$P:9464/proxy/metrics" 2>/dev/null | grep -c "^http_server_request_duration_seconds_count")"; done; done; NOW=$(date +%s); for c in poc1 poc2; do n=$(kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/search?q=$(python3 -c "import urllib.parse; print(urllib.parse.quote(\"{ resource.k8s.cluster.name = \\\"$c\\\" }\"))")&start=$((NOW-600))&end=$NOW&limit=500" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get(\"traces\",[])))"); echo "  Tempo, last 10 min, $c: $n traces"; done; HUB=/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1; for q in "count by (cluster) (http_server_request_duration_seconds_count)" "count({__name__=~\"traces_service_graph_.*\"})" "sum by (client, server) (increase(traces_service_graph_request_total[10m])) > 0"; do Q=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$q"); echo "  $q → $(kubectl --context kind-poc1 get --raw "$HUB/query?query=$Q" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print([(x[\"metric\"], round(float(x[\"value\"][1]),1)) for x in r][:8] or \"none\")")"; done
+re-read of the evidence: OBI was NOT broken — its trace_printer showed live HTTP at 21:35, all /healthz, which the config ignores for traces AND metrics (ignore_mode: all). No application traffic → no spans, no RED series, the generator's series expired. The restart was unnecessary; recorded as such.
+--- more traffic, and 60 s for poc2's OBI (gotcha #61: it attaches after a delay) ---
+  calls served by poc2: 1
+  poc1/obi-8xxhx http_server series: 4
+  poc1/obi-smtrp http_server series: 3
+  poc2/obi-j5874 http_server series: 2
+  Tempo, last 10 min, poc1: 38 traces
+  Tempo, last 10 min, poc2: 9 traces
+  count by (cluster) (http_server_request_duration_seconds_count) → [({'cluster': 'poc1'}, 7.0), ({'cluster': 'poc2'}, 2.0)]
+  count({__name__=~"traces_service_graph_.*"}) → [({}, 115.0)]
+  sum by (client, server) (increase(traces_service_graph_request_total[10m])) > 0 → [({'client': 'user', 'server': 'api'}, 42.1), ({'client': 'api', 'server': 'payments'}, 14.2), ({'client': 'payments', 'server': 'accounts'}, 5.9), ({'client': 'user', 'server': 'accounts'}, 2.4), ({'client': 'api', 'server': 'accounts'}, 2.4)]
+
