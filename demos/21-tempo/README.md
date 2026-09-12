@@ -186,3 +186,41 @@ Remove it:
 helm uninstall tempo -n monitoring --kube-context kind-poc1
 kubectl --context kind-poc1 delete -f demos/21-tempo/20-springboot-l7-visibility.yaml
 ```
+
+## Part 4 — how to look at traces in Grafana (Tempo as a datasource)
+
+Tempo is already a datasource (uid `tempo`, Part 2; *Connections → Data sources → Tempo → Test* says
+"Data source is working"). Four ways in, from the quickest to the most exact:
+
+1. **From a metric, through an exemplar** — the pipeline this demo is about. Hubble L7 dashboard,
+   `destination_namespace=springboot`, a workload, `reporter=server`, last 30 min. Hover a dot on the
+   *Request Duration* panel; the tooltip shows `traceID` and a **Query with Tempo** button. Click it:
+   Explore opens with that trace. Only proxied traffic has dots (Part 2), so `springboot` and the bank's
+   cell have them; the Spring Boot dashboard does not (Micrometer's histograms carry no exemplars).
+2. **Explore → Tempo → Search.** Pick the datasource, *Query type: Search*, service name `api-gateway`
+   (or any petclinic service), a span name, min duration, status; *Run query*. A table of traces; click
+   a trace id for the timeline. This is `GET /api/search` on Tempo behind the scenes.
+3. **Explore → Tempo → TraceQL** for exact questions, for example every gateway fan-out slower than 100 ms:
+   ```
+   { resource.service.name="api-gateway" && name=~"GET /api.*" && duration > 100ms }
+   ```
+   or by a Kubernetes attribute the Java agent stamped (demo 20 Part 3): `{ resource.k8s.deployment.name="visits-service" }`.
+4. **By trace id** — paste it as the TraceQL query. From an exemplar, from the collector's log
+   (`tracetree.py`), from OBI's printer, from a Hubble flow: all the same id.
+
+Two links that work right now (the first is a real trace from a minute ago; both open Explore on
+the Tempo datasource; log in first):
+
+- one trace: the *URL trace* line in the transcript (Part 4) — a `GET /api/gateway/owners/{ownerId}`,
+  165 ms, api-gateway → customers-service and visits-service
+- the TraceQL search above, last hour: the *URL traceql* line in the transcript
+
+What you see in a trace: the service and operation per span, the timeline, and each span's
+attributes — the Java agent's `http.route`, `db.statement`, `k8s.pod.name`; *Critical path*, *Errors*
+and *High latency* filters on the span list. What is **not** there: the *Service Graph* tab (Tempo's
+metrics-generator is off in `values-tempo.yaml`, it would remote-write span metrics into
+Prometheus), and logs (no Loki in this lab).
+
+To trace the **bank** instead of petclinic: `demos/20-springboot/scale.sh up` (after scaling petclinic
+down, memory), then OBI's spans (demo 18) reach Tempo through the same collector, with
+`resource.service.name="api"`, `"payments"`, `"accounts"` and `k8s.cluster.name` `poc1`/`poc2`.

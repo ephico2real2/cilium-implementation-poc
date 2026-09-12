@@ -1756,3 +1756,7 @@ kubectl --context kind-poc1 apply -f demos/21-tempo/20-springboot-l7-visibility.
 
 Proof and reasoning: `demos/16-monitoring/README.md` Section C, `demos/21-tempo/README.md`.
 
+Seeing traces: Grafana → Explore → datasource *Tempo* → *Search* (service name) or *TraceQL*
+(`{ resource.service.name="api-gateway" && duration > 100ms }`), or click an exemplar dot on the Hubble
+L7 dashboard (`reporter=server`). Details and working links: `demos/21-tempo/README.md` Part 4.
+

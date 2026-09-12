@@ -80,3 +80,13 @@ $ sh -c echo "3. Tempo search by service (the Java agent's own export, via the c
 
 exemplar markers found on the L7 dashboard: 0
 Explore/Tempo page mentions: Traces | TraceQL | Import trace | Build complex queries using TraceQL to select a list of traces. | Spans Limit: 3 | Table Format: Traces | Trace | api-gateway: GET visits-service | Trace ID | visits-service | 6 spans | Show all spans
+
+### 2026-09-12T11:47:22Z
+$ [PART 4 — Explore links: a fresh trace and a TraceQL search, built from Tempo's search API]
+
+recent api traces (Tempo /api/search, TraceQL { resource.service.name="api-gateway" && name=~"GET /api.*" }):
+   e017fddf489420dc2b732f7aaef65bbc api-gateway GET /api/gateway/owners/{ownerId} 165ms
+   665e946b12d648133e4d52b30a2270a2 api-gateway GET /api/gateway/owners/{ownerId} 59ms
+   ad7aa0bf3151c15fe387169f7bbcf0c6 api-gateway GET /api/gateway/owners/{ownerId} 178ms
+URL trace   : https://grafana.poc.local/explore?schemaVersion=1&orgId=1&panes=%7B%22t%22%3A%20%7B%22datasource%22%3A%20%22tempo%22%2C%20%22queries%22%3A%20%5B%7B%22refId%22%3A%20%22A%22%2C%20%22datasource%22%3A%20%7B%22type%22%3A%20%22tempo%22%2C%20%22uid%22%3A%20%22tempo%22%7D%2C%20%22queryType%22%3A%20%22traceql%22%2C%20%22query%22%3A%20%22e017fddf489420dc2b732f7aaef65bbc%22%7D%5D%2C%20%22range%22%3A%20%7B%22from%22%3A%20%22now-1h%22%2C%20%22to%22%3A%20%22now%22%7D%7D%7D
+URL traceql : https://grafana.poc.local/explore?schemaVersion=1&orgId=1&panes=%7B%22t%22%3A%20%7B%22datasource%22%3A%20%22tempo%22%2C%20%22queries%22%3A%20%5B%7B%22refId%22%3A%20%22A%22%2C%20%22datasource%22%3A%20%7B%22type%22%3A%20%22tempo%22%2C%20%22uid%22%3A%20%22tempo%22%7D%2C%20%22queryType%22%3A%20%22traceql%22%2C%20%22query%22%3A%20%22%7B%20resource.service.name%3D%5C%22api-gateway%5C%22%20%26%26%20name%3D~%5C%22GET%20%2Fapi.%2A%5C%22%20%7D%22%7D%5D%2C%20%22range%22%3A%20%7B%22from%22%3A%20%22now-1h%22%2C%20%22to%22%3A%20%22now%22%7D%7D%7D
