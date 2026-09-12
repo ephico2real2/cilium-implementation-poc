@@ -1,2 +1,2 @@
-c459f3c625931832fae35c53d6ef0f689576ed20 2026-09-12 15:02:37 -0500
-https://github.com/ephico2real2/hubble-observer (fork of onzack/hubble-observer, Apache-2.0), helm/hubble-observer at branch docs/hubble-cli-image = upstream main 21319b7 + PR #9 (fix/cnp-dns-egress: DNS egress rule + relay pod port) + docs/HUBBLE-CLI-IMAGE.md; vendored 2026-09-12 after live validation (README Part 8)
+6aa3a8deadbb71aa5e50cd836fa022dd05cd10be 2026-09-12 15:32:23 -0500
+https://github.com/ephico2real2/hubble-observer (fork of onzack/hubble-observer, Apache-2.0), helm/hubble-observer at branch demo25-integration = upstream main 21319b7 + PR #9 (policy fix) + PR #10 (docs) + PR #11 (fieldMask/extraArgs); vendored 2026-09-12 after live validation (README Parts 8–9)

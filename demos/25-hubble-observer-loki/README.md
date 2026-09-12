@@ -354,6 +354,81 @@ Upstream: [PR #9](https://github.com/onzack/hubble-observer/pull/9) (the fix, `C
 [PR #10](https://github.com/onzack/hubble-observer/pull/10) (the documentation, rebased on `main`,
 independent of #9). Both are authored by the operator from the fork.
 
+## Part 9 — performance: the newer CLI's flags reviewed, the field mask measured, the parser timed
+
+**The flags, one by one** (`hubble observe --help`, CLI 1.20.1, and what each means for this design):
+
+| Flag | What it does (CLI help / docs) | Performance value here |
+|---|---|---|
+| `--field-mask a,b,c` | "Fields not in the mask will be removed from server response" — the **relay** strips them | **Yes, measured below:** −28 % bytes per flow on the stream, the pod log and Loki |
+| `--use-default-field-masks` | "Request only visible fields when the output format is compact, tab, or dict" | None for `-o json` (measured: 1334 = 1334 bytes) |
+| `--from-cluster` / `--to-cluster` | server-side cluster filters | A per-cluster observer in a mesh without a mesh-wide relay; not needed with one relay |
+| `--encrypted` / `--unencrypted`, `--reply` / `--not-reply`, `--ip-trace-id` | more server-side filters | Volume, if you only want one class of flow (e.g. `--not-reply` halves TCP chatter for `verdictFilter: none`) |
+| `--print-policy-names` | compact output only | None: the JSON already carries `*_denied_by` |
+| `--kube-context`, `--port-forward-port` | CLI-side port-forward | Not for a pod |
+
+**The field mask, built from the dashboard itself.** The 23862 JSON references **40** distinct
+`flow_*` labels (queries, table columns, transformations), derives *Flows per Destination* from the
+`flow.destination_names[0]` JSON path, and names non-pod sources/destinations by parsing
+`source.labels` / `destination.labels` (`pattern` stages). The smallest mask that keeps all of that —
+`time, uuid, verdict, drop_reason, drop_reason_desc, traffic_direction, node_name, Type, Summary, IP,
+l4, l7, source/destination.{namespace,pod_name,labels,identity,cluster_name}, destination_names,
+egress_denied_by, ingress_denied_by` — drops `ethernet`, `event_type`, `emitter`, `file`, `node_labels`,
+`policy_log`, `policy_match_type`, `source/destination.ID` and `workloads`, none of which any panel
+reads (`ethernet_*`, `event_type_*`, `*_ID` are hidden columns). Measured on the same 40 DROPPED flows
+through the relay: **1330 → 964 bytes per flow**; live on the observer, the same 68-flow probe:
+**1308 → 946 bytes per line (−28 %)**, all 68 in Loki, the FQDN path (`api.bank… 14, api.stripe.com 10,
+echo.routes… 14, example.com 10`) and the denying policy (`bank-cell-baseline 5`) still derived, the
+dashboard with zero "No data" panels ([capture](output/screenshots/ho-dashboard-masked.png)). One
+lesson from the measuring: a node's ring buffer holds under a minute at 145 flows/s, so `--last` a few
+minutes after a probe returns nothing — the mask tests had to follow the probe immediately.
+
+The chart had no way to pass the flag, so it got one: [PR #11](https://github.com/onzack/hubble-observer/pull/11)
+adds `fieldMask` (a list) and `extraArgs`, both empty by default (the rendered command is unchanged),
+validated by lint, render of both shapes, a server-side dry run against the live release, and the live
+run above. [`values-hubble-observer.yaml`](values-hubble-observer.yaml) carries the mask; the vendored
+chart is now the fork's `demo25-integration` branch (= upstream + PRs #9, #10, #11), and the release
+was upgraded from it (revision 14, mask in the running command).
+
+**The Loki parser, timed.** The dashboard's `$logparser` is `regexp (?P<message>.+) | line_format
+{{.message}} | json` — a wrapper for CRI-prefixed lines that is a no-op for our OTLP-shipped pure-JSON
+lines. Timed against `| json` alone (1 h instant query, five runs): **0.217 s vs 0.224 s**, i.e. equal;
+Loki's own stats for such a query: `485 kB, 340 lines, 74 ms`. At this volume the parser is not where
+time goes, so the variable's default stays as shipped; on a store holding millions of lines the
+`| json` form is the one to set in the `logparser` textbox.
+
+**How the dashboard ConfigMap is created, and what the labels do** (measured on the live objects):
+
+1. [`dashboard-from-file.sh`](dashboard-from-file.sh) resolves the export's inputs (`${DS_LOKI}` →
+   the dashboard's own `${datasource}` variable, the observer namespace, the cf2cnp URL), drops
+   `__inputs`/`__requires`, pins the `uid`, and writes a ConfigMap in `monitoring` with **one data key,
+   `hubble-observer-23862.json`** (36,080 bytes), the **label `grafana_dashboard: "1"`** and the
+   **annotation `grafana_folder: Hubble`**.
+2. The kube-prometheus-stack Grafana pod runs a **sidecar** (`kiwigrid/k8s-sidecar`) configured by
+   the demo 16 values: `sidecar.dashboards.enabled`, `searchNamespace: ALL` (so ConfigMaps from any
+   namespace count — that is how Cilium's own dashboards appeared), `label: grafana_dashboard`,
+   `folderAnnotation: grafana_folder`. It watches ConfigMaps carrying that label and writes each data
+   key as a file under `/tmp/dashboards/<annotation value>/`: measured,
+   `/tmp/dashboards/Hubble/hubble-observer-23862.json` (36,080 bytes), beside the `Cilium` and
+   `Spring Boot` folders and the stack's own dashboards at the top level.
+3. Grafana's file provisioning provider (`sidecarProvider`, `path: /tmp/dashboards`,
+   `foldersFromFilesStructure: true`, `updateIntervalSeconds: 30`, `allowUiUpdates: false`) turns each
+   directory into a Grafana folder and each file into a dashboard, re-reading every 30 s — which is why
+   a re-applied ConfigMap replaces the dashboard within a minute and why UI edits are not kept (edit
+   the JSON, re-apply).
+
+So "the label" is the sidecar's selector and "the annotation" is the folder; the uid in the JSON is
+the URL. This is exactly the demo 16 mechanism; the hubble-observer chart's own dashboard object is a
+`GrafanaDashboard` CR for the Grafana *Operator*, a different provisioning path this stack does not run.
+
+**What else the dashboard JSON can carry** (from reading it, not yet built): the source/destination
+cluster and namespace variables are free-text boxes — Loki can only offer `label_values()` for *index*
+labels, and those live inside the JSON, so a `custom` variable with the cluster names (`poc1, poc2`) is
+the honest upgrade; the `Cilium Flows over Time` table already builds a data link per row into cf2cnp
+(`POST /generate`), so a "generate policy" workflow exists; a *Flows per Node* pie (`flow_node_name`)
+and, once `verdictFilter: none` is used, the `l7` field (DNS queries, HTTP method/path) are the next
+panels the data supports.
+
 ## Exercises
 
 See [`GUIDE.md`](GUIDE.md).

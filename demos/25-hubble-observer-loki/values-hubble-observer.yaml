@@ -18,6 +18,32 @@ image:                                   # Part 7d (2026-09-12) — NOT the char
                                          # Cost: a ~600 MB image already present on every node (it is the agent's), so no extra pull.
 verdictFilter: DROPPED                   # (default) the dashboard's purpose; `none` streams every flow (≈5,000 lines/min here)
 excludeUnsupportedL3Protocols: true      # (default) drops with reason UNSUPPORTED_L3_PROTOCOL are noise
+fieldMask:                               # default [] (full flows). Part 9: `hubble observe --field-mask` — the relay removes every
+  - time                                 # other field before sending, so the stream, the pod log and Loki shrink. This is the
+  - uuid                                 # smallest mask that still feeds every panel of the 23862 dashboard (its 40 flow_* labels,
+  - verdict                              # the destination_names[0] path, the labels-based Source/Destination naming, the two
+  - drop_reason                          # extended panels): measured 1330 → 964 bytes per DROPPED flow (−27%). Dropped: ethernet,
+  - drop_reason_desc                     # event_type, emitter, file, node_labels, policy_log, policy_match_type, source/destination.ID,
+  - traffic_direction                    # workloads — none of which any panel reads.
+  - node_name
+  - Type
+  - Summary
+  - IP
+  - l4
+  - l7
+  - source.namespace
+  - source.pod_name
+  - source.labels
+  - source.identity
+  - source.cluster_name
+  - destination.namespace
+  - destination.pod_name
+  - destination.labels
+  - destination.identity
+  - destination.cluster_name
+  - destination_names
+  - egress_denied_by
+  - ingress_denied_by
 hubbleRelay:
   serviceName: hubble-relay              # (default)
   namespace: kube-system                 # (default)

@@ -98,3 +98,15 @@ trivy image --severity CRITICAL,HIGH quay.io/cilium/cilium:v1.20.1 | grep -A3 "u
 Then `kubectl -n kube-system get ds cilium -o jsonpath='{.spec.template.spec.containers[0].image}'`:
 that digest is what the observer should run, and it moves when Cilium moves (demo 01's pinning rule).
 
+## Exercise 11 — measure your own field mask
+
+```bash
+demos/19-zero-trust-cell/egress-test.sh poc1   # then IMMEDIATELY (the ring buffer holds under a minute):
+kubectl -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hubble observe --server hubble-relay.kube-system.svc.cluster.local:443 --verdict DROPPED --namespace bank --last 40 -o json | awk '{b+=length($0)} END{print b/NR " bytes/line full"}'
+kubectl -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hubble observe --server hubble-relay.kube-system.svc.cluster.local:443 --verdict DROPPED --namespace bank --last 40 -o json --field-mask time,verdict,IP,l4,source.namespace,destination.namespace | awk '{b+=length($0)} END{print b/NR " bytes/line minimal"}'
+```
+*Expect:* ~1300 vs a few hundred bytes. Then open the dashboard with that minimal mask applied through
+`fieldMask` in the values: *Flows per Destination* empties (no `destination_names`), the table loses its
+Source names (no `labels`). The mask in the values is the smallest one that keeps every panel — remove
+one field at a time and watch which panel goes dark.
+
