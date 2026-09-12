@@ -273,3 +273,9 @@ Remove it all:
 for c in poc1 poc2; do kubectl --context kind-$c delete -f demos/18-obi/10-obi.yaml --ignore-not-found; kubectl --context kind-$c delete -f demos/18-obi/20-collector-service.yaml --ignore-not-found; done
 kubectl --context kind-poc1 delete -f demos/18-obi/30-podmonitor.yaml --ignore-not-found
 ```
+
+> **Demo 20 added `{k8s_namespace: springboot}` to discovery.** The Java services were found and
+> classified; OBI's own Java agent injection timed out and the generic tracer stopped on the same
+> missing `security_socket_accept` as Part 3. Java on this rig traces through the OpenTelemetry Java
+> agent instead (demo 20, Part 3).
+

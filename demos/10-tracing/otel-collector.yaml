@@ -63,6 +63,8 @@ data:
         protocols:
           grpc: {endpoint: 0.0.0.0:4317}
           http: {endpoint: 0.0.0.0:4318}
+      # Added in demo 20: the Spring Boot services export their own Micrometer spans in Zipkin format.
+      zipkin: {endpoint: 0.0.0.0:9411}
     extensions:
       file_storage:
         directory: /var/lib/otelcol
@@ -88,7 +90,7 @@ data:
         # Added in demo 18. No `resource` processor here: it would overwrite OBI's service.name
         # (bank/web, bank/api, …) with hubble-flow-export.
         traces:
-          receivers: [otlp]
+          receivers: [otlp, zipkin]
           processors: [batch]
           exporters: [debug]
 ---

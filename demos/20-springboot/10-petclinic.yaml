@@ -1,0 +1,252 @@
+# Demo 20 — Spring Boot microservices: the canonical spring-petclinic-microservices (Spring Boot 3.4 / Java 17,
+# images springcommunity/spring-petclinic-*:3.4.1 of 2025-08-31, pinned by digest), in namespace `springboot`.
+# The upstream project ships docker-compose only; these manifests translate it. Deviations, with reasons:
+#   * profile `docker`: the services then import config from http://config-server:8888 and register with Eureka at
+#     http://discovery-server:8761 — Kubernetes Services with exactly those names make the compose names resolve.
+#   * config-server pulls its git config from GitHub (spring-petclinic-microservices-config): pod egress to the
+#     world works since demo 19 Part 0 (CoreDNS forward) and `springboot` has no policy — it is NOT in the cell (yet).
+#   * memory: six JVMs on ~3 GB of VM headroom — capped heaps (JAVA_TOOL_OPTIONS) and tight limits; the compose has none.
+#   * startup order (compose: depends_on/healthcheck): init containers wait for config-server, then discovery-server.
+#   * tracing: the docker profile exports Micrometer spans to http://tracing-server:9411 (Zipkin). `tracing-server` is an
+#     ExternalName to the demo 10 collector, which gained a zipkin receiver — the app's OWN spans, before any OBI (Part 2).
+#   * admin-server, genai-service, zipkin/prometheus/grafana of the compose: not deployed (memory; demo 16 has the stack).
+#   kubectl --context kind-poc1 apply -f demos/20-springboot/10-petclinic.yaml
+apiVersion: v1
+kind: Namespace
+metadata: {name: springboot}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: tracing-server, namespace: springboot}
+spec:
+  type: ExternalName                                   # the compose name for Zipkin → the demo 10 collector (zipkin receiver :9411)
+  externalName: otel-collector.otel.svc.cluster.local
+  ports: [{port: 9411, targetPort: 9411}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: config-server, namespace: springboot, labels: {app: config-server}}
+spec:
+  selector: {app: config-server}
+  ports: [{name: http, port: 8888, targetPort: 8888}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: config-server, namespace: springboot, labels: {app: config-server}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: config-server}}
+  template:
+    metadata: {labels: {app: config-server}}
+    spec:
+      containers:
+        - name: config-server
+          image: springcommunity/spring-petclinic-config-server@sha256:db14626a92afda51963a29804fe24329b7711467ffdc7dc2157fe800abc3f756   # 3.4.1
+          ports: [{name: http, containerPort: 8888}]
+          env:
+            - {name: SPRING_PROFILES_ACTIVE, value: docker}
+            # The config repo's docker profile sets management.tracing.export.zipkin.endpoint (a pre-3.4 key); Spring Boot
+            # 3.4 reads management.zipkin.tracing.endpoint and so exported to localhost:9411 ("Dropped 44 spans …
+            # Connect to http://localhost:9411", measured). The 3.4 key, pointed at the collector's ExternalName:
+            - {name: MANAGEMENT_ZIPKIN_TRACING_ENDPOINT, value: http://tracing-server:9411/api/v2/spans}
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=65 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k"}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 320Mi}}
+          startupProbe: {httpGet: {path: /actuator/health, port: 8888}, periodSeconds: 5, failureThreshold: 60}   # up to 5 min for a cold JVM on a loaded VM
+          # config-server: /actuator/health ONLY. Its probe groups /actuator/health/{liveness,readiness} are captured by the
+          # config-serving controller (/{app}/{profile}/{label}: "Ref readiness cannot be resolved", then "Cannot check out
+          # from unborn branch" → 404/500) and kubelet restarted it 8 times. MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED=true
+          # did not change that (measured). The other five load the shared config, which enables the groups: they keep them.
+          readinessProbe: {httpGet: {path: /actuator/health, port: 8888}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /actuator/health, port: 8888}, periodSeconds: 10, failureThreshold: 6}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: discovery-server, namespace: springboot, labels: {app: discovery-server}}
+spec:
+  selector: {app: discovery-server}
+  ports: [{name: http, port: 8761, targetPort: 8761}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: discovery-server, namespace: springboot, labels: {app: discovery-server}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: discovery-server}}
+  template:
+    metadata: {labels: {app: discovery-server}}
+    spec:
+      initContainers:
+        - name: wait-config-server
+          image: alpine:3.20
+          command: [sh, -c, 'until wget -qO- http://config-server:8888/actuator/health >/dev/null 2>&1; do echo waiting for config-server; sleep 3; done']
+      containers:
+        - name: discovery-server
+          image: springcommunity/spring-petclinic-discovery-server@sha256:c3cb50137cf7f2f61ac7f3f878f93b79a3b71213360a0d4550a4f5ab4418c342   # 3.4.1
+          ports: [{name: http, containerPort: 8761}]
+          env:
+            - {name: SPRING_PROFILES_ACTIVE, value: docker}
+            # The config repo's docker profile sets management.tracing.export.zipkin.endpoint (a pre-3.4 key); Spring Boot
+            # 3.4 reads management.zipkin.tracing.endpoint and so exported to localhost:9411 ("Dropped 44 spans …
+            # Connect to http://localhost:9411", measured). The 3.4 key, pointed at the collector's ExternalName:
+            - {name: MANAGEMENT_ZIPKIN_TRACING_ENDPOINT, value: http://tracing-server:9411/api/v2/spans}
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=65 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k"}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 320Mi}}
+          startupProbe: {httpGet: {path: /actuator/health, port: 8761}, periodSeconds: 5, failureThreshold: 60}   # up to 5 min for a cold JVM on a loaded VM
+          readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8761}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /actuator/health/liveness, port: 8761}, periodSeconds: 10, failureThreshold: 6}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: api-gateway, namespace: springboot, labels: {app: api-gateway}}
+spec:
+  selector: {app: api-gateway}
+  ports: [{name: http, port: 8080, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: api-gateway, namespace: springboot, labels: {app: api-gateway}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: api-gateway}}
+  template:
+    metadata: {labels: {app: api-gateway}}
+    spec:
+      initContainers:
+        - name: wait-config-server
+          image: alpine:3.20
+          command: [sh, -c, 'until wget -qO- http://config-server:8888/actuator/health >/dev/null 2>&1; do echo waiting for config-server; sleep 3; done']
+        - name: wait-discovery-server
+          image: alpine:3.20
+          command: [sh, -c, 'until wget -qO- http://discovery-server:8761/actuator/health >/dev/null 2>&1; do echo waiting for discovery-server; sleep 3; done']
+      containers:
+        - name: api-gateway
+          image: springcommunity/spring-petclinic-api-gateway@sha256:250c96946936d623d4ded3e1987fd76d61a66a3125913e5eee6556f2a80d5862   # 3.4.1
+          ports: [{name: http, containerPort: 8080}]
+          env:
+            - {name: SPRING_PROFILES_ACTIVE, value: docker}
+            # The config repo's docker profile sets management.tracing.export.zipkin.endpoint (a pre-3.4 key); Spring Boot
+            # 3.4 reads management.zipkin.tracing.endpoint and so exported to localhost:9411 ("Dropped 44 spans …
+            # Connect to http://localhost:9411", measured). The 3.4 key, pointed at the collector's ExternalName:
+            - {name: MANAGEMENT_ZIPKIN_TRACING_ENDPOINT, value: http://tracing-server:9411/api/v2/spans}
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=65 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k"}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 384Mi}}
+          startupProbe: {httpGet: {path: /actuator/health, port: 8080}, periodSeconds: 5, failureThreshold: 60}   # up to 5 min for a cold JVM on a loaded VM
+          readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8080}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /actuator/health/liveness, port: 8080}, periodSeconds: 10, failureThreshold: 6}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: customers-service, namespace: springboot, labels: {app: customers-service}}
+spec:
+  selector: {app: customers-service}
+  ports: [{name: http, port: 8081, targetPort: 8081}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: customers-service, namespace: springboot, labels: {app: customers-service}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: customers-service}}
+  template:
+    metadata: {labels: {app: customers-service}}
+    spec:
+      initContainers:
+        - name: wait-config-server
+          image: alpine:3.20
+          command: [sh, -c, 'until wget -qO- http://config-server:8888/actuator/health >/dev/null 2>&1; do echo waiting for config-server; sleep 3; done']
+        - name: wait-discovery-server
+          image: alpine:3.20
+          command: [sh, -c, 'until wget -qO- http://discovery-server:8761/actuator/health >/dev/null 2>&1; do echo waiting for discovery-server; sleep 3; done']
+      containers:
+        - name: customers-service
+          image: springcommunity/spring-petclinic-customers-service@sha256:ab1181fed9b1c23a74a442c1c1625f1ab34b4e0e928192cb5db77eef3f75b14a   # 3.4.1
+          ports: [{name: http, containerPort: 8081}]
+          env:
+            - {name: SPRING_PROFILES_ACTIVE, value: docker}
+            # The config repo's docker profile sets management.tracing.export.zipkin.endpoint (a pre-3.4 key); Spring Boot
+            # 3.4 reads management.zipkin.tracing.endpoint and so exported to localhost:9411 ("Dropped 44 spans …
+            # Connect to http://localhost:9411", measured). The 3.4 key, pointed at the collector's ExternalName:
+            - {name: MANAGEMENT_ZIPKIN_TRACING_ENDPOINT, value: http://tracing-server:9411/api/v2/spans}
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=65 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k"}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 448Mi}}
+          startupProbe: {httpGet: {path: /actuator/health, port: 8081}, periodSeconds: 5, failureThreshold: 60}   # up to 5 min for a cold JVM on a loaded VM
+          readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8081}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /actuator/health/liveness, port: 8081}, periodSeconds: 10, failureThreshold: 6}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: vets-service, namespace: springboot, labels: {app: vets-service}}
+spec:
+  selector: {app: vets-service}
+  ports: [{name: http, port: 8083, targetPort: 8083}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: vets-service, namespace: springboot, labels: {app: vets-service}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: vets-service}}
+  template:
+    metadata: {labels: {app: vets-service}}
+    spec:
+      initContainers:
+        - name: wait-config-server
+          image: alpine:3.20
+          command: [sh, -c, 'until wget -qO- http://config-server:8888/actuator/health >/dev/null 2>&1; do echo waiting for config-server; sleep 3; done']
+        - name: wait-discovery-server
+          image: alpine:3.20
+          command: [sh, -c, 'until wget -qO- http://discovery-server:8761/actuator/health >/dev/null 2>&1; do echo waiting for discovery-server; sleep 3; done']
+      containers:
+        - name: vets-service
+          image: springcommunity/spring-petclinic-vets-service@sha256:963f480587e365b7ef17fdbcce5267ac3aa3436f649852cc7eb4f85da86abab4   # 3.4.1
+          ports: [{name: http, containerPort: 8083}]
+          env:
+            - {name: SPRING_PROFILES_ACTIVE, value: docker}
+            # The config repo's docker profile sets management.tracing.export.zipkin.endpoint (a pre-3.4 key); Spring Boot
+            # 3.4 reads management.zipkin.tracing.endpoint and so exported to localhost:9411 ("Dropped 44 spans …
+            # Connect to http://localhost:9411", measured). The 3.4 key, pointed at the collector's ExternalName:
+            - {name: MANAGEMENT_ZIPKIN_TRACING_ENDPOINT, value: http://tracing-server:9411/api/v2/spans}
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=65 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k"}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 448Mi}}
+          startupProbe: {httpGet: {path: /actuator/health, port: 8083}, periodSeconds: 5, failureThreshold: 60}   # up to 5 min for a cold JVM on a loaded VM
+          readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8083}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /actuator/health/liveness, port: 8083}, periodSeconds: 10, failureThreshold: 6}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: visits-service, namespace: springboot, labels: {app: visits-service}}
+spec:
+  selector: {app: visits-service}
+  ports: [{name: http, port: 8082, targetPort: 8082}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: visits-service, namespace: springboot, labels: {app: visits-service}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: visits-service}}
+  template:
+    metadata: {labels: {app: visits-service}}
+    spec:
+      initContainers:
+        - name: wait-config-server
+          image: alpine:3.20
+          command: [sh, -c, 'until wget -qO- http://config-server:8888/actuator/health >/dev/null 2>&1; do echo waiting for config-server; sleep 3; done']
+        - name: wait-discovery-server
+          image: alpine:3.20
+          command: [sh, -c, 'until wget -qO- http://discovery-server:8761/actuator/health >/dev/null 2>&1; do echo waiting for discovery-server; sleep 3; done']
+      containers:
+        - name: visits-service
+          image: springcommunity/spring-petclinic-visits-service@sha256:307ae223b722d13b7a0e35ef34e93352ab118687d9a0e189565392244031a1c7   # 3.4.1
+          ports: [{name: http, containerPort: 8082}]
+          env:
+            - {name: SPRING_PROFILES_ACTIVE, value: docker}
+            # The config repo's docker profile sets management.tracing.export.zipkin.endpoint (a pre-3.4 key); Spring Boot
+            # 3.4 reads management.zipkin.tracing.endpoint and so exported to localhost:9411 ("Dropped 44 spans …
+            # Connect to http://localhost:9411", measured). The 3.4 key, pointed at the collector's ExternalName:
+            - {name: MANAGEMENT_ZIPKIN_TRACING_ENDPOINT, value: http://tracing-server:9411/api/v2/spans}
+            - {name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=65 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k"}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 448Mi}}
+          startupProbe: {httpGet: {path: /actuator/health, port: 8082}, periodSeconds: 5, failureThreshold: 60}   # up to 5 min for a cold JVM on a loaded VM
+          readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8082}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /actuator/health/liveness, port: 8082}, periodSeconds: 10, failureThreshold: 6}

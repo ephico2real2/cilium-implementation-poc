@@ -66,6 +66,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [65](#65) | Eureka-routed calls fail for a minute after a rollout: Spring Cloud Gateway keeps the dead pod IP (client-side registry cache); Hubble shows `STALE_OR_UNROUTABLE_IP` | Spring Boot / discovery |
 | [64](#64) | A ClusterIP on a port that is not a Service port is no Service frontend: no translation, identity `world`, denied by the cell — the datapath verdict log says so | policy |
 | [63](#63) | Pods cannot resolve external names on Docker Desktop: CoreDNS forwards to `192.168.65.254`, which times out for pod sources; `toFQDNs` has nothing to match until the Corefile forwards elsewhere | Docker Desktop / DNS |
 | [62](#62) | Since Cilium 1.19 a selector without the cluster label matches the local cluster only: the blog's `fromEndpoints: [{}]` denied every mesh peer — 400 drops, replication included | ClusterMesh / policy |
@@ -1532,12 +1533,13 @@ Docker Desktop dropped the option from its own kernel config after 4.27 and rest
 docs' `/procHost` extraMount, or Tetragon runs but silently drops `pod`/`binary` on events
 (tetragon#4883) — that mount is creation-time, now in `clusters/poc*.yaml`.
 
-**Also hit by OBI (demo 18, Part 3).** OBI's *generic* tracer — everything that is not Go — attaches
-kprobes to `security_socket_accept` and friends; on this kernel it logs `couldn't trace process.
-Stopping process tracer` for Postgres and Redis while the Go services keep tracing (uprobes). Same
-cause, same fix.
+**Also hit by OBI (demo 18, Part 3; demo 20, Part 2).** OBI's *generic* tracer — everything that is
+not Go — attaches kprobes to `security_socket_accept` and friends; on this kernel it logs `couldn't
+trace process. Stopping process tracer` for Postgres, Redis **and the Java services** while the Go
+services keep tracing (uprobes). Same cause, same fix. For Java the OpenTelemetry Java agent is the
+kernel-independent zero-code path (demo 20, Part 3).
 
-→ demo 17, Part 1; demo 18, Part 3
+→ demo 17, Part 1; demo 18, Part 3; demo 20, Part 2
 
 ---
 
@@ -1614,6 +1616,25 @@ turns every sloppy address into a visible drop — read `drops.sh` before suspec
 
 ---
 
+## <a name="65"></a>65. Eureka-routed calls fail for a minute after a rollout — the gateway keeps the dead pod IP; Hubble says STALE_OR_UNROUTABLE_IP
+
+**Symptom.** Demo 20: every petclinic pod Ready, the API through the Cilium Gateway answering 405,
+500 and 15-s timeouts for one to two minutes, the same paths inside the api-gateway pod returning 200.
+
+**Cause.** Hubble: `api-gateway → 10.10.3.50:8081  STALE_OR_UNROUTABLE_IP` ×14 — the previous
+customers-service pod IP. Spring Cloud Gateway's `lb://customers-service` goes through Eureka's
+client-side registry (30-s cache, plus the server's own eviction timers), not through the Kubernetes
+Service, so a replaced pod is called at its old IP until the cache turns over.
+
+**Fix / lesson.** Nothing to fix in Cilium: it reported exactly what happened. In a platform, use the
+Kubernetes Service (Spring Cloud Kubernetes discovery, or plain `http://customers-service:8081`) and
+let Cilium's socket-LB do the load balancing — demo 15's bank lost zero requests through scale-to-0
+that way. Wait ~90 s after a petclinic rollout before judging a check.
+
+→ demo 20, Part 1
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1642,6 +1663,7 @@ Most of these share a shape: **something reported success while not working.**
 - `helm upgrade` said *Happy Helming* while every agent refused the new metrics config every 10 s (#59)
 - Tetragon without the host `/proc` keeps running and emits events with the pod field empty (#60, tetragon#4883)
 - a policy that read "any endpoint in this namespace" matched none of the namespace's pods in the other cluster (#62)
+- every petclinic pod was Ready while the gateway kept calling a pod that no longer existed (#65)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

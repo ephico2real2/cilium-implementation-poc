@@ -56,6 +56,8 @@ data:
         - {k8s_namespace: bank, k8s_statefulset_name: postgres}
         - {k8s_namespace: bank, k8s_statefulset_name: postgres-standby}
         - {k8s_namespace: bank, k8s_statefulset_name: redis}
+        # Demo 20 — the Spring Boot cell: every deployment in the namespace (Java: JDK 17 petclinic services).
+        - {k8s_namespace: springboot}
     trace_printer: text              # Part 1: spans on the DaemonSet's stdout — the page's `grep "GET "` check
     ebpf:
       context_propagation: all       # inject/read W3C traceparent at the network layer so one trace id spans

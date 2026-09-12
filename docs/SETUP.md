@@ -1725,3 +1725,19 @@ demos/19-zero-trust-cell/egress-test.sh poc1                                    
 External names need Part 0 first (CoreDNS forward to public resolvers, gotcha #63). Every command
 with its reason and recorded output: `demos/19-zero-trust-cell/README.md`.
 
+## Step 17 — Spring Boot microservices in `springboot` (demo 20)
+
+```bash
+demos/20-springboot/scale.sh down                                              # room for six JVMs (bank + routes Deployments → 0)
+kubectl --context kind-poc1 apply -f demos/10-tracing/otel-collector.yaml && kubectl --context kind-poc1 -n otel rollout restart ds/otel-collector   # + zipkin receiver
+kubectl --context kind-poc1 apply -f demos/18-obi/20-collector-service.yaml ; kubectl --context kind-poc2 apply -f demos/18-obi/20-collector-service.yaml   # + port 9411
+kubectl --context kind-poc1 apply -f demos/20-springboot/10-petclinic.yaml    # six Deployments, one at a time through init containers (5–10 min cold)
+kubectl --context kind-poc1 apply -f demos/20-springboot/20-gateway.yaml      # https://petclinic.poc.local
+sudo sh -c 'demos/20-springboot/hosts-entries.sh >> /etc/hosts'               # you run this
+sleep 90 ; demos/20-springboot/check.sh 5                                      # gotcha #65: Eureka needs ~90 s after any rollout
+demos/20-springboot/javaagent.sh on                                            # the OpenTelemetry Java agent, one Deployment at a time
+demos/20-springboot/scale.sh up                                                # when done with the lab
+```
+
+Every command with its reason and recorded output: `demos/20-springboot/README.md`.
+

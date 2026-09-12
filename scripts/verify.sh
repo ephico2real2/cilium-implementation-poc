@@ -200,6 +200,11 @@ run "for c in poc1 poc2; do echo \"-- \$c --\"; kubectl --context kind-\$c get c
 echo "the rendering is reproducible from intent.yaml (no diff = what is committed is what render.py produces):"
 run "demos/19-zero-trust-cell/render.py < demos/19-zero-trust-cell/intent.yaml | diff - demos/19-zero-trust-cell/rendered/cell-policies.yaml && echo 'rendered/cell-policies.yaml is current'"
 
+hdr "17. DEMO 20 — SPRING BOOT (petclinic) IN springboot"
+run "$K -n springboot get deploy -o custom-columns='DEPLOY:.metadata.name,READY:.status.readyReplicas,WANT:.spec.replicas' --no-headers 2>/dev/null"
+echo "the API through the Gateway (needs the six JVMs up; 503 = none Ready):"
+run "curl -s --cacert docs/root-ca.crt --resolve petclinic.poc.local:443:$GW -m 15 -o /dev/null -w 'GET /api/customer/owners -> %{http_code}\n' https://petclinic.poc.local/api/customer/owners"
+
 hdr "12. HOST ROUTING (macOS)"
 run "netstat -rn -f inet | grep '^172.18' || echo 'no route — see SETUP Step 3.5'"
 run "ifconfig -l | tr ' ' '\n' | grep -E '^bridge'"
