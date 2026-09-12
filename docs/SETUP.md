@@ -1692,3 +1692,19 @@ kubectl --context kind-poc1 apply -f demos/16-monitoring/20-visibility-policies.
 
 Every command, its reason and its recorded output: `demos/16-monitoring/README.md`.
 
+## Step 15 — OBI: zero-code traces and RED metrics for the bank, both clusters (demo 18)
+
+```bash
+kubectl --context kind-poc1 apply -f demos/10-tracing/otel-collector.yaml                      # now also an OTLP receiver + traces pipeline
+kubectl --context kind-poc1 -n otel rollout restart ds/otel-collector
+kubectl --context kind-poc1 apply -f demos/18-obi/20-collector-service.yaml                    # the collector as a GLOBAL Service …
+kubectl --context kind-poc2 apply -f demos/18-obi/20-collector-service.yaml                    # … the same object in the other cluster
+demos/18-obi/deploy.sh poc1 ; demos/18-obi/deploy.sh poc2                                       # OBI v0.13.0, bank deployments only
+sleep 45 ; demos/15-bank/exercise.sh 10 ; sleep 20                                              # gotcha #61: first spans +40 s, export +10–20 s
+demos/18-obi/check.sh 3m                                                                        # the page's check, both clusters
+kubectl --context kind-poc1 -n otel logs ds/otel-collector --since=3m | demos/18-obi/tracetree.py   # one payment as a tree
+```
+
+Cilium is not touched: with tcx on both sides the page's `bpf.tc.priority` does not apply (and is
+not a 1.20.1 chart value). Recorded output and reasoning: `demos/18-obi/README.md`.
+

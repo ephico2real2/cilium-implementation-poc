@@ -66,6 +66,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [61](#61) | OBI prints its first span ~40 s after Ready and exports spans 10–20 s after the request — the page's log check run straight after `rollout status` is empty, and nothing is wrong | OBI |
 | [60](#60) | Tetragon crash-loops on Docker Desktop < 4.30 — the VM kernel has no `CONFIG_SECURITY`, the exec sensor's kprobe symbol does not exist, and no helm value fixes a kernel; plus the creation-time `/procHost` mount without which events silently lose their pod | Tetragon / Docker Desktop |
 | [59](#59) | The dynamic Hubble metrics config cannot change a registered metric's context options: helm succeeded, every agent logged a refusal every 10 s and kept the old labels | monitoring |
 
@@ -1529,6 +1530,22 @@ docs' `/procHost` extraMount, or Tetragon runs but silently drops `pod`/`binary`
 (tetragon#4883) — that mount is creation-time, now in `clusters/poc*.yaml`.
 
 → demo 17, Part 1
+
+---
+
+## <a name="61"></a>61. OBI shows nothing for the first ~40 s, and its spans reach the collector 10–20 s after the request
+
+**Symptom.** Demo 18: `rollout status ds/obi` said success, a 20-call exercise ran, the page's
+`kubectl logs … | grep "GET "` check printed nothing on either cluster. Later checks were full.
+
+**Cause (from the timestamps).** OBI became Ready at +0 s, logged `Attaching sock ops` at +25 s and
+printed its first span at +40 s; the exercise had finished at +25 s. And the OTLP export is batched:
+8 payments at 04:57:55 arrived at the collector at 04:58:1x. A check inside either window is empty.
+
+**Fix.** Wait ~45 s after Ready before the first check, and ~20 s after traffic before reading the
+collector; `demos/18-obi/check.sh` takes a `since` argument for exactly this. Nothing was broken.
+
+→ demo 18, Parts 1–2
 
 ---
 

@@ -1,0 +1,20 @@
+# Demo 18, Part 2 — the collector as a GLOBAL Service. Apply the SAME object to both clusters (the ClusterMesh
+# rule from demo 07: a global Service must exist in every cluster). In poc1 it has backends (the demo 10
+# collector DaemonSet); in poc2 it has none, so Cilium sends poc2's OBI spans to poc1's collectors.
+#   kubectl --context kind-poc1 apply -f demos/18-obi/20-collector-service.yaml
+#   kubectl --context kind-poc2 apply -f demos/18-obi/20-collector-service.yaml
+apiVersion: v1
+kind: Namespace
+metadata: {name: otel}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: otel
+  annotations: {service.cilium.io/global: "true"}
+spec:
+  selector: {app: otel-collector}
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: 4317}
+    - {name: otlp-http, port: 4318, targetPort: 4318}

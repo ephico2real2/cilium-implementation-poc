@@ -1,0 +1,91 @@
+# Demo 18 — OpenTelemetry eBPF Instrumentation (OBI) for the bank, zero code. Adapted from the OBI ↔ Cilium
+# compatibility page; every deviation from that page is commented. One file for BOTH clusters — the only
+# per-cluster value (the cluster's name on every span) is the __CLUSTER__ placeholder, filled by deploy.sh:
+#   demos/18-obi/deploy.sh poc1 ; demos/18-obi/deploy.sh poc2
+apiVersion: v1
+kind: Namespace
+metadata: {name: obi}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: obi, namespace: obi}
+---
+# Exactly the page's RBAC: OBI watches pods/services/nodes/replicasets to label spans with k8s metadata.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: obi}
+rules:
+  - {apiGroups: ['apps'], resources: ['replicasets'],             verbs: ['list', 'watch']}
+  - {apiGroups: [''],     resources: ['pods', 'services', 'nodes'], verbs: ['list', 'watch']}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: obi}
+subjects: [{kind: ServiceAccount, name: obi, namespace: obi}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: obi}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: obi-config, namespace: obi}
+data:
+  obi-config.yml: |
+    attributes:
+      kubernetes:
+        enable: true                 # span attributes k8s.namespace.name / k8s.deployment.name / k8s.pod.name …
+        cluster_name: __CLUSTER__    # Part 2: k8s.cluster.name on every span and metric (kind has no node label
+                                     # OBI could detect it from — the Part 1 log said so)
+    routes:
+      unmatched: heuristic           # /api/balance/chk-1001 → /api/balance/{id} : one route per pattern, not per id
+      ignored_patterns: [/healthz]   # Part 2: kubelet's readiness probes were 350 spans per 2 min (Part 1)
+      ignore_mode: all               # … dropped from traces AND metrics
+    otel_traces_export:              # Part 2: spans to the demo 10 collector (OTLP/http, port 4318 → protocol inferred).
+      endpoint: http://otel-collector.otel.svc.cluster.local:4318   # a GLOBAL Service: from poc2 this resolves
+                                     # locally and Cilium routes it to poc1's collectors across the mesh
+    prometheus_export:               # Part 2: RED metrics (http_server_request_duration_seconds …) on every OBI pod,
+      port: 9464                     # scraped by the demo 16 stack through the PodMonitor below (hostNetwork: node:9464)
+      path: /metrics
+    discovery:
+      instrument:                    # OUR services, not the page's demo ones. AND inside an entry, OR across entries;
+        - {k8s_namespace: bank, k8s_deployment_name: web}        # web/api/payments live in poc1,
+        - {k8s_namespace: bank, k8s_deployment_name: api}        # payments/accounts in poc2 — the same file
+        - {k8s_namespace: bank, k8s_deployment_name: payments}   # instruments whatever runs locally.
+        - {k8s_namespace: bank, k8s_deployment_name: accounts}   # (postgres / redis are not ours: not listed)
+    trace_printer: text              # Part 1: spans on the DaemonSet's stdout — the page's `grep "GET "` check
+    ebpf:
+      context_propagation: all       # inject/read W3C traceparent at the network layer so one trace id spans
+                                     # web → api → accounts even though the Go app propagates nothing (demo 16 Part 8)
+      traffic_control_backend: tcx   # kernel 6.6 tcx links: no ordering conflict with Cilium (which runs tcx too,
+                                     # bpf.enableTCX=true) — so the page's bpf.tc.priority change is NOT needed,
+                                     # and the 1.20.1 chart has no such value anyway. Measured in Part 1.
+      disable_blackbox_cp: true
+      track_request_headers: true
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: obi, namespace: obi}
+spec:
+  selector: {matchLabels: {instrumentation: obi}}
+  template:
+    metadata: {labels: {instrumentation: obi}}
+    spec:
+      serviceAccountName: obi
+      hostPID: true                  # to see the bank processes (uprobes on the Go binary, syscalls)
+      hostNetwork: true              # the page's setting; the tc/tcx programs attach to the node's interfaces
+      dnsPolicy: ClusterFirstWithHostNet
+      # No control-plane toleration on purpose: kind taints control planes NoSchedule, the bank runs on
+      # workers only, so OBI lands on workers only (poc1: 2 pods, poc2: 1) and costs nothing elsewhere.
+      containers:
+        - name: obi
+          image: otel/ebpf-instrument:v0.13.0   # the page says :main — pinned to the newest release (2026-09-04)
+          securityContext: {privileged: true, readOnlyRootFilesystem: true}
+          ports: [{name: metrics, containerPort: 9464}]   # named, so the PodMonitor can reference it
+          resources: {requests: {cpu: 50m, memory: 128Mi}, limits: {memory: 512Mi}}
+          volumeMounts:
+            - {mountPath: /config, name: obi-config}
+            - {mountPath: /var/run/obi, name: var-run-obi}
+          env:
+            - {name: OTEL_EBPF_CONFIG_PATH, value: /config/obi-config.yml}
+            - {name: OTEL_RESOURCE_ATTRIBUTES, value: "k8s.cluster.name=__CLUSTER__"}   # which cluster emitted the span
+      volumes:
+        - {name: obi-config, configMap: {name: obi-config}}
+        - {name: var-run-obi, emptyDir: {}}

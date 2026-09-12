@@ -190,6 +190,11 @@ echo "Hubble series with a cluster label, and the six chart dashboards Grafana l
 run "kubectl --context $CTX get --raw '/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count%20by%20(cluster)%20(%7B__name__%3D~%22hubble_.%2B%22%7D)' 2>/dev/null | python3 -c 'import json,sys; [print(\"hubble series:\", r[\"value\"][1], \"cluster=\"+r[\"metric\"].get(\"cluster\",\"-\")) for r in json.load(sys.stdin)[\"data\"][\"result\"]]'"
 run "curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana 'https://grafana.poc.local/api/search?type=dash-db' | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len([x for x in d if \"ilium\" in x[\"title\"] or \"ubble\" in x[\"title\"]]), \"cilium/hubble dashboards of\", len(d))'"
 
+hdr "15. DEMO 18 — OBI (zero-code traces, both clusters → one collector)"
+run "for c in poc1 poc2; do kubectl --context kind-\$c -n obi get pods --no-headers 2>/dev/null | awk -v c=\$c '{print c, \$1, \$2, \$3}'; done"
+echo "spans that reached the poc1 collector in the last 5 minutes, by originating cluster:"
+run "for p in \$($K -n otel get pods -o name 2>/dev/null | cut -d/ -f2); do $K -n otel logs \$p --since=5m 2>/dev/null; done | grep 'k8s.cluster.name' | sort | uniq -c"
+
 hdr "12. HOST ROUTING (macOS)"
 run "netstat -rn -f inet | grep '^172.18' || echo 'no route — see SETUP Step 3.5'"
 run "ifconfig -l | tr ' ' '\n' | grep -E '^bridge'"

@@ -1,0 +1,16 @@
+# Demo 18, Part 2 — the demo 16 Prometheus scrapes OBI's RED metrics. A PodMonitor (not a ServiceMonitor):
+# hostNetwork pods, no Service needed. Selected because Section A set podMonitorSelectorNilUsesHelmValues=false
+# (gotcha #57). poc1 ONLY: the Prometheus Operator CRDs exist only where the stack is installed — applying this
+# to poc2 fails with "no matches for kind PodMonitor" (measured); poc2's OBI metrics are on node:9464 unscraped.
+#   sed s/__CLUSTER__/poc1/ demos/18-obi/30-podmonitor.yaml | kubectl --context kind-poc1 apply -f -
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata: {name: obi, namespace: obi}
+spec:
+  selector: {matchLabels: {instrumentation: obi}}
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 10s
+      relabelings:
+        - {sourceLabels: [__meta_kubernetes_pod_node_name], targetLabel: node, action: replace}
+        - {targetLabel: cluster, action: replace, replacement: __CLUSTER__}

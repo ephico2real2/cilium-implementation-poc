@@ -1,0 +1,391 @@
+### 2026-09-12T04:47:06Z
+$ [PART 1 — OBI v0.13.0 on poc1 AND poc2, tcx backend, discovery = the four bank deployments; then the page's log check]
+
+### 2026-09-12T04:47:06Z
+$ sh -c for c in poc1 poc2; do kubectl --context kind-$c -n kube-system get cm cilium-config -o jsonpath="$c: enable-tcx={.data.enable-tcx} tc-filter-priority=[{.data.tc-filter-priority}]{\"\n\"}"; done; helm show values cilium/cilium --version 1.20.1 | grep -c "tc-filter-priority\|tcFilterPriority\|  tc:" | sed "s/^/chart 1.20.1 values mentioning a tc priority: /"; docker run --rm --privileged --pid=host alpine uname -r
+poc1: enable-tcx=true tc-filter-priority=[]
+poc2: enable-tcx=true tc-filter-priority=[]
+chart 1.20.1 values mentioning a tc priority: 0
+6.6.12-linuxkit
+
+### 2026-09-12T04:47:11Z
+$ demos/18-obi/deploy.sh poc1
+namespace/obi unchanged
+serviceaccount/obi unchanged
+clusterrole.rbac.authorization.k8s.io/obi created
+clusterrolebinding.rbac.authorization.k8s.io/obi created
+configmap/obi-config created
+daemonset.apps/obi created
+Waiting for daemon set "obi" rollout to finish: 0 of 2 updated pods are available...
+Waiting for daemon set "obi" rollout to finish: 1 of 2 updated pods are available...
+daemon set "obi" successfully rolled out
+
+### 2026-09-12T04:47:22Z
+$ demos/18-obi/deploy.sh poc2
+namespace/obi unchanged
+serviceaccount/obi unchanged
+clusterrole.rbac.authorization.k8s.io/obi created
+clusterrolebinding.rbac.authorization.k8s.io/obi created
+configmap/obi-config created
+daemonset.apps/obi created
+Waiting for daemon set "obi" rollout to finish: 0 of 1 updated pods are available...
+daemon set "obi" successfully rolled out
+
+### 2026-09-12T04:47:33Z
+$ sh -c for c in poc1 poc2; do echo "-- $c --"; kubectl --context kind-$c -n obi get pods -o custom-columns="POD:.metadata.name,NODE:.spec.nodeName,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount"; done
+-- poc1 --
+POD         NODE           READY   RESTARTS
+obi-l95nt   poc1-worker2   true    0
+obi-xwmkp   poc1-worker    true    0
+-- poc2 --
+POD         NODE          READY   RESTARTS
+obi-2wnqt   poc2-worker   true    0
+
+### 2026-09-12T04:47:43Z
+$ sh -c P=$(kubectl --context kind-poc1 -n obi get pods -o name | head -1); echo "-- OBI startup log (poc1, first pod): backend, discovery, anything about Cilium/priority/errors --"; kubectl --context kind-poc1 logs -n obi ${P#pod/} 2>/dev/null | grep -iE "tcx|traffic control|cilium|priority|instrument|discover|kubernetes|error|warn|version|matched" | grep -v "GET \|POST " | head -20 | cut -c1-230
+-- OBI startup log (poc1, first pod): backend, discovery, anything about Cilium/priority/errors --
+time=2026-09-12T04:47:22.554Z level=INFO msg="OpenTelemetry eBPF Instrumentation" Version=v0.13.0 Revision=3cc1986 "OpenTelemetry SDK Version"=1.46.0
+time=2026-09-12T04:47:22.554Z level=INFO msg="configuration loaded" version=v1
+time=2026-09-12T04:47:24.566Z level=WARN msg="timed out while waiting for Cloud metadata. Ignoring" component=meta.NodeMeta.otelNodeFetcher detector=ec2.resourceDetector
+time=2026-09-12T04:47:34.268Z level=WARN msg="can't fetch Kubernetes Cluster Name. Network metrics won't contain k8s.cluster.name attribute unless you explicitly set  the OTEL_EBPF_KUBE_CLUSTER_NAME environment variable" component
+time=2026-09-12T04:47:36.455Z level=INFO msg="instrumenting process" component=discover.traceAttacher cmd=/bankdemo pid=23718 ino=554708 type=go service="" logenricher=false
+time=2026-09-12T04:47:36.658Z level=WARN msg="creating or accessing OTEL namespace in bpffs failed (is bpffs mounted and accessible?)" component=ebpf.ProcessTracer bpffs_path=/sys/fs/bpf/ err="creating bpffs otel path: mkdir /sys/
+time=2026-09-12T04:47:36.659Z level=WARN msg="OBI will use process-internal maps; external features depending on pinned maps (e.g., profile correlation) will be disabled" component=ebpf.ProcessTracer
+time=2026-09-12T04:47:42.486Z level=WARN msg="can't fetch Kubernetes Cluster Name. Network metrics won't contain k8s.cluster.name attribute unless you explicitly set  the OTEL_EBPF_KUBE_CLUSTER_NAME environment variable" component
+time=2026-09-12T04:47:42.486Z level=INFO msg="Starting main node" component=obi.Instrumenter
+
+### 2026-09-12T04:48:09Z
+$ demos/18-obi/check.sh 3m
+== poc1 ==
+== poc2 ==
+[exit code: 1]
+
+### 2026-09-12T04:49:37Z
+$ sh -c echo "(the first spans appeared ~40 s after the pods were Ready — sock ops attach at +25 s, first print +40 s; an earlier check at +20 s was empty)"; demos/18-obi/check.sh 2m | grep -v "/healthz" | cut -c1-250 | head -40; echo; echo "readiness probes, excluded above: $(demos/18-obi/check.sh 2m | grep -c /healthz) /healthz spans in 2 min (every 2 s per pod — Part 2 filters them)"
+(the first spans appeared ~40 s after the pods were Ready — sock ops attach at +25 s, first print +40 s; an earlier check at +20 s was empty)
+== poc1 ==
+2026-09-12 04:48:33.91244833 (27.477424ms[27.477424ms]) HTTPClient(subType=0) 200 GET /accounts/chk-1001(/accounts/*) [10.10.3.34 as api.bank:52114]->[10.11.12.245 as accounts.bank:80] contentLen:0B responseLen:187B svc=[bank/api go] traceparent=[00-
+2026-09-12 04:48:33.91244833 (29.308911ms[28.952246ms]) HTTP(subType=0) 200 GET /api/balance/chk-1001(/api/balance/{id}) [10.10.3.168 as 10.10.3.168:57592]->[10.10.3.34 as api.bank:8080] contentLen:0B responseLen:0B svc=[bank/api go] traceparent=[00-
+2026-09-12 04:49:23.91244923 (39.357184ms[39.357184ms]) HTTPClient(subType=0) 200 POST /accounts/chk-1001/debit(/accounts/*/debit) [10.10.3.195 as payments.bank:60626]->[10.11.12.245 as accounts.bank:80] contentLen:43B responseLen:192B svc=[bank/paym
+2026-09-12 04:49:23.91244923 (41.443002ms[41.443002ms]) HTTPClient(subType=0) 200 GET /accounts/chk-1001(/accounts/*) [10.10.3.34 as api.bank:56278]->[10.11.12.245 as accounts.bank:80] contentLen:0B responseLen:187B svc=[bank/api go] traceparent=[00-
+2026-09-12 04:49:23.91244923 (42.734415ms[42.586772ms]) HTTP(subType=0) 200 GET /api/balance/chk-1001(/api/balance/{id}) [10.10.3.168 as 10.10.3.168:39368]->[10.10.3.34 as api.bank:8080] contentLen:0B responseLen:0B svc=[bank/api go] traceparent=[00-
+2026-09-12 04:49:23.91244923 (51.211187ms[51.19394ms]) HTTP(subType=0) 201 POST /payments(/payments) [10.10.3.168 as 10.10.3.168:60306]->[10.10.3.195 as payments.bank:8080] contentLen:89B responseLen:0B svc=[bank/payments go] traceparent=[00-b4c5a499
+2026-09-12 04:49:23.91244923 (84.889405ms[84.889405ms]) HTTPClient(subType=0) 201 POST /payments(/payments) [10.10.3.34 as api.bank:35792]->[10.11.166.33 as payments.bank:80] contentLen:89B responseLen:426B svc=[bank/api go] traceparent=[00-b4c5a4998
+2026-09-12 04:49:23.91244923 (87.524365ms[87.500486ms]) HTTP(subType=0) 201 POST /api/pay(/api/pay) [10.10.3.168 as 10.10.3.168:39372]->[10.10.3.34 as api.bank:8080] contentLen:89B responseLen:0B svc=[bank/api go] traceparent=[00-b4c5a4998fbb906e906d
+2026-09-12 04:49:24.91244924 (38.610022ms[38.610022ms]) HTTPClient(subType=0) 200 POST /accounts/chk-1001/debit(/accounts/*/debit) [10.10.3.195 as payments.bank:60642]->[10.11.12.245 as accounts.bank:80] contentLen:42B responseLen:191B svc=[bank/paym
+2026-09-12 04:49:24.91244924 (45.460478ms[45.435322ms]) HTTP(subType=0) 201 POST /payments(/payments) [10.10.3.168 as 10.10.3.168:60320]->[10.10.3.195 as payments.bank:8080] contentLen:88B responseLen:0B svc=[bank/payments go] traceparent=[00-0e7d4c5
+2026-09-12 04:49:25.91244925 (61.491971ms[61.491971ms]) HTTPClient(subType=0) 201 POST /payments(/payments) [10.10.3.34 as api.bank:35804]->[10.11.166.33 as payments.bank:80] contentLen:85B responseLen:417B svc=[bank/api go] traceparent=[00-8626dee26
+2026-09-12 04:49:25.91244925 (63.452227ms[63.430703ms]) HTTP(subType=0) 201 POST /api/pay(/api/pay) [10.10.3.168 as 10.10.3.168:39396]->[10.10.3.34 as api.bank:8080] contentLen:85B responseLen:0B svc=[bank/api go] traceparent=[00-8626dee26d9d5c3d1017
+2026-09-12 04:49:26.91244926 (39.163073ms[39.163073ms]) HTTPClient(subType=0) 200 POST /accounts/chk-1001/debit(/accounts/*/debit) [10.10.3.195 as payments.bank:60644]->[10.11.12.245 as accounts.bank:80] contentLen:42B responseLen:191B svc=[bank/paym
+2026-09-12 04:49:26.91244926 (45.516018ms[45.495635ms]) HTTP(subType=0) 201 POST /payments(/payments) [10.10.3.168 as 10.10.3.168:60360]->[10.10.3.195 as payments.bank:8080] contentLen:88B responseLen:0B svc=[bank/payments go] traceparent=[00-a65014e
+2026-09-12 04:49:27.91244927 (117.077327ms[117.077327ms]) HTTPClient(subType=0) 201 POST /payments(/payments) [10.10.3.34 as api.bank:35812]->[10.11.166.33 as payments.bank:80] contentLen:85B responseLen:419B svc=[bank/api go] traceparent=[00-7b2821c
+2026-09-12 04:49:27.91244927 (120.052788ms[120.02979ms]) HTTP(subType=0) 201 POST /api/pay(/api/pay) [10.10.3.168 as 10.10.3.168:39418]->[10.10.3.34 as api.bank:8080] contentLen:85B responseLen:0B svc=[bank/api go] traceparent=[00-7b2821c8e335476df90
+2026-09-12 04:49:27.91244927 (60.439865ms[60.439865ms]) HTTPClient(subType=0) 200 POST /accounts/chk-1001/debit(/accounts/*/debit) [10.10.3.195 as payments.bank:60658]->[10.11.12.245 as accounts.bank:80] contentLen:40B responseLen:189B svc=[bank/paym
+2026-09-12 04:49:27.91244927 (70.831501ms[70.805991ms]) HTTP(subType=0) 201 POST /payments(/payments) [10.10.3.168 as 10.10.3.168:60374]->[10.10.3.195 as payments.bank:8080] contentLen:85B responseLen:0B svc=[bank/payments go] traceparent=[00-7b2821c
+2026-09-12 04:49:28.91244928 (64.513593ms[64.513593ms]) HTTPClient(subType=0) 201 POST /payments(/payments) [10.10.3.34 as api.bank:35824]->[10.11.166.33 as payments.bank:80] contentLen:87B responseLen:421B svc=[bank/api go] traceparent=[00-04fc2d33e
+2026-09-12 04:49:28.91244928 (66.297754ms[66.268436ms]) HTTP(subType=0) 201 POST /api/pay(/api/pay) [10.10.3.168 as 10.10.3.168:39426]->[10.10.3.34 as api.bank:8080] contentLen:87B responseLen:0B svc=[bank/api go] traceparent=[00-04fc2d33ec0e99f5dd13
+2026-09-12 04:49:30.91244930 (39.67518ms[39.67518ms]) HTTPClient(subType=0) 200 POST /accounts/chk-1001/debit(/accounts/*/debit) [10.10.3.195 as payments.bank:60666]->[10.11.12.245 as accounts.bank:80] contentLen:43B responseLen:192B svc=[bank/paymen
+2026-09-12 04:49:30.91244930 (49.835076ms[49.820568ms]) HTTP(subType=0) 201 POST /payments(/payments) [10.10.3.168 as 10.10.3.168:60410]->[10.10.3.195 as payments.bank:8080] contentLen:90B responseLen:0B svc=[bank/payments go] traceparent=[00-9f499b6
+2026-09-12 04:49:30.91244930 (84.292177ms[84.292177ms]) HTTPClient(subType=0) 201 POST /payments(/payments) [10.10.3.34 as api.bank:35834]->[10.11.166.33 as payments.bank:80] contentLen:90B responseLen:427B svc=[bank/api go] traceparent=[00-9f499b68a
+2026-09-12 04:49:30.91244930 (85.704256ms[85.687894ms]) HTTP(subType=0) 201 POST /api/pay(/api/pay) [10.10.3.168 as 10.10.3.168:39444]->[10.10.3.34 as api.bank:8080] contentLen:90B responseLen:0B svc=[bank/api go] traceparent=[00-9f499b68a8a734aa4f29
+2026-09-12 04:49:31.91244931 (39.179565ms[39.179565ms]) HTTPClient(subType=0) 200 GET /accounts/chk-1001(/accounts/*) [10.10.3.34 as api.bank:46620]->[10.11.12.245 as accounts.bank:80] contentLen:0B responseLen:187B svc=[bank/api go] traceparent=[00-
+2026-09-12 04:49:31.91244931 (42.577031ms[42.337145ms]) HTTP(subType=0) 200 GET /api/balance/chk-1001(/api/balance/{id}) [10.10.3.168 as 10.10.3.168:39418]->[10.10.3.34 as api.bank:8080] contentLen:0B responseLen:0B svc=[bank/api go] traceparent=[00-
+2026-09-12 04:49:31.91244931 (67.603423ms[67.603423ms]) HTTPClient(subType=0) 201 POST /payments(/payments) [10.10.3.34 as api.bank:44866]->[10.11.166.33 as payments.bank:80] contentLen:90B responseLen:425B svc=[bank/api go] traceparent=[00-b5d098b6f
+2026-09-12 04:49:31.91244931 (69.455177ms[69.428459ms]) HTTP(subType=0) 201 POST /api/pay(/api/pay) [10.10.3.168 as 10.10.3.168:39418]->[10.10.3.34 as api.bank:8080] contentLen:90B responseLen:0B svc=[bank/api go] traceparent=[00-b5d098b6f31e1a8c93e7
+2026-09-12 04:48:33.91244833 (38.823181ms[38.823181ms]) HTTPClient(subType=0) 200 GET /accounts/chk-1001(/accounts/*) [10.10.4.37 as api.bank:57158]->[10.11.12.245 as accounts.bank:80] contentLen:0B responseLen:187B svc=[bank/api go] traceparent=[00-
+2026-09-12 04:48:33.91244833 (38.915346ms[38.915346ms]) HTTPClient(subType=0) 200 GET /accounts/chk-1001(/accounts/*) [10.10.4.37 as api.bank:57164]->[10.11.12.245 as accounts.bank:80] contentLen:0B responseLen:187B svc=[bank/api go] traceparent=[00-
+2026-09-12 04:48:33.91244833 (40.756484ms[40.595381ms]) HTTP(subType=0) 200 GET /api/balance/chk-1001(/api/balance/{id}) [10.10.4.35 as 10.10.4.35:55398]->[10.10.4.37 as api.bank:8080] contentLen:0B responseLen:0B svc=[bank/api go] traceparent=[00-9f
+2026-09-12 04:48:33.91244833 (41.184147ms[41.117494ms]) HTTP(subType=0) 200 GET /api/balance/chk-1001(/api/balance/{id}) [10.10.4.35 as 10.10.4.35:38168]->[10.10.4.37 as api.bank:8080] contentLen:0B responseLen:0B svc=[bank/api go] traceparent=[00-79
+2026-09-12 04:49:22.91244922 (35.504007ms[35.504007ms]) HTTPClient(subType=0) 200 GET /accounts/chk-1001(/accounts/*) [10.10.4.37 as api.bank:50978]->[10.11.12.245 as accounts.bank:80] contentLen:0B responseLen:187B svc=[bank/api go] traceparent=[00-
+2026-09-12 04:49:22.91244922 (37.667067ms[37.606318ms]) HTTP(subType=0) 200 GET /api/balance/chk-1001(/api/balance/{id}) [10.10.4.35 as 10.10.4.35:52022]->[10.10.4.37 as api.bank:8080] contentLen:0B responseLen:0B svc=[bank/api go] traceparent=[00-55
+2026-09-12 04:49:23.91244923 (37.626168ms[37.626168ms]) HTTPClient(subType=0) 200 POST /accounts/chk-1001/credit(/accounts/*/credit) [10.10.4.37 as api.bank:50988]->[10.11.12.245 as accounts.bank:80] contentLen:37B responseLen:187B svc=[bank/api go] 
+2026-09-12 04:49:23.91244923 (39.370683ms[39.351232ms]) HTTP(subType=0) 200 POST /api/credit/chk-1001(/api/credit/{id}) [10.10.4.35 as 10.10.4.35:52022]->[10.10.4.37 as api.bank:8080] contentLen:21B responseLen:0B svc=[bank/api go] traceparent=[00-c2
+2026-09-12 04:49:24.91244924 (66.961457ms[66.961457ms]) HTTPClient(subType=0) 201 POST /payments(/payments) [10.10.4.37 as api.bank:56262]->[10.11.166.33 as payments.bank:80] contentLen:89B responseLen:425B svc=[bank/api go] traceparent=[00-0248b6bb6
+2026-09-12 04:49:24.91244924 (68.301113ms[68.280637ms]) HTTP(subType=0) 201 POST /api/pay(/api/pay) [10.10.4.35 as 10.10.4.35:52026]->[10.10.4.37 as api.bank:8080] contentLen:89B responseLen:0B svc=[bank/api go] traceparent=[00-0248b6bb6aaa126e167d58
+2026-09-12 04:49:24.91244924 (81.297218ms[81.297218ms]) HTTPClient(subType=0) 201 POST /payments(/payments) [10.10.4.37 as api.bank:56278]->[10.11.166.33 as payments.bank:80] contentLen:88B responseLen:424B svc=[bank/api go] traceparent=[00-0e7d4c567
+
+readiness probes, excluded above: 350 /healthz spans in 2 min (every 2 s per pod — Part 2 filters them)
+
+### 2026-09-12T04:49:40Z
+$ sh -c echo "== cross-cluster context propagation: api (poc1) -> accounts (poc2) =="; P1=$(kubectl --context kind-poc1 -n obi get pods -o name | cut -d/ -f2); P2=$(kubectl --context kind-poc2 -n obi get pods -o name | cut -d/ -f2 | head -1); for p in $P1; do kubectl --context kind-poc1 -n obi logs $p --since=3m 2>/dev/null; done | grep "HTTPClient" | grep "accounts.bank" | tail -3 | sed "s/.*(\/accounts\/\*)/  poc1 api client span -> accounts.bank/; s/contentLen.*traceparent=\[/  traceparent=[/" | cut -c1-200; echo; for p in $P1; do kubectl --context kind-poc1 -n obi logs $p --since=3m 2>/dev/null; done | grep "HTTPClient" | grep "accounts.bank" | tail -3 | grep -o "traceparent=\[00-[0-9a-f]*" | cut -c17- | while read tid; do n=$(kubectl --context kind-poc2 -n obi logs $P2 --since=3m 2>/dev/null | grep -c "$tid"); line=$(kubectl --context kind-poc2 -n obi logs $P2 --since=3m 2>/dev/null | grep "$tid" | head -1 | sed "s/contentLen.*svc=/svc=/" | cut -c1-170); echo "  trace $tid seen in poc2 (accounts): $n span(s)  $line"; done
+== cross-cluster context propagation: api (poc1) -> accounts (poc2) ==
+  poc1 api client span -> accounts.bank [10.10.4.37 as api.bank:57480]->[10.11.12.245 as accounts.bank:80]   traceparent=[00-7ac987173ed7a70c51089a0e5a5f051a-9c9a33ea4def8555[6ef8c66b72afaddf]-01]
+  poc1 api client span -> accounts.bank [10.10.4.37 as api.bank:57496]->[10.11.12.245 as accounts.bank:80]   traceparent=[00-71f8866da24572a5dfc98f4e25acb97d-abd864101ee4d420[61d0f8f902f8af10]-01]
+  poc1 api client span -> accounts.bank [10.10.4.37 as api.bank:57512]->[10.11.12.245 as accounts.bank:80]   traceparent=[00-c25462ba63e35a5c3aff331f716145ef-d24ec566822965e9[851fc77442d0c2de]-01]
+
+  trace 7ac987173ed7a70c51089a0e5a5f051a seen in poc2 (accounts): 2 span(s)  2026-09-12 04:49:31.91244931 (554.081µs[554.081µs]) SQLClient(subType=1) 0 SELECT accounts [10.20.1.172 as accounts.bank:43274]->[10.21.184.24 as postgres-primary.bank:54
+  trace 71f8866da24572a5dfc98f4e25acb97d seen in poc2 (accounts): 2 span(s)  2026-09-12 04:49:31.91244931 (881.298µs[881.298µs]) SQLClient(subType=1) 0 SELECT accounts [10.20.1.172 as accounts.bank:43274]->[10.21.184.24 as postgres-primary.bank:54
+  trace c25462ba63e35a5c3aff331f716145ef seen in poc2 (accounts): 2 span(s)  2026-09-12 04:49:31.91244931 (631.75µs[631.75µs]) SQLClient(subType=1) 0 SELECT accounts [10.20.1.172 as accounts.bank:43274]->[10.21.184.24 as postgres-primary.bank:5432
+
+### 2026-09-12T04:49:43Z
+$ sh -c echo "== one full trace, both clusters, by trace id =="; P1=$(kubectl --context kind-poc1 -n obi get pods -o name | cut -d/ -f2); P2=$(kubectl --context kind-poc2 -n obi get pods -o name | cut -d/ -f2 | head -1); TID=$(for p in $P1; do kubectl --context kind-poc1 -n obi logs $p --since=3m 2>/dev/null; done | grep "POST /api/pay" | tail -1 | grep -o "traceparent=\[00-[0-9a-f]*" | cut -c17-); echo "  trace id: $TID"; { for p in $P1; do kubectl --context kind-poc1 -n obi logs $p --since=3m 2>/dev/null | grep "$TID" | sed "s/^/  poc1  /"; done; kubectl --context kind-poc2 -n obi logs $P2 --since=3m 2>/dev/null | grep "$TID" | sed "s/^/  poc2  /"; } | sed -E "s/ contentLen:[^ ]+ responseLen:[^ ]+//; s/traceparent=\[00-[0-9a-f]+-([0-9a-f]+)-01\]/span=\1/; s/\[[0-9.]+ as ([^]]+)\]->\[[0-9.]+ as ([^]]+)\]/\1 -> \2/" | cut -c1-200
+== one full trace, both clusters, by trace id ==
+  trace id: 49c1cd44bdfe29a3179e03c037477809
+  poc1  2026-09-12 04:49:31.91244931 (51.515118ms[51.515118ms]) HTTPClient(subType=0) 200 POST /payments(/payments) api.bank:59300 -> payments.bank:80 svc=[bank/api go] traceparent=[00-49c1cd44bdfe29a
+  poc1  2026-09-12 04:49:31.91244931 (54.755767ms[54.735472ms]) HTTP(subType=0) 200 POST /api/pay(/api/pay) 10.10.4.35:47276 -> api.bank:8080 svc=[bank/api go] traceparent=[00-49c1cd44bdfe29a3179e03c0
+  poc2  2026-09-12 04:49:31.91244931 (3.353955ms[3.353955ms]) RedisClient(subType=0) 0 set set pay:ex-35724-dup-15563 pending ex 86400 nx payments.bank:0 -> redis.bank:6379 svc=[bank/payments go] trac
+  poc2  2026-09-12 04:49:31.91244931 (1.319516ms[1.319516ms]) RedisClient(subType=0) 0 get get pay:ex-35724-dup-15563 payments.bank:0 -> redis.bank:6379 svc=[bank/payments go] traceparent=[00-49c1cd44
+  poc2  2026-09-12 04:49:31.91244931 (8.092669ms[8.069958ms]) HTTP(subType=0) 200 POST /payments(/payments) 10.10.4.37:59300 -> payments.bank:8080 svc=[bank/payments go] traceparent=[00-49c1cd44bdfe29
+
+
+### 2026-09-12T04:51:54Z
+$ [PART 2 — spans to the demo 10 collector over OTLP through a GLOBAL Service, probes filtered, cluster name, RED metrics into the demo 16 stack]
+
+### 2026-09-12T04:51:55Z
+$ sh -c kubectl --context kind-poc1 apply -f demos/10-tracing/otel-collector.yaml | grep -v unchanged; kubectl --context kind-poc1 -n otel rollout restart ds/otel-collector >/dev/null; kubectl --context kind-poc1 -n otel rollout status ds/otel-collector --timeout=3m | tail -1
+configmap/otel-collector configured
+daemon set "otel-collector" successfully rolled out
+
+### 2026-09-12T04:52:20Z
+$ sh -c for c in poc1 poc2; do echo "-- $c --"; kubectl --context kind-$c apply -f demos/18-obi/20-collector-service.yaml; done; sleep 4; for c in poc1 poc2; do kubectl --context kind-$c -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | grep -A3 "otel-collector\|:4318" | grep -E "ClusterIP|=>" | head -4 | sed "s/^/  $c  /"; done
+-- poc1 --
+namespace/otel unchanged
+service/otel-collector created
+-- poc2 --
+namespace/otel created
+service/otel-collector created
+  poc1  70   10.11.115.140:4318/TCP    ClusterIP      1 => 10.10.0.32:4318/TCP (active)     
+  poc1                                                2 => 10.10.1.195:4318/TCP (active)    
+  poc1                                                3 => 10.10.2.3:4318/TCP (active)      
+  poc1                                                4 => 10.10.3.191:4318/TCP (active)    
+  poc2  25   10.21.35.73:4318/TCP     ClusterIP      1 => 10.10.0.32:4318/TCP (active)    
+  poc2                                               2 => 10.10.1.195:4318/TCP (active)   
+  poc2                                               3 => 10.10.2.3:4318/TCP (active)     
+  poc2                                               4 => 10.10.3.191:4318/TCP (active)   
+
+### 2026-09-12T04:52:35Z
+$ demos/18-obi/deploy.sh poc1
+namespace/obi unchanged
+serviceaccount/obi unchanged
+clusterrole.rbac.authorization.k8s.io/obi unchanged
+clusterrolebinding.rbac.authorization.k8s.io/obi unchanged
+configmap/obi-config configured
+daemonset.apps/obi configured
+podmonitor.monitoring.coreos.com/obi created
+Waiting for daemon set "obi" rollout to finish: 0 out of 2 new pods have been updated...
+Waiting for daemon set "obi" rollout to finish: 1 out of 2 new pods have been updated...
+Waiting for daemon set "obi" rollout to finish: 1 out of 2 new pods have been updated...
+Waiting for daemon set "obi" rollout to finish: 1 out of 2 new pods have been updated...
+Waiting for daemon set "obi" rollout to finish: 1 of 2 updated pods are available...
+daemon set "obi" successfully rolled out
+
+### 2026-09-12T04:52:58Z
+$ demos/18-obi/deploy.sh poc2
+namespace/obi unchanged
+serviceaccount/obi unchanged
+clusterrole.rbac.authorization.k8s.io/obi unchanged
+clusterrolebinding.rbac.authorization.k8s.io/obi unchanged
+configmap/obi-config configured
+daemonset.apps/obi configured
+error: resource mapping not found for name: "obi" namespace: "obi" from "STDIN": no matches for kind "PodMonitor" in version "monitoring.coreos.com/v1"
+ensure CRDs are installed first
+[exit code: 1]
+
+### 2026-09-12T04:54:20Z
+$ sh -c echo "== OBI: export errors? cluster name? =="; for c in poc1 poc2; do for p in $(kubectl --context kind-$c -n obi get pods -o name | cut -d/ -f2); do echo "  $c/$p: level=ERROR lines: $(kubectl --context kind-$c -n obi logs $p 2>/dev/null | grep -c "level=ERROR")  export/otlp warnings: $(kubectl --context kind-$c -n obi logs $p 2>/dev/null | grep -ci "otlp\|export" )  /healthz spans since restart: $(kubectl --context kind-$c -n obi logs $p 2>/dev/null | grep -c /healthz)"; done; done; kubectl --context kind-poc2 -n obi logs $(kubectl --context kind-poc2 -n obi get pods -o name | cut -d/ -f2 | head -1) 2>/dev/null | grep -i "otlp\|export\|cluster" | grep "level=" | head -3 | cut -c1-200
+== OBI: export errors? cluster name? ==
+  poc1/obi-cpqww: level=ERROR lines: 0  export/otlp warnings: 0  /healthz spans since restart: 72
+  poc1/obi-d22v5: level=ERROR lines: 0  export/otlp warnings: 0  /healthz spans since restart: 58
+  poc2/obi-5tz8t: level=ERROR lines: 0  export/otlp warnings: 0  /healthz spans since restart: 54
+
+### 2026-09-12T04:54:23Z
+$ sh -c echo "== the collector (poc1), spans received over OTLP — by cluster and service, last 3 min =="; for p in $(kubectl --context kind-poc1 -n otel get pods -o name | cut -d/ -f2); do kubectl --context kind-poc1 -n otel logs $p --since=3m 2>/dev/null; done > .tmp/otel-traces.log; echo "  ResourceSpans blocks: $(grep -c "^ResourceSpans" .tmp/otel-traces.log)   spans: $(grep -c "^Span #" .tmp/otel-traces.log)"; echo "  by k8s.cluster.name:"; grep "k8s.cluster.name" .tmp/otel-traces.log | sort | uniq -c | sed "s/^/    /"; echo "  by service.name:"; grep "service.name:" .tmp/otel-traces.log | sort | uniq -c | sed "s/^/    /"; echo "  span names (top):"; grep -A1 "^Span #" .tmp/otel-traces.log | grep "Name" | sort | uniq -c | sort -rn | head -8 | sed "s/^/    /"
+== the collector (poc1), spans received over OTLP — by cluster and service, last 3 min ==
+  ResourceSpans blocks: 25   spans: 257
+  by k8s.cluster.name:
+      14      -> k8s.cluster.name: Str(poc1)
+      14      -> k8s.cluster.name: Str(poc2)
+  by service.name:
+       9      -> service.name: Str(accounts)
+      10      -> service.name: Str(api)
+    1165      -> service.name: Str(hubble-flow-export)
+       9      -> service.name: Str(payments)
+  span names (top):
+
+### 2026-09-12T04:54:32Z
+$ sh -c echo "== one trace in the collector, spans from BOTH clusters =="; TID=$(grep -B2 -A12 "^Span #" .tmp/otel-traces.log | grep -A12 "Name           : POST /api/pay" | grep "Trace ID" | head -1 | awk "{print \$4}"); echo "  trace $TID"; grep -B0 -A14 "Trace ID       : $TID" .tmp/otel-traces.log | grep -E "Name  |Kind|Parent ID|k8s.cluster.name|k8s.deployment.name|server.address|db.query.text|db.system" | sed "s/^ *//; s/^/    /" | head -40
+== one trace in the collector, spans from BOTH clusters ==
+  trace 
+    Parent ID      : 
+    Name           : SELECT accounts
+    Kind           : Client
+    -> server.address: Str(postgres-primary)
+    Parent ID      : b47ec07054a33b03
+    Name           : in queue
+    Kind           : Internal
+    Parent ID      : b47ec07054a33b03
+    Name           : processing
+    Kind           : Internal
+    Parent ID      : 893f7db13fd482a6
+    Name           : GET /accounts/{id}
+    Kind           : Server
+    Parent ID      : 
+    Name           : SELECT accounts
+    Kind           : Client
+    -> server.address: Str(postgres-primary)
+    Parent ID      : 8fa642022da26a94
+    Name           : in queue
+    Kind           : Internal
+    Parent ID      : 8fa642022da26a94
+    Name           : processing
+    Kind           : Internal
+    Parent ID      : f69d7a1cd97ff7a6
+    Name           : GET /accounts/{id}
+    Kind           : Server
+    Parent ID      : 
+    Name           : UPDATE accounts
+    Kind           : Client
+    -> server.address: Str(postgres-primary)
+    Parent ID      : 44dfe9281c4cbb96
+    Name           : in queue
+    Kind           : Internal
+    Parent ID      : 44dfe9281c4cbb96
+    Name           : processing
+    Kind           : Internal
+    Parent ID      : 3ded7c7a072254ef
+    Name           : POST /accounts/{id}/credit
+    Kind           : Server
+    Parent ID      : 
+
+### 2026-09-12T04:55:37Z
+$ sh -c echo "(PodMonitor split out of 10-obi.yaml into 30-podmonitor.yaml; deploy.sh applies it only where the CRDs exist)"; sed s/__CLUSTER__/poc1/ demos/18-obi/30-podmonitor.yaml | kubectl --context kind-poc1 apply -f -; demos/18-obi/deploy.sh poc2 2>&1 | tail -2
+(PodMonitor split out of 10-obi.yaml into 30-podmonitor.yaml; deploy.sh applies it only where the CRDs exist)
+podmonitor.monitoring.coreos.com/obi unchanged
+daemon set "obi" successfully rolled out
+(no monitoring.coreos.com CRDs in poc2: PodMonitor skipped — OBI metrics stay unscraped here)
+
+### 2026-09-12T04:55:53Z
+$ sh -c echo "== did ignored_patterns drop /healthz from the EXPORT? (the printer still shows them) =="; echo "  /healthz spans in the collector, last 3 min: $(grep -c "/healthz" .tmp/otel-traces.log)   all spans: $(grep -c "^Span #" .tmp/otel-traces.log)"; echo "  span names in the collector:"; grep "^    Name  " .tmp/otel-traces.log | sed "s/.*: //" | sort | uniq -c | sort -rn | head -12 | sed "s/^/    /"
+== did ignored_patterns drop /healthz from the EXPORT? (the printer still shows them) ==
+  /healthz spans in the collector, last 3 min: 412   all spans: 257
+  span names in the collector:
+      53 processing
+      53 in queue
+      24 POST /payments
+      23 set
+      12 UPDATE accounts
+      12 POST /api/pay
+      11 POST /accounts/*/debit
+      11 POST /accounts/{id}/debit
+      11 ltrim
+      11 lpush
+       8 SELECT accounts
+       8 GET /api/balance/{id}
+
+### 2026-09-12T04:55:54Z
+$ sh -c echo "== one distributed trace, as a tree, from the collector (demos/18-obi/tracetree.py) =="; python3 demos/18-obi/tracetree.py < .tmp/otel-traces.log
+== one distributed trace, as a tree, from the collector (demos/18-obi/tracetree.py) ==
+trace a963574176f9e85f7331942f5fd12d6f: 16 spans, clusters ['poc1', 'poc2']
+POST /api/pay  [Server]  poc1/api  94.4 ms  api
+  in queue  [Internal]  poc1/api  0.2 ms  
+  processing  [Internal]  poc1/api  94.2 ms  
+    POST /payments  [Client]  poc1/api  92.6 ms  payments.bank.svc.cluster.local
+      POST /payments  [Server]  poc1/payments  47.1 ms  payments
+        in queue  [Internal]  poc1/payments  0.0 ms  
+        processing  [Internal]  poc1/payments  47.1 ms  
+          set  [Client]  poc1/payments  1.6 ms  redis
+          POST /accounts/*/debit  [Client]  poc1/payments  39.1 ms  accounts.bank.svc.cluster.local
+            POST /accounts/{id}/debit  [Server]  poc2/accounts  6.7 ms  accounts
+              in queue  [Internal]  poc2/accounts  0.0 ms  
+              processing  [Internal]  poc2/accounts  6.7 ms  
+          set  [Client]  poc1/payments  0.8 ms  redis
+          lpush  [Client]  poc1/payments  0.9 ms  redis
+          ltrim  [Client]  poc1/payments  1.8 ms  redis
+UPDATE accounts  [Client]  poc2/accounts  2.8 ms  postgres-primary
+
+### 2026-09-12T04:56:25Z
+$ sh -c echo "== Prometheus (demo 16) scrapes OBI: targets and RED metrics =="; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/targets?state=active" | python3 -c "import json,sys; ts=[t for t in json.load(sys.stdin)[\"data\"][\"activeTargets\"] if \"obi\" in t[\"scrapePool\"]]; [print(\"  %s %s %s\" % (t[\"scrapePool\"], t[\"scrapeUrl\"], t[\"health\"])) for t in ts]"; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (service_name, http_route, http_response_status_code) (increase(http_server_request_duration_seconds_count{cluster=\"poc1\"}[5m]))" service_name,http_route,http_response_status_code; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "histogram_quantile(0.95, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket[5m]))) * 1000" service_name; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (service_name, db_system_name, db_operation_name) (increase(db_client_operation_duration_seconds_count[5m]))" service_name,db_system_name,db_operation_name
+== Prometheus (demo 16) scrapes OBI: targets and RED metrics ==
+  podMonitor/obi/obi/0 http://172.18.0.5:9464/metrics up
+  podMonitor/obi/obi/0 http://172.18.0.4:9464/metrics up
+  sum by (service_name, http_route, http_response_status_code) (increase(http_server_request_duration_seconds_count{cluster="poc1"}[5m]))
+         7.525  service_name=- http_route=/api/pay http_response_status_code=201
+         5.374  service_name=- http_route=/payments http_response_status_code=201
+         3.224  service_name=- http_route=/api/balance/{id} http_response_status_code=200
+             0  service_name=- http_route=/api/credit/{id} http_response_status_code=200
+             0  service_name=- http_route=/api/pay http_response_status_code=200
+  histogram_quantile(0.95, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket[5m]))) * 1000
+         212.9  service_name=-
+  sum by (service_name, db_system_name, db_operation_name) (increase(db_client_operation_duration_seconds_count[5m]))
+         10.81  service_name=- db_system_name=redis db_operation_name=set
+         5.404  service_name=- db_system_name=redis db_operation_name=lpush
+         5.404  service_name=- db_system_name=redis db_operation_name=ltrim
+
+### 2026-09-12T04:56:27Z
+$ sh -c echo "== Hubble exemplars (demo 16 Part 8 needed a hand-made traceparent): now OBI injects one on every request =="; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query_exemplars?query=hubble_http_request_duration_seconds_bucket%7Bdestination_namespace%3D%22bank%22%7D&start=$(( $(date +%s) - 600 ))&end=$(date +%s)" | python3 -c "import json,sys; d=json.load(sys.stdin)[\"data\"]; n=sum(len(x[\"exemplars\"]) for x in d); print(\"  exemplars on bank latency buckets, last 10 min:\", n); ex=[e for x in d for e in x[\"exemplars\"]]; print(\"  sample traceIDs:\", sorted(set(e[\"labels\"][\"traceID\"] for e in ex))[:3])"
+== Hubble exemplars (demo 16 Part 8 needed a hand-made traceparent): now OBI injects one on every request ==
+  exemplars on bank latency buckets, last 10 min: 7
+  sample traceIDs: ['3d4dee671b9c5e51547d9982a4b59c3d', '9f499b68a8a734aa4f29436ead105552', 'a65014e7788bdd4027ce18570884854e']
+
+### 2026-09-12T04:57:11Z
+$ sh -c echo "== re-measured on a clean window (collector logs, last 90 s, all OBI pods restarted with ignored_patterns) =="; for p in $(kubectl --context kind-poc1 -n otel get pods -o name | cut -d/ -f2); do kubectl --context kind-poc1 -n otel logs $p --since=90s 2>/dev/null; done > .tmp/otel-traces2.log; echo "  spans: $(grep -c "^Span #" .tmp/otel-traces2.log)   spans named GET /healthz: $(grep -c "Name           : GET /healthz" .tmp/otel-traces2.log)   (printer on the OBI pods in the same window: $(demos/18-obi/check.sh 90s 2>/dev/null | wc -l | tr -d " ") non-probe lines, $(for c in poc1 poc2; do for p in $(kubectl --context kind-$c -n obi get pods -o name | cut -d/ -f2); do kubectl --context kind-$c -n obi logs $p --since=90s 2>/dev/null; done; done | grep -c /healthz) probe lines)"; echo "  ⇒ ignore_mode: all filters the EXPORT (traces+metrics); trace_printer still prints every request it sees"
+== re-measured on a clean window (collector logs, last 90 s, all OBI pods restarted with ignored_patterns) ==
+  spans: 0   spans named GET /healthz: 0   (printer on the OBI pods in the same window: 17 non-probe lines, 305 probe lines)
+  ⇒ ignore_mode: all filters the EXPORT (traces+metrics); trace_printer still prints every request it sees
+
+### 2026-09-12T04:57:19Z
+$ sh -c echo "== the labels OBI puts on its Prometheus metrics (one raw series) =="; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=http_server_request_duration_seconds_count%7Bhttp_route%3D%22%2Fapi%2Fpay%22%7D" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; m=r[0][\"metric\"] if r else {}; [print(\"  %-30s %s\" % (k,v)) for k,v in sorted(m.items()) if k not in (\"container\",\"endpoint\",\"pod\")]"; echo "  target_info (resource attributes) for one OBI target:"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=target_info%7Bjob%3D%22obi%2Fobi%22%7D" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; [print(\"   \", {k:v for k,v in x[\"metric\"].items() if k in (\"service_name\",\"service_namespace\",\"k8s_cluster_name\",\"k8s_deployment_name\",\"instance\",\"job\")}) for x in r[:4]]"
+== the labels OBI puts on its Prometheus metrics (one raw series) ==
+  __name__                       http_server_request_duration_seconds_count
+  cluster                        poc1
+  exported_instance              bank.api-5d6d8cfd55-d4llf.api
+  exported_job                   bank/api
+  http_request_method            POST
+  http_response_status_code      201
+  http_route                     /api/pay
+  instance                       172.18.0.5:9464
+  job                            obi/obi
+  k8s_cluster_name               poc1
+  k8s_container_name             api
+  k8s_deployment_name            api
+  k8s_kind                       Deployment
+  k8s_namespace_name             bank
+  k8s_node_name                  poc1-worker
+  k8s_owner_name                 api
+  k8s_pod_name                   api-5d6d8cfd55-d4llf
+  k8s_pod_start_time             2026-09-12 02:45:24 +0000 UTC
+  k8s_pod_uid                    f06f3729-4f3f-473f-b79f-c697888ac8d6
+  k8s_replicaset_name            api-5d6d8cfd55
+  namespace                      obi
+  node                           poc1-worker
+  server_address                 api
+  server_port                    8080
+  url_scheme                     http
+  target_info (resource attributes) for one OBI target:
+    {'instance': '172.18.0.5:9464', 'job': 'obi/obi', 'k8s_cluster_name': 'poc1', 'k8s_deployment_name': 'api', 'service_name': 'api', 'service_namespace': 'bank'}
+    {'instance': '172.18.0.5:9464', 'job': 'obi/obi', 'k8s_cluster_name': 'poc1', 'k8s_deployment_name': 'web', 'service_name': 'web', 'service_namespace': 'bank'}
+    {'instance': '172.18.0.4:9464', 'job': 'obi/obi', 'k8s_cluster_name': 'poc1', 'k8s_deployment_name': 'api', 'service_name': 'api', 'service_namespace': 'bank'}
+    {'instance': '172.18.0.4:9464', 'job': 'obi/obi', 'k8s_cluster_name': 'poc1', 'k8s_deployment_name': 'payments', 'service_name': 'payments', 'service_namespace': 'bank'}
+
+### 2026-09-12T04:57:19Z
+$ sh -c echo "== Hubble exemplar ↔ OBI trace: the same id in both places =="; for tid in 9f499b68a8a734aa4f29436ead105552 3d4dee671b9c5e51547d9982a4b59c3d; do n=$(for c in poc1 poc2; do for p in $(kubectl --context kind-$c -n obi get pods -o name | cut -d/ -f2); do kubectl --context kind-$c -n obi logs $p 2>/dev/null; done; done | grep -c "$tid"); echo "  exemplar traceID $tid: $n OBI span line(s) carry it"; done
+== Hubble exemplar ↔ OBI trace: the same id in both places ==
+  exemplar traceID 9f499b68a8a734aa4f29436ead105552: 0 OBI span line(s) carry it
+  exemplar traceID 3d4dee671b9c5e51547d9982a4b59c3d: 8 OBI span line(s) carry it
+
+### 2026-09-12T04:58:48Z
+$ sh -c echo "== export latency: 8 payments at $(date -u -v-60S +%T), collector spans by arrival (last 2 min, per 15 s) =="; for p in $(kubectl --context kind-poc1 -n otel get pods -o name | cut -d/ -f2); do kubectl --context kind-poc1 -n otel logs $p --since=2m --timestamps 2>/dev/null; done | grep "^.*Span #" | cut -c12-19 | awk "{s=substr(\$1,1,7); c[s]++} END {for (k in c) print \"  \" k \"x  \" c[k] \" spans\"}" | sort; echo "  by cluster in the window:"; for p in $(kubectl --context kind-poc1 -n otel get pods -o name | cut -d/ -f2); do kubectl --context kind-poc1 -n otel logs $p --since=2m 2>/dev/null; done | grep "k8s.cluster.name" | sort | uniq -c | sed "s/^/  /"
+== export latency: 8 payments at 04:57:48, collector spans by arrival (last 2 min, per 15 s) ==
+  04:58:1x  169 spans
+  by cluster in the window:
+
+### 2026-09-12T04:59:02Z
+$ sh -c echo "== RED metrics from OBI in the demo 16 Prometheus, grouped by the labels OBI exports (k8s_deployment_name; service.name is in target_info) =="; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (cluster, k8s_deployment_name, http_route, http_response_status_code) (increase(http_server_request_duration_seconds_count[5m]) > 0)" cluster,k8s_deployment_name,http_route,http_response_status_code; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "histogram_quantile(0.95, sum by (le, k8s_deployment_name) (rate(http_server_request_duration_seconds_bucket[5m]))) * 1000" k8s_deployment_name; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (k8s_deployment_name, db_system_name, db_operation_name) (increase(db_client_operation_duration_seconds_count[5m]) > 0)" k8s_deployment_name,db_system_name,db_operation_name; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (k8s_deployment_name, server_address, http_response_status_code) (increase(http_client_request_duration_seconds_count[5m]) > 0)" k8s_deployment_name,server_address,http_response_status_code
+== RED metrics from OBI in the demo 16 Prometheus, grouped by the labels OBI exports (k8s_deployment_name; service.name is in target_info) ==
+  sum by (cluster, k8s_deployment_name, http_route, http_response_status_code) (increase(http_server_request_duration_seconds_count[5m]) > 0)
+         10.34  cluster=poc1 k8s_deployment_name=api http_route=/api/balance/{id} http_response_status_code=200
+          9.31  cluster=poc1 k8s_deployment_name=api http_route=/api/pay http_response_status_code=201
+         6.207  cluster=poc1 k8s_deployment_name=payments http_route=/payments http_response_status_code=201
+         1.034  cluster=poc1 k8s_deployment_name=api http_route=/api/credit/{id} http_response_status_code=200
+  histogram_quantile(0.95, sum by (le, k8s_deployment_name) (rate(http_server_request_duration_seconds_bucket[5m]))) * 1000
+           176  k8s_deployment_name=api
+         71.25  k8s_deployment_name=payments
+  sum by (k8s_deployment_name, db_system_name, db_operation_name) (increase(db_client_operation_duration_seconds_count[5m]) > 0)
+         12.41  k8s_deployment_name=payments db_system_name=redis db_operation_name=set
+         6.207  k8s_deployment_name=payments db_system_name=redis db_operation_name=lpush
+         6.207  k8s_deployment_name=payments db_system_name=redis db_operation_name=ltrim
+  sum by (k8s_deployment_name, server_address, http_response_status_code) (increase(http_client_request_duration_seconds_count[5m]) > 0)
+         11.38  k8s_deployment_name=api server_address=accounts.bank.svc.cluster.local http_response_status_code=200
+          9.31  k8s_deployment_name=api server_address=payments.bank.svc.cluster.local http_response_status_code=201
+         6.207  k8s_deployment_name=payments server_address=accounts.bank.svc.cluster.local http_response_status_code=200
+

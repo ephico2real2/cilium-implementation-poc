@@ -223,3 +223,9 @@ GOTCHAS #35 and #36 and recorded in `output/transcript.txt`:
   relay (`cilium hubble port-forward`, then `hubble observe`) — 418 HTTP flows in 10 min.
 - And on the laptop itself, `hubble observe` with no port-forward at all is `connection refused` on
   `127.0.0.1:4245` — gotcha #37; `hubble observe -P --since 5m --protocol http` is the one-liner.
+
+> **Added in demo 18.** The collector now also has an `otlp` receiver (4317/4318) and a `traces`
+> pipeline to the same `debug` exporter, and is exposed as a global Service
+> (`demos/18-obi/20-collector-service.yaml`) so OBI in both clusters sends its spans here. The
+> logs pipeline and everything above are unchanged.
+

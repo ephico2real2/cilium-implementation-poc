@@ -57,6 +57,12 @@ data:
           - type: move
             from: attributes.node_name
             to: attributes["k8s.node.name"]
+      # Added in demo 18: OBI (eBPF instrumentation) on both clusters sends its spans here over OTLP.
+      # poc2 reaches this collector through the global Service in demos/18-obi/20-collector-service.yaml.
+      otlp:
+        protocols:
+          grpc: {endpoint: 0.0.0.0:4317}
+          http: {endpoint: 0.0.0.0:4318}
     extensions:
       file_storage:
         directory: /var/lib/otelcol
@@ -78,6 +84,12 @@ data:
         logs:
           receivers: [filelog]
           processors: [resource, batch]
+          exporters: [debug]
+        # Added in demo 18. No `resource` processor here: it would overwrite OBI's service.name
+        # (bank/web, bank/api, …) with hubble-flow-export.
+        traces:
+          receivers: [otlp]
+          processors: [batch]
           exporters: [debug]
 ---
 apiVersion: apps/v1
