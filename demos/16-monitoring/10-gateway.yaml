@@ -1,0 +1,18 @@
+# Grafana on the demo 09 Gateway as https://grafana.poc.local (the wildcard certificate covers it).
+# The route lives in `routes` (with the Gateway); the ReferenceGrant is monitoring's consent (gotcha #32).
+#   kubectl --context kind-poc1 apply -f demos/16-monitoring/10-gateway.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: grafana, namespace: routes}
+spec:
+  parentRefs: [{name: routes-gw}]
+  hostnames: ["grafana.poc.local"]
+  rules:
+    - backendRefs: [{name: monitoring-grafana, namespace: monitoring, port: 80}]
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata: {name: allow-routes-to-grafana, namespace: monitoring}
+spec:
+  from: [{group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: routes}]
+  to: [{group: "", kind: Service, name: monitoring-grafana}]

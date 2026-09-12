@@ -1,0 +1,37 @@
+# kube-prometheus-stack for poc1 — demo 16, Section A. Every value here is a deliberate deviation
+# from the chart default, with the reason; everything else is the chart's default.
+#
+#   helm install monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 \
+#     -n monitoring --create-namespace --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml
+
+prometheus:
+  prometheusSpec:
+    # The chart's default makes Prometheus pick up ONLY ServiceMonitors/PodMonitors carrying the
+    # release's own label. Cilium's ServiceMonitors (Section B) are created by the Cilium chart in
+    # kube-system without that label, so: select every ServiceMonitor/PodMonitor in the cluster.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    retention: 2d                      # a laptop lab; the default 10d fills the node-local volume for nothing
+    resources: {requests: {cpu: 100m, memory: 512Mi}, limits: {memory: 1Gi}}
+    # Cilium's Hubble httpV2 metrics carry OpenMetrics exemplars (trace links on histogram buckets);
+    # Prometheus stores them only with this on. Harmless without a tracing backend.
+    enableFeatures: [exemplar-storage]
+
+grafana:
+  adminPassword: poc-grafana         # a lab; change it the moment this leaves the laptop
+  grafana.ini:
+    server:
+      root_url: https://grafana.poc.local   # so links Grafana renders point at the Gateway name, not localhost
+  sidecar:
+    dashboards:
+      enabled: true                  # the sidecar loads any ConfigMap labelled grafana_dashboard=1 from ANY
+      searchNamespace: ALL           # namespace — that is how Cilium's dashboards (Section B) appear without copying files
+
+# kind runs these control-plane components bound to 127.0.0.1 on the control-plane nodes, so the
+# stack's scrapes for them can never reach them and would sit red on the Targets page for the whole
+# demo. Off, with the reason, rather than three permanent "down" targets to explain away.
+kubeControllerManager: {enabled: false}
+kubeScheduler: {enabled: false}
+kubeEtcd: {enabled: false}
+# poc1 has NO kube-proxy (demo 03) — there is nothing to scrape.
+kubeProxy: {enabled: false}

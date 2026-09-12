@@ -1,0 +1,153 @@
+### 2026-09-12T02:50:59Z
+$ [SECTION A — kube-prometheus-stack 90.1.1 (operator v0.93.1) on poc1, namespace monitoring]
+
+### 2026-09-12T02:50:59Z
+$ sh -c helm install monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --create-namespace --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml --wait --timeout 10m 2>&1 | grep -E "^NAME|^STATUS|^NOTES|Error" | head -4
+NAME: monitoring
+NAMESPACE: monitoring
+STATUS: deployed
+NOTES:
+
+### 2026-09-12T02:53:12Z
+$ kubectl --context kind-poc1 -n monitoring get pods -o wide
+NAME                                                     READY   STATUS    RESTARTS   AGE    IP            NODE                  NOMINATED NODE   READINESS GATES
+alertmanager-monitoring-kube-prometheus-alertmanager-0   2/2     Running   0          101s   10.10.3.207   poc1-worker2          <none>           <none>
+monitoring-grafana-b9bbf985-xlcn6                        3/3     Running   0          110s   10.10.4.40    poc1-worker           <none>           <none>
+monitoring-kube-prometheus-operator-57b74d8f5b-zw957     1/1     Running   0          110s   10.10.3.227   poc1-worker2          <none>           <none>
+monitoring-kube-state-metrics-7f584dc46d-dpxkb           1/1     Running   0          110s   10.10.4.165   poc1-worker           <none>           <none>
+monitoring-prometheus-node-exporter-d9h5h                1/1     Running   0          110s   172.18.0.7    poc1-control-plane2   <none>           <none>
+monitoring-prometheus-node-exporter-fzxrc                1/1     Running   0          110s   172.18.0.3    poc1-control-plane3   <none>           <none>
+monitoring-prometheus-node-exporter-jwqp7                1/1     Running   0          110s   172.18.0.5    poc1-worker           <none>           <none>
+monitoring-prometheus-node-exporter-n6jl7                1/1     Running   0          109s   172.18.0.6    poc1-control-plane    <none>           <none>
+monitoring-prometheus-node-exporter-nqvbt                1/1     Running   0          109s   172.18.0.4    poc1-worker2          <none>           <none>
+prometheus-monitoring-kube-prometheus-prometheus-0       2/2     Running   0          101s   10.10.4.70    poc1-worker           <none>           <none>
+
+### 2026-09-12T02:53:13Z
+$ kubectl --context kind-poc1 get crd -o name
+customresourcedefinition.apiextensions.k8s.io/alertmanagerconfigs.monitoring.coreos.com
+customresourcedefinition.apiextensions.k8s.io/alertmanagers.monitoring.coreos.com
+customresourcedefinition.apiextensions.k8s.io/backendtlspolicies.gateway.networking.k8s.io
+customresourcedefinition.apiextensions.k8s.io/certificaterequests.cert-manager.io
+customresourcedefinition.apiextensions.k8s.io/certificates.cert-manager.io
+customresourcedefinition.apiextensions.k8s.io/challenges.acme.cert-manager.io
+customresourcedefinition.apiextensions.k8s.io/ciliumcidrgroups.cilium.io
+customresourcedefinition.apiextensions.k8s.io/ciliumclusterwideenvoyconfigs.cilium.io
+customresourcedefinition.apiextensions.k8s.io/ciliumclusterwidenetworkpolicies.cilium.io
+customresourcedefinition.apiextensions.k8s.io/ciliumendpoints.cilium.io
+customresourcedefinition.apiextensions.k8s.io/ciliumenvoyconfigs.cilium.io
+customresourcedefinition.apiextensions.k8s.io/ciliumgatewayclassconfigs.cilium.io
+customresourcedefinition.apiextensions.k8s.io/ciliumidentities.cilium.io
+customresourcedefinition.apiextensions.k8s.io/ciliuml2announcementpolicies.cilium.io
+customresourcedefinition.apiextensions.k8s.io/ciliumloadbalancerippools.cilium.io
+customresourcedefinition.apiextensions.k8s.io/ciliumnetworkpolicies.cilium.io
+customresourcedefinition.apiextensions.k8s.io/ciliumnodeconfigs.cilium.io
+customresourcedefinition.apiextensions.k8s.io/ciliumnodes.cilium.io
+customresourcedefinition.apiextensions.k8s.io/ciliumpodippools.cilium.io
+customresourcedefinition.apiextensions.k8s.io/clusterissuers.cert-manager.io
+customresourcedefinition.apiextensions.k8s.io/gatewayclasses.gateway.networking.k8s.io
+customresourcedefinition.apiextensions.k8s.io/gateways.gateway.networking.k8s.io
+customresourcedefinition.apiextensions.k8s.io/grpcroutes.gateway.networking.k8s.io
+customresourcedefinition.apiextensions.k8s.io/httproutes.gateway.networking.k8s.io
+customresourcedefinition.apiextensions.k8s.io/issuers.cert-manager.io
+customresourcedefinition.apiextensions.k8s.io/orders.acme.cert-manager.io
+customresourcedefinition.apiextensions.k8s.io/podmonitors.monitoring.coreos.com
+customresourcedefinition.apiextensions.k8s.io/probes.monitoring.coreos.com
+customresourcedefinition.apiextensions.k8s.io/prometheusagents.monitoring.coreos.com
+customresourcedefinition.apiextensions.k8s.io/prometheuses.monitoring.coreos.com
+customresourcedefinition.apiextensions.k8s.io/prometheusrules.monitoring.coreos.com
+customresourcedefinition.apiextensions.k8s.io/referencegrants.gateway.networking.k8s.io
+customresourcedefinition.apiextensions.k8s.io/scrapeconfigs.monitoring.coreos.com
+customresourcedefinition.apiextensions.k8s.io/servicemonitors.monitoring.coreos.com
+customresourcedefinition.apiextensions.k8s.io/tcproutes.gateway.networking.k8s.io
+customresourcedefinition.apiextensions.k8s.io/thanosrulers.monitoring.coreos.com
+customresourcedefinition.apiextensions.k8s.io/tlsroutes.gateway.networking.k8s.io
+
+### 2026-09-12T02:53:14Z
+$ kubectl --context kind-poc1 -n monitoring get svc monitoring-grafana monitoring-kube-prometheus-prometheus -o custom-columns=SVC:.metadata.name,IP:.spec.clusterIP,PORT:.spec.ports[0].port
+SVC                                     IP             PORT
+monitoring-grafana                      10.11.210.42   80
+monitoring-kube-prometheus-prometheus   10.11.19.139   9090
+
+### 2026-09-12T02:53:14Z
+$ kubectl --context kind-poc1 apply -f demos/16-monitoring/10-gateway.yaml
+httproute.gateway.networking.k8s.io/grafana created
+referencegrant.gateway.networking.k8s.io/allow-routes-to-grafana created
+
+### 2026-09-12T02:53:21Z
+$ sh -c kubectl --context kind-poc1 -n routes get httproute grafana -o custom-columns="ROUTE:.metadata.name,HOSTS:.spec.hostnames,ACCEPTED:.status.parents[0].conditions[?(@.type==\"Accepted\")].status,RESOLVED:.status.parents[0].conditions[?(@.type==\"ResolvedRefs\")].status"
+ROUTE     HOSTS                 ACCEPTED   RESOLVED
+grafana   [grafana.poc.local]   True       True
+
+### 2026-09-12T02:53:21Z
+$ sh -c curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:172.18.255.240 -w '\nhttps://grafana.poc.local/api/health -> http %{http_code}\n' https://grafana.poc.local/api/health; curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:172.18.255.240 -u admin:poc-grafana https://grafana.poc.local/api/org | head -c 120; echo
+{
+  "database": "ok",
+  "version": "13.2.1",
+  "commit": "56cd3e9288d8255fecebe5d05b48d191f50674b5"
+}
+https://grafana.poc.local/api/health -> http 200
+{"id":1,"name":"Main Org.","address":{"address1":"","address2":"","city":"","zipCode":"","state":"","country":""}}
+
+### 2026-09-12T02:53:21Z
+$ sh -c P=$(kubectl --context kind-poc1 -n monitoring get pod -l app.kubernetes.io/name=prometheus -o jsonpath="{.items[0].metadata.name}"); echo "Prometheus targets (from inside the pod):"; kubectl --context kind-poc1 -n monitoring exec $P -c prometheus -- wget -qO- "http://127.0.0.1:9090/api/v1/targets?state=active" | python3 -c "import json,sys; ts=json.load(sys.stdin)[\"data\"][\"activeTargets\"]; from collections import Counter; c=Counter((t[\"scrapePool\"], t[\"health\"]) for t in ts); [print(\"  %-60s %s x%d\" % (k[0], k[1], v)) for k,v in sorted(c.items())]"
+Prometheus targets (from inside the pod):
+error: Internal error occurred: Internal error occurred: error executing command in container: failed to exec in container: failed to start exec "155d15b0f29b7c6a277d775f3ba907be3c91b6cea9abb92622b01cd9411ff0ac": OCI runtime exec failed: exec failed: unable to start container process: exec: "wget": executable file not found in $PATH
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json,sys; ts=json.load(sys.stdin)["data"]["activeTargets"]; from collections import Counter; c=Counter((t["scrapePool"], t["health"]) for t in ts); [print("  %-60s %s x%d" % (k[0], k[1], v)) for k,v in sorted(c.items())]
+                        ~~~~~~~~~^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+[exit code: 1]
+
+### 2026-09-12T02:53:22Z
+$ demos/16-monitoring/hosts-entries.sh
+# ---- cilium-kind-poc monitoring (generated 2026-09-12T02:53Z by demos/16-monitoring/hosts-entries.sh) ----
+172.18.255.240  grafana.poc.local
+# ---- end cilium-kind-poc monitoring ----
+
+### 2026-09-12T02:55:59Z
+$ sh -c echo "Prometheus targets via the API-server service proxy (the Prometheus image has no shell tools to exec into):"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/targets?state=active" | python3 -c "import json,sys; ts=json.load(sys.stdin)[\"data\"][\"activeTargets\"]; from collections import Counter; c=Counter((t[\"scrapePool\"], t[\"health\"]) for t in ts); [print(\"  %-58s %-5s x%d\" % (k[0], k[1], v)) for k,v in sorted(c.items())]; print(\"  total targets: %d  up: %d\" % (len(ts), sum(1 for t in ts if t[\"health\"]==\"up\")))"
+Prometheus targets via the API-server service proxy (the Prometheus image has no shell tools to exec into):
+  serviceMonitor/monitoring/monitoring-grafana/0             up    x1
+  serviceMonitor/monitoring/monitoring-kube-prometheus-alertmanager/0 up    x1
+  serviceMonitor/monitoring/monitoring-kube-prometheus-alertmanager/1 up    x1
+  serviceMonitor/monitoring/monitoring-kube-prometheus-apiserver/0 up    x3
+  serviceMonitor/monitoring/monitoring-kube-prometheus-coredns/0 up    x2
+  serviceMonitor/monitoring/monitoring-kube-prometheus-kubelet/0 up    x5
+  serviceMonitor/monitoring/monitoring-kube-prometheus-kubelet/1 up    x5
+  serviceMonitor/monitoring/monitoring-kube-prometheus-kubelet/2 up    x5
+  serviceMonitor/monitoring/monitoring-kube-prometheus-operator/0 up    x1
+  serviceMonitor/monitoring/monitoring-kube-prometheus-prometheus/0 up    x1
+  serviceMonitor/monitoring/monitoring-kube-prometheus-prometheus/1 up    x1
+  serviceMonitor/monitoring/monitoring-kube-state-metrics/0  up    x1
+  serviceMonitor/monitoring/monitoring-prometheus-node-exporter/0 up    x5
+  total targets: 32  up: 32
+
+### 2026-09-12T02:55:59Z
+$ sh -c echo "Hubble metrics endpoint is NOT scraped yet (that is Section B):"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count(hubble_flows_processed_total)" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print(\"  hubble_flows_processed_total series in Prometheus:\", r[0][\"value\"][1] if r else 0)"; kubectl --context kind-poc1 -n kube-system get servicemonitor,podmonitor 2>&1 | sed "s/^/  /"; echo "  cilium ServiceMonitors in kube-system: $(kubectl --context kind-poc1 -n kube-system get servicemonitor -o name 2>/dev/null | wc -l | tr -d " ")"
+Hubble metrics endpoint is NOT scraped yet (that is Section B):
+  hubble_flows_processed_total series in Prometheus: 0
+  No resources found in kube-system namespace.
+  cilium ServiceMonitors in kube-system: 0
+
+### 2026-09-12T02:56:00Z
+$ sh -c echo "Grafana data source + dashboards the stack installed (before any Cilium dashboard exists):"; GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana https://grafana.poc.local/api/datasources | python3 -c "import json,sys; [print(\"  datasource:\", d[\"name\"], d[\"type\"], d[\"url\"]) for d in json.load(sys.stdin)]"; curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana "https://grafana.poc.local/api/search?type=dash-db" | python3 -c "import json,sys; d=json.load(sys.stdin); print(\"  dashboards:\", len(d)); print(\"  hubble/cilium dashboards:\", [x[\"title\"] for x in d if \"ilium\" in x[\"title\"] or \"ubble\" in x[\"title\"]])"
+Grafana data source + dashboards the stack installed (before any Cilium dashboard exists):
+  datasource: Alertmanager alertmanager http://monitoring-kube-prometheus-alertmanager.monitoring:9093/
+  datasource: Prometheus prometheus http://monitoring-kube-prometheus-prometheus.monitoring:9090/
+  dashboards: 25
+  hubble/cilium dashboards: []
+
