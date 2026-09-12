@@ -76,3 +76,13 @@ reload certificates, and a client without one is back to `certificate required`.
 again. *Expect:* cert-manager reissues within seconds (a new `notBefore`), the helper fetches the new
 files, every script keeps working. The 90-day duration is the point: an operator credential that
 renews itself and is never copied by hand.
+
+## Exercise 9 — read the two new panels against demo 19's intent
+
+Run `demos/19-zero-trust-cell/egress-test.sh poc1`, wait a minute, open the extended dashboard.
+*Expect:* *Flows per Drop Reason* splits `POLICY_DENIED` (nothing allowed it: the world, another
+namespace) from `POLICY_DENY` (an explicit deny: the API server), and *Flows per Denying Policy*
+names `bank-cell-baseline` for the latter only. Then remove the `egressDeny` from `intent.yaml`,
+re-render and re-apply the cell: the API-server drops move from `POLICY_DENY` to `POLICY_DENIED`
+and the policy panel goes empty — the difference between "denied by rule" and "not allowed".
+

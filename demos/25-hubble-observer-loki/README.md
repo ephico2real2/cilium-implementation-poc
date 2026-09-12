@@ -281,6 +281,36 @@ Two more facts, and they answer "should we bump the image in the PR?" — **no**
   `/var/log/pods/…/hubble-observer/*.log` — the file the demo 10 collector tails. A distroless CLI
   image would need the chart's command changed, not only the tag.
 
+**7b — the 1.20.1 CLI, checked, not assumed.** The agent image `quay.io/cilium/cilium:v1.20.1` carries
+`hubble v1.20.1` (`/bin/sh → /usr/bin/dash`), and every one of the 14 flags the chart's command and probes
+use is present. What it adds for `observe`: `--from-cluster`/`--to-cluster` (server-side cluster filters),
+`--field-mask`/`--use-default-field-masks` (ask the relay for fewer fields per flow — smaller Loki lines),
+`--encrypted`/`--unencrypted`, `--reply`/`--not-reply`, `--ip-trace-id`, `--print-policy-names` (compact
+output only), and CLI-side port-forwarding. **The JSON is identical:** the same DROPPED flows serialized by
+the observer's 1.16.4 CLI (through the relay, mTLS) and by the 1.20.1 CLI inside a cilium-agent carry the
+same **49 fields** — including `egress_denied_by[]` with `name`, `kind`, `revision` and the policy labels.
+The older CLI loses nothing; the observer was *not* switched to the agent image (a several-hundred-MB image
+for one binary, and the flags it adds change the wire, not the data).
+
+**7c — the dashboard extended with data it already receives.** Two fields present in every dropped
+flow are not on dashboard 23862: the drop reason and the denying policy.
+[`dashboard-23862-rev5-extended.json`](dashboard-23862-rev5-extended.json) adds two pie panels below
+the Statistics row, built from the same variables and `$logparser` as the others:
+
+| Panel | Query shape | Measured, last 24 h |
+|---|---|---|
+| Flows per Drop Reason | `sum by (flow_drop_reason_desc) (count_over_time(… \| $logparser … [$__range]))` | `POLICY_DENIED 274`, `POLICY_DENY 40` |
+| Flows per Denying Policy | `… \| json denied_by="flow.egress_denied_by[0].name" \| denied_by!="" …` | `bank-cell-baseline 20` (kind `CiliumClusterwideNetworkPolicy`) |
+
+The second needed a fact about Loki: its `json` parser **skips arrays**, so `flow_egress_denied_by_0_name`
+never exists after `| json` (measured: the grouping returned `{}`); the element is extracted with the
+JSON-path form `| json denied_by="flow.egress_denied_by[0].name"`. `POLICY_DENIED` (no rule allowed the
+flow) carries no policy name; `POLICY_DENY` (an explicit deny rule, demo 19's `egressDeny`) does — which
+is why the two panels tell different things. Provisioned with `dashboard-from-file.sh` under the same uid
+([capture](output/screenshots/ho-dashboard-extended.png)). The fork carries the write-up of the image and
+its flags: [`docs/HUBBLE-CLI-IMAGE.md` on `docs/hubble-cli-image`](https://github.com/ephico2real2/hubble-observer/blob/docs/hubble-cli-image/docs/HUBBLE-CLI-IMAGE.md),
+a branch built on the PR #9 fix.
+
 ## Exercises
 
 See [`GUIDE.md`](GUIDE.md).

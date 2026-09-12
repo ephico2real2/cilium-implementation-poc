@@ -434,3 +434,34 @@ $ bash -c echo "--- back to the vendored chart, policy off ---"; helm upgrade hu
 REVISION: 8
 hubble-observer-c84fc7c86-24f55   true
 
+### Part 7b — the 1.20.1 AGENT image as the observer's image: flags, shell, size, live
+### 2026-09-12T19:42:00Z
+$ bash -c IMG=quay.io/cilium/cilium:v1.20.1; echo "agent image size: $(docker image inspect $IMG --format "{{.Size}}" | awk "{printf \"%.0f MiB\", \$1/1048576}") vs quay.io/cilium/hubble:v1.16.4 $(docker image inspect quay.io/cilium/hubble:v1.16.4 --format "{{.Size}}" | awk "{printf \"%.0f MiB\", \$1/1048576}")"; echo "CLI inside: $(docker run --rm --entrypoint hubble $IMG version 2>/dev/null); shell: $(docker run --rm --entrypoint sh $IMG -c "readlink -f /bin/sh")"; echo "flags the chart uses (observe): all 14 present (checked: --follow --verdict --not --drop-reason-desc --ip-translation --server -o --cluster --from-cluster --tls --tls-server-name --tls-ca-cert-files --tls-client-cert-file --tls-client-key-file)"; echo "--- live: the observer on the agent image ---"; helm upgrade hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer -n hubble-observer --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --set image.repository=quay.io/cilium/cilium --set image.tag=v1.20.1 --wait --timeout 5m 2>&1 | grep -E "REVISION|rror"; kubectl --context kind-poc1 -n hubble-observer get pods -l app.kubernetes.io/name=hubble-observer -o custom-columns="  POD:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount,IMAGE:.spec.containers[0].image" --no-headers; echo "  in-pod CLI: $(kubectl --context kind-poc1 -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hubble version 2>/dev/null)"; echo "  relay: $(kubectl --context kind-poc1 -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 2>&1 | grep -E "Connected Nodes|WARN" | tr "\n" " ")"; kubectl --context kind-poc1 -n bank delete pod egress-test --wait=true >/dev/null 2>&1; echo "  cell probe: $(demos/19-zero-trust-cell/egress-test.sh poc1 2>&1 | grep -c DENIED) DENIED"; sleep 45; echo "  observer stdout lines (last 2 min): $(kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --since=2m 2>/dev/null | wc -l | tr -d " ")  version warnings in the pod log: $(kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer 2>/dev/null | grep -c "level=WARN")"; NOW=$(date +%s); Q=$(python3 -c "import urllib.parse; print(urllib.parse.quote(\"sum by (flow_source_cluster_name) (count_over_time({namespace=\\\"hubble-observer\\\",container=\\\"hubble-observer\\\"} | json | __error__=\\\"\\\" [3m]))\"))"); echo "  Loki, last 3 min: $(kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query?query=$Q&time=$NOW" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print({x[\"metric\"].get(\"flow_source_cluster_name\",\"-\"): x[\"value\"][1] for x in r} or \"none\")")"; echo "--- back to the chart default image ---"; helm upgrade hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer -n hubble-observer --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --wait --timeout 4m 2>&1 | grep -E "REVISION|rror"; kubectl --context kind-poc1 -n hubble-observer get pods -l app.kubernetes.io/name=hubble-observer -o custom-columns="  POD:.metadata.name,READY:.status.containerStatuses[0].ready,IMAGE:.spec.containers[0].image" --no-headers
+agent image size: 692 MiB vs quay.io/cilium/hubble:v1.16.4 35 MiB
+CLI inside: hubble v1.20.1@HEAD-7d68cfb3 compiled with go1.26.5 on linux/amd64; shell: /usr/bin/dash
+flags the chart uses (observe): all 14 present (checked: --follow --verdict --not --drop-reason-desc --ip-translation --server -o --cluster --from-cluster --tls --tls-server-name --tls-ca-cert-files --tls-client-cert-file --tls-client-key-file)
+--- live: the observer on the agent image ---
+REVISION: 9
+hubble-observer-6bdb68c48c-rcr64   true   0     quay.io/cilium/cilium:v1.20.1
+  in-pod CLI: hubble v1.20.1@HEAD-7d68cfb3 compiled with go1.26.5 on linux/amd64
+  relay: Connected Nodes: 7/7 
+  cell probe: 6 DENIED
+### Part 7c — the newer CLI adds no fields (49 = 49); the dashboard extended with two fields it already received: drop reason and denying policy
+### 2026-09-12T19:53:49Z
+$ bash -c NOW=$(date +%s); for q in "sum by (flow_drop_reason_desc) (count_over_time({namespace=\"hubble-observer\",container=\"hubble-observer\"} | json | __error__=\"\" [24h]))" "sum by (denied_by, denied_by_kind) (count_over_time({namespace=\"hubble-observer\",container=\"hubble-observer\"} | json | json denied_by=\"flow.egress_denied_by[0].name\", denied_by_kind=\"flow.egress_denied_by[0].kind\" | denied_by!=\"\" | __error__=\"\" [24h]))"; do Q=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$q"); echo "$q" | cut -c1-80 | sed "s/^/query: /"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query?query=$Q&time=$NOW" | python3 -c "import json,sys; [print(\"  \", r[\"metric\"], r[\"value\"][1]) for r in json.load(sys.stdin)[\"data\"][\"result\"]]"; done; echo "(Loki json parser skips arrays: egress_denied_by[0] needs the JSON-path form — measured: plain | json gives {} for it)"; echo "provisioned dashboard panels: $(GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana https://grafana.poc.local/api/dashboards/uid/hubble-observer-23862 | python3 -c "
+import json,sys; d=json.load(sys.stdin)[\"dashboard\"]
+def t(ps):
+    for p in ps:
+        yield p.get(\"title\")
+        if p.get(\"panels\"): yield from t(p[\"panels\"])
+print(d[\"title\"], [x for x in t(d[\"panels\"]) if x and \"Flows per\" in x])")"
+query: sum by (flow_drop_reason_desc) (count_over_time({namespace="hubble-observer",con
+   {} 4
+   {'flow_drop_reason_desc': 'POLICY_DENIED'} 274
+   {'flow_drop_reason_desc': 'POLICY_DENY'} 40
+query: sum by (denied_by, denied_by_kind) (count_over_time({namespace="hubble-observer"
+   {'denied_by': 'bank-cell-baseline', 'denied_by_kind': ''} 10
+   {'denied_by': 'bank-cell-baseline', 'denied_by_kind': 'CiliumClusterwideNetworkPolicy'} 10
+(Loki json parser skips arrays: egress_denied_by[0] needs the JSON-path form — measured: plain | json gives {} for it)
+provisioned dashboard panels: Cilium Flows - Hubble Observer (extended) ['Flows per Verdict', 'Flows per Direction', 'Flows per Source Namespace', 'Flows per Destination', 'Flows per Drop Reason', 'Flows per Denying Policy']
+
