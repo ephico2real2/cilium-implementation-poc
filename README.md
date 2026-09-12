@@ -5,6 +5,13 @@ stock CNI + kube-proxy Kubernetes cluster — measured, not quoted — built fro
 [kind](https://kind.sigs.k8s.io/) on a laptop. (The working directory and the git history still
 carry the lab's original name, `cilium-kind-poc`.)
 
+**Setup guide: [docs/SETUP.md](docs/SETUP.md)** — the kind clusters and the Cilium installation, every command
+with its recorded output. The other documents: [OBSERVABILITY-ARCHITECTURE.md](OBSERVABILITY-ARCHITECTURE.md)
+(the one picture of the observability stack), [docs/GOTCHAS.md](docs/GOTCHAS.md) (every trap this build hit),
+[docs/FINDINGS.md](docs/FINDINGS.md) (the measurements), [docs/REFERENCES.md](docs/REFERENCES.md) (every source
+cited), [docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md) (the live verification, regenerable with
+`scripts/verify.sh`), and one `README.md` per demo under [`demos/`](demos/).
+
 ## Start here — where the kind and Cilium installation lives
 
 Everything is installed by hand and documented one command at a time in **[docs/SETUP.md](docs/SETUP.md)**;
