@@ -195,6 +195,11 @@ run "for c in poc1 poc2; do kubectl --context kind-\$c -n obi get pods --no-head
 echo "spans that reached the poc1 collector in the last 5 minutes, by originating cluster:"
 run "for p in \$($K -n otel get pods -o name 2>/dev/null | cut -d/ -f2); do $K -n otel logs \$p --since=5m 2>/dev/null; done | grep 'k8s.cluster.name' | sort | uniq -c"
 
+hdr "16. DEMO 19 — THE ZERO-TRUST CELL (clusterwide baseline + rendered policies, both clusters)"
+run "for c in poc1 poc2; do echo \"-- \$c --\"; kubectl --context kind-\$c get ccnp --no-headers 2>/dev/null; kubectl --context kind-\$c -n bank get cnp --no-headers 2>/dev/null | awk '{print \$1}' | tr '\\n' ' '; echo; done"
+echo "the rendering is reproducible from intent.yaml (no diff = what is committed is what render.py produces):"
+run "demos/19-zero-trust-cell/render.py < demos/19-zero-trust-cell/intent.yaml | diff - demos/19-zero-trust-cell/rendered/cell-policies.yaml && echo 'rendered/cell-policies.yaml is current'"
+
 hdr "12. HOST ROUTING (macOS)"
 run "netstat -rn -f inet | grep '^172.18' || echo 'no route — see SETUP Step 3.5'"
 run "ifconfig -l | tr ' ' '\n' | grep -E '^bridge'"

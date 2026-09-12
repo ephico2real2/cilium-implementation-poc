@@ -1,0 +1,38 @@
+# Demo 19 — the platform-owned boundary of the cell: ONE object, cluster-scoped, applied to BOTH clusters.
+# CiliumClusterwideNetworkPolicy so that no namespace-scoped RBAC can touch it (Part 5): "the boundary is owned
+# by the platform, so it is held by construction rather than by convention" (the blog).
+# It governs EGRESS only. Ingress is the components' rendered policies (render.py). So a pod with no rendered
+# policy (a developer's debug pod) has open ingress but the cell's egress rules — default-deny is a byproduct.
+#   kubectl --context kind-poc1 apply -f demos/19-zero-trust-cell/10-platform-baseline.yaml
+#   kubectl --context kind-poc2 apply -f demos/19-zero-trust-cell/10-platform-baseline.yaml
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: bank-cell-baseline
+spec:
+  description: "bank cell egress boundary: DNS, the cell across the mesh, an FQDN allowlist; never the API server"
+  endpointSelector:
+    matchLabels: {io.kubernetes.pod.namespace: bank}
+  egress:
+    # 1. DNS — to this cluster's CoreDNS, through the DNS proxy (the L7 rule). Required for toFQDNs below to
+    #    have anything to match, and it is what fills the Hubble DNS dashboard (demo 16).
+    - toEndpoints:
+        - matchLabels: {io.kubernetes.pod.namespace: kube-system, k8s-app: kube-dns}
+      toPorts:
+        - ports: [{port: "53", protocol: ANY}]
+          rules: {dns: [{matchPattern: "*"}]}
+    # 2. The cell itself, in BOTH clusters: the namespace's endpoints wherever the mesh runs them.
+    #    Without the cluster expression this would be local-only (policy-default-local-cluster=true, gotcha #62).
+    - toEndpoints:
+        - matchLabels: {io.kubernetes.pod.namespace: bank}
+          matchExpressions: [{key: io.cilium.k8s.policy.cluster, operator: In, values: [poc1, poc2]}]
+    # 3. The blog's egress example: the one external name the cell may call, by name, resolved through the
+    #    DNS proxy of rule 1. Everything else outside the cluster is denied by omission.
+    - toFQDNs:
+        - matchName: api.stripe.com
+      toPorts:
+        - ports: [{port: "443", protocol: TCP}]
+  # 4. A hard line, as a DENY: deny rules beat allow rules from any policy of any kind (deny.rst). Even a
+  #    later CNP that allowed it could not re-open this. Application pods have no business with the API server.
+  egressDeny:
+    - toEntities: [kube-apiserver]

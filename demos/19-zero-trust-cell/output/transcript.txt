@@ -1,0 +1,378 @@
+### 2026-09-12T05:22:41Z
+$ [PART 0 — external names: CoreDNS forwards to Docker Desktop's resolver, which times out from pod sources; point it at public resolvers (both clusters) so the FQDN example can run]
+
+### 2026-09-12T05:22:41Z
+$ sh -c kubectl --context kind-poc1 -n kube-system logs deploy/coredns --since=30m 2>/dev/null | grep -c "i/o timeout" | sed "s/^/coredns upstream timeouts in 30 min (poc1): /"; kubectl --context kind-poc1 -n default exec tiefighter -- sh -c "nslookup example.com 1.1.1.1 2>&1 | grep -c Address" | sed "s/^/answers for example.com via 1.1.1.1 straight from a pod: /"
+coredns upstream timeouts in 30 min (poc1): 46
+answers for example.com via 1.1.1.1 straight from a pod: 5
+
+### 2026-09-12T05:22:42Z
+$ sh -c for c in poc1 poc2; do kubectl --context kind-$c -n kube-system get cm coredns -o json | python3 -c "
+import json,sys; d=json.load(sys.stdin); cf=d[\"data\"][\"Corefile\"]
+new=cf.replace(\"forward . /etc/resolv.conf {\", \"forward . 1.1.1.1 8.8.8.8 {   # demo 19: the node resolv.conf (Docker Desktop 192.168.65.254) times out from pod sources\")
+assert new!=cf; d[\"data\"][\"Corefile\"]=new; json.dump(d, open(\"/dev/stdout\",\"w\"))" | kubectl --context kind-$c apply -f - ; kubectl --context kind-$c -n kube-system rollout restart deploy/coredns >/dev/null; kubectl --context kind-$c -n kube-system rollout status deploy/coredns --timeout=2m | tail -1; done
+Warning: resource configmaps/coredns is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
+configmap/coredns configured
+deployment "coredns" successfully rolled out
+Warning: resource configmaps/coredns is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
+configmap/coredns configured
+deployment "coredns" successfully rolled out
+
+### 2026-09-12T05:23:00Z
+$ sh -c kubectl --context kind-poc1 -n default exec tiefighter -- sh -c "for h in example.com api.stripe.com; do curl -4 -sS -m 8 -o /dev/null -w \"  poc1 pod: https://\$h  http %{http_code}\n\" https://\$h 2>&1 | tail -1; done"; kubectl --context kind-poc2 -n bank exec postgres-0 -c postgres -- sh -c "nslookup api.stripe.com 2>&1 | grep -c Address" | sed "s/^/  poc2 pod: api.stripe.com answers via coredns: /"
+  poc1 pod: https://example.com  http 200
+  poc1 pod: https://api.stripe.com  http 404
+  poc2 pod: api.stripe.com answers via coredns: 3
+
+
+### 2026-09-12T05:23:40Z
+$ [PART 1 — the cell: platform baseline (CCNP) + rendered per-component policies, BOTH clusters; the bank must not notice]
+
+### 2026-09-12T05:23:40Z
+$ sh -c echo "before: policies selecting bank pods"; for c in poc1 poc2; do kubectl --context kind-$c get cnp -n bank --no-headers 2>/dev/null | sed "s/^/  $c  /"; done; echo "demo 16 visibility policies are allow-all (toEntities/fromEntities all): they must go, or nothing below can deny anything"; kubectl --context kind-poc1 delete -f demos/16-monitoring/20-visibility-policies.yaml
+before: policies selecting bank pods
+  poc1  dns-visibility    127m   True
+  poc1  http-visibility   127m   True
+demo 16 visibility policies are allow-all (toEntities/fromEntities all): they must go, or nothing below can deny anything
+ciliumnetworkpolicy.cilium.io "dns-visibility" deleted
+ciliumnetworkpolicy.cilium.io "http-visibility" deleted
+
+### 2026-09-12T05:23:41Z
+$ sh -c for c in poc1 poc2; do echo "-- $c --"; kubectl --context kind-$c apply -f demos/19-zero-trust-cell/10-platform-baseline.yaml; kubectl --context kind-$c apply -f demos/19-zero-trust-cell/rendered/cell-policies.yaml; done
+-- poc1 --
+ciliumclusterwidenetworkpolicy.cilium.io/bank-cell-baseline created
+ciliumnetworkpolicy.cilium.io/cell-web created
+ciliumnetworkpolicy.cilium.io/cell-api created
+ciliumnetworkpolicy.cilium.io/cell-payments created
+ciliumnetworkpolicy.cilium.io/cell-accounts created
+ciliumnetworkpolicy.cilium.io/cell-redis created
+ciliumnetworkpolicy.cilium.io/cell-postgres created
+ciliumnetworkpolicy.cilium.io/cell-postgres-standby created
+-- poc2 --
+ciliumclusterwidenetworkpolicy.cilium.io/bank-cell-baseline created
+ciliumnetworkpolicy.cilium.io/cell-web created
+ciliumnetworkpolicy.cilium.io/cell-api created
+ciliumnetworkpolicy.cilium.io/cell-payments created
+ciliumnetworkpolicy.cilium.io/cell-accounts created
+ciliumnetworkpolicy.cilium.io/cell-redis created
+ciliumnetworkpolicy.cilium.io/cell-postgres created
+ciliumnetworkpolicy.cilium.io/cell-postgres-standby created
+
+### 2026-09-12T05:23:49Z
+$ sh -c for c in poc1 poc2; do echo "-- $c --"; kubectl --context kind-$c get ccnp bank-cell-baseline -o custom-columns="CCNP:.metadata.name,VALID:.status.conditions[?(@.type==\"Valid\")].status" --no-headers | sed "s/^/  /"; kubectl --context kind-$c -n bank get cnp -o custom-columns="CNP:.metadata.name,VISIBILITY:.metadata.annotations.visibility,VALID:.status.conditions[?(@.type==\"Valid\")].status" | sed "s/^/  /"; done
+-- poc1 --
+  bank-cell-baseline   True
+  CNP                     VISIBILITY         VALID
+  cell-accounts           project            True
+  cell-api                external,project   True
+  cell-payments           project            True
+  cell-postgres           project            True
+  cell-postgres-standby   project            True
+  cell-redis              project            True
+  cell-web                external           True
+-- poc2 --
+  bank-cell-baseline   True
+  CNP                     VISIBILITY         VALID
+  cell-accounts           project            True
+  cell-api                external,project   True
+  cell-payments           project            True
+  cell-postgres           project            True
+  cell-postgres-standby   project            True
+  cell-redis              project            True
+  cell-web                external           True
+
+### 2026-09-12T05:23:49Z
+$ sh -c echo "enforcement per bank endpoint (poc1-worker2 agent): ingress AND egress now enforced for every bank pod"; PW=$(kubectl --context kind-poc1 -n kube-system get pod -l k8s-app=cilium --field-selector spec.nodeName=poc1-worker2 -o jsonpath="{.items[0].metadata.name}"); kubectl --context kind-poc1 -n kube-system exec $PW -c cilium-agent -- cilium-dbg endpoint list -o json 2>/dev/null | python3 -c "
+import json,sys
+for x in json.load(sys.stdin):
+    st=x.get(\"status\",{}); labs=(st.get(\"labels\",{}) or {}).get(\"security-relevant\",[]) or []
+    if \"k8s:io.kubernetes.pod.namespace=bank\" not in labs: continue
+    app=[l.split(\"=\")[1] for l in labs if l.startswith(\"k8s:app=\")]; r=st[\"policy\"][\"realized\"]
+    print(\"  app=%-14s policy-enabled=%-6s proxy=%s\" % (app[0] if app else \"?\", r.get(\"policy-enabled\"), sorted(set(str(p.get(\"port\"))+\"/\"+str(p.get(\"location\")) for p in (st[\"policy\"].get(\"proxy-statistics\") or [])))))"
+enforcement per bank endpoint (poc1-worker2 agent): ingress AND egress now enforced for every bank pod
+  app=egress-test    policy-enabled=egress proxy=['53/egress']
+  app=web            policy-enabled=both   proxy=['53/egress', '8080/ingress']
+  app=payments       policy-enabled=both   proxy=['53/egress', '8080/ingress']
+  app=api            policy-enabled=both   proxy=['53/egress', '8080/ingress']
+
+### 2026-09-12T05:23:51Z
+$ sh -c demos/15-bank/exercise.sh 40 2>&1 | grep -E "calls:|served by|LEDGER|FAILED|replay" | head -6; echo; scripts/check-routes.sh 2>/dev/null | tail -1; echo; kubectl --context kind-poc2 -n bank exec postgres-0 -c postgres -- psql -U bank -d bank -Atc "SELECT 'replication: standby='||client_addr||' '||state||' lag='||coalesce(replay_lag::text,'0') FROM pg_stat_replication" 2>/dev/null | sed "s/^/  /"; echo; GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); curl -s --cacert docs/root-ca.crt --resolve bank.poc.local:443:$GW -o /dev/null -w "  https://bank.poc.local -> %{http_code}\n" https://bank.poc.local/
+15   grocery       1598  503    FAILED/http 503          -/-                               -     120
+18   coffee        1628  503    FAILED/http 503          -/-                               -     130
+  calls: 40  ok: 38  declined (409, insufficient funds): 0  FAILED (infrastructure): 2  in 33 s
+  payments served by : poc2=17 poc1=21 
+  balance before 174000, after 79879, spent 94121  ->  LEDGER CONSISTENT: before - after == sum of payments
+  call 1: replay=False served by poc2
+
+FAILED CHECKS: 0
+
+  replication: standby=10.10.4.188/32 streaming lag=00:00:00.001834
+
+  https://bank.poc.local -> 200
+
+### 2026-09-12T05:25:10Z
+$ demos/19-zero-trust-cell/drops.sh 6m
+== poc1: 12 dropped flows ==
+    12  reserved:remote-node     -> api@poc1                 :None  POLICY_DENIED          - denied_by=[]
+== poc2: 0 dropped flows ==
+
+### 2026-09-12T05:25:12Z
+$ sh -c echo "== OBI: any 503 in the last 6 min, per hop (which server answered 503, which client saw it) =="; for c in poc1 poc2; do for p in $(kubectl --context kind-$c -n obi get pods -o name | cut -d/ -f2); do kubectl --context kind-$c -n obi logs $p --since=6m 2>/dev/null | grep -E "\) (HTTP|HTTPClient)\([^)]*\) 503 " | sed -E "s/ contentLen:[^ ]+ responseLen:[^ ]+//; s/traceparent=\[00-([0-9a-f]{8})[^]]*\]/trace=\1…/; s/^/  $c  /" | cut -c1-210; done; done | sort -k3 | head -12
+== OBI: any 503 in the last 6 min, per hop (which server answered 503, which client saw it) ==
+
+
+### 2026-09-12T05:25:13Z
+$ [PART 1b — the exercise again, policies settled]
+
+### 2026-09-12T05:25:13Z
+$ sh -c demos/15-bank/exercise.sh 40 2>&1 | grep -E "calls:|served by|LEDGER" | head -3
+  calls: 40  ok: 40  declined (409, insufficient funds): 0  FAILED (infrastructure): 0  in 31 s
+  payments served by : poc2=27 poc1=13 
+  balance before 174000, after 96707, spent 77293  ->  LEDGER CONSISTENT: before - after == sum of payments
+
+
+### 2026-09-12T05:25:46Z
+$ [PART 2 — the egress boundary, from a developer's debug pod in the cell (no rendered policy of its own → open ingress, the cell's egress)]
+
+### 2026-09-12T05:25:46Z
+$ sh -c kubectl --context kind-poc1 -n bank exec egress-test -- sh -c "
+t() { printf \"  %-52s \" \"\$1\"; shift; timeout 8 \"\$@\" >/dev/null 2>&1 && echo ALLOWED || echo \"DENIED/timeout (\$?)\"; }
+t \"in-cell: http://api.bank:8080/healthz\"                 wget -qO- http://api.bank.svc.cluster.local:8080/healthz
+t \"in-cell, other cluster: http://accounts.bank:8080/healthz\" wget -qO- http://accounts.bank.svc.cluster.local:8080/healthz
+t \"DNS: nslookup example.com\"                             nslookup example.com
+t \"FQDN allowlist: https://api.stripe.com/\"                wget -qO- https://api.stripe.com/
+t \"world by name, not listed: https://example.com/\"        wget -qO- https://example.com/
+t \"world by IP: https://1.1.1.1/\"                          wget -qO- https://1.1.1.1/
+t \"kube-apiserver: https://kubernetes.default:443/\"        wget -qO- --no-check-certificate https://kubernetes.default.svc.cluster.local/version
+t \"another namespace: http://echo.routes:8080/\"             wget -qO- http://echo.routes.svc.cluster.local:8080/
+"
+  in-cell: http://api.bank:8080/healthz                DENIED/timeout (143)
+  in-cell, other cluster: http://accounts.bank:8080/healthz DENIED/timeout (143)
+  DNS: nslookup example.com                            ALLOWED
+  FQDN allowlist: https://api.stripe.com/              DENIED/timeout (1)
+  world by name, not listed: https://example.com/      DENIED/timeout (143)
+  world by IP: https://1.1.1.1/                        DENIED/timeout (143)
+  kube-apiserver: https://kubernetes.default:443/      DENIED/timeout (143)
+  another namespace: http://echo.routes:8080/          DENIED/timeout (143)
+
+### 2026-09-12T05:26:38Z
+$ demos/19-zero-trust-cell/drops.sh 1m
+== poc1: 86 dropped flows ==
+    42  egress-test@poc1         -> reserved:world           :8080  POLICY_DENIED          - denied_by=[]
+    28  egress-test@poc1         -> reserved:world           :443   POLICY_DENIED          - denied_by=[]
+     7  egress-test@poc1         -> reserved:kube-apiserver  :6443  POLICY_DENY            egress denied_by=['bank-cell-baseline']
+     7  egress-test@poc1         -> reserved:kube-apiserver  :6443  POLICY_DENY            - denied_by=[]
+     2  reserved:remote-node     -> api@poc1                 :None  POLICY_DENIED          - denied_by=[]
+== poc2: 0 dropped flows ==
+
+
+### 2026-09-12T05:31:36Z
+$ [PART 2 (redone) — the earlier probe used ClusterIP:8080; the Service port is 80 (targetPort 8080). Wrong port = no Service frontend = no DNAT = identity world = denied. Same test on the right ports:]
+
+### 2026-09-12T05:31:36Z
+$ sh -c kubectl --context kind-poc1 -n bank get svc api -o custom-columns="SVC:.metadata.name,CLUSTER-IP:.spec.clusterIP,PORT:.spec.ports[0].port,TARGET:.spec.ports[0].targetPort"; PW=$(kubectl --context kind-poc1 -n kube-system get pod -l k8s-app=cilium --field-selector spec.nodeName=poc1-worker2 -o jsonpath="{.items[0].metadata.name}"); kubectl --context kind-poc1 -n kube-system exec $PW -c cilium-agent -- cilium-dbg bpf lb list 2>/dev/null | grep "10.11.36.138" | head -2 | sed "s/^/  bpf lb: /"; echo "  datapath (endpoint Debug): Policy verdict log … remote ID world … 10.10.3.128:48708 -> 10.11.36.138:8080 tcp SYN → drop (Policy denied)"
+SVC   CLUSTER-IP     PORT   TARGET
+api   10.11.36.138   80     8080
+  bpf lb: 10.11.36.138:80/TCP (2)       10.10.4.37:8080/TCP (54) (2)                                                              
+  bpf lb: 10.11.36.138:80/TCP (1)       10.10.3.34:8080/TCP (54) (1)                                                              
+  datapath (endpoint Debug): Policy verdict log … remote ID world … 10.10.3.128:48708 -> 10.11.36.138:8080 tcp SYN → drop (Policy denied)
+
+### 2026-09-12T05:31:37Z
+$ demos/19-zero-trust-cell/egress-test.sh poc1
+  in-cell: api.bank:80/healthz (Service port)                ALLOWED
+  in-cell, other cluster: accounts.bank:80/healthz           ALLOWED
+  in-cell: redis.bank:6379 (tcp)                             ALLOWED
+  DNS: nslookup example.com                                  ALLOWED
+  FQDN allowlist: api.stripe.com:443                         ALLOWED
+  FQDN allowlisted name, port NOT listed: api.stripe.com:80  DENIED (rc=1)
+  world by name, not listed: example.com:443                 DENIED (rc=1)
+  world by IP: 1.1.1.1:443                                   DENIED (rc=1)
+  kube-apiserver (egressDeny): kubernetes.default:443        DENIED (rc=1)
+  another namespace: echo.routes:80                          DENIED (rc=143)
+  a Service IP on a port that is not a Service port: api.bank:8080 DENIED (rc=143)
+
+### 2026-09-12T05:32:18Z
+$ demos/19-zero-trust-cell/drops.sh 1m
+== poc1: 68 dropped flows ==
+    24  egress-test@poc1         -> reserved:world           :80    POLICY_DENIED          - denied_by=[]
+    20  egress-test@poc1         -> reserved:world           :443   POLICY_DENIED          - denied_by=[]
+    14  egress-test@poc1         -> reserved:world           :8080  POLICY_DENIED          - denied_by=[]
+     5  egress-test@poc1         -> reserved:kube-apiserver  :6443  POLICY_DENY            egress denied_by=['bank-cell-baseline']
+     5  egress-test@poc1         -> reserved:kube-apiserver  :6443  POLICY_DENY            - denied_by=[]
+== poc2: 0 dropped flows ==
+
+### 2026-09-12T05:32:18Z
+$ sh -c echo "== the remote-node -> api drops seen in Part 1: what are they? =="; hubble observe -P --kube-context kind-poc1 --namespace bank --verdict DROPPED --since 15m -o json 2>/dev/null | python3 -c "
+import json,sys,collections; c=collections.Counter()
+for l in sys.stdin:
+    f=json.loads(l).get(\"flow\",{}); s=f.get(\"source\",{})
+    if \"reserved:remote-node\" not in s.get(\"labels\",[]): continue
+    ip=f.get(\"IP\",{}); l4=f.get(\"l4\",{}); k=next(iter(l4),\"-\"); v=l4.get(k) or {}
+    c[(ip.get(\"source\"), ip.get(\"destination\"), k, v.get(\"type\"), v.get(\"destination_port\"), f.get(\"drop_reason_desc\"), f.get(\"traffic_direction\"))]+=1
+for k,n in c.most_common(5): print(\"  %3d\" % n, k)
+print(\"  (172.18.0.x = a kind node; 10.10.x = a pod)\")"; kubectl --context kind-poc1 get nodes -o custom-columns="NODE:.metadata.name,IP:.status.addresses[0].address" --no-headers | sed "s/^/  /"
+== the remote-node -> api drops seen in Part 1: what are they? ==
+  (172.18.0.x = a kind node; 10.10.x = a pod)
+  poc1-control-plane    172.18.0.6
+  poc1-control-plane2   172.18.0.7
+  poc1-control-plane3   172.18.0.3
+  poc1-worker           172.18.0.5
+  poc1-worker2          172.18.0.4
+
+
+### 2026-09-12T05:32:19Z
+$ [PART 3 — the mesh trap: render WITHOUT the cluster expression (what a single-cluster template does), apply to poc2, measure, restore]
+
+### 2026-09-12T05:32:19Z
+$ sh -c diff <(demos/19-zero-trust-cell/render.py < demos/19-zero-trust-cell/intent.yaml) <(demos/19-zero-trust-cell/render.py --local-cluster-only < demos/19-zero-trust-cell/intent.yaml) | grep "^[<>]" | sort -u | head -6; echo "(the ONLY difference: the io.cilium.k8s.policy.cluster expression on every fromEndpoints)"; kubectl --context kind-poc2 apply -f demos/19-zero-trust-cell/rendered/cell-policies-local-only.yaml | grep -E "accounts|payments"
+sh: -c: line 0: syntax error near unexpected token `('
+sh: -c: line 0: `diff <(demos/19-zero-trust-cell/render.py < demos/19-zero-trust-cell/intent.yaml) <(demos/19-zero-trust-cell/render.py --local-cluster-only < demos/19-zero-trust-cell/intent.yaml) | grep "^[<>]" | sort -u | head -6; echo "(the ONLY difference: the io.cilium.k8s.policy.cluster expression on every fromEndpoints)"; kubectl --context kind-poc2 apply -f demos/19-zero-trust-cell/rendered/cell-policies-local-only.yaml | grep -E "accounts|payments"'
+[exit code: 2]
+
+### 2026-09-12T05:32:24Z
+$ sh -c demos/15-bank/exercise.sh 12 2>&1 | grep -E "^ *[0-9]+ |calls:" | head -6; echo; demos/19-zero-trust-cell/drops.sh 1m
+1    coffee        3255  201    poc2/payments-8f5nl      poc2/accounts-f9wjb           86634     210
+2    pharmacy      3811  201    poc2/payments-8f5nl      poc2/accounts-f9wjb           82823     216
+3    coffee        1943  201    poc1/payments-f5c78      poc2/accounts-f9wjb           80880     211
+4    taxi          1720  201    poc1/payments-f5c78      poc2/accounts-4xkkh           79160     215
+5    hardware      1347  201    poc2/payments-8f5nl      poc2/accounts-4xkkh           77813     208
+6    fuel           101  201    poc1/payments-f5c78      poc2/accounts-4xkkh           77712     216
+
+== poc1: 68 dropped flows ==
+    24  egress-test@poc1         -> reserved:world           :80    POLICY_DENIED          - denied_by=[]
+    20  egress-test@poc1         -> reserved:world           :443   POLICY_DENIED          - denied_by=[]
+    14  egress-test@poc1         -> reserved:world           :8080  POLICY_DENIED          - denied_by=[]
+     5  egress-test@poc1         -> reserved:kube-apiserver  :6443  POLICY_DENY            egress denied_by=['bank-cell-baseline']
+     5  egress-test@poc1         -> reserved:kube-apiserver  :6443  POLICY_DENY            - denied_by=[]
+== poc2: 0 dropped flows ==
+
+### 2026-09-12T05:32:35Z
+$ sh -c echo "restore the cluster-aware rendering on poc2"; kubectl --context kind-poc2 apply -f demos/19-zero-trust-cell/rendered/cell-policies.yaml | grep -c configured | sed "s/^/  policies re-rendered: /"; sleep 4; demos/15-bank/exercise.sh 20 2>&1 | grep -E "calls:|served by"
+restore the cluster-aware rendering on poc2
+  policies re-rendered: 0
+  calls: 20  ok: 20  declined (409, insufficient funds): 0  FAILED (infrastructure): 0  in 15 s
+  payments served by : poc2=9 poc1=11 
+  call 1: replay=False served by poc2
+  call 2: replay=True served by poc2
+
+
+### 2026-09-12T05:33:45Z
+$ [PART 3 (redone in bash) — render WITHOUT the cluster expression, apply to poc2, measure, restore]
+
+### 2026-09-12T05:33:45Z
+$ diff <(render.py < intent.yaml) <(render.py --local-cluster-only < intent.yaml)
+<         - poc1
+<         - poc2
+<         operator: In
+<         values:
+<       - key: io.cilium.k8s.policy.cluster
+<       matchExpressions:
+< # rendered by demos/19-zero-trust-cell/render.py from intent.yaml — cluster-aware: poc1,poc2
+> # rendered by demos/19-zero-trust-cell/render.py from intent.yaml — LOCAL-CLUSTER ONLY (Part 3 experiment)
+(the ONLY difference: the io.cilium.k8s.policy.cluster expression on every fromEndpoints)
+
+### 2026-09-12T05:33:45Z
+$ sh -c kubectl --context kind-poc2 apply -f demos/19-zero-trust-cell/rendered/cell-policies-local-only.yaml | grep -E "accounts|payments"
+ciliumnetworkpolicy.cilium.io/cell-payments configured
+ciliumnetworkpolicy.cilium.io/cell-accounts configured
+
+### 2026-09-12T05:33:53Z
+$ sh -c demos/15-bank/exercise.sh 12 2>&1 | grep -E "^ *[0-9]+ |calls:|FAILED" | head -8
+1    fuel          3611  000    FAILED/http 000          -/-                               -    6136
+2    pharmacy      2041  000    FAILED/http 000          -/-                               -    6127
+3    bakery        1838  200    FAILED/http 200          -/-                               -    4222
+4    books          307  000    FAILED/http 000          -/-                               -    6112
+5    hardware       821  000    FAILED/http 000          -/-                               -    6117
+6    grocery       1472  200    FAILED/http 200          -/-                               -    4239
+7    taxi          1063  000    FAILED/http 000          -/-                               -    6115
+8    grocery       3664  000    FAILED/http 000          -/-                               -    6110
+
+### 2026-09-12T05:35:47Z
+$ demos/19-zero-trust-cell/drops.sh 1m
+== poc1: 0 dropped flows ==
+== poc2: 400 dropped flows ==
+   164  api@poc1                 -> payments@poc2            :8080  POLICY_DENIED          - denied_by=[]
+   112  payments@poc1            -> accounts@poc2            :8080  POLICY_DENIED          - denied_by=[]
+   104  api@poc1                 -> accounts@poc2            :8080  POLICY_DENIED          - denied_by=[]
+    20  postgres-standby@poc1    -> postgres@poc2            :5432  POLICY_DENIED          - denied_by=[]
+
+### 2026-09-12T05:35:48Z
+$ sh -c echo "restore the cluster-aware rendering on poc2"; kubectl --context kind-poc2 apply -f demos/19-zero-trust-cell/rendered/cell-policies.yaml | grep -c configured | sed "s/^/  policies re-rendered: /"; sleep 5; demos/15-bank/exercise.sh 20 2>&1 | grep -E "calls:|served by"
+restore the cluster-aware rendering on poc2
+  policies re-rendered: 6
+  calls: 20  ok: 20  declined (409, insufficient funds): 0  FAILED (infrastructure): 0  in 16 s
+  payments served by : poc2=9 poc1=11 
+  call 1: replay=False served by poc1
+  call 2: replay=True served by poc1
+
+
+### 2026-09-12T05:36:10Z
+$ [PART 4 — governance: the developer role deploys and declares; it cannot write policy; the baseline is not even in its namespace]
+
+### 2026-09-12T05:36:10Z
+$ sh -c kubectl --context kind-poc1 apply -f demos/19-zero-trust-cell/20-rbac.yaml; DEV=system:serviceaccount:bank:developer; for q in "create deployments -n bank" "create ciliumnetworkpolicies.cilium.io -n bank" "update ciliumnetworkpolicies.cilium.io -n bank" "get ciliumnetworkpolicies.cilium.io -n bank" "create ciliumclusterwidenetworkpolicies.cilium.io" "delete ciliumclusterwidenetworkpolicies.cilium.io"; do printf "  can-i %-52s %s\n" "$q" "$(kubectl --context kind-poc1 auth can-i $q --as=$DEV 2>/dev/null)"; done; echo "  the developer tries to open the world anyway:"; printf "apiVersion: cilium.io/v2\nkind: CiliumNetworkPolicy\nmetadata: {name: open-the-world, namespace: bank}\nspec:\n  endpointSelector: {}\n  egress: [{toEntities: [world]}]\n" | kubectl --context kind-poc1 apply --as=$DEV -f - 2>&1 | sed "s/^/    /"
+serviceaccount/developer created
+role.rbac.authorization.k8s.io/developer created
+rolebinding.rbac.authorization.k8s.io/developer created
+  can-i create deployments -n bank                           yes
+  can-i create ciliumnetworkpolicies.cilium.io -n bank       no
+  can-i update ciliumnetworkpolicies.cilium.io -n bank       no
+  can-i get ciliumnetworkpolicies.cilium.io -n bank          yes
+  can-i create ciliumclusterwidenetworkpolicies.cilium.io    no
+  can-i delete ciliumclusterwidenetworkpolicies.cilium.io    no
+  the developer tries to open the world anyway:
+    Error from server (Forbidden): error when creating "STDIN": ciliumnetworkpolicies.cilium.io is forbidden: User "system:serviceaccount:bank:developer" cannot create resource "ciliumnetworkpolicies" in API group "cilium.io" in the namespace "bank"
+
+
+### 2026-09-12T05:36:12Z
+$ [PART 5 — intent changes, policy follows: drop `project` from api (only the Gateway may call it), re-render, apply; web can no longer reach api; put it back]
+
+### 2026-09-12T05:36:12Z
+$ sh -c sed "s/api:              {port: 8080, protocol: http, visibility: \[external, project\]}/api:              {port: 8080, protocol: http, visibility: [external]}/" demos/19-zero-trust-cell/intent.yaml > .tmp/intent-api-external-only.yaml; diff demos/19-zero-trust-cell/intent.yaml .tmp/intent-api-external-only.yaml | grep "^[<>]"; demos/19-zero-trust-cell/render.py < .tmp/intent-api-external-only.yaml > .tmp/cell-api-external-only.yaml; for c in poc1 poc2; do kubectl --context kind-$c apply -f .tmp/cell-api-external-only.yaml | grep -v unchanged | sed "s/^/  $c: /"; done
+<   api:              {port: 8080, protocol: http, visibility: [external, project]}   # the Gateway (bankapi) AND web
+>   api:              {port: 8080, protocol: http, visibility: [external]}   # the Gateway (bankapi) AND web
+  poc1: ciliumnetworkpolicy.cilium.io/cell-api configured
+  poc2: ciliumnetworkpolicy.cilium.io/cell-api configured
+
+### 2026-09-12T05:36:19Z
+$ sh -c GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); curl -s --cacert docs/root-ca.crt --resolve bankapi.poc.local:443:$GW -o /dev/null -w "  Gateway -> api (external): %{http_code}\n" https://bankapi.poc.local/api/balance/chk-1001; curl -s --cacert docs/root-ca.crt --resolve bank.poc.local:443:$GW -m 8 -o /dev/null -w "  Gateway -> web -> api (web is in the cell, no longer allowed): %{http_code}\n" "https://bank.poc.local/api/balance/chk-1001"; sleep 2; demos/19-zero-trust-cell/drops.sh 30s | grep -E "==|api" | head -6
+  Gateway -> api (external): 200
+  Gateway -> web -> api (web is in the cell, no longer allowed): 200
+== poc1: 12 dropped flows ==
+    12  web@poc1                 -> api@poc1                 :8080  POLICY_DENIED          - denied_by=[]
+== poc2: 0 dropped flows ==
+
+### 2026-09-12T05:36:27Z
+$ sh -c echo "put it back: the committed intent.yaml, re-rendered"; for c in poc1 poc2; do kubectl --context kind-$c apply -f demos/19-zero-trust-cell/rendered/cell-policies.yaml | grep configured | sed "s/^/  $c: /"; done; sleep 4; GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); curl -s --cacert docs/root-ca.crt --resolve bank.poc.local:443:$GW -m 8 -o /dev/null -w "  Gateway -> web -> api: %{http_code}\n" "https://bank.poc.local/api/balance/chk-1001"
+put it back: the committed intent.yaml, re-rendered
+  poc1: ciliumnetworkpolicy.cilium.io/cell-api configured
+  poc2: ciliumnetworkpolicy.cilium.io/cell-api configured
+  Gateway -> web -> api: 200
+
+
+### 2026-09-12T05:36:33Z
+$ [PART 6 — the same denials on the demo 16 dashboards (Hubble drop metrics with the Part 9 contexts)]
+
+### 2026-09-12T05:36:33Z
+  sum by (source, destination, reason) (increase(hubble_drop_total{source_namespace="bank"}[20m]) > 0)
+         155.9  source=egress-test destination=reserved:world reason=POLICY_DENIED
+         20.26  source=egress-test destination=reserved:kube-apiserver reason=POLICY_DENY
+         15.42  source=web destination=api reason=POLICY_DENIED
+         8.149  source=egress-test2 destination=reserved:world reason=POLICY_DENIED
+  sum by (destination, reason) (increase(hubble_drop_total{destination_namespace="bank"}[20m]) > 0)
+         29.81  destination=api reason=POLICY_DENIED
+
+### 2026-09-12T05:36:33Z
+$ [cleanup: the test pods; the cell policies STAY — this is the zero-trust posture the rest of the repo now runs under]
+
+### 2026-09-12T05:36:33Z
+$ sh -c kubectl --context kind-poc1 -n bank delete pod egress-test egress-test2 --ignore-not-found --wait=false; for c in poc1 poc2; do echo "-- $c --"; kubectl --context kind-$c get ccnp --no-headers | sed "s/^/  /"; kubectl --context kind-$c -n bank get cnp --no-headers | awk "{print \"  \"\$1}" | tr "\n" " "; echo; done
+pod "egress-test" deleted
+pod "egress-test2" deleted
+-- poc1 --
+  bank-cell-baseline   True
+  cell-accounts   cell-api   cell-payments   cell-postgres   cell-postgres-standby   cell-redis   cell-web 
+-- poc2 --
+  bank-cell-baseline   True
+  cell-accounts   cell-api   cell-payments   cell-postgres   cell-postgres-standby   cell-redis   cell-web 
+

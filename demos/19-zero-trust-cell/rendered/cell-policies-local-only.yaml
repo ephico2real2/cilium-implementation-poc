@@ -1,0 +1,186 @@
+# rendered by demos/19-zero-trust-cell/render.py from intent.yaml — LOCAL-CLUSTER ONLY (Part 3 experiment)
+# apply this SAME file to every cluster the cell spans
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cell-web
+  namespace: bank
+  labels:
+    cell: bank
+    rendered-from: intent.yaml
+  annotations:
+    visibility: external
+spec:
+  description: 'web: rendered from intent.yaml (visibility=external); do not edit'
+  endpointSelector:
+    matchLabels:
+      app: web
+  ingress:
+  - fromEntities:
+    - ingress
+    toPorts:
+    - ports:
+      - port: '8080'
+        protocol: TCP
+      rules:
+        http:
+        - {}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cell-api
+  namespace: bank
+  labels:
+    cell: bank
+    rendered-from: intent.yaml
+  annotations:
+    visibility: external,project
+spec:
+  description: 'api: rendered from intent.yaml (visibility=external,project); do not
+    edit'
+  endpointSelector:
+    matchLabels:
+      app: api
+  ingress:
+  - fromEntities:
+    - ingress
+    toPorts: &id001
+    - ports:
+      - port: '8080'
+        protocol: TCP
+      rules:
+        http:
+        - {}
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: bank
+    toPorts: *id001
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cell-payments
+  namespace: bank
+  labels:
+    cell: bank
+    rendered-from: intent.yaml
+  annotations:
+    visibility: project
+spec:
+  description: 'payments: rendered from intent.yaml (visibility=project); do not edit'
+  endpointSelector:
+    matchLabels:
+      app: payments
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: bank
+    toPorts:
+    - ports:
+      - port: '8080'
+        protocol: TCP
+      rules:
+        http:
+        - {}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cell-accounts
+  namespace: bank
+  labels:
+    cell: bank
+    rendered-from: intent.yaml
+  annotations:
+    visibility: project
+spec:
+  description: 'accounts: rendered from intent.yaml (visibility=project); do not edit'
+  endpointSelector:
+    matchLabels:
+      app: accounts
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: bank
+    toPorts:
+    - ports:
+      - port: '8080'
+        protocol: TCP
+      rules:
+        http:
+        - {}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cell-redis
+  namespace: bank
+  labels:
+    cell: bank
+    rendered-from: intent.yaml
+  annotations:
+    visibility: project
+spec:
+  description: 'redis: rendered from intent.yaml (visibility=project); do not edit'
+  endpointSelector:
+    matchLabels:
+      app: redis
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: bank
+    toPorts:
+    - ports:
+      - port: '6379'
+        protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cell-postgres
+  namespace: bank
+  labels:
+    cell: bank
+    rendered-from: intent.yaml
+  annotations:
+    visibility: project
+spec:
+  description: 'postgres: rendered from intent.yaml (visibility=project); do not edit'
+  endpointSelector:
+    matchLabels:
+      app: postgres
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: bank
+    toPorts:
+    - ports:
+      - port: '5432'
+        protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cell-postgres-standby
+  namespace: bank
+  labels:
+    cell: bank
+    rendered-from: intent.yaml
+  annotations:
+    visibility: project
+spec:
+  description: 'postgres-standby: rendered from intent.yaml (visibility=project);
+    do not edit'
+  endpointSelector:
+    matchLabels:
+      app: postgres-standby
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: bank
+    toPorts:
+    - ports:
+      - port: '5432'
+        protocol: TCP
+

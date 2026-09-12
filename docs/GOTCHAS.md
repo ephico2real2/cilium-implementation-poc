@@ -66,6 +66,9 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [64](#64) | A ClusterIP on a port that is not a Service port is no Service frontend: no translation, identity `world`, denied by the cell — the datapath verdict log says so | policy |
+| [63](#63) | Pods cannot resolve external names on Docker Desktop: CoreDNS forwards to `192.168.65.254`, which times out for pod sources; `toFQDNs` has nothing to match until the Corefile forwards elsewhere | Docker Desktop / DNS |
+| [62](#62) | Since Cilium 1.19 a selector without the cluster label matches the local cluster only: the blog's `fromEndpoints: [{}]` denied every mesh peer — 400 drops, replication included | ClusterMesh / policy |
 | [61](#61) | OBI prints its first span ~40 s after Ready and exports spans 10–20 s after the request — the page's log check run straight after `rollout status` is empty, and nothing is wrong | OBI |
 | [60](#60) | Tetragon crash-loops on Docker Desktop < 4.30 — the VM kernel has no `CONFIG_SECURITY`, the exec sensor's kprobe symbol does not exist, and no helm value fixes a kernel; plus the creation-time `/procHost` mount without which events silently lose their pod. The same missing LSM hooks stop OBI's non-Go tracer (Postgres, Redis) | Tetragon / OBI / Docker Desktop |
 | [59](#59) | The dynamic Hubble metrics config cannot change a registered metric's context options: helm succeeded, every agent logged a refusal every 10 s and kept the old labels | monitoring |
@@ -1554,6 +1557,63 @@ collector; `demos/18-obi/check.sh` takes a `since` argument for exactly this. No
 
 ---
 
+## <a name="62"></a>62. Since Cilium 1.19 a policy selector matches the LOCAL cluster only — a ClusterMesh peer is silently outside the cell
+
+**Symptom.** Demo 19 Part 3: the blog's `fromEndpoints: [{}]` shape applied to poc2 → 8 of 12 bank
+calls failed and poc2 logged 400 `POLICY_DENIED` drops, every one from a poc1 peer:
+`api@poc1 → payments@poc2`, `payments@poc1 → accounts@poc2`, and `postgres-standby@poc1 → postgres@poc2`
+— replication too.
+
+**Cause.** `policy-default-local-cluster=true` (the 1.19+ default, set on both clusters): "Policies
+automatically select endpoints from the local cluster only, unless one or multiple cluster are
+specifically targeted" (ClusterMesh policy docs). A selector without the cluster label is a
+single-cluster selector.
+
+**Fix.** `matchExpressions: [{key: io.cilium.k8s.policy.cluster, operator: In, values: [poc1, poc2]}]`
+on every `fromEndpoints` / `toEndpoints` that means "the cell" — written by `render.py` from
+`intent.cell.clusters`, so it cannot be forgotten. And apply the policies in every cluster: they are
+not distributed by the mesh.
+
+→ demo 19, Parts 1 and 3
+
+---
+
+## <a name="63"></a>63. Pods cannot resolve external names on Docker Desktop: CoreDNS forwards to a resolver that times out for pod sources
+
+**Symptom.** `nslookup example.com` from any pod: `SERVFAIL`; CoreDNS: `read udp 10.10.3.88:58607->192.168.65.254:53: i/o timeout`
+(46 in 30 min). Yet `curl https://1.1.1.1` from the same pod works, and `nslookup example.com 1.1.1.1`
+answers.
+
+**Cause.** kind's CoreDNS forwards to the node's `/etc/resolv.conf`; on Docker Desktop that is the VM's
+`192.168.65.254`, which answers the node but not masqueraded pod traffic. `toFQDNs` policies have
+nothing to match without a working resolver.
+
+**Fix.** Corefile `forward . 1.1.1.1 8.8.8.8` in both clusters (demo 19 Part 0; the originals are in
+`.tmp/Corefile-*-before`). A lab fix — a corporate resolver goes there in real life.
+
+→ demo 19, Part 0
+
+---
+
+## <a name="64"></a>64. A ClusterIP on a port that is not a Service port is `world` — and a zero-trust cell denies `world`
+
+**Symptom.** From a debug pod in the cell, `api.bank:8080` timed out and Hubble showed the
+destination as `reserved:world`, while the api **pod IP**:8080 was allowed. Twenty minutes went into
+suspecting the LB path.
+
+**Cause (datapath debug, `cilium-dbg endpoint config <id> Debug=Enabled`).** The Service is
+`10.11.36.138:80 → 10.10.3.34:8080`. `:8080` on the ClusterIP is no Service frontend, so no
+translation happens; the packet's destination is just an IP nobody owns → identity `world` →
+`Policy verdict … remote ID world … action deny`. Before the cell, that packet was simply refused by
+nothing and dropped by nobody — the same mistake was invisible.
+
+**Fix.** Use the Service port (`api.bank:80`). The lesson is the general one: a default-deny cell
+turns every sloppy address into a visible drop — read `drops.sh` before suspecting the policy.
+
+→ demo 19, Part 2
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1581,6 +1641,7 @@ Most of these share a shape: **something reported success while not working.**
 - `rollout status` said success while an old pod wired to a dead database still took requests (#56)
 - `helm upgrade` said *Happy Helming* while every agent refused the new metrics config every 10 s (#59)
 - Tetragon without the host `/proc` keeps running and emits events with the pod field empty (#60, tetragon#4883)
+- a policy that read "any endpoint in this namespace" matched none of the namespace's pods in the other cluster (#62)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

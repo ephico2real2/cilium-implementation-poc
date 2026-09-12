@@ -1708,3 +1708,20 @@ kubectl --context kind-poc1 -n otel logs ds/otel-collector --since=3m | demos/18
 Cilium is not touched: with tcx on both sides the page's `bpf.tc.priority` does not apply (and is
 not a 1.20.1 chart value). Recorded output and reasoning: `demos/18-obi/README.md`.
 
+## Step 16 — the zero-trust cell for the bank, both clusters (demo 19)
+
+```bash
+demos/19-zero-trust-cell/render.py < demos/19-zero-trust-cell/intent.yaml > demos/19-zero-trust-cell/rendered/cell-policies.yaml
+kubectl --context kind-poc1 delete -f demos/16-monitoring/20-visibility-policies.yaml --ignore-not-found   # allow-all; superseded
+for c in poc1 poc2; do
+  kubectl --context kind-$c apply -f demos/19-zero-trust-cell/10-platform-baseline.yaml    # the clusterwide boundary
+  kubectl --context kind-$c apply -f demos/19-zero-trust-cell/rendered/cell-policies.yaml   # the rendered per-component policies
+done
+kubectl --context kind-poc1 apply -f demos/19-zero-trust-cell/20-rbac.yaml                  # the developer role
+demos/15-bank/exercise.sh 40 ; scripts/check-routes.sh ; demos/19-zero-trust-cell/drops.sh 5m
+demos/19-zero-trust-cell/egress-test.sh poc1                                                 # the boundary, from a debug pod
+```
+
+External names need Part 0 first (CoreDNS forward to public resolvers, gotcha #63). Every command
+with its reason and recorded output: `demos/19-zero-trust-cell/README.md`.
+

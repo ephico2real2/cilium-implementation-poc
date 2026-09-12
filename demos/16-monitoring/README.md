@@ -643,3 +643,8 @@ Rollback of Section B, in one line, from the snapshot taken before Part 5:
 helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc1 -f .tmp/poc1-values-before-demo16.yaml
 kubectl --context kind-poc1 delete -f demos/16-monitoring/20-visibility-policies.yaml
 ```
+
+> **Superseded in demo 19.** The two visibility policies of Part 7 were allow-all and were removed
+> when the bank became a default-deny cell; the rendered cell policies carry the same `http: [{}]`
+> and `dns` rules, so the dashboards of Parts 8–9 keep their data.
+

@@ -1,0 +1,20 @@
+# Demo 19, Part 5 — governance by RBAC: a developer deploys workloads and declares intent; the platform renders
+# policy. So the developer role can manage the workloads of the cell and can READ the rendered policies, but
+# cannot create or change any CiliumNetworkPolicy — and the clusterwide baseline is not even in its namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: developer, namespace: bank}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: developer, namespace: bank}
+rules:
+  - {apiGroups: ["apps"],      resources: [deployments, statefulsets],                              verbs: ["*"]}
+  - {apiGroups: [""],          resources: [pods, services, configmaps, secrets, pods/log, pods/exec], verbs: ["*"]}
+  - {apiGroups: ["cilium.io"], resources: [ciliumnetworkpolicies],                                 verbs: [get, list, watch]}   # read, never write
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: developer, namespace: bank}
+subjects: [{kind: ServiceAccount, name: developer, namespace: bank}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: developer}

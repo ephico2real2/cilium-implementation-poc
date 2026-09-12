@@ -1,0 +1,16 @@
+# Demo 19 — the developer-facing surface, and nothing else. This is the blog's "visibility" field for the bank:
+# a developer declares what each endpoint is for; the platform (render.py) turns it into CiliumNetworkPolicies.
+#   project  : reachable only from inside the cell (the bank namespace, in BOTH clusters — the cell spans the mesh)
+#   external : reachable from the platform's gateway (the demo 09 Gateway, identity `ingress`)
+# Anything not declared is denied — by the existence of the rendered policy, not by an extra rule.
+cell:
+  namespace: bank
+  clusters: [poc1, poc2]        # the mesh members the cell spans (the renderer writes them into every selector)
+components:
+  web:              {port: 8080, protocol: http, visibility: [external]}
+  api:              {port: 8080, protocol: http, visibility: [external, project]}   # the Gateway (bankapi) AND web
+  payments:         {port: 8080, protocol: http, visibility: [project]}
+  accounts:         {port: 8080, protocol: http, visibility: [project]}
+  redis:            {port: 6379, protocol: tcp,  visibility: [project]}
+  postgres:         {port: 5432, protocol: tcp,  visibility: [project]}             # accounts, and the standby's replication
+  postgres-standby: {port: 5432, protocol: tcp,  visibility: [project]}             # api's read fallback (demo 15 Part 8)
