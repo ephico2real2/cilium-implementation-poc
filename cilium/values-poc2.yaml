@@ -63,7 +63,17 @@ hubble:
     # Relay on this side too, so `hubble observe` can be pointed at poc2 independently. The mesh
     # does not merge flow streams; each cluster keeps its own Hubble, which is worth knowing before
     # anyone goes looking for a single pane of glass.
+    #   (Corrected by demo 24, 2026-09-12: once both clusters' Hubble certificates come from ONE CA, a relay
+    #   does reach the other cluster's nodes through ClusterMesh — poc1's relay reports 7/7 nodes. The
+    #   sentence above was true of the per-cluster cilium-ca install, gotcha #71.)
     enabled: true
+    # Day one, not demo 25 (gotcha #75): the relay's server side on TLS with mutual authentication — see the
+    # same block in values-poc1.yaml for the reasoning. Helm-method certificates at install, re-issued from
+    # the enterprise root at Step 9.3a / demo 24.
+    tls:
+      server:
+        enabled: true
+        mtls: true
   ui:
     # No UI here -- poc1 has one, and a second would cost memory for a view nobody is watching.
     enabled: false

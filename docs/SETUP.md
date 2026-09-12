@@ -961,6 +961,11 @@ the evidence, because this build got it wrong first.
 
 ## Step 5 — install Cilium
 
+> **`cilium/values-poc1.yaml` carries `hubble.relay.tls.server.enabled/mtls: true` since 2026-09-12** —
+> rendered proof that the Helm certificate method issues `hubble-relay-server-certs`, `hubble-relay-client-certs`
+> and `hubble-ui-client-certs` at install and the relay Service is 443 (demo 25 Part 5g). Nothing in this
+> step's commands changes; Step 6 configures the CLI.
+
 ### Step 5.1 — add the chart repository
 
 ```bash
@@ -1176,6 +1181,16 @@ from sidecar meshes, and it is the property ztunnel would break (demo 13, Part 4
 
 ## Step 6 — verify the install
 
+> **Before the first `hubble` command (2026-09-12):** the day-one values put the relay on mutual TLS
+> (gotcha #75), so configure the CLI once — it fetches the client certificate the chart issued and
+> writes the TLS settings into `~/.config/hubble/config.yaml`; from here on every `hubble …` in this
+> document and in the demos works exactly as written (port-forwards to the relay use `4245:443`):
+>
+> ```bash
+> scripts/hubble-tls.sh --configure kind-poc1        # after Step 9: --configure kind-poc1 kind-poc2
+> hubble config view | grep ^tls                     # tls: true, the CA, the client certificate
+> ```
+
 ### Step 6.1 — Cilium's own status
 
 ```bash
@@ -1363,6 +1378,9 @@ kubectl -n kube-system rollout restart deployment/cilium-operator daemonset/cili
   `echo | openssl s_client -connect <gateway>:443 -servername <host> -alpn h2,http/1.1 | grep ALPN`.
 
 ## Step 9 — the second cluster and ClusterMesh
+
+> After poc2 is installed: `scripts/hubble-tls.sh --configure kind-poc1 kind-poc2` — until Step 9.3a
+> each cluster has its own CA, and the CLI needs both in `tls-ca-cert-files`; after it, one root.
 
 Only needed for demo 07. It adds two more nodes, so check headroom first:
 `docker stats --no-stream --format '{{.MemUsage}}'`.

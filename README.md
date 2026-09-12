@@ -49,9 +49,11 @@ unchanged, with BGP substituted for L2 in production.
    external-access proof for demo 09.
 8. **[docs/REFERENCES.md](docs/REFERENCES.md)** — every external source the PoC was built against,
    with what each was used for; the place to check a claim's origin.
-8b. **Since demo 25 Part 5 the Hubble Relays require mutual TLS.** Every `hubble …` command shown in
-   demos 01–24 needs the operator certificate's flags appended: `$(scripts/hubble-tls.sh kind-poc1)`
-   (the relay Service is port 443 now; port-forwards use `4245:443`). The demos are kept as recorded.
+8b. **The Hubble Relays require mutual TLS — from day one** (`cilium/values-poc*.yaml`, gotcha #75).
+   Configure the CLI once, `scripts/hubble-tls.sh --configure kind-poc1 kind-poc2`, and every
+   `hubble …` command in demos 01–25 works as written (measured in demo 25 Part 5g: demo 01's and
+   demo 07's commands verbatim, both clusters). Relay port-forwards are `4245:443`; the one `4245:80`
+   left in the text is gotcha #47's historical note.
 9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 75 traps, each with the real error
    text.
 

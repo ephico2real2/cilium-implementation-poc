@@ -70,6 +70,17 @@ hubble:
     # Relay aggregates the per-node Hubble instances into one API. Without it `hubble observe` can
     # only see the node you happen to be port-forwarded to.
     enabled: true
+    # Day one, not demo 25 (2026-09-12, gotcha #75): the relay is the one stream of EVERY flow, and with the
+    # default (server TLS off) any pod that reaches kube-system:80 reads all of it. With these two keys the
+    # chart's Helm certificate method issues the relay's server certificate, the UI's client certificate and
+    # the CLI's (hubble-relay-client-certs) at install, from this cluster's cilium-ca; the Service is 443.
+    # Step 9.3a / demo 24 later re-issues every one of them from the enterprise root (cert-manager) — nothing
+    # else changes. Operators: `scripts/hubble-tls.sh --configure kind-<cluster>` once, then every `hubble`
+    # command in this repo works as written.
+    tls:
+      server:
+        enabled: true
+        mtls: true
   ui:
     # The service map in a browser. Reached with `cilium hubble ui`, or on a real address via the
     # service below.

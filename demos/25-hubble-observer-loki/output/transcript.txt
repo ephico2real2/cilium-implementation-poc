@@ -318,3 +318,46 @@ Loki, last 5 min, by source cluster:
    {'flow_source_cluster_name': 'poc1', 'flow_verdict': 'DROPPED'} 68
 Hubble UI over mTLS (Playwright): 7/7 nodes, 144.9 flows/s, 22 flow rows — output/screenshots/ho-ui-tls.png
 
+### Part 5g — the rearrangement: relay mTLS in the DAY-ONE values, and the CLI configured once so demos 01–24's hubble commands work as written
+### 2026-09-12T17:11:04Z
+$ bash -c scripts/hubble-tls.sh --configure kind-poc1 kind-poc2; echo "hubble config view (tls keys):"; hubble config view 2>/dev/null | grep -E "^tls" | sed "s/^/  /"; echo "earlier demos' commands, VERBATIM, no flags:"; echo "  demo 01: hubble status -P --kube-context kind-poc1"; hubble status -P --kube-context kind-poc1 2>/dev/null | grep -E "Connected Nodes" | sed "s/^/    /"; echo "  demo 07: hubble observe -P --kube-context kind-poc2 --last 3"; hubble observe -P --kube-context kind-poc2 --last 3 -o compact 2>/dev/null | cut -c1-150 | sed "s/^/    /"; echo "  demo 19: demos/19-zero-trust-cell/drops.sh 15m (its explicit flags still win)"; demos/19-zero-trust-cell/drops.sh 15m 2>&1 | head -2 | sed "s/^/    /"; echo "  port-forward form (the one README that says 4245:80 must say 4245:443):"; kubectl --context kind-poc1 -n kube-system port-forward svc/hubble-relay 4245:443 >/dev/null 2>&1 & PF=$!; sleep 3; hubble status 2>/dev/null | grep -E "Healthcheck|Connected" | sed "s/^/    /"; kill $PF
+hubble CLI configured (6 tls keys in ~/.config/hubble/config.yaml): client cert from hubble-cli-client-certs of kind-poc1; CAs of: kind-poc1 kind-poc2
+hubble config view (tls keys):
+  tls: true
+  tls-allow-insecure: false
+  tls-ca-cert-files:
+  tls-client-cert-file: /Users/olasumbo/gitRepos/cilium-kind-poc/.tmp/hubble-tls/kind-poc1/tls.crt
+  tls-client-key-file: /Users/olasumbo/gitRepos/cilium-kind-poc/.tmp/hubble-tls/kind-poc1/tls.key
+  tls-server-name: cli.hubble-relay.cilium.io
+earlier demos' commands, VERBATIM, no flags:
+  demo 01: hubble status -P --kube-context kind-poc1
+    Connected Nodes: 7/7
+  demo 07: hubble observe -P --kube-context kind-poc2 --last 3
+    Sep 12 17:11:05.517: 172.18.0.7:43232 (host) -> 172.18.0.6:2380 (kube-apiserver) to-network FORWARDED (TCP Flags: RST)
+    Sep 12 17:11:05.546: 172.18.0.7:59474 (host) -> 172.18.0.2:6443 (world) to-network FORWARDED (TCP Flags: ACK, PSH)
+    Sep 12 17:11:06.079: 10.20.0.196:52528 (remote-node) <> 10.10.2.238:4240 (health) to-overlay FORWARDED (TCP Flags: ACK)
+    Sep 12 17:11:07.193: 172.18.0.6:59882 (host) -> 172.18.0.4:10250 (remote-node) to-network FORWARDED (TCP Flags: SYN)
+    Sep 12 17:11:07.193: 172.18.0.6:59882 (host) -> 172.18.0.4:10250 (remote-node) to-network FORWARDED (TCP Flags: ACK)
+    Sep 12 17:11:07.194: 172.18.0.6:59882 (host) -> 172.18.0.4:10250 (remote-node) to-network FORWARDED (TCP Flags: ACK, PSH)
+    Sep 12 17:11:07.426: 10.10.3.168:59180 (host) <- kube-system/hubble-ui-6c4bfdfb4c-vbqjb:8081 (ID:73875) to-stack FORWARDED (TCP Flags: ACK)
+    Sep 12 17:11:07.592: 172.18.0.10:44478 (host) -> 172.18.0.9:10250 (remote-node) to-network FORWARDED (TCP Flags: SYN)
+    Sep 12 17:11:07.592: 172.18.0.10:44478 (host) -> 172.18.0.9:10250 (remote-node) to-network FORWARDED (TCP Flags: ACK)
+    Sep 12 17:11:07.685: 172.18.0.3:59220 (host) -> 172.18.0.6:2380 (kube-apiserver) to-network FORWARDED (TCP Flags: ACK)
+    Sep 12 17:11:07.685: 172.18.0.3:59210 (host) -> 172.18.0.6:2380 (kube-apiserver) to-network FORWARDED (TCP Flags: ACK)
+    Sep 12 17:11:07.688: 172.18.0.4:39840 (host) -> 172.18.0.6:4240 (kube-apiserver) to-network FORWARDED (TCP Flags: ACK)
+    Sep 12 17:11:07.688: 172.18.0.4:35832 (host) -> 172.18.0.3:4240 (kube-apiserver) to-network FORWARDED (TCP Flags: ACK)
+    Sep 12 17:11:07.688: 10.10.1.205:39820 (remote-node) <> 10.10.2.238:4240 (health) to-overlay FORWARDED (TCP Flags: ACK)
+    Sep 12 17:11:07.689: 10.10.1.205:39820 (remote-node) <- 10.10.2.238:4240 (health) to-overlay FORWARDED (TCP Flags: ACK)
+    Sep 12 17:11:07.891: 10.10.4.35:52868 (host) <- bank/api-5d6d8cfd55-sj27m:8080 (ID:103600) to-stack FORWARDED (TCP Flags: ACK, PSH)
+    Sep 12 17:11:07.892: 10.10.4.35:52868 (host) -> bank/api-5d6d8cfd55-sj27m:8080 (ID:103600) to-endpoint FORWARDED (TCP Flags: ACK, FIN)
+    Sep 12 17:11:07.893: 10.10.4.35:52868 (host) <- bank/api-5d6d8cfd55-sj27m:8080 (ID:103600) to-stack FORWARDED (TCP Flags: ACK, FIN)
+    Sep 12 17:11:07.906: kube-system/hubble-relay-556c4dbb98-2zslj:52606 (ID:164992) <- 172.18.0.5:4244 (remote-node) to-endpoint FORWARDED (TCP Flags: AC
+    Sep 12 17:11:07.907: kube-system/hubble-relay-556c4dbb98-2zslj:59574 (ID:164992) <- 172.18.0.3:4244 (remote-node) to-endpoint FORWARDED (TCP Flags: AC
+    Sep 12 17:11:07.910: kube-system/hubble-relay-556c4dbb98-2zslj:42280 (ID:164992) <- 172.18.0.6:4244 (remote-node) to-endpoint FORWARDED (TCP Flags: AC
+  demo 19: demos/19-zero-trust-cell/drops.sh 15m (its explicit flags still win)
+    == poc1: 0 dropped flows ==
+    == poc2: 0 dropped flows ==
+  port-forward form (the one README that says 4245:80 must say 4245:443):
+    Healthcheck (via localhost:4245): Ok
+    Connected Nodes: 7/7
+

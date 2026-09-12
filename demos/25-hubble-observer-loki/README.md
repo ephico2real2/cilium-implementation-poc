@@ -197,9 +197,28 @@ stdout 68 lines → `drops.sh` over mTLS 68 (`egress-test@poc1 -> reserved:world
 nodes, 144.9 flows/s, both clusters' bank services on one map, its backend logging `initialized with
 TLS to hubble-relay enabled`.
 
+**5g — should this have been day one? Yes, and now it is.** Two facts made the rearrangement
+cheap. First, the chart's *Helm* certificate method issues the relay's server certificate, the UI's
+client certificate and `hubble-relay-client-certs` at the very first install when
+`hubble.relay.tls.server.enabled/mtls` are set — rendered with the day-one file alone:
+`Secret hubble-relay-server-certs [ca.crt tls.crt tls.key]`, relay config with the server cert and
+without `disable-server-tls`, `Service hubble-relay port 443`. Step 9.3a / demo 24 then re-issues all
+of them from the enterprise root with nothing else to change. So the two keys now live in
+[`cilium/values-poc1.yaml`](../../cilium/values-poc1.yaml) and `values-poc2.yaml` (the live releases
+already carried them from Part 5c — `helm get values` shows `{enabled: True, mtls: True}` on both).
+Second, the Hubble CLI has a configuration file with precedence *flag > environment > config file >
+default*, so `scripts/hubble-tls.sh --configure kind-poc1 kind-poc2` writes `tls`, `tls-server-name`,
+`tls-ca-cert-files` (every listed cluster's CA — one root after demo 24, two before demo 08) and the
+client certificate once, and **demos 01–24's commands work as written**. Recorded, verbatim and with no
+flags: demo 01's `hubble status -P --kube-context kind-poc1` → `Connected Nodes: 7/7`; demo 07's
+`hubble observe -P --kube-context kind-poc2 --last 3` → poc2's flows; a plain `hubble status` through a
+`4245:443` port-forward → 7/7. Before cert-manager exists (a fresh build at Step 5) the helper falls
+back to the chart's `hubble-relay-client-certs`, which the relay accepts because it verifies clients
+against its CA only. The earlier demos stay as recorded; the root README says this once (8b), SETUP
+Steps 5, 6 and 9 carry it.
+
 **What did not change:** the observer's `ciliumNetworkPolicy` stays off (its policy has no DNS rule;
-GUIDE exercise 6). **What changed for every earlier demo:** any `hubble` command in their READMEs now
-needs the flags from `scripts/hubble-tls.sh` (root README, "Since demo 25").
+GUIDE exercise 6).
 
 ## Exercises
 
