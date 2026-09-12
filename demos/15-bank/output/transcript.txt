@@ -1014,3 +1014,192 @@ deployment "payments" successfully rolled out
 == back to 1+1
 deployment "payments" successfully rolled out
 
+### 2026-09-12T02:39:54Z
+$ [scale.sh re-run after the presentation fix (pool counted per service, labels by backend IP) and the Maglev-map proof]
+
+### 2026-09-12T02:39:54Z
+$ demos/15-bank/scale.sh
+
+== A. scale payments to 3 replicas in EACH cluster — one pool of 6 from poc1's point of view
+deployment "payments" successfully rolled out
+deployment "payments" successfully rolled out
+  poc1's eBPF service map for payments (1 backends):
+    53   10.11.166.33:80/TCP       ClusterIP      1 => 10.10.3.195:8080/TCP (active)    <- poc1
+
+== B. 300 payments, 16 parallel clients, a new TCP connection each — who answered
+  per pod:
+      62  poc1/payments-778c6c78f6-f5c78
+      48  poc1/payments-778c6c78f6-fsqp4
+      45  poc1/payments-778c6c78f6-ms582
+      38  poc2/payments-7dbb8cdfdb-5hcsf
+      52  poc2/payments-7dbb8cdfdb-llv6q
+      55  poc2/payments-7dbb8cdfdb-s2b2l
+  (Cilium picks a backend per CONNECTION at random — six pods, two clusters, one pool; expect roughly 50 each, no preference for the local cluster)
+
+== C. live: the spread every 5 s while the deployment changes under load
+  t=102s  poc1=19 poc2=21 
+  t=104s  poc1=14 poc2=26 
+  t=105s  poc1=15 poc2=25 
+  t=106s  poc1=18 poc2=22 
+  t=107s  poc1=18 poc2=22 
+  t=109s  poc1=18 poc2=22 
+  t=110s  poc1=16 poc2=24 
+  >>> scaling to 3+3
+  t=111s  poc1=15 poc2=25 
+  t=112s  poc1=19 poc2=21 
+  t=114s  poc1=23 poc2=17 
+  t=115s  poc1=22 poc2=18 
+  t=117s  poc1=19 poc2=21 
+  t=118s  poc1=22 poc2=18 
+  t=119s  poc1=20 poc2=20 
+  t=121s  poc1=18 poc2=22 
+  t=122s  poc1=21 poc2=19 
+  t=123s  poc1=17 poc2=23 
+  t=124s  poc1=20 poc2=20 
+  t=125s  poc1=21 poc2=19 
+  t=127s  poc1=21 poc2=19 
+  t=128s  poc1=25 poc2=15 
+  t=129s  poc1=18 poc2=22 
+  t=131s  poc1=14 poc2=26 
+  >>> poc2 payments -> 0 (a whole cluster's share gone)
+  t=132s  poc1=20 poc2=20 
+  t=133s  poc1=24 poc2=16 
+  t=135s  FAIL=1 poc1=32 poc2=7 
+  t=136s  poc1=40 
+  t=138s  poc1=40 
+  t=140s  poc1=40 
+  t=141s  poc1=40 
+  t=143s  poc1=40 
+  t=144s  poc1=40 
+  t=145s  poc1=40 
+  t=147s  poc1=40 
+  >>> poc2 back to 3
+  t=148s  poc1=40 
+  t=149s  poc1=40 
+  t=151s  poc1=40 
+  t=152s  poc1=39 poc2=1 
+  t=153s  poc1=28 poc2=12 
+  t=155s  poc1=26 poc2=14 
+  t=156s  poc1=17 poc2=23 
+  t=157s  poc1=21 poc2=19 
+  t=158s  poc1=16 poc2=24 
+  t=160s  poc1=18 poc2=22 
+  t=161s  poc1=23 poc2=17 
+  poc1's map now: 1 backends
+
+== D. the same pool behind a twin Service created with lb-algorithm=maglev (consistent hashing; only settable at creation)
+  poc1's map for payments-maglev: 1 backends; algorithm as Cilium sees it:
+    58   10.11.43.42:80/TCP        ClusterIP      1 => 10.10.3.195:8080/TCP (active)   
+    payments         service id 53   Maglev table in cilium_lb4_maglev: no
+    payments-maglev  service id 58   Maglev table in cilium_lb4_maglev: YES
+  300 payments through api, api pointed at payments-maglev for this run (env swap, rollout, then back):
+      48  poc1/payments-778c6c78f6-f5c78
+      33  poc1/payments-778c6c78f6-s6ct9
+      42  poc1/payments-778c6c78f6-xql9v
+      67  poc2/payments-7dbb8cdfdb-8ds48
+      65  poc2/payments-7dbb8cdfdb-gjfgn
+      45  poc2/payments-7dbb8cdfdb-rbfrj
+  (Maglev hashes the 5-tuple onto a table of the same 6 backends: spread is still even; its property is that a backend's loss moves only that backend's flows — at most 1% of the rest, per the docs)
+
+== back to 1+1
+deployment "payments" successfully rolled out
+
+### 2026-09-12T02:43:32Z
+$ [scale.sh, third run: the map reader now keeps continuation lines (2nd column is =>); the previous run showed "1 backends" for a pool of 6]
+
+### 2026-09-12T02:43:33Z
+$ demos/15-bank/scale.sh
+
+== A. scale payments to 3 replicas in EACH cluster — one pool of 6 from poc1's point of view
+deployment "payments" successfully rolled out
+deployment "payments" successfully rolled out
+  poc1's eBPF service map for payments (6 backends):
+    53   10.11.166.33:80/TCP       ClusterIP      1 => 10.10.3.195:8080/TCP (active)    <- poc1
+    2 => 10.10.4.158:8080/TCP (active)    <- poc1
+    3 => 10.10.4.178:8080/TCP (active)    <- poc1
+    4 => 10.20.1.85:8080/TCP (active)     <- poc2
+    5 => 10.20.1.134:8080/TCP (active)    <- poc2
+    6 => 10.20.1.195:8080/TCP (active)    <- poc2
+
+== B. 300 payments, 16 parallel clients, a new TCP connection each — who answered
+  per pod:
+      52  poc1/payments-778c6c78f6-f5c78
+      55  poc1/payments-778c6c78f6-n7z9j
+      44  poc1/payments-778c6c78f6-w7tqq
+      43  poc2/payments-7dbb8cdfdb-j7v5d
+      55  poc2/payments-7dbb8cdfdb-rbfrj
+      51  poc2/payments-7dbb8cdfdb-x5wwr
+  (Cilium picks a backend per CONNECTION at random — six pods, two clusters, one pool; expect roughly 50 each, no preference for the local cluster)
+
+== C. live: the spread every 5 s while the deployment changes under load
+  t=25s  poc1=15 poc2=25 
+  t=27s  poc1=15 poc2=25 
+  t=28s  poc1=20 poc2=20 
+  t=29s  poc1=21 poc2=19 
+  t=30s  poc1=22 poc2=18 
+  t=31s  poc1=15 poc2=25 
+  t=32s  poc1=28 poc2=12 
+  t=34s  poc1=20 poc2=20 
+  >>> scaling to 3+3
+  t=35s  poc1=21 poc2=19 
+  t=37s  poc1=22 poc2=18 
+  t=38s  poc1=21 poc2=19 
+  t=40s  poc1=15 poc2=25 
+  t=41s  poc1=8 poc2=32 
+  t=42s  poc1=18 poc2=22 
+  t=44s  poc1=22 poc2=18 
+  t=45s  poc1=20 poc2=20 
+  t=46s  poc1=14 poc2=26 
+  t=47s  poc1=22 poc2=18 
+  t=48s  poc1=23 poc2=17 
+  t=50s  poc1=20 poc2=20 
+  t=51s  poc1=18 poc2=22 
+  t=52s  poc1=21 poc2=19 
+  t=53s  poc1=18 poc2=22 
+  t=54s  poc1=18 poc2=22 
+  >>> poc2 payments -> 0 (a whole cluster's share gone)
+  t=56s  poc1=20 poc2=20 
+  t=57s  poc1=22 poc2=18 
+  t=59s  poc1=37 poc2=3 
+  t=60s  poc1=40 
+  t=62s  poc1=40 
+  t=64s  poc1=40 
+  t=65s  poc1=40 
+  t=67s  poc1=40 
+  t=68s  poc1=40 
+  t=70s  poc1=40 
+  >>> poc2 back to 3
+  t=71s  poc1=40 
+  t=73s  poc1=40 
+  t=74s  poc1=40 
+  t=76s  poc1=40 
+  t=77s  poc1=36 poc2=4 
+  t=79s  poc1=22 poc2=18 
+  t=80s  poc1=18 poc2=22 
+  t=81s  poc1=22 poc2=18 
+  t=83s  poc1=21 poc2=19 
+  t=84s  poc1=21 poc2=19 
+  poc1's map now: 6 backends
+
+== D. the same pool behind a twin Service created with lb-algorithm=maglev (consistent hashing; only settable at creation)
+  poc1's map for payments-maglev: 6 backends; algorithm as Cilium sees it:
+    58   10.11.43.42:80/TCP        ClusterIP      1 => 10.10.3.195:8080/TCP (active)   
+    2 => 10.10.4.132:8080/TCP (active)   
+    3 => 10.10.4.152:8080/TCP (active)   
+    4 => 10.20.1.53:8080/TCP (active)    
+    5 => 10.20.1.152:8080/TCP (active)   
+    6 => 10.20.1.159:8080/TCP (active)   
+    payments         service id 53   Maglev table in cilium_lb4_maglev: no
+    payments-maglev  service id 58   Maglev table in cilium_lb4_maglev: YES
+  300 payments through api, api pointed at payments-maglev for this run (env swap, rollout, then back):
+      53  poc1/payments-778c6c78f6-565hn
+      50  poc1/payments-778c6c78f6-f5c78
+      42  poc1/payments-778c6c78f6-n9xvj
+      57  poc2/payments-7dbb8cdfdb-8f5nl
+      52  poc2/payments-7dbb8cdfdb-l8l8j
+      46  poc2/payments-7dbb8cdfdb-qpp6s
+  (Maglev hashes the 5-tuple onto a table of the same 6 backends: spread is still even; its property is that a backend's loss moves only that backend's flows — at most 1% of the rest, per the docs)
+
+== back to 1+1
+deployment "payments" successfully rolled out
+

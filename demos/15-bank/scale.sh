@@ -25,7 +25,7 @@ spread() { # $1 = how many, $2 = parallelism; prints per-pod and per-cluster cou
 percluster() { seq 1 "$1" | xargs -P "$2" -I{} bash -c 'one {}' | cut -d/ -f1 | sort | uniq -c | awk '{printf "%s=%s ", $2, $1}'; }
 # backends of ONE service: from its frontend line up to the next service's line (grep -A8 bled into the
 # next two Services in the first run and reported "9 backends" for a pool of 6 — the transcript keeps it).
-svcmap() { k1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | awk -v ip="$(k1 -n bank get svc "$1" -o jsonpath='{.spec.clusterIP}'):80/TCP" '$2==ip{p=1; print; next} p && $1 ~ /^[0-9]+$/ {exit} p{print}'; }
+svcmap() { k1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | awk -v ip="$(k1 -n bank get svc "$1" -o jsonpath='{.spec.clusterIP}'):80/TCP" '$2==ip{p=1; print; next} p && $2!="=>" {exit} p{print}'; }
 mapcount() { svcmap "$1" | grep -c '=>'; }
 curl -s --cacert "$CA" --resolve "bankapi.poc.local:443:$GW" -o /dev/null -X POST "$API/api/credit/chk-1002" -H 'content-type: application/json' -d '{"amount_cents":100000}'
 
