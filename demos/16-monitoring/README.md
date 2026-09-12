@@ -729,6 +729,22 @@ springboot   grafana-dashboard-springboot         Spring Boot         ← demo 2
   Cilium 2 · Hubble 4 · Spring Boot 1 · General 25
 ```
 
+**What the folders are, plainly.** Nothing about the data, the URLs or the uids changed; this is
+how Grafana's *Dashboards* page is organised. Before Section C it was one flat list of 32 under the
+default folder, *General*. After, the same 32, grouped:
+
+| Grafana folder | Dashboards | Where the ConfigMap is, and what put it in the folder |
+|---|---|---|
+| **Hubble** | Hubble Metrics and Monitoring · Hubble / Network Overview (Namespace) · Hubble / DNS Overview (Namespace) · Hubble L7 HTTP Metrics by Workload | `monitoring`, rendered by the Cilium chart (`hubble.metrics.dashboards`), annotation `grafana_folder: Hubble` |
+| **Cilium** | Cilium Metrics · Cilium Operator | `monitoring`, rendered by the Cilium chart (`dashboards`, `operator.dashboards`), annotation `grafana_folder: Cilium` |
+| **Spring Boot** | Spring Boot 3.x Statistics (petclinic) | `springboot`, demo 20's ConfigMap, annotation `grafana_folder: Spring Boot` |
+| **General** | the 25 kube-prometheus-stack dashboards (node, kubelet, API server, CoreDNS, …) | `monitoring`, the stack's own ConfigMaps, no annotation |
+
+The annotation alone does nothing: the sidecar has to be told to read it
+(`grafana.sidecar.dashboards.folderAnnotation: grafana_folder` + `provider.foldersFromFilesStructure: true`
+in the stack values). With both halves in place the sidecar files each dashboard under the folder its
+ConfigMap names. Open `https://grafana.poc.local/dashboards` to see exactly this view.
+
 The same stack upgrade also added the Tempo datasource and the exemplar link — that is demo 21.
 
 > **Step by step, as exercises: [`GUIDE.md`](GUIDE.md).**
