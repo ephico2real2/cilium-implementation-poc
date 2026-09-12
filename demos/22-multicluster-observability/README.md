@@ -1,6 +1,6 @@
 # Demo 22 — one Grafana for the mesh: poc2's metrics and traces into the central stack on poc1
 
-> **Where this sits in the whole:** [OBSERVABILITY-ARCHITECTURE.md](../../OBSERVABILITY-ARCHITECTURE.md) — the one picture of metrics, traces and flows across poc1, poc2 … poc-N, reviewed against what is deployed.
+**Where this sits in the whole:** [OBSERVABILITY-ARCHITECTURE.md](../../OBSERVABILITY-ARCHITECTURE.md) — the one picture of metrics, traces and flows across poc1, poc2 … poc-N, reviewed against what is deployed.
 
 > **Superseded in part by [demo 23](../23-collector-per-cluster/README.md):** the collector Service
 > re-declared global with local affinity in Part 2, and Exercise 4's cross-cluster fallback, were

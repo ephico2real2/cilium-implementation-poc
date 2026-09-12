@@ -221,7 +221,7 @@ The three generator processors and what each one feeds:
 |---|---|---|
 | `service-graphs` | `traces_service_graph_*` in Prometheus | the Service Graph tab (Part 5) |
 | `span-metrics` | `traces_spanmetrics_*` in Prometheus | the Service Graph's Rate / Duration columns; any dashboard |
-| `local-blocks` | nothing in Prometheus — answers TraceQL metrics queries from Tempo's own blocks | Traces Drilldown, Explore TraceQL `| rate()` etc. (Part 6) |
+| `local-blocks` | nothing in Prometheus — answers TraceQL metrics queries from Tempo's own blocks \| Traces Drilldown, Explore TraceQL `| rate()` etc. (Part 6) |
 
 ## Exercises
 
