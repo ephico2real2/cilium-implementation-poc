@@ -1830,7 +1830,7 @@ demos/25-hubble-observer-loki/chart-prep.sh                                     
 helm install loki grafana/loki --version 7.3.0 -n monitoring --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-loki.yaml --wait
 helm install hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer -n hubble-observer --create-namespace \
   --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --wait          # vendored from the operator's fork (PR #9 fix + docs): policy ON, cf2cnp on
-# to validate a fork branch before vendoring it: demos/25-hubble-observer-loki/chart-from-fork.sh develop <commit>   # the fork's develop = every change of this demo
+# the deployment path now: demos/25-hubble-observer-loki/chart-from-fork.sh develop   # the fork's DEFAULT branch = every change of this demo, merged
 kubectl --context kind-poc1 apply -f demos/25-hubble-observer-loki/20-cf2cnp-route.yaml                 # cf2cnp.poc.local through the demo 09 Gateway
 kubectl --context kind-poc1 apply -f demos/10-tracing/otel-collector.yaml; kubectl --context kind-poc1 -n otel rollout restart ds/otel-collector   # observer stdout → Loki
 helm upgrade monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml   # the Loki data source

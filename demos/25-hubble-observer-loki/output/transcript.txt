@@ -574,3 +574,53 @@ cell probe: 6 DENIED
     health: OK
   running command has the mask: 1 | policy: 4245/53 | image: quay.io/cilium/cilium:v1.20.1@sha256:ae9…
 
+### Part 10b — every fork branch merged into develop (041108d), deployed, and tested — extraArgs live this time
+### 2026-09-12T20:56:50Z
+$ bash -c demos/25-hubble-observer-loki/chart-from-fork.sh develop 041108d 2>&1 | tail -3; echo "--- extraArgs live: --not-reply appended for this run ---"; helm upgrade hubble-observer .tmp/hubble-observer-fork/helm/hubble-observer -n hubble-observer --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --set "extraArgs={--not-reply}" --wait --timeout 4m 2>&1 | grep -E "REVISION|rror"; kubectl --context kind-poc1 -n hubble-observer rollout status deploy/hubble-observer --timeout=3m | tail -1; CMD=$(kubectl --context kind-poc1 -n hubble-observer get deploy hubble-observer -o jsonpath="{.spec.template.spec.containers[0].args[0]}"); echo "  command: mask=$(echo "$CMD" | grep -c field-mask) not-reply=$(echo "$CMD" | grep -c -- "--not-reply") tail: …$(echo "$CMD" | grep -o -- "--not-reply.*")"; kubectl --context kind-poc1 -n hubble-observer get pods -o custom-columns="  POD:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount" --no-headers; echo "  in-pod: $(kubectl --context kind-poc1 -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 2>/dev/null | grep "Connected Nodes")"; kubectl --context kind-poc1 -n bank delete pod egress-test --wait=true >/dev/null 2>&1; echo "  cell probe: $(demos/19-zero-trust-cell/egress-test.sh poc1 2>&1 | grep -c DENIED) DENIED"; sleep 45; kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --since=2m 2>/dev/null > /tmp/obs-dev.jsonl; python3 -c "
+import json; ls=open(\"/tmp/obs-dev.jsonl\").read().splitlines(); rep=sum(1 for l in ls if json.loads(l)[\"flow\"].get(\"is_reply\")); print(\"  observer stdout: lines=%d bytes/line=%.0f reply-flows=%d (--not-reply)\" % (len(ls), sum(map(len,ls))/max(len(ls),1), rep))"; NOW=$(date +%s); Q=$(python3 -c "import urllib.parse; print(urllib.parse.quote(\"sum by (flow_source_cluster_name, flow_verdict) (count_over_time({namespace=\\\"hubble-observer\\\",container=\\\"hubble-observer\\\"} | json | __error__=\\\"\\\" [2m]))\"))"); echo "  Loki, last 2 min: $(kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query?query=$Q&time=$NOW" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print([(x[\"metric\"], x[\"value\"][1]) for x in r] or \"none\")")"; echo "--- dashboard from the chart file at develop ---"; demos/25-hubble-observer-loki/dashboard-from-file.sh .tmp/hubble-observer-fork/helm/hubble-observer/dashboard/cilium-hubble-flows.json monitoring grafana-dashboard-hubble-observer hubble-observer-23862 Hubble | kubectl --context kind-poc1 apply -f -; sleep 40; GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana https://grafana.poc.local/api/dashboards/uid/hubble-observer-23862 | python3 -c "
+import json,sys; d=json.load(sys.stdin)[\"dashboard\"]
+def t(ps):
+    for p in ps:
+        yield p.get(\"title\")
+        if p.get(\"panels\"): yield from t(p[\"panels\"])
+print(\"  Grafana:\", d[\"title\"], \"| panels:\", [x for x in t(d[\"panels\"]) if x and \"Flows per\" in x])"; echo "--- check.sh ---"; demos/25-hubble-observer-loki/check.sh 1 2>&1 | grep -E "relay as|poc1|poc2|health|ds:|dashboard:" | sed "s/^/  /"; echo "--- policy on? image? ---"; echo "  policy: $(kubectl --context kind-poc1 -n hubble-observer get cnp allow-hubble-observer-to-hubble-relay -o jsonpath="{.spec.egress[0].toPorts[0].ports[0].port}/{.spec.egress[1].toPorts[0].ports[0].port}") image: $(kubectl --context kind-poc1 -n hubble-observer get deploy hubble-observer -o jsonpath="{.spec.template.spec.containers[0].image}" | cut -c1-45)…"
+dependencies: cf2cnp-0.4.0.tgz
+STATUS: deployed
+REVISION: 16
+--- extraArgs live: --not-reply appended for this run ---
+REVISION: 17
+deployment "hubble-observer" successfully rolled out
+  command: mask=1 not-reply=1 tail: …--not-reply > /proc/1/fd/1
+hubble-observer-5868cd5644-shsqq          true   0
+hubble-observer-6f865f8f94-h5vfh          true   0
+hubble-observer-cf2cnp-7d6576479c-jh4n7   true   0
+  in-pod: Connected Nodes: 7/7
+  cell probe: 6 DENIED
+### Part 10b — develop is the fork's default branch; deployed from it, tested
+### 2026-09-12T21:00:58Z
+$ bash -c echo "fork default branch: $(gh repo view ephico2real2/hubble-observer --json defaultBranchRef -q .defaultBranchRef.name)"; demos/25-hubble-observer-loki/chart-from-fork.sh develop 2>&1 | tail -3; kubectl --context kind-poc1 -n hubble-observer rollout status deploy/hubble-observer --timeout=3m | tail -1; kubectl --context kind-poc1 -n hubble-observer get pods -o custom-columns="  POD:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount" --no-headers; CMD=$(kubectl --context kind-poc1 -n hubble-observer get deploy hubble-observer -o jsonpath="{.spec.template.spec.containers[0].args[0]}"); echo "  command: field-mask=$(echo "$CMD" | grep -c field-mask) | image: $(kubectl --context kind-poc1 -n hubble-observer get deploy hubble-observer -o jsonpath="{.spec.template.spec.containers[0].image}" | cut -c1-45)… | policy ports: $(kubectl --context kind-poc1 -n hubble-observer get cnp allow-hubble-observer-to-hubble-relay -o jsonpath="{.spec.egress[0].toPorts[0].ports[0].port}/{.spec.egress[1].toPorts[0].ports[0].port}")"; echo "  in-pod: $(kubectl --context kind-poc1 -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 2>/dev/null | grep "Connected Nodes")"; echo "--- dashboard from the chart file on develop ---"; demos/25-hubble-observer-loki/dashboard-from-file.sh .tmp/hubble-observer-fork/helm/hubble-observer/dashboard/cilium-hubble-flows.json monitoring grafana-dashboard-hubble-observer hubble-observer-23862 Hubble | kubectl --context kind-poc1 apply -f -; kubectl --context kind-poc1 -n bank delete pod egress-test --wait=true >/dev/null 2>&1; echo "  cell probe: $(demos/19-zero-trust-cell/egress-test.sh poc1 2>&1 | grep -c DENIED) DENIED"; sleep 45; kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --since=2m 2>/dev/null > /tmp/obs-dev.jsonl; python3 -c "
+ls=open(\"/tmp/obs-dev.jsonl\").read().splitlines(); print(\"  observer stdout: lines=%d bytes/line=%.0f\" % (len(ls), sum(map(len,ls))/max(len(ls),1)))"; NOW=$(date +%s); Q=$(python3 -c "import urllib.parse; print(urllib.parse.quote(\"sum by (flow_source_cluster_name, flow_verdict) (count_over_time({namespace=\\\"hubble-observer\\\",container=\\\"hubble-observer\\\"} | json | __error__=\\\"\\\" [2m]))\"))"); echo "  Loki, last 2 min: $(kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query?query=$Q&time=$NOW" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print([(x[\"metric\"], x[\"value\"][1]) for x in r] or \"none\")")"; GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana https://grafana.poc.local/api/dashboards/uid/hubble-observer-23862 | python3 -c "
+import json,sys; d=json.load(sys.stdin)[\"dashboard\"]
+def t(ps):
+    for p in ps:
+        yield p.get(\"title\")
+        if p.get(\"panels\"): yield from t(p[\"panels\"])
+print(\"  Grafana:\", d[\"title\"], \"| panels:\", [x for x in t(d[\"panels\"]) if x and \"Flows per\" in x])"; echo "  cf2cnp: $(curl -s --cacert docs/root-ca.crt --resolve cf2cnp.poc.local:443:$GW https://cf2cnp.poc.local/health)"
+fork default branch: develop
+dependencies: cf2cnp-0.4.0.tgz
+STATUS: deployed
+REVISION: 18
+deployment "hubble-observer" successfully rolled out
+hubble-observer-5868cd5644-shsqq          true   0
+hubble-observer-6f865f8f94-4vvzb          true   0
+hubble-observer-cf2cnp-7d6576479c-jh4n7   true   0
+  command: field-mask=1 | image: quay.io/cilium/cilium:v1.20.1@sha256:ae9ea21f… | policy ports: 4245/53
+  in-pod: Connected Nodes: 7/7
+--- dashboard from the chart file on develop ---
+configmap/grafana-dashboard-hubble-observer unchanged
+  cell probe: 6 DENIED
+  observer stdout: lines=68 bytes/line=947
+  Loki, last 2 min: [({'flow_source_cluster_name': 'poc1', 'flow_verdict': 'DROPPED'}, '68')]
+  Grafana: Cilium Flows - Hubble Observer | panels: ['Flows per Verdict', 'Flows per Direction', 'Flows per Source Namespace', 'Flows per Destination', 'Flows per Drop Reason', 'Flows per Denying Policy']
+  cf2cnp: OK
+

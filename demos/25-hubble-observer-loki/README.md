@@ -452,6 +452,22 @@ ConfigMap (Part 9 explains the label and the annotation). The dashboard panels a
 request upstream; they are ready to be one from `develop` (`git diff upstream/main --
 helm/hubble-observer/dashboard/`).
 
+## Part 10b — `develop` is the fork's default branch; the clusters deploy from it
+
+Every branch of the fork was merged into `develop` and the result proven by diff: for each of
+`fix/cnp-dns-egress`, `docs/hubble-cli-image`, `docs/hubble-cli-image-pr`, `feat/field-mask` and
+`demo25-integration`, `git rev-list develop..<branch>` is **0** — nothing on any branch is missing from
+`develop` (commit `041108d`, 6 files over upstream, `helm lint` clean with our values). It is now the
+**default branch** of `ephico2real2/hubble-observer`.
+
+Deployed from it, plainly — `chart-from-fork.sh develop` with [`values-hubble-observer.yaml`](values-hubble-observer.yaml)
+and nothing else — and tested (transcript Part 10b): the observer `Ready`, the field mask in the
+running command, the agent image at the agents' digest, the policy on with the relay pods on 4245 and
+DNS on 53, `Connected Nodes: 7/7` from inside the pod; the dashboard ConfigMap generated from the
+chart's own dashboard file on `develop` (unchanged from the previous apply — same content); a fresh
+cell probe → 68 lines on stdout at 947 bytes each, `{poc1, DROPPED} 68` in Loki within 45 s, Grafana
+listing the six "Flows per" panels including *Drop Reason* and *Denying Policy*, cf2cnp `OK`.
+
 ## Exercises
 
 See [`GUIDE.md`](GUIDE.md).
