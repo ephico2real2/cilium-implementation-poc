@@ -43,7 +43,10 @@ in each cluster"* (so `10-poc2.yaml` and `20-poc1.yaml` both declare `accounts`,
 backends, and only use remote endpoints if and only if all of local backends are not available or
 unhealthy"* — the default `none` is no preference. The shape follows
 [Bank of Anthos](https://github.com/GoogleCloudPlatform/bank-of-anthos) (frontend → ledger /
-balance / accounts services over Postgres), reduced to five parts.
+balance / accounts services over Postgres), reduced to five parts; the split-across-clusters
+pattern follows AWS's [multi-cluster shared services architecture with Cilium ClusterMesh](https://aws.amazon.com/blogs/containers/a-multi-cluster-shared-services-architecture-with-amazon-eks-using-cilium-clustermesh/),
+which stops at connectivity — the failover measurements here are what it does not show. All
+sources: `docs/REFERENCES.md`.
 
 ## Part 1 — build and deploy
 

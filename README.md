@@ -47,7 +47,9 @@ unchanged, with BGP substituted for L2 in production.
 7. **`scripts/verify.sh`** — regenerate every piece of evidence on *your* cluster and diff it
    against [docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md). `scripts/check-routes.sh` is the
    external-access proof for demo 09.
-8. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 51 traps, each with the real error
+8. **[docs/REFERENCES.md](docs/REFERENCES.md)** — every external source the PoC was built against,
+   with what each was used for; the place to check a claim's origin.
+9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 51 traps, each with the real error
    text.
 
 ## What is done, and what is left
