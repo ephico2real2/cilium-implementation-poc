@@ -500,6 +500,18 @@ scripts/record.sh demos/15-bank/output/transcript.txt demos/15-bank/resilience.s
 under a read loop, `postgres-0` and `redis-0` deleted. *Expect:* `DATA SURVIVED the pod`,
 `HISTORY SURVIVED`, `replay=True` after the Redis restart.
 
+```bash
+scripts/record.sh demos/15-bank/output/transcript.txt demos/15-bank/scale.sh
+```
+*Why:* load balancing for a scaled-out service across both clusters. It scales `payments` to 3+3
+(`kubectl scale deploy/payments --replicas=3` in each cluster), shows the six-backend pool in poc1's
+eBPF map, fires 300 payments from 16 parallel `curl`s (`xargs -P 16`; a new connection each, because
+Cilium balances connections), prints who answered per pod, then repeats a 40-payment burst every
+~1.5 s while scaling 1+1 → 3+3 → poc2 0 → 3+3, and finally creates a twin Service with
+`service.cilium.io/lb-algorithm: maglev` (only honoured at creation) and proves the difference by
+the presence of its table in the BPF map `cilium_lb4_maglev`. *Expect:* ≈50 per pod, `poc1=40` alone
+while poc2 is at 0, `Maglev table: YES` for the twin and `no` for `payments`. Ends at 1+1.
+
 ## 6. The database survives its cluster — a hot standby in poc1 (Part 8)
 
 ### 6a. Prepare the primary (already-running primary: by hand; fresh install: the initdb script in `10-poc2.yaml` does it)

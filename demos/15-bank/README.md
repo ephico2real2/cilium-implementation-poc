@@ -451,6 +451,82 @@ proves is the *shape*: one primary, a continuously replicated standby in the oth
 through the mesh, an app that degrades to read-only rather than failing, and a failback that
 verifies before it destroys.
 
+## Part 9 — load balancing for a scaled-out service spanning both clusters (`scale.sh`)
+
+The question: when a service is scaled out **across both clusters**, does traffic actually spread
+over all of its pods, and what happens to the spread when replicas come and go under load? The
+docs' model ([Kubernetes Without kube-proxy](https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/)):
+Cilium picks a backend **per connection**, `random` by default, `maglev` (consistent hashing) per
+Service via `service.cilium.io/lb-algorithm` — settable only at creation, and needing
+`bpf.lbAlgorithmAnnotation`, which Gateway API already forces on here (gotcha #49). ClusterMesh
+merges the backends into one pool; there is no cluster preference unless `affinity` says so.
+
+**A. 3 replicas in each cluster = one pool of 6 in poc1's eBPF map** (three `10.10.x`, three `10.20.x`):
+
+```
+53   10.11.166.33:80/TCP   ClusterIP   1 => 10.10.3.195:8080/TCP (active)   <- poc1
+                                       2 => 10.10.4.33:8080/TCP  (active)   <- poc1
+                                       3 => 10.10.4.182:8080/TCP (active)   <- poc1
+                                       4 => 10.20.1.96:8080/TCP  (active)   <- poc2
+                                       5 => 10.20.1.183:8080/TCP (active)   <- poc2
+                                       6 => 10.20.1.209:8080/TCP (active)   <- poc2
+```
+
+(The transcript's first run says "9 backends" and mislabels one line — my `grep -A8` window bled
+into the next two Services and the label read the wrong column; the data above is what it printed,
+the script is fixed, the record kept.)
+
+**B. 300 payments from 16 parallel clients, a new connection each — who answered:**
+
+```
+    47  poc1/payments-…-5h9tv       50  poc2/payments-…-ksccc
+    68  poc1/payments-…-6n8q4       40  poc2/payments-…-kz8hg
+    51  poc1/payments-…-f5c78       44  poc2/payments-…-lv5hb
+```
+
+Six pods, two clusters, ≈50 each: a random per-connection pick over one pool, with **no
+preference for the local cluster** — half of poc1's own requests went to poc2.
+
+**C. Live, every ~1.5 s (40 payments, 8 in parallel), while the deployment changes under load:**
+
+```
+  t=29s  poc1=20 poc2=20        1+1 replicas: two backends, even
+  >>> scaling to 3+3
+  t=34s  poc1=20 poc2=20        six backends: still even per cluster (3 vs 3)
+  …
+  >>> poc2 payments -> 0 (a whole cluster's share gone)
+  t=56s  poc1=22 poc2=18
+  t=57s  poc1=39 poc2=1         <- one sample straddles the withdrawal
+  t=59s  poc1=40                <- every request on poc1; no failures
+  >>> poc2 back to 3
+  t=76s  poc1=39 poc2=1
+  t=78s  poc1=23 poc2=17        <- back in the pool within two samples
+```
+
+No client noticed anything: the ClusterIP and the name never changed; the pool behind them did.
+
+**D. The same pool behind a twin Service created with `lb-algorithm: maglev`:**
+
+```
+    51  poc1/payments-…-f5c78       54  poc2/payments-…-5hcsf
+    47  poc1/payments-…-fv82h       59  poc2/payments-…-8cw4t
+    51  poc1/payments-…-lwnhc       38  poc2/payments-…-8lkk5
+```
+
+Spread is the same; Maglev's value is not distribution but **stability** — on a backend's loss
+only that backend's flows move (*"at most 1% difference in the reassignments"*, with a table
+`M > 100·N`). Proof that the two Services really differ: only Maglev services get a lookup
+table in the BPF map `cilium_lb4_maglev`, keyed by service id in network byte order —
+`payments-maglev` is id 56 (`0x0038` → key `0x3800 = 14336`, **present**); `payments` is id 51
+(`0x3300 = 13056`, **absent**). The other three tables belong to the Gateway's listeners, which
+Gateway API puts on Maglev for per-backend weights.
+
+**What this shows, in one line:** a service scaled to N pods across M clusters is one pool of N
+backends chosen per connection; scaling, cluster loss and recovery change the pool, never the
+client. What it does not show: request-level balancing (a pooled client sticks to one backend —
+gotcha #50) or autoscaling (no metrics-server on kind; an HPA would scale the same Deployments the
+script scales by hand).
+
 ## What to take away
 
 | Claim | Evidence |
@@ -462,6 +538,7 @@ verifies before it destroys.
 | Idempotency holds across clusters | replay returns the stored record, balance unchanged |
 | The API is reachable from outside through the Gateway, still crossing the mesh | `https://bankapi.poc.local/api/balance/…` → `api: poc1, accounts: poc2` |
 | A wildcard cert/listener matches one label | `api.bank.poc.local` → curl exit 60; `bankapi.poc.local` → 200 |
+| A scaled-out service across clusters is one pool, balanced per connection | 6 pods, ≈50 each of 300; poc2 → 0 moves all 40 to poc1 within two samples; Maglev twin has a table in `cilium_lb4_maglev`, the random one does not |
 | Connection pooling hides load balancing | 40/40 to one cluster until keep-alive was disabled |
 | Zero-loss failover needs the app to drain on SIGTERM | 1 × 502 at the scale-down instant before; 60/60 after graceful shutdown |
 | The ledger stays consistent across clusters | before − after == sum of payments, every run |

@@ -917,3 +917,100 @@ $ demos/15-bank/dbfailover.sh
   poc1 standby rebuilt after ~12s: in_recovery=t
   final: primary(poc2) sees 1 standby, state=streaming; balances primary=247797 standby=247797; a payment -> http 201; read -> 247796 from primary
 
+### 2026-09-12T02:35:38Z
+$ [LOAD BALANCING across both clusters: 3+3 payments, per-pod spread under parallel load, live scaling, a maglev twin]
+
+### 2026-09-12T02:35:38Z
+$ demos/15-bank/scale.sh
+
+== A. scale payments to 3 replicas in EACH cluster — one pool of 6 from poc1's point of view
+deployment "payments" successfully rolled out
+deployment "payments" successfully rolled out
+  poc1's eBPF service map for payments (9 backends):
+    53   10.11.166.33:80/TCP       ClusterIP      1 => 10.10.3.195:8080/TCP (active)    <- poc2
+    2 => 10.10.4.33:8080/TCP (active)     <- poc1
+    3 => 10.10.4.182:8080/TCP (active)    <- poc1
+    4 => 10.20.1.96:8080/TCP (active)     <- poc2
+    5 => 10.20.1.183:8080/TCP (active)    <- poc2
+    6 => 10.20.1.209:8080/TCP (active)    <- poc2
+    54   10.11.36.138:80/TCP       ClusterIP      1 => 10.10.3.117:8080/TCP (active)    <- poc2
+    2 => 10.10.4.112:8080/TCP (active)    <- poc1
+    55   10.11.32.176:80/TCP       ClusterIP      1 => 10.10.3.194:8080/TCP (active)    <- poc2
+
+== B. 300 payments, 16 parallel clients, a new TCP connection each — who answered
+  per pod:
+      47  poc1/payments-778c6c78f6-5h9tv
+      68  poc1/payments-778c6c78f6-6n8q4
+      51  poc1/payments-778c6c78f6-f5c78
+      50  poc2/payments-7dbb8cdfdb-ksccc
+      40  poc2/payments-7dbb8cdfdb-kz8hg
+      44  poc2/payments-7dbb8cdfdb-lv5hb
+  (Cilium picks a backend per CONNECTION at random — six pods, two clusters, one pool; expect roughly 50 each, no preference for the local cluster)
+
+== C. live: the spread every 5 s while the deployment changes under load
+  t=25s  poc1=14 poc2=26 
+  t=26s  poc1=15 poc2=25 
+  t=27s  poc1=18 poc2=22 
+  t=28s  poc1=25 poc2=15 
+  t=29s  poc1=20 poc2=20 
+  t=31s  poc1=22 poc2=18 
+  t=32s  poc1=21 poc2=19 
+  t=33s  poc1=25 poc2=15 
+  >>> scaling to 3+3
+  t=34s  poc1=20 poc2=20 
+  t=35s  poc1=17 poc2=23 
+  t=37s  poc1=20 poc2=20 
+  t=38s  poc1=17 poc2=23 
+  t=39s  poc1=11 poc2=29 
+  t=41s  poc1=9 poc2=31 
+  t=42s  poc1=18 poc2=22 
+  t=43s  poc1=14 poc2=26 
+  t=44s  poc1=27 poc2=13 
+  t=45s  poc1=21 poc2=19 
+  t=47s  poc1=19 poc2=21 
+  t=48s  poc1=20 poc2=20 
+  t=49s  poc1=20 poc2=20 
+  t=50s  poc1=21 poc2=19 
+  t=51s  poc1=21 poc2=19 
+  t=53s  poc1=19 poc2=21 
+  >>> poc2 payments -> 0 (a whole cluster's share gone)
+  t=55s  poc1=22 poc2=18 
+  t=56s  poc1=22 poc2=18 
+  t=57s  poc1=39 poc2=1 
+  t=59s  poc1=40 
+  t=61s  poc1=40 
+  t=63s  poc1=40 
+  t=64s  poc1=40 
+  t=66s  poc1=40 
+  t=67s  poc1=40 
+  t=69s  poc1=40 
+  >>> poc2 back to 3
+  t=70s  poc1=40 
+  t=71s  poc1=40 
+  t=73s  poc1=40 
+  t=74s  poc1=40 
+  t=76s  poc1=39 poc2=1 
+  t=78s  poc1=23 poc2=17 
+  t=79s  poc1=23 poc2=17 
+  t=80s  poc1=22 poc2=18 
+  t=81s  poc1=20 poc2=20 
+  t=83s  poc1=22 poc2=18 
+  t=84s  poc1=18 poc2=22 
+  poc1's map now: 9 backends
+
+== D. the same pool behind a twin Service created with lb-algorithm=maglev (consistent hashing; only settable at creation)
+  poc1's map for payments-maglev: 6 backends; algorithm as Cilium sees it:
+    58   10.11.43.42:80/TCP        ClusterIP      1 => 10.10.3.195:8080/TCP (active)   
+    10.11.43.42:80/TCP (1)        10.10.3.195:8080/TCP (58) (1)                                                             
+  300 payments through api, api pointed at payments-maglev for this run (env swap, rollout, then back):
+      51  poc1/payments-778c6c78f6-f5c78
+      47  poc1/payments-778c6c78f6-fv82h
+      51  poc1/payments-778c6c78f6-lwnhc
+      54  poc2/payments-7dbb8cdfdb-5hcsf
+      59  poc2/payments-7dbb8cdfdb-8cw4t
+      38  poc2/payments-7dbb8cdfdb-8lkk5
+  (Maglev hashes the 5-tuple onto a table of the same 6 backends: spread is still even; its property is that a backend's loss moves only that backend's flows — at most 1% of the rest, per the docs)
+
+== back to 1+1
+deployment "payments" successfully rolled out
+
