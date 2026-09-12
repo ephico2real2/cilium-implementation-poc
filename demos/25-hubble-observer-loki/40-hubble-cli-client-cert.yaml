@@ -1,0 +1,15 @@
+# Demo 25, Part 5e — a client certificate for OPERATORS (the hubble CLI on the Mac, the repo's scripts), issued by the
+# enterprise root like the observer's: not the relay's own hubble-relay-client-certs (a component's identity) and not
+# the UI's. Apply to both clusters; scripts/hubble-tls.sh fetches it and prints the CLI flags.
+#   for c in poc1 poc2; do kubectl --context kind-$c apply -f demos/25-hubble-observer-loki/40-hubble-cli-client-cert.yaml; done
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata: {name: hubble-cli-client-certs, namespace: kube-system}
+spec:
+  secretName: hubble-cli-client-certs
+  commonName: operator.hubble-relay-client.cilium.io
+  dnsNames: [operator.hubble-relay-client.cilium.io]
+  duration: 2160h                       # 90 days: an operator credential, rotated often (cert-manager renews it)
+  renewBefore: 360h
+  usages: [digital signature, key encipherment, client auth]
+  issuerRef: {group: cert-manager.io, kind: ClusterIssuer, name: ca-issuer}

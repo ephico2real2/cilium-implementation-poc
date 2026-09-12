@@ -14,11 +14,13 @@ excludeUnsupportedL3Protocols: true      # (default) drops with reason UNSUPPORT
 hubbleRelay:
   serviceName: hubble-relay              # (default)
   namespace: kube-system                 # (default)
-  port: "80"                             # default "" (→ 443 with TLS, 80 without): stated, because our relay is plaintext (below)
+  port: "443"                            # default "" (→ 443 with TLS): the relay Service moved 80 → 443 in Part 5c
   tls:
-    enabled: false                       # (default) our relay runs disable-server-tls: true (measured); the README's TLS/mTLS
-                                         # section applies when hubble.relay.tls.server.enabled=true — README Part 5 shows the
-                                         # cert-manager way to do it on this stack (a client cert from ca-issuer, no secret copying)
+    enabled: true                        # default false. Part 5: the relay requires TLS and a client certificate (mTLS);
+    serverName: hubble.hubble-relay.cilium.io   # (default) the relay's certificate is *.hubble-relay.cilium.io
+    ca: {secretName: hubble-observer-relay-certs}            # ca.crt = the enterprise root (cert-manager wrote it)
+    client: {enabled: true, secretName: hubble-observer-relay-certs}   # tls.crt/tls.key: the observer's OWN client cert,
+                                         # issued by ClusterIssuer/ca-issuer (30-relay-mtls-client-cert.yaml) — no secret copied
 resources:                               # not in defaults (unbounded): bounded for the VM
   requests: {cpu: 50m, memory: 64Mi}
   limits: {memory: 256Mi}

@@ -3,7 +3,7 @@
 # (hubble-network-policy-correlation-enabled=true fills ingress_denied_by / egress_denied_by).
 SINCE="${1:-5m}"
 for C in poc1 poc2; do
-  hubble observe -P --kube-context kind-$C --namespace bank --verdict DROPPED --since "$SINCE" -o json 2>/dev/null | C=$C python3 -c '
+  hubble observe -P --kube-context kind-$C $(scripts/hubble-tls.sh kind-$C) --namespace bank --verdict DROPPED --since "$SINCE" -o json 2>/dev/null | C=$C python3 -c '
 import json,sys,os,collections; c=collections.Counter()
 def who(e):
     l=e.get("labels",[]); a=next((x.split("=")[1] for x in l if x.startswith(("k8s:app=","k8s:k8s-app="))),None)

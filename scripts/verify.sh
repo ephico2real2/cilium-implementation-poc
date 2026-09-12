@@ -117,11 +117,11 @@ run "docker exec poc1-worker ip -s link show cilium_wg0"
 hdr "7. DEMO 01 — HUBBLE OBSERVABILITY"
 # -P opens its port-forward through the CURRENT kube context unless told otherwise, and `kind create
 # cluster` changes the current context to the newest cluster (gotcha #44). Pin it, like -n default.
-run "hubble status -P --kube-context $CTX 2>&1 | grep -v level=WARN"
+run "hubble status -P --kube-context $CTX \$(scripts/hubble-tls.sh $CTX) 2>&1 | grep -v level=WARN"
 echo "L7 flows, with method, path, status and latency — no application instrumentation:"
-run "hubble observe --last 6 -P --kube-context $CTX --protocol http 2>&1 | grep -v level=WARN"
+run "hubble observe --last 6 -P --kube-context $CTX \$(scripts/hubble-tls.sh $CTX) --protocol http 2>&1 | grep -v level=WARN"
 echo "Verdicts. Note the two shapes: 'Policy denied ... SYN' is L3/L4, 'http-request DROPPED' is L7:"
-run "hubble observe --last 6 -P --kube-context $CTX --verdict DROPPED 2>&1 | grep -v level=WARN"
+run "hubble observe --last 6 -P --kube-context $CTX \$(scripts/hubble-tls.sh $CTX) --verdict DROPPED 2>&1 | grep -v level=WARN"
 
 hdr "8. DEMO 07 — CLUSTERMESH (needs poc2)"
 if kubectl --context kind-poc2 get nodes >/dev/null 2>&1; then
@@ -219,7 +219,7 @@ run "for C in poc1 poc2; do IP=\$(kubectl --context kind-\$C -n otel get svc ote
 
 hdr "21. DEMO 24 — one root for the mesh AND Hubble; relay sees every node"
 run "for C in poc1 poc2; do echo \"\$C: hubble-server-certs \$(kubectl --context kind-\$C -n kube-system get secret hubble-server-certs -o jsonpath='{.data.tls\\.crt}' | base64 -d | openssl x509 -noout -issuer | sed 's/issuer=//')  certificates ready \$(kubectl --context kind-\$C -n kube-system get certificates -o jsonpath='{range .items[*]}{.status.conditions[?(@.type==\"Ready\")].status}{\"\\n\"}{end}' | grep -c True)/\$(kubectl --context kind-\$C -n kube-system get certificates -o name | wc -l | tr -d ' ')\"; done"
-run "kubectl --context $CTX -n kube-system port-forward svc/hubble-relay 4245:80 >/dev/null 2>&1 & PF=\$!; sleep 3; hubble status --server localhost:4245 2>/dev/null | grep -E 'Connected Nodes|Unavailable'; kill \$PF"
+run "kubectl --context $CTX -n kube-system port-forward svc/hubble-relay 4245:443 >/dev/null 2>&1 & PF=\$!; sleep 3; hubble status --server localhost:4245 \$(scripts/hubble-tls.sh $CTX) 2>/dev/null | grep -E 'Connected Nodes|Unavailable'; kill \$PF"
 
 hdr "22. DEMO 25 — hubble-observer → Loki: the pipeline is up and flows are stored"
 run "kubectl --context $CTX -n hubble-observer get pods -o custom-columns='POD:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount' --no-headers; kubectl --context $CTX -n monitoring get pods -l app.kubernetes.io/name=loki -o custom-columns='POD:.metadata.name,READY:.status.containerStatuses[*].ready' --no-headers"

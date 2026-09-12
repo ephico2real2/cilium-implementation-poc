@@ -66,6 +66,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [75](#75) | A plaintext Hubble Relay lets any pod read every flow of the mesh; relay server TLS + mTLS from the enterprise root, each client with its own certificate | Hubble / security |
 | [74](#74) | Bank images are distroless: `kubectl exec … sh` fails; use a debug pod in the namespace (`egress-test.sh poc2`) | tooling |
 | [73](#73) | hubble-observer 2.5.0 probes dial the relay's short name → killed every minute outside kube-system; main branch fixes it | Hubble / charts |
 | [72](#72) | A values change that replaces the clustermesh-apiserver pod (here: listing the local cluster) is a 3.5-minute mesh outage in KVStoreMesh mode | ClusterMesh |
@@ -1820,6 +1821,25 @@ governs like any other pod — `egress-test.sh` takes the cluster as its argumen
 
 ---
 
+## <a name="75"></a>75. A plaintext Hubble Relay is an anonymous read of every flow in the mesh
+
+**Symptom.** Demo 25 Part 5a: a pod in `default` with no permissions and no certificate ran `hubble
+status --server hubble-relay.kube-system.svc.cluster.local:80` → `Connected Nodes: 7/7`, then
+`hubble observe --cluster poc2` and read poc2's bank traffic — from poc1's least-privileged namespace.
+
+**Cause.** The chart default `hubble.relay.tls.server.enabled: false` (`disable-server-tls: true` in the
+relay config): the relay serves gRPC in plaintext on port 80 to anything that can reach it, and the
+relay aggregates every node of every meshed cluster (demo 24).
+
+**Fix.** `hubble.relay.tls.server.enabled: true` + `mtls: true` in the declared values, both clusters;
+the relay Service becomes 443; every client presents a certificate from the enterprise root — the UI
+(chart-managed), the observer (its own `Certificate`), operators (`hubble-cli-client-certs` +
+`scripts/hubble-tls.sh`). Zero disruption to workloads; every `hubble` command in the repo gained flags.
+
+→ demo 25, Part 5
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1857,6 +1877,7 @@ Most of these share a shape: **something reported success while not working.**
 - a three-line TLS change replaced the mesh's etcd — read what the upgrade renders (#72)
 - the pod worked and the probe killed it — two different names for one Service (#73)
 - the pod had no shell to fail in (#74)
+- the observability API was the most readable thing on the platform (#75)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

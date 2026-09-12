@@ -49,7 +49,10 @@ unchanged, with BGP substituted for L2 in production.
    external-access proof for demo 09.
 8. **[docs/REFERENCES.md](docs/REFERENCES.md)** — every external source the PoC was built against,
    with what each was used for; the place to check a claim's origin.
-9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 74 traps, each with the real error
+8b. **Since demo 25 Part 5 the Hubble Relays require mutual TLS.** Every `hubble …` command shown in
+   demos 01–24 needs the operator certificate's flags appended: `$(scripts/hubble-tls.sh kind-poc1)`
+   (the relay Service is port 443 now; port-forwards use `4245:443`). The demos are kept as recorded.
+9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 75 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -62,10 +65,11 @@ unchanged, with BGP substituted for L2 in production.
 | ✅ | Enterprise CA from day 1; ClusterMesh on cert-manager certs (`issuer=CN=clustermesh-root-ca`) | done |
 | ✅ | **Bank app across the mesh** (demo 15): 5 components, PVC-backed Postgres and Redis, active-active, zero-loss failover, database-restart drills, **a hot standby in the other cluster streaming through the mesh** with promotion and gated failback tested, **load balancing across a 3+3 pool measured per pod** with live scaling and a Maglev twin | done; `https://bank.poc.local` and `https://bankapi.poc.local`; `exercise.sh`, `resilience.sh`, `dbfailover.sh`, `scale.sh` |
 | ✅ | **Monitoring (demo 16)**: kube-prometheus-stack on poc1, Grafana on the Gateway, Cilium/Hubble ServiceMonitors + the chart's six dashboards, exemplars proven with a `traceparent`, L7 visibility for the bank namespace | done; `https://grafana.poc.local` (admin / poc-grafana); `demos/16-monitoring/` |
-| ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (1025 lines, 23 sections, from the toolchain to the flow store) | regenerable |
+| ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (1024 lines, 23 sections, from the toolchain to the flow store) | regenerable |
 | ✅ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | done — demo 11, with the three-cause forensic on Cilium's default install; poc3 is paused (`scripts/cluster-resume.sh poc3`) |
 | ⛔ | **"Cilium mTLS" (mutual authentication, SPIFFE/SPIRE)** | evaluated, **not enabled and not to be adopted**: deprecated in 1.20, removal planned in 1.21 (cilium#47132), ClusterMesh-incompatible — [docs/summary/MTLS_EVALUATION.md](docs/summary/MTLS_EVALUATION.md) |
 | ✅ | **ztunnel mTLS (demo 13)** — evaluated on a throwaway cluster: real mTLS on the wire, but cannot run on any cluster with a `cluster.id` (so never with ClusterMesh), breaks L4 **and** L7 policy for enrolled traffic, −73 % throughput | **not the standard**; WireGuard + identity policy is — `demos/13-ztunnel/README.md` |
+| ✅ | **Relay mTLS (demo 25 Part 5)** — every `hubble` command now takes `$(scripts/hubble-tls.sh <ctx>)`; earlier demos' commands need it too | done |
 | ✅ | **Historical flows in Loki (demo 25)** — hubble-observer → collector → Loki → the 23862 dashboard, both clusters through one relay | done |
 | ✅ | **Enterprise CA, complete (demo 24)** — Hubble on the same root as the mesh; relay sees all 7 nodes | done |
 | ✅ | **Collector per cluster (demo 23)** — gateway pattern, persistent queue, the global-service trap measured | done |
@@ -146,7 +150,7 @@ an untested combination.
 | 08 | Enterprise CA | cert-manager root in poc1 issuing every cluster's mesh certificates; trust before join |
 | 09 | Wildcard TLS + 3 route types | cert-manager wildcard and exact certs on one Gateway; `HTTPRoute`, `GRPCRoute`, `TCPRoute` from one 14 MB image — and a native Go client (`-mode client`) that tests all three, which is how the missing-ALPN gotcha (#33) was found |
 | 10 | Flow tracing -> OpenTelemetry | Hubble dynamic flow export per node, tailed by an OTel Collector into OTLP; every flow persistent and queryable. **Events, not spans** -- hubble-otel is archived, see gotcha #30 |
-| 25 | **Historical flows, the open-source way** | what Isovalent's Timescape does, built from parts: onzack/hubble-observer (chart vendored from main — the published 2.5.0's probes kill it, #73) streams DROPPED flows from poc1's mesh-wide relay as JSON, the demo 10 collector ships them to a Loki single binary with the labels the grafana.com 23862 dashboard expects, provisioned into the Hubble folder; a drop caused in poc2 lands in Loki through poc1's relay; cf2cnp behind the Gateway; the relay TLS/mTLS path documented for this stack's cert-manager CA |
+| 25 | **Historical flows, the open-source way** | what Isovalent's Timescape does, built from parts: onzack/hubble-observer (chart vendored from main — the published 2.5.0's probes kill it, #73) streams DROPPED flows from poc1's mesh-wide relay as JSON, the demo 10 collector ships them to a Loki single binary with the labels the grafana.com 23862 dashboard expects, provisioned into the Hubble folder; a drop caused in poc2 lands in Loki through poc1's relay; cf2cnp behind the Gateway; then the relay itself closed: a pod with nothing could read every flow of both clusters in plaintext (#75), so both relays now require mTLS from the enterprise root, with the observer, the UI and the CLI each holding their own cert-manager certificate |
 | 24 | **ClusterMesh the enterprise way, complete** | from demo 08 to 24: Hubble joins the mesh API server on the one cert-manager root (`Connected Nodes: 5/7 → 7/7`, zero handshake failures), the mesh declared the guide's way (`clusters.yaml` + per-cluster files), the order it should have followed, and the 3.5-minute outage a "TLS-only" change caused by replacing the apiserver pod (#72) |
 | 23 | **A collector per cluster** | supersedes demo 22's collector part: the gateway is a per-cluster service (same name everywhere, never global — seven backends and the wrong cluster stamp measured), HA in-cluster with 2 replicas + PDB + a persistent queue proven by killing the collectors with the hub down and watching 281 spans leave after the restart |
 | 22 | **One Grafana for the mesh** | poc2 becomes a spoke of the observability hub on poc1: a full Prometheus on poc2 (release `edge`) remote-writing across the mesh through a role-named global Service, a collector per cluster forwarding to the central Tempo, Cilium metrics on poc2 with `cluster=poc2`; the same query answered locally and centrally, both clusters in one panel, and the trap of a hub Service selecting the spoke's look-alike (#69) |
@@ -172,7 +176,7 @@ scripts/verify.sh                              # to the terminal
 scripts/verify.sh > docs/VERIFICATION_RUN.md   # as a document
 ```
 
-The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 1025 lines of
+The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 1024 lines of
 real console output in 14 sections: versions, cluster state, full Cilium status, every demo
 through 10, the native route client, and the bank across the mesh.
 
@@ -183,7 +187,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 74 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 75 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

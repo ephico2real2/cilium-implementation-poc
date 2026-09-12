@@ -20,6 +20,11 @@ pods need a CNI, so the order is Cilium (Helm method, no mesh yet) → cert-mana
 **one** upgrade moving every certificate consumer to the issuer → *then* connect. Trust before join,
 for Hubble as much as for the mesh.
 
+> **Amended by demo 25 Part 5 (2026-09-12):** `poc1.yaml` / `poc2.yaml` now also set
+> `hubble.relay.tls.server.enabled: true` and `mtls: true` — the relay presents the root-issued server
+> certificate and requires a client certificate. Applied to both clusters with zero bank disruption
+> (225×200) and the mesh API server untouched; the reason and the proof are in demo 25.
+
 ## The tutorial, in order — two independent clusters, poc1 and poc2
 
 Steps 1–4 are demo 08's and are already live; their evidence is quoted from the record. Steps 5–6 are

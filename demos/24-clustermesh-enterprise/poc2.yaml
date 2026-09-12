@@ -23,6 +23,11 @@ clustermesh:
           kind: ClusterIssuer
           name: ca-issuer
 hubble:
+  relay:
+    tls:
+      server:                            # demo 25 Part 5: the relay's server side on TLS, and mTLS — every client (Hubble UI,
+        enabled: true                    # the CLI, hubble-observer) presents a certificate issued by the same root. Without it
+        mtls: true                       # any pod reaching kube-system:443 streams every flow of the mesh (measured, Part 5a).
   tls:
     enabled: true
     auto:

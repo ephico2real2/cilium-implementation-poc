@@ -4,7 +4,7 @@
 # Usage: check.sh [hours, default 1]
 set -uo pipefail; H="${1:-1}"; CTX=kind-poc1; cd "$(dirname "$0")/../.."
 echo "== observer =="; kubectl --context $CTX -n hubble-observer get pods -o custom-columns='  POD:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount,NODE:.spec.nodeName' --no-headers
-echo "  relay as the observer sees it: $(kubectl --context $CTX -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hubble status --server hubble-relay.kube-system.svc.cluster.local:80 2>/dev/null | grep -E 'Connected Nodes' | tr -s ' ')"
+echo "  relay as the observer sees it: $(kubectl --context $CTX -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 2>/dev/null | grep -E 'Connected Nodes' | tr -s ' ')"
 echo "== collector → Loki (per pod: spans of the Loki exporter's queue) =="
 for P in $(kubectl --context $CTX -n otel get pods -l app=otel-collector -o name | cut -d/ -f2); do kubectl --context $CTX get --raw "/api/v1/namespaces/otel/pods/$P:8888/proxy/metrics" 2>/dev/null | awk -v p="$P" '/^otelcol_exporter_queue_size\{.*loki/ {q=$NF} /^otelcol_exporter_sent_log_records\{.*loki/ {s=$NF} /^otelcol_exporter_send_failed_log_records\{.*loki/ {f=$NF} END{printf "  %-26s loki queue=%s sent_logs=%s failed=%s\n", p, (q==""?"-":q), (s==""?"0":s), (f==""?"0":f)}'; done
 echo "== Loki =="; NOW=$(date +%s)

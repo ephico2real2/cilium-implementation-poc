@@ -204,3 +204,117 @@ cf2cnp   [cf2cnp.poc.local]   True
   health: OK
 
 ### egress-test.sh: what the 68 poc1 drops were (the demo 19 cell probe, run in Part 3) — recorded there
+### Part 5a — WHY: with the relay in plaintext, any pod that can reach kube-system:80 reads every flow of the mesh, no credential
+### 2026-09-12T16:18:31Z
+$ bash -c kubectl --context kind-poc1 -n default run anyone --image=quay.io/cilium/hubble:v1.16.4 --restart=Never --command -- sleep 600 >/dev/null 2>&1; kubectl --context kind-poc1 -n default wait --for=condition=Ready pod/anyone --timeout=90s >/dev/null; echo "a pod named anyone, namespace default, no ServiceAccount permissions, no certificate:"; kubectl --context kind-poc1 -n default exec anyone -- hubble status --server hubble-relay.kube-system.svc.cluster.local:80 2>/dev/null | grep -E "Healthcheck|Connected Nodes"; echo "  and it reads the bank's traffic (L7 included), and poc2's:"; kubectl --context kind-poc1 -n default exec anyone -- hubble observe --server hubble-relay.kube-system.svc.cluster.local:80 --namespace bank --protocol http --last 3 -o compact 2>/dev/null | cut -c1-170 | sed "s/^/    /"; kubectl --context kind-poc1 -n default exec anyone -- hubble observe --server hubble-relay.kube-system.svc.cluster.local:80 --cluster poc2 --last 2 -o compact 2>/dev/null | cut -c1-170 | sed "s/^/    /"
+a pod named anyone, namespace default, no ServiceAccount permissions, no certificate:
+Healthcheck (via hubble-relay.kube-system.svc.cluster.local:80): Ok
+Connected Nodes: 7/7
+  and it reads the bank's traffic (L7 included), and poc2's:
+    Sep 12 16:18:33.475: 10.20.0.196:59852 (host) <- 10.20.0.142:4240 (health) to-stack FORWARDED (TCP Flags: ACK, PSH)
+    Sep 12 16:18:33.670: 10.10.2.10:59148 (remote-node) <- 10.20.0.142:4240 (health) to-overlay FORWARDED (TCP Flags: ACK)
+    Sep 12 16:18:35.776: 10.20.1.24:56432 (host) -> bank/accounts-6544fcc9b8-jkxgc:8080 (ID:176133) to-endpoint FORWARDED (TCP Flags: ACK, FIN)
+    Sep 12 16:18:35.776: 10.20.1.24:56432 (host) <- bank/accounts-6544fcc9b8-jkxgc:8080 (ID:176133) to-stack FORWARDED (TCP Flags: ACK, FIN)
+
+### Part 5b — the observer's own client certificate from the enterprise issuer (no secret copying)
+### 2026-09-12T16:19:00Z
+$ bash -c kubectl --context kind-poc1 apply -f demos/25-hubble-observer-loki/30-relay-mtls-client-cert.yaml; kubectl --context kind-poc1 -n hubble-observer wait certificate hubble-observer-relay-certs --for=condition=Ready --timeout=90s; kubectl --context kind-poc1 -n hubble-observer get secret hubble-observer-relay-certs -o json | python3 -c "import json,sys; d=json.load(sys.stdin)[\"data\"]; print(\"  secret keys:\", sorted(d))"; kubectl --context kind-poc1 -n hubble-observer get secret hubble-observer-relay-certs -o jsonpath="{.data.tls\.crt}" | base64 -d | openssl x509 -noout -subject -issuer -ext extendedKeyUsage | tr "\n" " " | sed "s/^/  /"; echo; echo "  ca.crt = the root? $(kubectl --context kind-poc1 -n hubble-observer get secret hubble-observer-relay-certs -o jsonpath="{.data.ca\.crt}" | base64 -d | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2 | cut -c1-23)…"
+certificate.cert-manager.io/hubble-observer-relay-certs created
+certificate.cert-manager.io/hubble-observer-relay-certs condition met
+  secret keys: ['ca.crt', 'tls.crt', 'tls.key']
+  subject=CN=hubble-observer.hubble-relay-client.cilium.io issuer=CN=clustermesh-root-ca X509v3 Extended Key Usage:      TLS Web Client Authentication 
+  ca.crt = the root? 72:16:61:3E:82:57:59:05…
+
+### Part 5c — the relay's server side on TLS + mTLS, both clusters, from the demo 24 declared values (render checked first: relay config, relay Service 80→443, hubble-ui gets client certs; clustermesh-apiserver untouched)
+### 2026-09-12T16:19:34Z
+$ bash -c for c in poc1 poc2; do echo "--- $c $(date -u +%H:%M:%S) ---"; helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-$c --reuse-values -f demos/24-clustermesh-enterprise/clusters.yaml -f demos/24-clustermesh-enterprise/$c.yaml 2>&1 | grep -E "REVISION|rror"; kubectl --context kind-$c -n kube-system wait certificate hubble-relay-server-certs --for=condition=Ready --timeout=120s 2>&1 | tail -1; kubectl --context kind-$c -n kube-system rollout status deploy/hubble-relay --timeout=3m | tail -1; done; kubectl --context kind-poc1 -n kube-system rollout status deploy/hubble-ui --timeout=3m | tail -1; echo "done $(date -u +%H:%M:%S)"; for c in poc1 poc2; do echo "$c: relay svc port $(kubectl --context kind-$c -n kube-system get svc hubble-relay -o jsonpath="{.spec.ports[0].port}"); relay config: $(kubectl --context kind-$c -n kube-system get cm hubble-relay-config -o jsonpath="{.data.config\.yaml}" | grep -E "tls-relay-server-cert|tls-relay-client-ca" | tr "\n" " ")"; kubectl --context kind-$c -n kube-system get secret hubble-relay-server-certs -o jsonpath="{.data.tls\.crt}" | base64 -d | openssl x509 -noout -subject -issuer | tr "\n" " " | sed "s/^/   /"; echo; done; echo "clustermesh-apiserver pods untouched: $(kubectl --context kind-poc1 -n kube-system get pods -l k8s-app=clustermesh-apiserver -o jsonpath="{.items[0].status.startTime}") / $(kubectl --context kind-poc2 -n kube-system get pods -l k8s-app=clustermesh-apiserver -o jsonpath="{.items[0].status.startTime}")"
+--- poc1 16:19:34 ---
+REVISION: 41
+certificate.cert-manager.io/hubble-relay-server-certs condition met
+deployment "hubble-relay" successfully rolled out
+--- poc2 16:20:06 ---
+REVISION: 14
+certificate.cert-manager.io/hubble-relay-server-certs condition met
+deployment "hubble-relay" successfully rolled out
+deployment "hubble-ui" successfully rolled out
+done 16:20:29
+poc1: relay svc port 443; relay config: tls-relay-server-cert-file: /var/lib/hubble-relay/tls/server.crt tls-relay-client-ca-files: /var/lib/hubble-relay/tls/hubble-server-ca.crt 
+   subject=CN=*.hubble-relay.cilium.io issuer=CN=clustermesh-root-ca 
+poc2: relay svc port 443; relay config: tls-relay-server-cert-file: /var/lib/hubble-relay/tls/server.crt tls-relay-client-ca-files: /var/lib/hubble-relay/tls/hubble-server-ca.crt 
+   subject=CN=*.hubble-relay.cilium.io issuer=CN=clustermesh-root-ca 
+clustermesh-apiserver pods untouched: 2026-09-12T13:36:46Z / 2026-09-12T13:37:17Z
+
+### 2026-09-12T16:20:31Z
+$ bash -c echo "the anyone pod again (plaintext, and TLS without a client certificate):"; kubectl --context kind-poc1 -n default exec anyone -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 2>&1 | head -2 | cut -c1-200 | sed "s/^/  plain: /"; kubectl --context kind-poc1 -n default exec anyone -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 --tls --tls-allow-insecure 2>&1 | head -2 | cut -c1-220 | sed "s/^/  tls, no client cert: /"; echo "the observer, still on port 80 without TLS (until Part 5d):"; kubectl --context kind-poc1 -n hubble-observer get pods -l app.kubernetes.io/name=hubble-observer -o custom-columns="  POD:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount" --no-headers
+the anyone pod again (plaintext, and TLS without a client certificate):
+  plain: failed to connect to 'hubble-relay.kube-system.svc.cluster.local:443': context deadline exceeded: connection error: desc = "error reading server preface: EOF"
+  plain: command terminated with exit code 1
+  tls, no client cert: failed to connect to 'hubble-relay.kube-system.svc.cluster.local:443': context deadline exceeded: connection error: desc = "error reading server preface: remote error: tls: certificate required"
+  tls, no client cert: command terminated with exit code 1
+the observer, still on port 80 without TLS (until Part 5d):
+hubble-observer-578ffb5c88-6h69c   false   0
+
+### Part 5d — the observer over mTLS with its own certificate
+### 2026-09-12T16:21:16Z
+$ bash -c helm upgrade hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer -n hubble-observer --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --wait --timeout 4m 2>&1 | grep -E "REVISION|rror"; kubectl --context kind-poc1 -n hubble-observer get pods -o custom-columns="  POD:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount" --no-headers; echo "its command and TLS env:"; kubectl --context kind-poc1 -n hubble-observer get deploy hubble-observer -o jsonpath="{range .spec.template.spec.containers[0].env[*]}  {.name}={.value}{\"\n\"}{end}" | grep -i "tls\|relay"; echo "relay as the observer sees it: $(kubectl --context kind-poc1 -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 2>/dev/null | grep "Connected Nodes")"; sleep 30; echo "flows still arriving in Loki (last 5 min, by source cluster): $(NOW=$(date +%s); Q=$(python3 -c "import urllib.parse; print(urllib.parse.quote(\"sum by (flow_source_cluster_name) (count_over_time({namespace=\\\"hubble-observer\\\",container=\\\"hubble-observer\\\"} | json | __error__=\\\"\\\" [5m]))\"))"); kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query?query=$Q&time=$NOW" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print({x[\"metric\"].get(\"flow_source_cluster_name\",\"-\"): x[\"value\"][1] for x in r} or \"none yet\")")"
+REVISION: 2
+hubble-observer-85bdf4f677-jl76q          true   0
+hubble-observer-cf2cnp-7d6576479c-jh4n7   true   0
+its command and TLS env:
+  HUBBLE_RELAY_HOST=hubble-relay
+  HUBBLE_RELAY_PORT=443
+  HUBBLE_TLS=true
+  HUBBLE_TLS_SERVER_NAME=hubble.hubble-relay.cilium.io
+  HUBBLE_TLS_CA_CERT_FILES=/var/lib/hubble-observer/tls/ca.crt
+  HUBBLE_TLS_CLIENT_CERT_FILE=/var/lib/hubble-observer/tls/client.crt
+  HUBBLE_TLS_CLIENT_KEY_FILE=/var/lib/hubble-observer/tls/client.key
+relay as the observer sees it: Connected Nodes: 7/7
+flows still arriving in Loki (last 5 min, by source cluster): none yet
+
+### Part 5e — operators: a client certificate for the CLI, and every relay client script in the repo updated
+### 2026-09-12T16:22:04Z
+$ bash -c for c in poc1 poc2; do kubectl --context kind-$c apply -f demos/25-hubble-observer-loki/40-hubble-cli-client-cert.yaml; kubectl --context kind-$c -n kube-system wait certificate hubble-cli-client-certs --for=condition=Ready --timeout=90s | tail -1; done; echo "scripts/hubble-tls.sh kind-poc1 →"; scripts/hubble-tls.sh kind-poc1 | sed "s/^/  /"; echo "the CLI on the Mac, through a port-forward, with the flags:"; kubectl --context kind-poc1 -n kube-system port-forward svc/hubble-relay 4245:443 >/dev/null 2>&1 & PF=$!; sleep 3; hubble status --server localhost:4245 $(scripts/hubble-tls.sh kind-poc1) 2>/dev/null | grep -E "Healthcheck|Connected Nodes" | sed "s/^/  /"; echo "  without them:"; hubble status --server localhost:4245 2>&1 | grep -v "^time=" | head -1 | cut -c1-160 | sed "s/^/  /"; kill $PF; echo "and hubble -P (its own port-forward) with the flags:"; hubble status -P --kube-context kind-poc1 $(scripts/hubble-tls.sh kind-poc1) 2>/dev/null | grep "Connected Nodes" | sed "s/^/  /"
+certificate.cert-manager.io/hubble-cli-client-certs created
+certificate.cert-manager.io/hubble-cli-client-certs condition met
+certificate.cert-manager.io/hubble-cli-client-certs created
+certificate.cert-manager.io/hubble-cli-client-certs condition met
+scripts/hubble-tls.sh kind-poc1 →
+  --tls --tls-server-name cli.hubble-relay.cilium.io --tls-ca-cert-files .tmp/hubble-tls/kind-poc1/ca.crt --tls-client-cert-file .tmp/hubble-tls/kind-poc1/tls.crt --tls-client-key-file .tmp/hubble-tls/kind-poc1/tls.key
+the CLI on the Mac, through a port-forward, with the flags:
+  Healthcheck (via localhost:4245): Ok
+  Connected Nodes: 7/7
+  without them:
+  failed getting status: rpc error: code = Unavailable desc = connection error: desc = "error reading server preface: EOF"
+and hubble -P (its own port-forward) with the flags:
+  Connected Nodes: 7/7
+
+### Part 5f — after: the scripts over mTLS, the observer's flows still landing, no disruption to the bank
+### 2026-09-12T16:24:39Z
+$ bash -c echo "bank probe during Part 5c: $(awk "{c[\$2]++} END{for(k in c) printf \"%s×%s \", c[k], k}" demos/25-hubble-observer-loki/output/probe-part5c.log) (one call/s)"; echo "demo 19 drops.sh (hubble -P + the CLI certificate), last 10 min:"; demos/19-zero-trust-cell/drops.sh 10m 2>&1 | head -8 | sed "s/^/  /"; echo "demo 25 check.sh:"; demos/25-hubble-observer-loki/check.sh 1 2>&1 | grep -E "relay as|stored|poc1|poc2|health" | sed "s/^/  /"
+bank probe during Part 5c: 225×200  (one call/s)
+demo 19 drops.sh (hubble -P + the CLI certificate), last 10 min:
+  == poc1: 0 dropped flows ==
+  == poc2: 0 dropped flows ==
+demo 25 check.sh:
+  hubble-observer-85bdf4f677-jl76q          true   0     poc1-worker2
+  hubble-observer-cf2cnp-7d6576479c-jh4n7   true   0     poc1-worker2
+    relay as the observer sees it: Connected Nodes: 7/7
+    stored flows, last 1 h, by source cluster and verdict:
+    health: OK
+
+### Part 5f (second attempt) — the first showed 0 drops because demo 19's egress-test pod had finished its sleep 3600 (phase Succeeded): recreated
+### 2026-09-12T16:26:02Z
+$ bash -c kubectl --context kind-poc1 -n bank delete pod egress-test --wait=true >/dev/null 2>&1; echo "cell probe (poc1): $(demos/19-zero-trust-cell/egress-test.sh poc1 2>&1 | grep -c DENIED) DENIED lines"; sleep 40; echo "observer stdout, lines in the last 5 min: $(kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --since=5m 2>/dev/null | wc -l | tr -d " ")"; echo "demo 19 drops.sh (hubble -P over mTLS), last 5 min:"; demos/19-zero-trust-cell/drops.sh 5m 2>&1 | head -6 | sed "s/^/  /"; echo "Loki, last 5 min, by source cluster:"; NOW=$(date +%s); Q=$(python3 -c "import urllib.parse; print(urllib.parse.quote(\"sum by (flow_source_cluster_name, flow_verdict) (count_over_time({namespace=\\\"hubble-observer\\\",container=\\\"hubble-observer\\\"} | json | __error__=\\\"\\\" [5m]))\"))"); kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query?query=$Q&time=$NOW" | python3 -c "import json,sys; [print(\"  \", r[\"metric\"], r[\"value\"][1]) for r in json.load(sys.stdin)[\"data\"][\"result\"]]"; echo "Hubble UI over mTLS (Playwright): 7/7 nodes, 144.9 flows/s, 22 flow rows — output/screenshots/ho-ui-tls.png"
+cell probe (poc1): 6 DENIED lines
+observer stdout, lines in the last 5 min: 68
+demo 19 drops.sh (hubble -P over mTLS), last 5 min:
+  == poc1: 68 dropped flows ==
+      24  egress-test@poc1         -> reserved:world           :80    POLICY_DENIED          - denied_by=[]
+      20  egress-test@poc1         -> reserved:world           :443   POLICY_DENIED          - denied_by=[]
+      14  egress-test@poc1         -> reserved:world           :8080  POLICY_DENIED          - denied_by=[]
+       5  egress-test@poc1         -> reserved:kube-apiserver  :6443  POLICY_DENY            egress denied_by=['bank-cell-baseline']
+       5  egress-test@poc1         -> reserved:kube-apiserver  :6443  POLICY_DENY            - denied_by=[]
+Loki, last 5 min, by source cluster:
+   {'flow_source_cluster_name': 'poc1', 'flow_verdict': 'DROPPED'} 68
+Hubble UI over mTLS (Playwright): 7/7 nodes, 144.9 flows/s, 22 flow rows — output/screenshots/ho-ui-tls.png
+

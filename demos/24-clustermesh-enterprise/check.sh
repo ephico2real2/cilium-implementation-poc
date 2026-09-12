@@ -11,9 +11,9 @@ for C in poc1 poc2; do
   done
 done
 echo "== Hubble Relay on poc1 =="
-kubectl --context kind-poc1 -n kube-system port-forward svc/hubble-relay 4245:80 >/dev/null 2>&1 & PF=$!; sleep 3
-hubble status --server localhost:4245 2>/dev/null | grep -E "Connected Nodes|Unavailable" | sed 's/^/  /'
-hubble list nodes --server localhost:4245 2>/dev/null | grep -v "^time=" | awk 'NR>1{print "  "$1, $2}'
+kubectl --context kind-poc1 -n kube-system port-forward svc/hubble-relay 4245:443 >/dev/null 2>&1 & PF=$!; sleep 3; TLS=$(scripts/hubble-tls.sh kind-poc1)   # demo 25 Part 5: the relay is mTLS
+hubble status --server localhost:4245 $TLS 2>/dev/null | grep -E "Connected Nodes|Unavailable" | sed 's/^/  /'
+hubble list nodes --server localhost:4245 $TLS 2>/dev/null | grep -v "^time=" | awk 'NR>1{print "  "$1, $2}'
 kill $PF 2>/dev/null
 echo "== mesh =="
 cilium clustermesh status --context kind-poc1 2>&1 | grep -E "^  - poc2" | sed 's/^/  poc1 → /'

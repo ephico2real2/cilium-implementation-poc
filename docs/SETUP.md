@@ -1818,5 +1818,12 @@ helm upgrade monitoring prometheus-community/kube-prometheus-stack --version 90.
 demos/25-hubble-observer-loki/dashboard-from-file.sh demos/25-hubble-observer-loki/dashboard-23862-rev5.json monitoring grafana-dashboard-hubble-observer hubble-observer-23862 Hubble | kubectl --context kind-poc1 apply -f -
 sudo sh -c 'demos/25-hubble-observer-loki/hosts-entries.sh >> /etc/hosts'                               # cf2cnp.poc.local on the Mac
 demos/25-hubble-observer-loki/check.sh
+# Part 5 — the relays on mTLS (both clusters), the observer and the operators with their own certificates
+kubectl --context kind-poc1 apply -f demos/25-hubble-observer-loki/30-relay-mtls-client-cert.yaml
+for c in poc1 poc2; do helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-$c --reuse-values \
+  -f demos/24-clustermesh-enterprise/clusters.yaml -f demos/24-clustermesh-enterprise/$c.yaml; done          # relay server TLS + mTLS (render first; no mesh change)
+helm upgrade hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer -n hubble-observer --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml
+for c in poc1 poc2; do kubectl --context kind-$c apply -f demos/25-hubble-observer-loki/40-hubble-cli-client-cert.yaml; done
+hubble status -P --kube-context kind-poc1 $(scripts/hubble-tls.sh kind-poc1)                                # every hubble command from here on
 ```
 

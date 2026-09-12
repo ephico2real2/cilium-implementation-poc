@@ -31,10 +31,10 @@ that shaped it:**
   [`dashboard-from-file.sh`](dashboard-from-file.sh) makes the same substitutions the chart's template
   makes (`DS_LOKI` → the dashboard's own `${datasource}` variable, the observer namespace, the cf2cnp URL)
   and wraps the downloaded export in a ConfigMap with the `grafana_folder: Hubble` annotation.
-- **TLS / mTLS to the relay?** Our relay runs `disable-server-tls: true` (measured, Part 2), so the
-  observer connects in plaintext on port 80 and the README's TLS section does not apply *yet*. Part 5
-  states how it applies on this stack — a client certificate from the demo 08 issuer — and why it was not
-  switched on today.
+- **TLS / mTLS to the relay?** Done in Part 5, after measuring why: the relay ran in plaintext
+  (`disable-server-tls: true`) and any pod could stream every flow of both clusters from it. Now the
+  relays require mutual TLS from the enterprise root; the observer, the UI and the CLI each hold their
+  own certificate from cert-manager.
 
 ## Part 0 — chart-prep.sh: the critical first step, every chart, every time
 
@@ -141,20 +141,65 @@ script waits for the Total Flows number rather than a fixed time; and Chromium r
 itself (`--host-resolver-rules`) so the capture needs no `sudo`. The [cf2cnp UI](output/screenshots/ho-cf2cnp.png):
 `POST /generate`, `GET /download/{id}`, `GET /health` → `OK` through the Gateway.
 
-## Part 5 — TLS and mTLS to the relay, on this stack (documented, not applied)
+## Part 5 — TLS and mTLS to the relay: why, and done
 
-The chart's README: with `hubble.relay.tls.server.enabled=true` the observer must speak TLS; with
-`mtls=true` it needs "a client certificate signed by the Cilium CA", and the secrets must be in the
-observer's namespace. Our relay: `disable-server-tls: true`, Service port 80 → plaintext (Part 2).
-Since demo 24 the CA that signs the relay's certificates is the demo 08 cert-manager root, so the
-enterprise answer is not to copy `hubble-relay-client-certs` across namespaces but to **issue the
-observer its own client certificate from `ClusterIssuer/ca-issuer`** —
-[`30-relay-mtls-client-cert.yaml`](30-relay-mtls-client-cert.yaml), with the values it needs in its
-header. Not applied today because enabling the relay's server TLS turns every plaintext relay client in
-this repo (`hubble status` port-forwards in `verify.sh`, `check.sh`, demos 16–24) into a TLS client in
-one move; it belongs in a window with those scripts updated. The chart's `ciliumNetworkPolicy` stays off
-for a measured-by-reading reason: its policy allows egress to the relay only, no DNS rule, so with it on
-the pod could not resolve the relay's name (an exercise in the GUIDE).
+**Why (Part 5a, measured).** The relay is the one API that streams *every* flow of the mesh — both
+clusters, every namespace, DNS names and HTTP paths included. With `disable-server-tls: true` it
+listened in plaintext on port 80, and any pod that could open a TCP connection to it got all of it:
+
+```
+a pod named anyone, namespace default, no ServiceAccount permissions, no certificate:
+  Healthcheck (via hubble-relay.kube-system.svc.cluster.local:80): Ok
+  Connected Nodes: 7/7
+  … 10.20.1.24:56432 (host) -> bank/accounts-6544fcc9b8-jkxgc:8080 … FORWARDED      ← poc2's bank, from poc1's default namespace
+```
+
+That is a read of the whole platform's traffic metadata from the least-privileged place in it — the
+enterprise reason the chart's README has a TLS section at all. Network policy could fence the relay,
+but the relay's own answer is mutual TLS: it presents a certificate from the enterprise root (demo 24)
+and requires one from every client. Cilium's own clients — the UI's backend, and the CLI — already
+carry that; the observer and the operators needed theirs.
+
+**5b — the observer's own certificate.** [`30-relay-mtls-client-cert.yaml`](30-relay-mtls-client-cert.yaml):
+a cert-manager `Certificate` in the observer's namespace from `ClusterIssuer/ca-issuer` — `Ready` in
+seconds, `CN=hubble-observer.hubble-relay-client.cilium.io`, `issuer=CN=clustermesh-root-ca`, `TLS Web
+Client Authentication`, and `ca.crt` = the root (`72:16:61:3E…`). No Cilium secret copied across a
+namespace boundary, which is what the chart's README would otherwise have you do.
+
+**5c — the relays, both clusters, from the declared values.** Three lines added to demo 24's
+[`poc1.yaml`](../24-clustermesh-enterprise/poc1.yaml) / `poc2.yaml`: `hubble.relay.tls.server.enabled: true`,
+`mtls: true`. Rendered first (the lesson of gotcha #72): `hubble-relay-config` gains the server cert and the
+client CA and loses `disable-server-tls`, the relay Service moves **80 → 443**, `Certificate/hubble-relay-server-certs`
+(and on poc1 `hubble-ui-client-certs`) are created, `hubble-ui`'s backend gets `TLS_TO_RELAY_ENABLED`
+and the client cert — and **`clustermesh-apiserver` is untouched**. Applied with a bank call every
+second: `225×200`, no disruption (the pods' start times confirm the mesh API server never moved).
+The anonymous pod afterwards: plaintext → exit 1; TLS without a certificate →
+`remote error: tls: certificate required`.
+
+**5d — the observer over mTLS.** [`values-hubble-observer.yaml`](values-hubble-observer.yaml): `port: "443"`,
+`tls.enabled`, the one secret for `ca` and `client`. The chart mounts it and sets `HUBBLE_TLS=true`,
+`HUBBLE_TLS_SERVER_NAME=hubble.hubble-relay.cilium.io`, the CA and client cert paths — which is how its
+probes work too. `Connected Nodes: 7/7` from inside the pod.
+
+**5e — operators.** [`40-hubble-cli-client-cert.yaml`](40-hubble-cli-client-cert.yaml): a 90-day client
+certificate for the CLI (`CN=operator.hubble-relay-client.cilium.io`, cert-manager renews it) in both
+clusters; [`scripts/hubble-tls.sh <context>`](../../scripts/hubble-tls.sh) fetches it into `.tmp/` and
+prints the flags. Recorded: `hubble status --server localhost:4245 $(scripts/hubble-tls.sh kind-poc1)` →
+`Connected Nodes: 7/7`; without the flags → `error reading server preface: EOF`; `hubble status -P` with
+them → 7/7. Every relay client script in the repo now uses it — `scripts/verify.sh`, demo 19's
+`drops.sh`, demo 24's and this demo's `check.sh` (`check-routes.sh` reads the agent's local socket and
+needed nothing).
+
+**5f — after.** The first check found 0 drops for a reason that had nothing to do with TLS: demo 19's
+probe pod had finished its `sleep 3600` (phase `Succeeded`). Recreated: `68 DENIED` lines → observer
+stdout 68 lines → `drops.sh` over mTLS 68 (`egress-test@poc1 -> reserved:world :80 POLICY_DENIED 24`, …)
+→ Loki `{poc1, DROPPED} 68`. Hubble UI over mTLS ([capture](output/screenshots/ho-ui-tls.png)): 7/7
+nodes, 144.9 flows/s, both clusters' bank services on one map, its backend logging `initialized with
+TLS to hubble-relay enabled`.
+
+**What did not change:** the observer's `ciliumNetworkPolicy` stays off (its policy has no DNS rule;
+GUIDE exercise 6). **What changed for every earlier demo:** any `hubble` command in their READMEs now
+needs the flags from `scripts/hubble-tls.sh` (root README, "Since demo 25").
 
 ## Exercises
 
@@ -170,5 +215,8 @@ See [`GUIDE.md`](GUIDE.md).
 - **Pull the defaults first.** `chart-prep.sh` is the habit: the versions, the default values of the
   one you chose, and your values as a diff against them — that is what turned a "the pod is broken"
   into "the published chart's probe is wrong" in one read of the template.
+- **The relay is the crown jewels of observability.** Everything Hubble sees, one gRPC stream; a
+  plaintext relay is an anonymous read of the platform. mTLS from the one root, each client with its
+  own certificate, is the standard — and it cost the bank nothing (225×200).
 - **Labels are the contract.** The dashboard's `{namespace, container}` came from Promtail; the
   collector and Loki were configured to honour it, rather than editing nine queries.

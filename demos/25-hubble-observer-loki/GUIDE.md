@@ -56,9 +56,21 @@ even thinking of applying it: the cell denied that flow on purpose.
 failing on DNS (`no such host`): the chart's policy allows egress to the relay only and nothing to
 kube-dns. Add a DNS egress rule (demo 19's baseline shows the shape) or set it back.
 
-## Exercise 7 — the relay behind mTLS (a window)
+## Exercise 7 — prove the relay is closed, then open it for one client
 
-Follow the header of `30-relay-mtls-client-cert.yaml`: relay server TLS + mTLS on, the Certificate applied,
-the observer's values switched to port 443 with the one secret. *Expect:* the observer reconnecting over
-TLS with a certificate the relay's CA issued — and every plaintext `hubble` port-forward in this repo
-needing `--tls --tls-ca-cert-files` from then on. Measure how long the relay is unreachable during the switch.
+```bash
+kubectl --context kind-poc1 -n default run anyone --image=quay.io/cilium/hubble:v1.16.4 --restart=Never --command -- sleep 600
+kubectl --context kind-poc1 -n default exec anyone -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 --tls --tls-allow-insecure
+```
+*Expect:* `tls: certificate required` (Part 5c). Then issue that pod a certificate the way the observer
+got one (a `Certificate` from `ca-issuer` in `default`, mount the secret, `--tls-ca-cert-files`,
+`--tls-client-cert-file`, `--tls-client-key-file`): *expect* `Connected Nodes: 7/7`. Delete the pod.
+Finally revoke by deleting the Certificate and its Secret and restarting the pod: the CLI does not
+reload certificates, and a client without one is back to `certificate required`.
+
+## Exercise 8 — rotate the operator credential
+
+`kubectl -n kube-system delete secret hubble-cli-client-certs` on poc1; `scripts/hubble-tls.sh kind-poc1`
+again. *Expect:* cert-manager reissues within seconds (a new `notBefore`), the helper fetches the new
+files, every script keeps working. The 90-day duration is the point: an operator credential that
+renews itself and is never copied by hand.
