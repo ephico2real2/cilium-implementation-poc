@@ -179,7 +179,8 @@ echo "the database: primary in poc2 with a standby streaming from poc1 through t
 run "kubectl --context kind-poc2 -n bank exec postgres-0 -c postgres -- psql -U bank -d bank -Atc \"SELECT 'primary: in_recovery='||pg_is_in_recovery()||'  standby='||client_addr||' '||state||' lag='||coalesce(replay_lag::text,'0') FROM pg_stat_replication\""
 run "$K -n bank exec postgres-standby-0 -c postgres -- psql -U bank -d bank -Atc \"SELECT 'standby: in_recovery='||pg_is_in_recovery()||' '||status||' from '||sender_host FROM pg_stat_wal_receiver\""
 echo "one request through the Gateway, its path in the body — api in poc1, accounts (and the primary) in poc2:"
-run "curl -s --cacert $CA --resolve bankapi.poc.local:443:$GW https://bankapi.poc.local/api/balance/chk-1001 | python3 -c 'import json,sys; d=json.load(sys.stdin); print({\"api\": d[\"served_by\"][\"cluster\"], \"accounts\": d[\"upstream\"][\"served_by\"][\"cluster\"], \"db\": d[\"upstream\"].get(\"db\"), \"balance_cents\": d[\"balance_cents\"]})'"
+# docs/root-ca.crt (the committed public root), not section 10's temp file — that one is removed at the end of section 10.
+run "curl -s --cacert docs/root-ca.crt --resolve bankapi.poc.local:443:$GW https://bankapi.poc.local/api/balance/chk-1001 | python3 -c 'import json,sys; d=json.load(sys.stdin); print({\"api\": d[\"served_by\"][\"cluster\"], \"accounts\": d[\"upstream\"][\"served_by\"][\"cluster\"], \"db\": d[\"upstream\"].get(\"db\"), \"balance_cents\": d[\"balance_cents\"]})'"
 
 hdr "12. HOST ROUTING (macOS)"
 run "netstat -rn -f inet | grep '^172.18' || echo 'no route — see SETUP Step 3.5'"

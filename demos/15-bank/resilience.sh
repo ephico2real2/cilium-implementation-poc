@@ -55,4 +55,5 @@ b=$(bal chk-1001); curl "${C[@]}" -X POST "$API/api/pay" -H 'content-type: appli
 
 hdr "what this does NOT prove"
 echo "  The PVs are kind's local-path volumes: $(k2 get pv $PV -o jsonpath='{.spec.hostPath.path}') on $(k2 get pv $PV -o jsonpath='{.spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[0].values[0]}')."
-echo "  Data survives a POD restart on the same node. It does not survive that NODE. Part 8 (dbfailover.sh) adds a hot standby in the other cluster so the database survives its CLUSTER; replicated storage or a managed database is still the production answer for the node."
+echo "  Data survives a POD restart on the same node. It does not survive that NODE. A production system needs replicated storage or a managed database, and a Postgres HA topology — one primary here is a deliberate simplification."
+echo "  (Since then: Part 8 / dbfailover.sh adds a hot standby in the other cluster, so the database also survives its CLUSTER.)"
