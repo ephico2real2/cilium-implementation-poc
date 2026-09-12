@@ -1,6 +1,6 @@
 # Demo 16 — Prometheus + Grafana (kube-prometheus-stack), then Hubble's metrics on dashboards
 
-> **Where this sits in the whole:** [OBSERVABILITY-ARCHITECTURE.md](../../OBSERVABILITY-ARCHITECTURE.md) — the one picture of metrics, traces and flows across poc1, poc2 … poc-N, reviewed against what is deployed.
+**Where this sits in the whole:** [OBSERVABILITY-ARCHITECTURE.md](../../OBSERVABILITY-ARCHITECTURE.md) — the one picture of metrics, traces and flows across poc1, poc2 … poc-N, reviewed against what is deployed.
 
 ## Summary context
 
@@ -19,7 +19,7 @@ Everything below was run and recorded in [`output/transcript.txt`](output/transc
 
 ---
 
-# Section A — the monitoring stack
+## Section A — the monitoring stack
 
 ## Part 1 — install kube-prometheus-stack, pinned, with every deviation explained
 
@@ -237,7 +237,7 @@ kubectl --context kind-poc1 delete -f demos/16-monitoring/10-gateway.yaml
 
 ---
 
-# Section B — Cilium and Hubble publish into the stack
+## Section B — Cilium and Hubble publish into the stack
 
 ## Part 5 — one helm change: ServiceMonitors and dashboards from the Cilium chart
 
@@ -657,7 +657,7 @@ how often, over time*. The closest Grafana gets to a map is the Network Overview
 
 ---
 
-# Section C — the reference Hubble values (Isovalent's), reconciled with what was measured
+## Section C — the reference Hubble values (Isovalent's), reconciled with what was measured
 
 The values Isovalent's Hubble-and-Grafana post ships are these:
 

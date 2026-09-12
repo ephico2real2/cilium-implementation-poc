@@ -1,6 +1,6 @@
 # Demo 18 — OBI: distributed traces and RED metrics for the bank, across both clusters, zero code
 
-> **Where this sits in the whole:** [OBSERVABILITY-ARCHITECTURE.md](../../OBSERVABILITY-ARCHITECTURE.md) — the one picture of metrics, traces and flows across poc1, poc2 … poc-N, reviewed against what is deployed.
+**Where this sits in the whole:** [OBSERVABILITY-ARCHITECTURE.md](../../OBSERVABILITY-ARCHITECTURE.md) — the one picture of metrics, traces and flows across poc1, poc2 … poc-N, reviewed against what is deployed.
 
 > **Amended by demo 22 Part 5 (2026-09-12):** since demo 22 poc2 has the Prometheus Operator CRDs (release
 > `edge`), so the PodMonitor below applies there too — `sed s/__CLUSTER__/poc2/ … | kubectl --context kind-poc2 apply -f -`
