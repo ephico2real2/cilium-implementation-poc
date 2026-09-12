@@ -162,3 +162,37 @@ level=info ts=2026-09-12T11:58:29.888201938Z caller=search_handlers.go:196 msg="
        0.03525  service=visits-service span_name=SELECT org.springframework.samples.petclinic.visits.model.Visit
 
 page: Service Graph | Rate | Duration (p90) | vets-service | api-gateway | customers-service | visits-service
+
+### 2026-09-12T12:05:03Z
+$ [PART 6 — TraceQL metrics / Traces Drilldown: "localblocks processor not found" → the local-blocks processor]
+
+### 2026-09-12T12:05:03Z
+$ sh -c echo "before: a TraceQL metrics query straight at Tempo"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/metrics/query_range?q=%7B%20resource.service.name%3D%22api-gateway%22%20%7D%20%7C%20rate()&start=$(( $(date +%s) - 600 ))&end=$(date +%s)&step=60s" 2>&1 | head -c 200; echo; helm upgrade tempo grafana/tempo --version 1.24.4 -n monitoring --kube-context kind-poc1 -f demos/21-tempo/values-tempo.yaml 2>&1 | grep -E "^STATUS|^REVISION|Error"; kubectl --context kind-poc1 -n monitoring rollout status sts/tempo --timeout=4m 2>&1 | tail -1; kubectl --context kind-poc1 -n monitoring get cm tempo -o jsonpath="{.data.tempo\.yaml}" | grep -n -A8 "^metrics_generator:" | head -12
+before: a TraceQL metrics query straight at Tempo
+Error from server (InternalError): an error on the server ("error querying generators in Querier.queryRangeRecent: failed to get response from generators: failed to execute f() for 127.0.0.1:9095: rpc
+STATUS: deployed
+REVISION: 3
+statefulset rolling update complete 1 pods at revision tempo-6ff58bfb56...
+51:metrics_generator:
+52-  processor:
+53-        local_blocks:
+54-          filter_server_spans: false
+55-          flush_to_storage: true
+56-  storage:
+57-    path: "/tmp/tempo"
+58-    remote_write:
+59-      - url: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+
+### 2026-09-12T12:07:44Z
+$ sh -c echo "after: the same query"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/metrics/query_range?q=%7B%20resource.service.name%3D%22api-gateway%22%20%7D%20%7C%20rate()&start=$(( $(date +%s) - 600 ))&end=$(date +%s)&step=60s" 2>&1 | python3 -c "
+import json,sys; d=json.load(sys.stdin); s=d.get(\"series\",[]); print(\"  series:\", len(s)); 
+for x in s[:2]: print(\"   \", x.get(\"labels\"), \"samples:\", len(x.get(\"samples\",[])), \"last:\", (x.get(\"samples\") or [{}])[-1])"; echo "  p90 by service, last 10 min:"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/metrics/query_range?q=%7B%20span%3Aname%3D~%22GET%20/api.*%22%20%7D%20%7C%20quantile_over_time(duration%2C%200.9)%20by%20(resource.service.name)&start=$(( $(date +%s) - 600 ))&end=$(date +%s)&step=300s" 2>&1 | python3 -c "
+import json,sys; d=json.load(sys.stdin)
+for x in d.get(\"series\",[]): v=[s for s in x.get(\"samples\",[]) if s.get(\"value\")]; print(\"   \", [l.get(\"value\",{}).get(\"stringValue\") for l in x.get(\"labels\",[])], \"p90 ≈ %.1f ms\" % (float(v[-1][\"value\"])*1000) if v else \"-\")"
+after: the same query
+  series: 1
+    [{'key': '__name__', 'value': {'stringValue': 'rate'}}] samples: 12 last: {'timestampMs': '1789214880000', 'value': 0.23333333333333334}
+  p90 by service, last 10 min:
+    ['api-gateway', None] p90 ≈ 67.1 ms
+
+drilldown: Root spans | Span rate | Attributes are ordered by their rate of requests per second. | Rate | rootName | rootServiceName | api-gateway | vets-service | visits-service | customers-service

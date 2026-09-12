@@ -152,6 +152,56 @@ was recorded for the bank in demo 16 Part 8. A working URL:
 https://grafana.poc.local/d/3g264CZVz/hubble-l7-http-metrics-by-workload?from=now-6h&to=now&var-cluster=poc1&var-destination_namespace=springboot&var-destination_workload=visits-service&var-reporter=server&var-source_namespace=$__all&var-source_workload=$__all
 ```
 
+## Part 6 — TraceQL metrics and Traces Drilldown ("localblocks processor not found")
+
+*Drilldown → Traces* and any TraceQL **metrics** query (`{ … } | rate()`, `| quantile_over_time(duration, 0.9)`)
+are answered by a third generator processor, **local-blocks**, which keeps recent spans in blocks it
+can aggregate on demand. Without it Grafana shows *TraceQL metrics not configured … "localblocks
+processor not found"*, and Tempo itself answers the query with an rpc error from the generator:
+
+```
+before: GET /api/metrics/query_range?q={ resource.service.name="api-gateway" } | rate()
+   error querying generators in Querier.queryRangeRecent: failed to get response from generators: … rpc …
+```
+
+One more entry in the same overrides list and its processor block ([`values-tempo.yaml`](values-tempo.yaml)):
+
+```yaml
+    processor:
+      local_blocks:
+        flush_to_storage: true         # also persist the blocks it builds, so metrics queries reach back past RAM
+        filter_server_spans: false     # keep client/internal spans in the metrics, not only server spans
+  overrides:
+    defaults:
+      metrics_generator:
+        processors: [service-graphs, span-metrics, local-blocks]
+```
+
+```bash
+helm upgrade tempo grafana/tempo --version 1.24.4 -n monitoring --kube-context kind-poc1 -f demos/21-tempo/values-tempo.yaml
+```
+
+```
+REVISION: 3   statefulset rolling update complete
+after: the same query
+  series: 1   [{__name__: rate}]  samples: 12  last: 0.233 spans/s
+  p90 by service, last 10 min:  api-gateway  p90 ≈ 67.1 ms          ← { span:name=~"GET /api.*" } | quantile_over_time(duration, 0.9) by (resource.service.name)
+```
+
+*Drilldown → Traces*, datasource Tempo, last 30 min: span rate, error rate and duration histogram
+over time, then a breakdown by `resource.service.name` — api-gateway, vets-service, visits-service,
+customers-service, discovery-server, config-server — each with Include/Exclude filters, and the
+*Service structure*, *Comparison* and *Traces* tabs ([screenshot](output/screenshots/grafana-traces-drilldown.png)).
+This is the RED overview computed from spans alone, for every service that sends any.
+
+The three generator processors and what each one feeds:
+
+| Processor | Produces | Consumed by |
+|---|---|---|
+| `service-graphs` | `traces_service_graph_*` in Prometheus | the Service Graph tab (Part 5) |
+| `span-metrics` | `traces_spanmetrics_*` in Prometheus | the Service Graph's Rate / Duration columns; any dashboard |
+| `local-blocks` | nothing in Prometheus — answers TraceQL metrics queries from Tempo's own blocks | Traces Drilldown, Explore TraceQL `| rate()` etc. (Part 6) |
+
 ## Exercises
 
 1. `demos/20-springboot/check.sh 10; sleep 35`, then the `query_exemplars` call from the transcript:
@@ -166,6 +216,43 @@ https://grafana.poc.local/d/3g264CZVz/hubble-l7-http-metrics-by-workload?from=no
    run traffic, repeat 1: *expect* no new exemplars for `springboot` — Hubble reads headers only on the
    proxy. Re-apply it.
 5. `demos/18-obi/tracetree.py` still works on the collector log: the debug exporter stayed.
+6. **The Service Graph (Part 5).** With `metricsGenerator.enabled: false` in `values-tempo.yaml`
+   (and the processors line removed) do `helm upgrade tempo …`, then Explore → Tempo → *Service
+   Graph*: *expect* "No service graph data found" — the tab is drawn from metrics that nobody
+   produces. Restore the file, upgrade again, run `demos/20-springboot/check.sh 10`, wait 90 s:
+   *expect* the node graph (user → api-gateway → the three services → their databases) and
+   `rate(traces_service_graph_request_total[5m])` in Prometheus with `client`/`server` labels.
+   Then, without the Prometheus receiver (`enableRemoteWriteReceiver: false`, a stack upgrade):
+   *expect* Tempo logging remote-write 4xx errors and the graph going stale — three switches, and
+   the tab shows nothing unless all three are on.
+7. **TraceQL metrics and Traces Drilldown (Part 6).** Remove `local-blocks` from the processors,
+   upgrade, open *Drilldown → Traces*: *expect* "TraceQL metrics not configured … localblocks
+   processor not found". Put it back: *expect* the RED overview per service and
+   `{ resource.service.name="api-gateway" } | rate()` answering at Tempo's `/api/metrics/query_range`.
+
+## Why the generator is worth its cost
+
+The Service Graph is the only view in this lab that shows **dependencies as the applications
+actually exercise them**, per direction, with rate, error rate and latency on every edge — and it
+needs nothing from the applications beyond the spans they already send:
+
+- **It finds what nobody declared.** Demo 19 rendered policy from declared intent; the graph shows
+  the real call graph, so a caller that intent forgot (petclinic's Eureka heartbeats to
+  `discovery-server`, every service's calls to its database) is visible before a default-deny
+  policy blocks it. Hubble's Network Overview shows the same edges at L3/L4 by identity; the graph
+  shows them at the application level with the operation names and the latency per hop.
+- **RED per edge, not per service.** `traces_service_graph_request_*` carries `client` and `server`
+  labels, so "api-gateway → customers-service is slow" is a query, not an inference from two
+  per-service dashboards. The Spring Boot dashboard cannot say that; Hubble's L7 metrics can only
+  for proxied ports.
+- **It works for services with no metrics of their own.** The span metrics come from the
+  generator, so a service that ships no Prometheus endpoint still gets rate/errors/duration by
+  span name (the bank's Go services under OBI would, once petclinic is scaled down).
+- **It is the entry point to the traces.** Every node and edge links to a TraceQL search; the
+  Traces Drilldown (Part 6) builds its whole RED overview from the same generator.
+
+The cost is series: 1,455 in Tempo's registry for four services after three minutes, growing with
+distinct span names. That is a sizing question, not a reason to leave the tab empty.
 
 ## What to take away
 

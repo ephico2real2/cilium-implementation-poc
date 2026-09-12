@@ -13,9 +13,13 @@ tempo:
     remoteWriteUrl: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090/api/v1/write
                                        # ← the demo 16 Prometheus, which must accept remote write (enableRemoteWriteReceiver,
                                        #   a stack value) — the chart default points at a Service that does not exist here
+    processor:                         # Part 6: TraceQL metrics ("{ … } | rate()") and Grafana's Traces Drilldown need the
+      local_blocks:                    # local-blocks processor — without it: "localblocks processor not found" (measured)
+        flush_to_storage: true         # also persist the blocks it builds, so metrics queries reach back past RAM
+        filter_server_spans: false     # keep client/internal spans in the metrics, not only server spans
   overrides:
     defaults:
       metrics_generator:
-        processors: [service-graphs, span-metrics]   # traces_service_graph_* and traces_spanmetrics_* (Grafana's service-graph docs)
+        processors: [service-graphs, span-metrics, local-blocks]   # traces_service_graph_* / traces_spanmetrics_* (Part 5) + TraceQL metrics (Part 6)
 persistence:
   enabled: false                       # emptyDir; a pod restart loses traces (24 h of a lab), no PVC to tidy up
