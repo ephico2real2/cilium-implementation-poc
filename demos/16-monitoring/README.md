@@ -368,7 +368,7 @@ dashboards' top-left dropdown filters on is not something Prometheus adds to its
 (external labels only travel with remote-write/alerts), so it is stamped at scrape time by a
 `relabelings` entry on every ServiceMonitor: `{targetLabel: cluster, replacement: poc1}`. The
 chart's default `node` relabeling is kept beside it. **(c) The metric list moved to the dynamic
-config** (`hubble.metrics.dynamic`, a ConfigMap the agents re-read) with `hubble.metrics.enabled: []`,
+config** (`hubble.metrics.dynamic`, a ConfigMap the agents re-read — docs: [Static or dynamic exporter](https://docs.cilium.io/en/stable/observability/metrics/#static-or-dynamic-exporter)) with `hubble.metrics.enabled: []`,
 so that *adding a metric later* does not repeat Part 5's 68 s. And `enableOpenMetrics: true`, because
 exemplars only exist in the OpenMetrics exposition format (Part 8).
 
