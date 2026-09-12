@@ -44,7 +44,7 @@ unchanged, with BGP substituted for L2 in production.
 6. **`scripts/verify.sh`** — regenerate every piece of evidence on *your* cluster and diff it
    against [docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md). `scripts/check-routes.sh` is the
    external-access proof for demo 09.
-7. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 48 traps, each with the real error
+7. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 49 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -125,6 +125,7 @@ an untested combination.
 | 08 | Enterprise CA | cert-manager root in poc1 issuing every cluster's mesh certificates; trust before join |
 | 09 | Wildcard TLS + 3 route types | cert-manager wildcard and exact certs on one Gateway; `HTTPRoute`, `GRPCRoute`, `TCPRoute` from one 14 MB image — and a native Go client (`-mode client`) that tests all three, which is how the missing-ALPN gotcha (#33) was found |
 | 10 | Flow tracing -> OpenTelemetry | Hubble dynamic flow export per node, tailed by an OTel Collector into OTLP; every flow persistent and queryable. **Events, not spans** -- hubble-otel is archived, see gotcha #30 |
+| 14 | **TCP_CRR tuning blog, tested** | Bigger maps (at 12 % occupancy), shorter timeouts, socket LB for pods (forced off by Gateway API), client sysctls — none moved the connection rate; this rig's ceiling is Hubble (demo 11), and that is the knob |
 | 13 | **ztunnel mTLS** | Cilium 1.20's beta mTLS (Istio ztunnel, HBONE) proven on the wire on a throwaway cluster — and shown to be incompatible with any `cluster.id`, to break L4/L7 policy on enrolled traffic, and to cost 73 % of throughput; **not our standard** |
 | 11 | **kube-proxy vs Cilium, forensic** | A third cluster (`poc3`: kindnet + kube-proxy iptables, its own docker network) and one script on both: 48 vs 11,078 iptables rules at 1,000 Services, ~2× faster programming, conntrack out of the kernel — **and** the default install losing on throughput and churn until three causes were isolated (legacy host routing, VXLAN, Hubble's per-flow CPU) |
 
@@ -150,7 +151,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 48 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 49 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

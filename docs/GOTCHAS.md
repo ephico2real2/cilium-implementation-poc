@@ -56,6 +56,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [46](#46) | `cilium clustermesh enable/disable` rewrite the helm release behind your back — `disable` leaves the mesh values, `enable` turns `tls.auto.method` from `certmanager` into `cronJob` | Cilium CLI |
 | [47](#47) | "Hubble lost all its data" — the flow store is an in-memory ring buffer per agent; every agent restart empties it; the export files and OTel are the durable copy and flow one way | Hubble |
 | [48](#48) | Route B's CA copy left poc2's Hubble leaf certificates signed by the CA it replaced — hubble-relay crash-looped for nine hours behind a green `cilium status` | TLS |
+| [49](#49) | `socketLB.hostNamespaceOnly=false` silently does nothing while Gateway API is enabled — the chart forces `bpf-lb-sock-hostns-only: "true"` | helm chart |
 
 ---
 
@@ -1254,6 +1255,34 @@ it with `openssl verify`, and check the second cluster's components, not only th
 
 ---
 
+## <a name="49"></a>49. `socketLB.hostNamespaceOnly=false` silently does nothing while Gateway API is enabled
+
+**Symptom.** `helm upgrade … --set socketLB.hostNamespaceOnly=false`, "Release upgraded", a full
+agent rollout — and `cilium status --verbose` still says `Socket LB Coverage: Hostns-only`. The
+tuning a blog promised for pod connection rates never happened, with no error anywhere.
+
+**Cause.** Rendered with and without the value, the ConfigMap is identical:
+`bpf-lb-sock-hostns-only: "true"`. The chart template (`cilium-configmap.yaml`, 1.20.1):
+
+```
+{{- if or (hasKey $socketLB "hostNamespaceOnly") .Values.gatewayAPI.enabled }}
+# When Gateway API is enabled this is forced to "true" so per-backend weights
+# on TCPRoute/UDPRoute take effect …
+{{- if .Values.gatewayAPI.enabled }}
+  bpf-lb-sock-hostns-only: "true"
+```
+
+Gateway API is on (demos 05/09), so the value is forced. The reason is real — socket-level LB
+would bypass the per-backend weighting the Gateway's Maglev needs — but the override is silent.
+
+**Fix.** None while Gateway API is enabled; it is a design choice, not a bug. Know it before
+promising socket LB for pods on a cluster that also serves Gateway API. And, as always here:
+after any helm change, read the status line the change is supposed to move (#17, #33, #34).
+
+→ demo 14; `docs/TUNING.md` §5
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1274,6 +1303,7 @@ Most of these share a shape: **something reported success while not working.**
 - the ordered-restart dry run on poc2 passed — and then the same script put poc2-worker on the wrong address (#43)
 - `hubble status -P` reported Relay unreachable — it was asking a different, paused cluster (#44)
 - `cilium status` said `Hubble Relay: OK` on the cluster being looked at while the other cluster's relay had crashed 131 times (#48)
+- `helm upgrade` accepted `socketLB.hostNamespaceOnly=false` and rendered the opposite (#49)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

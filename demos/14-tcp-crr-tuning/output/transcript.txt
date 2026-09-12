@@ -1,0 +1,107 @@
+### 2026-09-12T00:29:02Z
+$ [BASELINE — poc1 as documented (BPF host routing, vxlan, Hubble + export ON). The facts each blog item touches, then churn.]
+### 2026-09-12T00:29:02Z
+$ sh -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --verbose 2>/dev/null | grep -E "Socket LB|BPF Maps|dynamic sizing" | sed "s/^ *//"
+Socket LB:            Enabled
+Socket LB Tracing:    Enabled
+Socket LB Coverage:   Hostns-only
+BPF Maps:   dynamic sizing: on (ratio: 0.002500)
+
+### 2026-09-12T00:29:03Z
+$ sh -c P=$(kubectl --context kind-poc1 -n kube-system get pod -l k8s-app=cilium --field-selector spec.nodeName=poc1-worker -o jsonpath="{.items[0].metadata.name}"); kubectl --context kind-poc1 -n kube-system exec $P -c cilium-agent -- cilium-dbg map list 2>/dev/null | grep -E "^Name|cilium_ct4_global|cilium_ct_any4_global|cilium_snat_v4_external|cilium_lb4_services_v2" ; kubectl --context kind-poc1 -n kube-system get cm cilium-config -o json | python3 -c "import json,sys; d=json.load(sys.stdin)[\"data\"]; [print(\"  \",k,\"=\",v) for k,v in sorted(d.items()) if k.startswith(\"bpf-ct-\") or k in (\"bpf-lb-sock\",\"bpf-lb-sock-hostns-only\",\"bpf-nat-global-max\",\"bpf-ct-global-tcp-max\",\"bpf-ct-global-any-max\",\"bpf-map-dynamic-size-ratio\")]"
+Name                       Num entries   Num errors   Cache enabled
+cilium_lb4_services_v2     115           0            true
+cilium_ct4_global          260           0            true
+cilium_ct_any4_global      62            0            true
+cilium_snat_v4_external    0             0            true
+   bpf-lb-sock = false
+   bpf-lb-sock-hostns-only = true
+   bpf-map-dynamic-size-ratio = 0.0025
+
+### 2026-09-12T00:29:05Z
+$ sh -c kubectl --context kind-poc1 -n forensic exec fortio -- sh -c "true" 2>/dev/null; NODE=$(kubectl --context kind-poc1 -n forensic get pod fortio -o jsonpath="{.spec.nodeName}"); CID=$(docker exec $NODE crictl ps --name fortio -q | head -1); PID=$(docker exec $NODE crictl inspect $CID | python3 -c "import json,sys; print(json.load(sys.stdin)[\"info\"][\"pid\"])"); echo "fortio pod netns sysctls (node $NODE pid $PID):"; docker exec $NODE nsenter -t $PID -n sysctl net.ipv4.ip_local_port_range net.ipv4.tcp_tw_reuse net.ipv4.tcp_fin_timeout net.core.somaxconn net.ipv4.tcp_max_syn_backlog 2>&1 | sed "s/^/  /"
+fortio pod netns sysctls (node poc1-worker2 pid 1868):
+  net.ipv4.ip_local_port_range = 32768	60999
+  net.ipv4.tcp_tw_reuse = 2
+  net.ipv4.tcp_fin_timeout = 60
+  net.core.somaxconn = 4096
+  net.ipv4.tcp_max_syn_backlog = 1024
+
+### 2026-09-12T00:29:07Z
+$ scripts/churn-decompose.sh poc1 baseline
+=== churn decomposition on poc1 (baseline) — 64 conns, Connection: close, 8 s each; daemon=cilium-agent on poc1-worker ===
+  VM load: 13.44 20.96 23.64
+  target     url                                               qps    p50_ms    p99_ms cilium-agent%
+  pod-ip     http://10.10.4.139:8080/                       1257.3      39.6     196.7 100
+  clusterip  http://10.11.108.33/                           1249.1      37.5     224.4 109.1
+  dns-name   http://web.forensic.svc.cluster.local/         1056.9      54.0     170.7 120
+
+### 2026-09-12T00:29:38Z
+$ sh -c P=$(kubectl --context kind-poc1 -n kube-system get pod -l k8s-app=cilium --field-selector spec.nodeName=poc1-worker -o jsonpath="{.items[0].metadata.name}"); echo "CT entries on poc1-worker right after churn: $(kubectl --context kind-poc1 -n kube-system exec $P -c cilium-agent -- cilium-dbg bpf ct list global 2>/dev/null | grep -c TCP)"
+CT entries on poc1-worker right after churn: 17138
+
+### 2026-09-12T00:29:39Z
+$ [CHANGE 1 — blog: socketLB.hostNamespaceOnly=false (socket-level LB for PODS: NAT at connect() rather than per packet). Current coverage is Hostns-only.]
+### 2026-09-12T00:29:39Z
+$ sh -c helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 --reuse-values --set socketLB.hostNamespaceOnly=false 2>&1 | grep -E "Release|Error"
+Release "cilium" has been upgraded. Happy Helming!
+
+### 2026-09-12T00:29:52Z
+$ kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium
+daemonset.apps/cilium restarted
+
+### 2026-09-12T00:31:04Z
+$ sh -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --verbose 2>/dev/null | grep -E "Socket LB" | sed "s/^ *//"
+Socket LB:            Enabled
+Socket LB Tracing:    Enabled
+Socket LB Coverage:   Hostns-only
+
+### 2026-09-12T00:31:05Z
+$ scripts/churn-decompose.sh poc1 socket LB for pods (hostNamespaceOnly=false)
+=== churn decomposition on poc1 (socket LB for pods (hostNamespaceOnly=false)) — 64 conns, Connection: close, 8 s each; daemon=cilium-agent on poc1-worker ===
+  VM load: 19.38 23.02 24.25
+  target     url                                               qps    p50_ms    p99_ms cilium-agent%
+  pod-ip     http://10.10.4.139:8080/                       1245.8      40.3     186.1 75
+  clusterip  http://10.11.108.33/                            895.9      48.0     348.7 118.2
+  dns-name   http://web.forensic.svc.cluster.local/          716.3      70.1     348.8 181.8
+
+### 2026-09-12T00:31:36Z
+$ sh -c kubectl --context kind-poc1 -n forensic exec client -- bash -c "for i in 1 2 3 4 5; do curl -s -o /dev/null -w \"%{time_connect} \" http://web.forensic.svc.cluster.local/; done; echo" | awk "{for(i=1;i<=NF;i++) printf \"%.2f \", \$i*1000; print \" ms connect-time to the ClusterIP (5 samples)\"}"
+18.39 12.39 17.60 16.06 14.40  ms connect-time to the ClusterIP (5 samples)
+
+### 2026-09-12T00:31:36Z
+$ [CHANGE 2 — blog: kernel sysctls for high connection rates, applied INSIDE the fortio pod netns (the load generator; net.ipv4.* are per-netns)]
+### 2026-09-12T00:31:38Z
+$ sh -c docker exec poc1-worker2 nsenter -t 1868 -n sysctl -w net.ipv4.ip_local_port_range='1024 65535' net.ipv4.tcp_tw_reuse=1 net.ipv4.tcp_fin_timeout=10 net.ipv4.tcp_max_syn_backlog=65535 net.core.somaxconn=65535 2>&1
+net.ipv4.ip_local_port_range = 1024 65535
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_fin_timeout = 10
+net.ipv4.tcp_max_syn_backlog = 65535
+net.core.somaxconn = 65535
+
+### 2026-09-12T00:31:38Z
+$ scripts/churn-decompose.sh poc1 socket LB for pods + load-generator sysctls
+=== churn decomposition on poc1 (socket LB for pods + load-generator sysctls) — 64 conns, Connection: close, 8 s each; daemon=cilium-agent on poc1-worker ===
+  VM load: 54.17 31.58 27.08
+  target     url                                               qps    p50_ms    p99_ms cilium-agent%
+  pod-ip     http://10.10.4.139:8080/                       1031.6      50.3     229.0 109.1
+  clusterip  http://10.11.108.33/                           1210.6      37.1     248.2 118.2
+  dns-name   http://web.forensic.svc.cluster.local/         1032.4      55.2     179.0 200
+
+### 2026-09-12T00:32:10Z
+$ [RESTORE the release from the snapshot; the pod sysctls die with the pod]
+### 2026-09-12T00:32:10Z
+$ sh -c helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 -f .tmp/poc1-values-before-crr.yaml 2>&1 | grep -E "Release|Error"; helm get values cilium -n kube-system --kube-context kind-poc1 | grep -c hostNamespaceOnly | sed "s/^/  socketLB keys left: /"
+Release "cilium" has been upgraded. Happy Helming!
+  socketLB keys left: 0
+
+### 2026-09-12T00:32:23Z
+$ kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium
+daemonset.apps/cilium restarted
+
+### 2026-09-12T00:35:37Z
+$ sh -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --verbose 2>/dev/null | grep -E "Socket LB Coverage" | sed "s/^ *//"; scripts/check-routes.sh 2>&1 | grep -E "FAILED"; timeout 120 cilium clustermesh status --context kind-poc1 2>&1 | grep -E "✅ All" | head -1
+Socket LB Coverage:   Hostns-only
+FAILED CHECKS: 0
+✅ All 5 nodes are connected to all clusters [min:1 / avg:1.0 / max:1]
+

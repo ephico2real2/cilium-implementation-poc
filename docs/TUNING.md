@@ -98,7 +98,23 @@ exporter does this per file), and treat `EVENTS LOST` as an alert, not a log lin
 
 They enable in config and stay inactive (gotcha #17). Check the status lines, not the values.
 
-## 5. The one-line checklist for a new cluster
+## 5. Connection-rate (TCP_CRR) tuning — the blog's items, tested (demo 14)
+
+A widely shared post lists knobs for Cilium's new-connection rate. Tested here one at a time,
+after reading what the cluster actually has (`demos/14-tcp-crr-tuning/README.md`):
+
+| Knob | Here | Verdict |
+|---|---|---|
+| bigger BPF CT/NAT maps (`bpf.ctTcpMax` 1 M …) | dynamic sizing gave 147,099 CT-TCP / 147,099 NAT entries; peak churn used **12 %** | not binding — size from measured occupancy, not from a post |
+| shorter CT timeouts | defaults TCP 2h13m, SYN 1m, FIN 10s | governs occupancy, which is 12 % |
+| `socketLB.hostNamespaceOnly=false` (socket LB for pods) | **cannot be enabled while Gateway API is on** — the chart forces `bpf-lb-sock-hostns-only: "true"` (gotcha #49); coverage stayed `Hostns-only` after a rollout | no effect here; a real knob only on clusters without Gateway API |
+| client sysctls (`tcp_tw_reuse`, port range, backlogs) | per-netns, set in the load generator | load-generator hygiene; no change at 1.2 k qps |
+
+**The rule this adds:** before touching a knob, find the *binding* constraint. On this rig it is
+Hubble's per-flow CPU (§3), and no map, timeout or sysctl moves it. With Hubble off the same load
+went from ~1.2 k to ~9 k qps (demo 11) — that is the knob.
+
+## 6. The one-line checklist for a new cluster
 
 ```bash
 helm install cilium cilium/cilium --version 1.20.1 -n kube-system -f cilium/values-poc1.yaml   # bpf.masquerade: true is in the file
