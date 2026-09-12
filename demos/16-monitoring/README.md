@@ -239,6 +239,33 @@ values with and without the file, object by object — in the transcript):
    constraint Section A exists for, and why these values are not in `cilium/values-poc1.yaml` (a
    day-1 install has no CRDs yet).
 
+**The docs' ClusterMesh snippet, checked against this cluster.** The metrics page shows
+
+```bash
+helm install cilium cilium/cilium --version 1.20.1 --namespace kube-system \
+   --set clustermesh.useAPIServer=true \
+   --set clustermesh.apiserver.metrics.enabled=true \
+   --set clustermesh.apiserver.metrics.kvstoremesh.enabled=true \
+   --set clustermesh.apiserver.metrics.etcd.enabled=true
+```
+
+Three of those four are already the chart's **defaults** in 1.20.1 (`helm show values`:
+`metrics.enabled: true`, `kvstoremesh.enabled: true`, `etcd.enabled: true`), and `useAPIServer: true`
+has been in poc1's values since demo 07 — which is why the `clustermesh-apiserver-metrics` Service
+(`apiserv-metrics=9962 kvmesh-metrics=9964 etcd-metrics=9963`) existed before this demo touched
+anything. What the snippet does **not** switch on is the ServiceMonitor, so nothing scraped those
+ports until `clustermesh.apiserver.metrics.serviceMonitor.enabled: true` in Part 5 — and the
+`cluster` relabeling has to be set three times, once per endpoint (`relabelings`,
+`kvstoremesh.relabelings`, `etcd.relabelings`; Part 9 found the 566 unlabelled series that proves
+it). What Prometheus holds from that one job now:
+
+```
+count by (job, container) ({job="clustermesh-apiserver-metrics"})
+  container=apiserver     431
+  container=etcd         1837      (--metrics=basic on the embedded etcd)
+  container=kvstoremesh   626
+```
+
 **Apply**, with a 1 s probe of the Gateway running alongside to measure what the agent rollout costs:
 
 ```bash
