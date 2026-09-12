@@ -54,7 +54,9 @@ unchanged, with BGP substituted for L2 in production.
    `hubble …` command in demos 01–25 works as written (measured in demo 25 Part 5g: demo 01's and
    demo 07's commands verbatim, both clusters). Relay port-forwards are `4245:443`; the one `4245:80`
    left in the text is gotcha #47's historical note.
-9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 76 traps, each with the real error
+8c. **[OBSERVABILITY-ARCHITECTURE.md](OBSERVABILITY-ARCHITECTURE.md)** is the one picture of the observability
+   stack across the mesh — what runs in the hub, what every spoke runs, and why (demos 10, 16, 18, 21–25).
+9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 77 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -189,7 +191,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 76 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 77 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

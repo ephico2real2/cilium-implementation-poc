@@ -1,5 +1,7 @@
 # Demo 23 — a collector per cluster, and why it is not a global service
 
+> **Where this sits in the whole:** [OBSERVABILITY-ARCHITECTURE.md](../../OBSERVABILITY-ARCHITECTURE.md) — the one picture of metrics, traces and flows across poc1, poc2 … poc-N, reviewed against what is deployed.
+
 ## Summary context
 
 Demo 22 gave poc2 a collector of its own and left its Service global with local affinity, so that

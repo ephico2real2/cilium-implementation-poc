@@ -12,7 +12,14 @@ prometheus:
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
     retention: 2d                      # a laptop lab; the default 10d fills the node-local volume for nothing
-    resources: {requests: {cpu: 100m, memory: 512Mi}, limits: {memory: 1Gi}}
+    # 2026-09-12 (demo 22 Part 5): 1Gi was the single-cluster budget. As the HUB it also holds poc2's remote-written
+    # series (its own Prometheus runs at 700 MB RSS for 69k series), Tempo's generated metrics and OBI's — it OOM-killed
+    # 51 times in a row, dying during WAL replay + compaction before the startup probe passed. 2Gi, measured, not guessed.
+    resources: {requests: {cpu: 100m, memory: 1Gi}, limits: {memory: 2Gi}}
+    # A hub that receives remote write must accept a spoke's backlog after ITS OWN outage: the spoke retries samples
+    # whose timestamps are older than the hub's head ("Out of order sample from remote write … out of bounds" in the
+    # crash-loop log). The out-of-order window makes those a delay, not a 400.
+    tsdb: {outOfOrderTimeWindow: 30m}
     # Cilium's Hubble httpV2 metrics carry OpenMetrics exemplars (trace links on histogram buckets);
     # Prometheus stores them only with this on. Harmless without a tracing backend.
     enableFeatures: [exemplar-storage]

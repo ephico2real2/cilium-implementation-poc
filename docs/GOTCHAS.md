@@ -66,6 +66,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [77](#77) | The hub Prometheus kept the single-cluster 1Gi limit — 51 OOM kills once poc2 wrote in; 2Gi + an out-of-order window | monitoring |
 | [76](#76) | A policy's egress `toPorts` must be the backend pod's port (relay 4245), not the Service port (443) — Cilium enforces after service translation | Cilium policy |
 | [75](#75) | A plaintext Hubble Relay lets any pod read every flow of the mesh; relay server TLS + mTLS from the enterprise root, each client with its own certificate | Hubble / security |
 | [74](#74) | Bank images are distroless: `kubectl exec … sh` fails; use a debug pod in the namespace (`egress-test.sh poc2`) | tooling |
@@ -1860,6 +1861,23 @@ every policy in this repo: in `toPorts`, the container port.
 
 ---
 
+## <a name="77"></a>77. The hub Prometheus was sized for one cluster — OOM-killed 51 times once a spoke wrote in
+
+**Symptom.** Demo 22 Part 5: `prometheus` container `CrashLoopBackOff`, `OOMKilled`, 51 restarts; each
+start replayed the WAL, began a compaction and took poc2's remote write, then died at the 1Gi limit
+before the startup probe passed. Also `Out of order sample from remote write … out of bounds`.
+
+**Cause.** The limit from demo 16 (one cluster). A hub holds every spoke's series: poc2's own
+Prometheus needs 700 MB for 69k series by itself; the hub had 262k head series.
+
+**Fix.** `limits.memory: 2Gi` (`requests` 1Gi) — measured, RSS 797 MB after — and
+`tsdb.outOfOrderTimeWindow: 30m` so a spoke's backlog after the hub's own outage is accepted. Rule:
+size a receiver for the sum of its writers, and give it an out-of-order window.
+
+→ demo 22, Part 5
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1899,6 +1917,7 @@ Most of these share a shape: **something reported success while not working.**
 - the pod had no shell to fail in (#74)
 - the observability API was the most readable thing on the platform (#75)
 - the policy allowed the port the client dialled, not the port the pod listens on (#76)
+- the hub was budgeted like a spoke (#77)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

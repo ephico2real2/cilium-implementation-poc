@@ -1,5 +1,7 @@
 # Demo 10 — Flow tracing: Hubble export → OpenTelemetry
 
+> **Where this sits in the whole:** [OBSERVABILITY-ARCHITECTURE.md](../../OBSERVABILITY-ARCHITECTURE.md) — the one picture of metrics, traces and flows across poc1, poc2 … poc-N, reviewed against what is deployed.
+
 ## Summary context — and an honest reframing
 
 **What was planned.** "Tracing" in the original programme meant Hubble flows turned into

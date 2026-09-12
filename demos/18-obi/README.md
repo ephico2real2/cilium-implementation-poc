@@ -1,5 +1,12 @@
 # Demo 18 — OBI: distributed traces and RED metrics for the bank, across both clusters, zero code
 
+> **Where this sits in the whole:** [OBSERVABILITY-ARCHITECTURE.md](../../OBSERVABILITY-ARCHITECTURE.md) — the one picture of metrics, traces and flows across poc1, poc2 … poc-N, reviewed against what is deployed.
+
+> **Amended by demo 22 Part 5 (2026-09-12):** since demo 22 poc2 has the Prometheus Operator CRDs (release
+> `edge`), so the PodMonitor below applies there too — `sed s/__CLUSTER__/poc2/ … | kubectl --context kind-poc2 apply -f -`
+> — and poc2's OBI RED metrics reach the hub through remote write like everything else. The "poc2 ONLY"
+> note in `30-podmonitor.yaml` describes the state at the time.
+
 ## Summary context
 
 Demo 10 established that Cilium 1.20 emits no application spans, and demo 16 Part 8 showed Hubble's

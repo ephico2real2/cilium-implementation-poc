@@ -1,5 +1,7 @@
 # Demo 25 — historical flows, the open-source way: hubble-observer → Loki → the 23862 dashboard
 
+> **Where this sits in the whole:** [OBSERVABILITY-ARCHITECTURE.md](../../OBSERVABILITY-ARCHITECTURE.md) — the one picture of metrics, traces and flows across poc1, poc2 … poc-N, reviewed against what is deployed.
+
 ## Summary context
 
 Demo 16 Part 11b established what the flows-per-minute chart in the enterprise screenshots is: Isovalent's

@@ -1,5 +1,7 @@
 # Demo 22 — one Grafana for the mesh: poc2's metrics and traces into the central stack on poc1
 
+> **Where this sits in the whole:** [OBSERVABILITY-ARCHITECTURE.md](../../OBSERVABILITY-ARCHITECTURE.md) — the one picture of metrics, traces and flows across poc1, poc2 … poc-N, reviewed against what is deployed.
+
 > **Superseded in part by [demo 23](../23-collector-per-cluster/README.md):** the collector Service
 > re-declared global with local affinity in Part 2, and Exercise 4's cross-cluster fallback, were
 > measured to be the trap demo 23 records (seven backends, the wrong cluster stamp). The collector is
@@ -206,6 +208,23 @@ relabelings agree (a scrape class is applied *before* the object's own relabelin
 override it); and the hub's Prometheus container was restarted once during this Part by a failed
 liveness probe — VM load 146 with 1.3 GB free while Playwright and two clusters competed, the
 gotcha #66 pattern, not the configuration (the StatefulSet generation did not change).
+
+## Part 5 — the hub outgrew its single-cluster memory budget
+
+2026-09-12 19:25Z: the hub's `prometheus` container in `CrashLoopBackOff`, **51 restarts, OOMKilled**,
+limit 1Gi. Each restart replayed the WAL, started a compaction (`write block started`) and received
+poc2's remote write — and died before the startup probe passed (`503`). The crash-loop log also showed
+`Out of order sample from remote write … out of bounds`: poc2 replaying its backlog into a head that had
+moved on. Reference numbers: poc2's own Prometheus runs at **702 MB RSS for 69k series**; the hub holds
+its 54 targets, poc2's 32, Tempo's generated metrics and OBI's.
+
+The fix, in the demo 16 values: `limits.memory: 2Gi`, `requests.memory: 1Gi`, and
+`tsdb.outOfOrderTimeWindow: 30m` so a spoke's backlog after a hub outage is a delay, not a 400. After:
+`ready True, restarts 0`, RSS 797 MB, head series `poc1=193217, poc2=69354`, `up` by cluster
+`poc1=54, poc2=32`, poc2's newest sample 1.7 s old; poc2's sender: `Done replaying WAL`, resharding,
+`samples_pending` falling. Gotcha #77. The same review found poc2's OBI RED metrics unscraped — demo 18's
+PodMonitor could not be applied to poc2 before this demo gave it the operator CRDs — so it was applied
+with `__CLUSTER__` → `poc2`: `podMonitor/obi/obi/0 up cluster=poc2` in the edge Prometheus.
 
 ## Exercises
 

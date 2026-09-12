@@ -1,5 +1,7 @@
 # Demo 16 — Prometheus + Grafana (kube-prometheus-stack), then Hubble's metrics on dashboards
 
+> **Where this sits in the whole:** [OBSERVABILITY-ARCHITECTURE.md](../../OBSERVABILITY-ARCHITECTURE.md) — the one picture of metrics, traces and flows across poc1, poc2 … poc-N, reviewed against what is deployed.
+
 ## Summary context
 
 Hubble UI is a *service map*: it draws flows from each agent's ring buffer (gotcha #47) and has
