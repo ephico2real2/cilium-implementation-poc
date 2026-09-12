@@ -1,8 +1,35 @@
-# cilium-kind-poc
+# cilium-implementation-poc
 
-A reproducible, local proof-of-concept that demonstrates what **Cilium** and **Hubble** give you
-over a stock CNI + kube-proxy Kubernetes cluster — built on [kind](https://kind.sigs.k8s.io/), on a
-laptop, from nothing.
+A reproducible proof-of-concept that demonstrates what **Cilium** and **Hubble** give you over a
+stock CNI + kube-proxy Kubernetes cluster — measured, not quoted — built from nothing on
+[kind](https://kind.sigs.k8s.io/) on a laptop. (The working directory and the git history still
+carry the lab's original name, `cilium-kind-poc`.)
+
+## Scope: kind is the lab, not the design
+
+**kind was used for the Kubernetes clusters; only the initial setup needs kind-specific instructions.**
+Those are [docs/SETUP.md](docs/SETUP.md) Steps 1–5 and 9 (the node image pinned to a Cilium-tested
+Kubernetes version, the `kubeProxyMode: none` / no-CNI cluster config, the multi-control-plane API
+endpoint by DNS name, the second cluster's disjoint CIDRs) and the **network layer**, which is what a
+**Docker-based kind homelab** has instead of a real network:
+
+| In this lab (Docker Desktop, kind) | In a real homelab / production-capable cluster |
+|---|---|
+| pod and service CIDRs chosen inside the `kind` docker bridge; node IPs are container IPs on that bridge (172.18.0.0/16); the two clusters can only mesh because they share it | a real subnet plan: routable node networks, non-overlapping pod/service CIDRs per cluster, and a route (or a tunnel) between the clusters' networks |
+| LoadBalancer addresses handed out by Cilium's LB IPAM from a slice of the docker bridge (`cilium/lb-ippool.yaml`), reached from macOS through a static route into the Docker VM (Step 3.5) | an LB pool on a real VLAN, announced by L2 or BGP (demo 12 parks BGP for exactly this reason) |
+| hostnames such as `grafana.poc.local`, `bank.poc.local`, `cf2cnp.poc.local` written into the MacBook's `/etc/hosts` by each demo's `hosts-entries.sh` | DNS records — a zone on the homelab's DNS server, or external-dns writing them from the Gateway's addresses |
+| the ClusterMesh API server as a NodePort on a control-plane container IP (`clusters.yaml`) | a LoadBalancer or a DNS name per cluster (`address:` in the guide's `clusters.yaml`), with the shared CA provisioned before the join (demo 08/24) |
+| the Docker Desktop VM kernel (6.6, no `CONFIG_SECURITY`) and its memory ceiling: the reason Tetragon and OBI's generic tracer are parked (gotchas #60, #66) | the kernel and the RAM you chose — none of those gotchas apply |
+| a Mac as the operator's workstation: the `hubble` CLI, Playwright, `sudo` for hosts entries | a bastion or the operator's Linux box; the same CLI, the same certificates (`scripts/hubble-tls.sh`) |
+
+**Everything else applies to most Kubernetes clusters as it stands**: the Cilium values (per-cluster
+install, ClusterMesh, Gateway API, L7 policy, WireGuard, Hubble metrics and export, relay mTLS from
+day one), the enterprise CA with cert-manager, the zero-trust cell, the observability standard
+(hub-and-spoke Prometheus with remote write, a collector per cluster, one Tempo, one Loki, the
+dashboards and their provisioning), the hubble-observer work and its upstream pull requests, and
+every measured gotcha that is not marked Docker/kind. The expectation is that a real network, a real
+subnet and CIDR plan, DNS records and servers take the place of the MacBook, the docker bridge and
+`/etc/hosts` — and that nothing in the demos from 06 onward has to change for it.
 
 ## What this is, technically
 
