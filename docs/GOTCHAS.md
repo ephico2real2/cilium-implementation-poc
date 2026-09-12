@@ -59,6 +59,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [49](#49) | `socketLB.hostNamespaceOnly=false` silently does nothing while Gateway API is enabled — the chart forces `bpf-lb-sock-hostns-only: "true"` | helm chart |
 | [50](#50) | "Active-active" sent 40/40 requests to one cluster — Go's keep-alive pinned one pooled connection to one backend; Cilium balances connections, not requests | load balancing |
 | [51](#51) | `kubectl exec a -- curl … \| kubectl exec b -- jq` prints nothing — the second exec has no stdin; run the pipeline inside one exec | tooling |
+| [52](#52) | `api.bank.poc.local` failed with curl exit 60 on the `*.poc.local` Gateway — a wildcard matches exactly one DNS label, in the listener and in the certificate | Gateway API / TLS |
 
 ---
 
@@ -1321,6 +1322,30 @@ ran its whole pipeline inside a single `bash -c` worked.
 bring the JSON out and post-process locally. The script now has a `q()` helper for exactly that.
 
 → `demos/15-bank/check.sh`
+
+---
+
+## <a name="52"></a>52. A wildcard matches exactly one DNS label — `api.bank.poc.local` is not covered by `*.poc.local`
+
+**Symptom.** A new HTTPRoute for `api.bank.poc.local` on the demo 09 Gateway: `Accepted=True`,
+`ResolvedRefs=True`, and from the Mac:
+
+```
+* TLS handshake, Certificate (11):  … subjectAltName DNS:*.poc.local
+curl exit: 60          (peer certificate cannot be authenticated)
+```
+
+**Cause.** RFC 6125 wildcards match a single label: `*.poc.local` covers `bank.poc.local` and
+`bankapi.poc.local`, not `api.bank.poc.local`. Two things fail at once — the Gateway's
+`https-wildcard` listener (`hostname: "*.poc.local"`) does not match the SNI, so Envoy serves the
+default certificate, whose SAN then fails verification. The route status cannot warn you: routing
+is fine, the name is simply outside the certificate's world.
+
+**Fix.** One-label names under the wildcard (`bankapi.poc.local`, done), or a dedicated listener
+plus certificate for `*.bank.poc.local` when a second level is genuinely wanted — cert-manager
+will issue it the same way it issued `*.poc.local` (demo 09 Part 2).
+
+→ demo 15, Part 3
 
 ---
 

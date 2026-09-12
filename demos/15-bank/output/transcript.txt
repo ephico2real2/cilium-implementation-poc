@@ -309,3 +309,97 @@ deployment "payments" successfully rolled out
 
 balance now: 107149 cents on chk-1002 (started at 120000)
 
+### 2026-09-12T01:23:21Z
+$ [EXTERNAL ACCESS — a second HTTPRoute for the API (api.bank.poc.local) and the grant widened to the api Service; a bank-scoped hosts script]
+
+### 2026-09-12T01:23:21Z
+$ kubectl --context kind-poc1 apply -f demos/15-bank/30-gateway.yaml
+httproute.gateway.networking.k8s.io/bank configured
+httproute.gateway.networking.k8s.io/bank-api created
+referencegrant.gateway.networking.k8s.io/allow-routes-to-bank created
+
+### 2026-09-12T01:23:29Z
+$ sh -c kubectl --context kind-poc1 -n routes get httproute bank bank-api -o custom-columns="ROUTE:.metadata.name,HOSTS:.spec.hostnames,ACCEPTED:.status.parents[0].conditions[?(@.type==\"Accepted\")].status,RESOLVED:.status.parents[0].conditions[?(@.type==\"ResolvedRefs\")].status"
+ROUTE      HOSTS                  ACCEPTED   RESOLVED
+bank       [bank.poc.local]       True       True
+bank-api   [api.bank.poc.local]   True       True
+
+### 2026-09-12T01:23:30Z
+$ demos/15-bank/hosts-entries.sh
+# ---- cilium-kind-poc bank (generated 2026-09-12T01:23Z by demos/15-bank/hosts-entries.sh) ----
+172.18.255.240  bank.poc.local api.bank.poc.local
+# ---- end cilium-kind-poc bank ----
+
+### 2026-09-12T01:23:31Z
+$ sh -c echo 'from the Mac, no hosts entry needed for the proof (--resolve), chain verified against the enterprise root:'; curl -s --cacert docs/root-ca.crt --resolve api.bank.poc.local:443:172.18.255.240 https://api.bank.poc.local/api/balance/chk-1001 | python3 -c 'import json,sys; d=json.load(sys.stdin); print("  GET https://api.bank.poc.local/api/balance/chk-1001 ->", {"owner": d["owner"], "balance_cents": d["balance_cents"], "api": d["served_by"]["cluster"], "accounts": d["upstream"]["served_by"]["cluster"]})'; curl -s --cacert docs/root-ca.crt --resolve api.bank.poc.local:443:172.18.255.240 -X POST https://api.bank.poc.local/api/pay -H 'content-type: application/json' -d '{"account":"chk-1001","amount_cents":999,"merchant":"external-curl"}' | python3 -c 'import json,sys; d=json.load(sys.stdin)["payment"]; print("  POST https://api.bank.poc.local/api/pay ->", {"payments": d["served_by"]["cluster"], "debited_by": d["upstream"]["served_by"]["cluster"], "balance_after": d["upstream"]["balance_cents"]})'; curl -s --cacert docs/root-ca.crt --resolve bank.poc.local:443:172.18.255.240 -o /dev/null -w '  GET https://bank.poc.local/ -> http %{http_code}\n' https://bank.poc.local/; printf '  cert presented for api.bank.poc.local: '; echo | openssl s_client -connect 172.18.255.240:443 -servername api.bank.poc.local -CAfile docs/root-ca.crt 2>/dev/null | openssl x509 -noout -ext subjectAltName | tail -1 | tr -d ' '
+from the Mac, no hosts entry needed for the proof (--resolve), chain verified against the enterprise root:
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json,sys; d=json.load(sys.stdin); print("  GET https://api.bank.poc.local/api/balance/chk-1001 ->", {"owner": d["owner"], "balance_cents": d["balance_cents"], "api": d["served_by"]["cluster"], "accounts": d["upstream"]["served_by"]["cluster"]})
+                       ~~~~~~~~~^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json,sys; d=json.load(sys.stdin)["payment"]; print("  POST https://api.bank.poc.local/api/pay ->", {"payments": d["served_by"]["cluster"], "debited_by": d["upstream"]["served_by"]["cluster"], "balance_after": d["upstream"]["balance_cents"]})
+                       ~~~~~~~~~^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+  GET https://bank.poc.local/ -> http 200
+  cert presented for api.bank.poc.local: DNS:*.poc.local
+
+### 2026-09-12T01:24:00Z
+$ [api.bank.poc.local FAILED — a wildcard (*.poc.local) matches ONE label; a two-label name matches neither the https-wildcard listener nor its certificate. Recorded, then renamed to bankapi.poc.local.]
+
+### 2026-09-12T01:24:00Z
+$ sh -c curl -sv --cacert docs/root-ca.crt --resolve api.bank.poc.local:443:172.18.255.240 https://api.bank.poc.local/api/balance/chk-1001 2>&1 | grep -E 'SSL|TLS|subject|error|reset|HTTP/' | head -5; echo "curl exit: $(curl -s --cacert docs/root-ca.crt --resolve api.bank.poc.local:443:172.18.255.240 -o /dev/null https://api.bank.poc.local/ ; echo $?)"
+* (304) (OUT), TLS handshake, Client hello (1):
+* (304) (IN), TLS handshake, Server hello (2):
+* (304) (IN), TLS handshake, Unknown (8):
+* (304) (IN), TLS handshake, Certificate (11):
+* (304) (IN), TLS handshake, CERT verify (15):
+curl exit: 60
+
+### 2026-09-12T01:24:01Z
+$ kubectl --context kind-poc1 apply -f demos/15-bank/30-gateway.yaml
+httproute.gateway.networking.k8s.io/bank configured
+httproute.gateway.networking.k8s.io/bank-api configured
+referencegrant.gateway.networking.k8s.io/allow-routes-to-bank unchanged
+
+### 2026-09-12T01:24:09Z
+$ demos/15-bank/hosts-entries.sh
+# ---- cilium-kind-poc bank (generated 2026-09-12T01:24Z by demos/15-bank/hosts-entries.sh) ----
+172.18.255.240  bank.poc.local bankapi.poc.local
+# ---- end cilium-kind-poc bank ----
+
+### 2026-09-12T01:24:13Z
+$ sh -c curl -s --cacert docs/root-ca.crt --resolve bankapi.poc.local:443:172.18.255.240 https://bankapi.poc.local/api/balance/chk-1001 | python3 -c 'import json,sys; d=json.load(sys.stdin); print("  GET  https://bankapi.poc.local/api/balance/chk-1001 ->", {"owner": d["owner"], "balance_cents": d["balance_cents"], "api": d["served_by"]["cluster"], "accounts": d["upstream"]["served_by"]["cluster"]})'; curl -s --cacert docs/root-ca.crt --resolve bankapi.poc.local:443:172.18.255.240 -X POST https://bankapi.poc.local/api/pay -H 'content-type: application/json' -d '{"account":"chk-1001","amount_cents":999,"merchant":"external-curl"}' | python3 -c 'import json,sys; d=json.load(sys.stdin)["payment"]; print("  POST https://bankapi.poc.local/api/pay ->", {"payments": d["served_by"]["cluster"], "debited_by": d["upstream"]["served_by"]["cluster"], "balance_after": d["upstream"]["balance_cents"]})'; curl -s --cacert docs/root-ca.crt --resolve bankapi.poc.local:443:172.18.255.240 https://bankapi.poc.local/api/statement/chk-1001 | python3 -c 'import json,sys; d=json.load(sys.stdin); print("  GET  https://bankapi.poc.local/api/statement/chk-1001 ->", len(d["statement"]["payments"]), "payments listed, balance", d["balance"]["balance_cents"])'; curl -s --cacert docs/root-ca.crt --resolve bank.poc.local:443:172.18.255.240 -o /dev/null -w '  GET  https://bank.poc.local/ -> http %{http_code}\n' https://bank.poc.local/
+  GET  https://bankapi.poc.local/api/balance/chk-1001 -> {'owner': 'Ada Lovelace', 'balance_cents': 246250, 'api': 'poc1', 'accounts': 'poc2'}
+  POST https://bankapi.poc.local/api/pay -> {'payments': 'poc1', 'debited_by': 'poc2', 'balance_after': 245251}
+  GET  https://bankapi.poc.local/api/statement/chk-1001 -> 4 payments listed, balance 245251
+  GET  https://bank.poc.local/ -> http 200
+

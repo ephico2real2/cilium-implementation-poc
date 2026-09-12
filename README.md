@@ -49,7 +49,7 @@ unchanged, with BGP substituted for L2 in production.
    external-access proof for demo 09.
 8. **[docs/REFERENCES.md](docs/REFERENCES.md)** — every external source the PoC was built against,
    with what each was used for; the place to check a claim's origin.
-9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 51 traps, each with the real error
+9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 52 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -60,7 +60,7 @@ unchanged, with BGP substituted for L2 in production.
 | ✅ | Demos 01–10, each with a recorded transcript | done |
 | ✅ | Networking design, two reserved pools, host route, hosts block generated from live state | done |
 | ✅ | Enterprise CA from day 1; ClusterMesh on cert-manager certs (`issuer=CN=clustermesh-root-ca`) | done |
-| ✅ | **Bank app across the mesh** (demo 15): 5 components, PVC-backed Postgres and Redis, active-active and zero-loss failover measured | done; `https://bank.poc.local` |
+| ✅ | **Bank app across the mesh** (demo 15): 5 components, PVC-backed Postgres and Redis, active-active and zero-loss failover measured | done; `https://bank.poc.local` and `https://bankapi.poc.local` |
 | ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (663 lines, 13 sections, including the native client) | regenerable |
 | ✅ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | done — demo 11, with the three-cause forensic on Cilium's default install; poc3 is paused (`scripts/cluster-resume.sh poc3`) |
 | ⛔ | **"Cilium mTLS" (mutual authentication, SPIFFE/SPIRE)** | evaluated, **not enabled and not to be adopted**: deprecated in 1.20, removal planned in 1.21 (cilium#47132), ClusterMesh-incompatible — [docs/summary/MTLS_EVALUATION.md](docs/summary/MTLS_EVALUATION.md) |
@@ -162,7 +162,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 51 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 52 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

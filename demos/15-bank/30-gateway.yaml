@@ -1,5 +1,8 @@
-# bank.poc.local on the demo 09 Gateway: an HTTPRoute in `routes` pointing at web in `bank`, which
-# needs bank's consent (ReferenceGrant) — gotcha #32. The wildcard cert covers the name already.
+# The bank on the demo 09 Gateway, two names on the wildcard cert:
+#   https://bank.poc.local       the online-banking page (web)
+#   https://bankapi.poc.local   the API itself, reachable from OUTSIDE the cluster
+# HTTPRoutes live in `routes` (where the Gateway is) and point at Services in `bank`, which must
+# consent with a ReferenceGrant naming each Service (gotcha #32) — web AND api.
 #   kubectl --context kind-poc1 apply -f demos/15-bank/30-gateway.yaml
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -10,9 +13,20 @@ spec:
   rules:
     - backendRefs: [{name: web, namespace: bank, port: 80}]
 ---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: bank-api, namespace: routes}
+spec:
+  parentRefs: [{name: routes-gw}]
+  hostnames: ["bankapi.poc.local"]
+  rules:
+    - backendRefs: [{name: api, namespace: bank, port: 80}]
+---
 apiVersion: gateway.networking.k8s.io/v1beta1
 kind: ReferenceGrant
-metadata: {name: allow-routes-to-web, namespace: bank}
+metadata: {name: allow-routes-to-bank, namespace: bank}
 spec:
   from: [{group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: routes}]
-  to: [{group: "", kind: Service, name: web}]
+  to:
+    - {group: "", kind: Service, name: web}
+    - {group: "", kind: Service, name: api}

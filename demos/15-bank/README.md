@@ -137,7 +137,49 @@ https://bank.poc.local -> http 200
 this page: poc1/web-… → api: poc1/api-… → accounts: poc2/accounts-… · payments: poc1/payments-…
 ```
 
-## Part 3 — the trap that made the first run lie (gotcha #50)
+## Part 3 — external access: the page AND the API on the Gateway, and the hosts block
+
+`30-gateway.yaml` publishes two names on the demo 09 Gateway, both under the wildcard certificate:
+
+| URL | Backend | Proof from the Mac (`--resolve`, chain verified against `docs/root-ca.crt`) |
+|---|---|---|
+| `https://bank.poc.local` | `web` | `http 200`, the page prints its path |
+| `https://bankapi.poc.local` | `api` | `GET /api/balance/chk-1001 → {'owner': 'Ada Lovelace', 'balance_cents': 246250, 'api': 'poc1', 'accounts': 'poc2'}` · `POST /api/pay → {'payments': 'poc1', 'debited_by': 'poc2', 'balance_after': 245251}` · `GET /api/statement/chk-1001 → 4 payments listed` |
+
+An external client (your laptop, a partner, a mobile app) reaches the API through the Gateway
+and its request still crosses the mesh — `api` in poc1, `accounts` in poc2 — visible in the body.
+
+**Why it is `bankapi.poc.local` and not `api.bank.poc.local`.** The first attempt used the
+two-label name and failed with `curl exit 60`: the Gateway presented the `*.poc.local` certificate,
+and **a wildcard matches exactly one DNS label** — `api.bank.poc.local` matches neither the
+`https-wildcard` listener's `hostname: "*.poc.local"` nor the certificate's SAN. Recorded in the
+transcript; gotcha #52. A deeper name needs its own listener and certificate (`*.bank.poc.local`),
+which is a legitimate design — just not a free one.
+
+**The hosts block, scoped to the bank.** `demos/15-bank/hosts-entries.sh` is a clone of
+`scripts/hosts-entries.sh` that reads only the bank's two HTTPRoutes and prints its **own**
+delimited block, so it can be added and removed independently of the demo 09 block:
+
+```bash
+demos/15-bank/hosts-entries.sh
+```
+```
+# ---- cilium-kind-poc bank (generated 2026-09-12T01:24Z by demos/15-bank/hosts-entries.sh) ----
+172.18.255.240  bank.poc.local bankapi.poc.local
+# ---- end cilium-kind-poc bank ----
+```
+```bash
+sudo sh -c 'demos/15-bank/hosts-entries.sh >> /etc/hosts'                  # add (needs sudo; the script never writes)
+grep -c 'bankapi.poc.local' /etc/hosts                                      # 1
+dscacheutil -flushcache; sudo killall -HUP mDNSResponder
+open https://bank.poc.local ; curl -s --cacert docs/root-ca.crt https://bankapi.poc.local/api/balance/chk-1001
+sudo sed -i '' '/---- cilium-kind-poc bank/,/---- end cilium-kind-poc bank/d' /etc/hosts   # remove
+```
+
+(`scripts/hosts-entries.sh` also lists both names now, since it reads every route on the Gateway;
+use whichever block you prefer, not both.)
+
+## Part 4 — the trap that made the first run lie (gotcha #50)
 
 The first run reported **40/40 payments to one cluster** and, before the scale-down, 65/65 to the
 other — and it was not Cilium. Go's default `http.Client` keeps connections alive, so `api` opened
@@ -157,6 +199,8 @@ clients; a single pooled client is the wrong instrument for measuring a load bal
 | A cluster losing the component costs **zero** requests | 218 ok, 0 fail through a scale-to-0 and back; 254/0 in the first run |
 | Prefer-local with failover is one annotation | `affinity: local` → 20/20 local, then 20/20 remote |
 | Idempotency holds across clusters | replay returns the stored record, balance unchanged |
+| The API is reachable from outside through the Gateway, still crossing the mesh | `https://bankapi.poc.local/api/balance/…` → `api: poc1, accounts: poc2` |
+| A wildcard cert/listener matches one label | `api.bank.poc.local` → curl exit 60; `bankapi.poc.local` → 200 |
 | Connection pooling hides load balancing | 40/40 to one cluster until keep-alive was disabled |
 
 ## Clean up
