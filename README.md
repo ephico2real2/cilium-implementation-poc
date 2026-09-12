@@ -54,7 +54,7 @@ unchanged, with BGP substituted for L2 in production.
    `hubble …` command in demos 01–25 works as written (measured in demo 25 Part 5g: demo 01's and
    demo 07's commands verbatim, both clusters). Relay port-forwards are `4245:443`; the one `4245:80`
    left in the text is gotcha #47's historical note.
-9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 75 traps, each with the real error
+9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 76 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -152,7 +152,7 @@ an untested combination.
 | 08 | Enterprise CA | cert-manager root in poc1 issuing every cluster's mesh certificates; trust before join |
 | 09 | Wildcard TLS + 3 route types | cert-manager wildcard and exact certs on one Gateway; `HTTPRoute`, `GRPCRoute`, `TCPRoute` from one 14 MB image — and a native Go client (`-mode client`) that tests all three, which is how the missing-ALPN gotcha (#33) was found |
 | 10 | Flow tracing -> OpenTelemetry | Hubble dynamic flow export per node, tailed by an OTel Collector into OTLP; every flow persistent and queryable. **Events, not spans** -- hubble-otel is archived, see gotcha #30 |
-| 25 | **Historical flows, the open-source way** | what Isovalent's Timescape does, built from parts: onzack/hubble-observer (chart vendored from main — the published 2.5.0's probes kill it, #73) streams DROPPED flows from poc1's mesh-wide relay as JSON, the demo 10 collector ships them to a Loki single binary with the labels the grafana.com 23862 dashboard expects, provisioned into the Hubble folder; a drop caused in poc2 lands in Loki through poc1's relay; cf2cnp behind the Gateway; then the relay itself closed: a pod with nothing could read every flow of both clusters in plaintext (#75), so both relays now require mTLS from the enterprise root, with the observer, the UI and the CLI each holding their own cert-manager certificate |
+| 25 | **Historical flows, the open-source way** | what Isovalent's Timescape does, built from parts: onzack/hubble-observer (chart vendored from main — the published 2.5.0's probes kill it, #73) streams DROPPED flows from poc1's mesh-wide relay as JSON, the demo 10 collector ships them to a Loki single binary with the labels the grafana.com 23862 dashboard expects, provisioned into the Hubble folder; a drop caused in poc2 lands in Loki through poc1's relay; cf2cnp behind the Gateway; then the relay itself closed: a pod with nothing could read every flow of both clusters in plaintext (#75), so both relays now require mTLS from the enterprise root, with the observer, the UI and the CLI each holding their own cert-manager certificate; a second pass upstream: issues #7/#8, PR #9 (the chart's policy never worked: no DNS rule, Service port instead of pod port, #76) |
 | 24 | **ClusterMesh the enterprise way, complete** | from demo 08 to 24: Hubble joins the mesh API server on the one cert-manager root (`Connected Nodes: 5/7 → 7/7`, zero handshake failures), the mesh declared the guide's way (`clusters.yaml` + per-cluster files), the order it should have followed, and the 3.5-minute outage a "TLS-only" change caused by replacing the apiserver pod (#72) |
 | 23 | **A collector per cluster** | supersedes demo 22's collector part: the gateway is a per-cluster service (same name everywhere, never global — seven backends and the wrong cluster stamp measured), HA in-cluster with 2 replicas + PDB + a persistent queue proven by killing the collectors with the hub down and watching 281 spans leave after the restart |
 | 22 | **One Grafana for the mesh** | poc2 becomes a spoke of the observability hub on poc1: a full Prometheus on poc2 (release `edge`) remote-writing across the mesh through a role-named global Service, a collector per cluster forwarding to the central Tempo, Cilium metrics on poc2 with `cluster=poc2`; the same query answered locally and centrally, both clusters in one panel, and the trap of a hub Service selecting the spoke's look-alike (#69) |
@@ -189,7 +189,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 75 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 76 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

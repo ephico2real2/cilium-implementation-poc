@@ -220,6 +220,23 @@ Steps 5, 6 and 9 carry it.
 **What did not change:** the observer's `ciliumNetworkPolicy` stays off (its policy has no DNS rule;
 GUIDE exercise 6).
 
+## Part 6 — the second pass upstream: two issues, one comment, one pull request
+
+A second pass over the chart with `git log`, the published 2.5.0 templates and a live run of every
+switch, recorded in the transcript (Parts 6–6c):
+
+| Finding | Evidence | Upstream |
+|---|---|---|
+| 2.5.0's three probes dial the relay's **short** name; fixed on `main` by 0246a9a (the TLS commit) but only published as `2.6.0-alpha` | Part 2 (events, `no such host`; `7/7` from inside the same pod) | [issue #7](https://github.com/onzack/hubble-observer/issues/7) |
+| the maintainer wrote the TLS/mTLS support and, in their words, has no environment to test it | Part 5d: the observer over mTLS, 68 flows end to end | [comment on #6](https://github.com/onzack/hubble-observer/issues/6#issuecomment-5647503591) |
+| `ciliumNetworkPolicy.enabled=true` never worked: **no DNS rule** — Hubble: `<> coredns:53 Policy denied DROPPED`, probes time out, restarts 3 | Part 6, live, then reverted | [issue #8](https://github.com/onzack/hubble-observer/issues/8) |
+| …and with DNS fixed, still not Ready: **58 drops to the relay pod `:4245`** — the rule names the *Service* port (80/443); Cilium enforces egress on the **backend pod's** port (gotcha #76) | Part 6b (fork branch, first fix) | [comment on #8](https://github.com/onzack/hubble-observer/issues/8#issuecomment-5647561846) |
+| the fix, parameterized: `ciliumNetworkPolicy.dns` (namespace, matchLabels, port, L7 DNS rule, on by default) and `ciliumNetworkPolicy.relayPort` (default 4245); `dns.enabled=false` keeps the old single rule | `helm lint` clean; `helm template` both shapes; `kubectl apply --dry-run=server` created; live: policy on → `READY true, RESTARTS 0`, 0 drops, DNS and relay:4245 `FORWARDED`, `7/7` (Part 6c) | [PR #9](https://github.com/onzack/hubble-observer/pull/9), `Closes #8` |
+
+The fork is `ephico2real2/hubble-observer`, branch `fix/cnp-dns-egress`, one commit authored by the
+operator. Our vendored chart stays at upstream `main` (21319b7) with the policy off in our values
+until the PR lands; the live cluster was returned to that state after each test (revision 8).
+
 ## Exercises
 
 See [`GUIDE.md`](GUIDE.md).

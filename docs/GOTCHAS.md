@@ -66,6 +66,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [76](#76) | A policy's egress `toPorts` must be the backend pod's port (relay 4245), not the Service port (443) — Cilium enforces after service translation | Cilium policy |
 | [75](#75) | A plaintext Hubble Relay lets any pod read every flow of the mesh; relay server TLS + mTLS from the enterprise root, each client with its own certificate | Hubble / security |
 | [74](#74) | Bank images are distroless: `kubectl exec … sh` fails; use a debug pod in the namespace (`egress-test.sh poc2`) | tooling |
 | [73](#73) | hubble-observer 2.5.0 probes dial the relay's short name → killed every minute outside kube-system; main branch fixes it | Hubble / charts |
@@ -1800,9 +1801,10 @@ Service's short name — while the observe command uses the FQDN. A short name r
 relay's own namespace. The main branch (2.6.0-alpha) builds one FQDN for both.
 
 **Fix.** Install the main-branch chart (vendored at `demos/25-hubble-observer-loki/chart`, also OCI tag
-`2.6.0-alpha`); `chart-prep.sh` records the versions and default values first, every time.
+`2.6.0-alpha`); `chart-prep.sh` records the versions and default values first, every time. Reported
+upstream as [onzack/hubble-observer#7](https://github.com/onzack/hubble-observer/issues/7).
 
-→ demo 25, Part 2b
+→ demo 25, Parts 2b and 6
 
 ---
 
@@ -1837,6 +1839,24 @@ the relay Service becomes 443; every client presents a certificate from the ente
 `scripts/hubble-tls.sh`). Zero disruption to workloads; every `hubble` command in the repo gained flags.
 
 → demo 25, Part 5
+
+---
+
+## <a name="76"></a>76. A CiliumNetworkPolicy egress rule must name the backend POD's port, not the Service port
+
+**Symptom.** Demo 25 Part 6b: the hubble-observer chart's policy, with a DNS rule added, still left
+the pod `READY false, RESTARTS 4`; Hubble: 58 × `-> kube-system/hubble-relay-…:4245 POLICY_DENIED`.
+The rule allowed `toPorts: 443` — the relay's Service port.
+
+**Cause.** Cilium applies egress L4 policy after service translation, on the destination pod's port
+(4245, the relay's `listenPort`); the Service's 80/443 never appears there. (The mirror of gotcha
+#64: a ClusterIP on a non-Service port is not translated at all.)
+
+**Fix.** `ciliumNetworkPolicy.relayPort: "4245"` in the chart — [PR onzack/hubble-observer#9](https://github.com/onzack/hubble-observer/pull/9),
+with the DNS rule ([issue #8](https://github.com/onzack/hubble-observer/issues/8)). Rule of thumb for
+every policy in this repo: in `toPorts`, the container port.
+
+→ demo 25, Parts 6–6c
 
 ---
 
@@ -1878,6 +1898,7 @@ Most of these share a shape: **something reported success while not working.**
 - the pod worked and the probe killed it — two different names for one Service (#73)
 - the pod had no shell to fail in (#74)
 - the observability API was the most readable thing on the platform (#75)
+- the policy allowed the port the client dialled, not the port the pod listens on (#76)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

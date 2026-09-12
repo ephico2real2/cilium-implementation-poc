@@ -361,3 +361,76 @@ earlier demos' commands, VERBATIM, no flags:
     Healthcheck (via localhost:4245): Ok
     Connected Nodes: 7/7
 
+### Part 6 — second pass on the chart: the ciliumNetworkPolicy template has no DNS rule — measured live, then reverted
+### 2026-09-12T17:27:29Z
+$ bash -c helm upgrade hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer -n hubble-observer --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --set ciliumNetworkPolicy.enabled=true 2>&1 | grep -E "REVISION|rror"; kubectl --context kind-poc1 -n hubble-observer get cnp -o custom-columns="  CNP:.metadata.name,VALID:.status.conditions[?(@.type==\"Valid\")].status" --no-headers; echo "the policy's egress (rendered):"; kubectl --context kind-poc1 -n hubble-observer get cnp allow-hubble-observer-to-hubble-relay -o jsonpath="{.spec.egress}" | python3 -c "import json,sys; print(\"  \", json.load(sys.stdin))"; kubectl --context kind-poc1 -n hubble-observer rollout restart deploy/hubble-observer >/dev/null; sleep 75; kubectl --context kind-poc1 -n hubble-observer get pods -l app.kubernetes.io/name=hubble-observer -o custom-columns="  POD:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount" --no-headers; kubectl --context kind-poc1 -n hubble-observer get events --field-selector reason=Unhealthy -o custom-columns="AT:.lastTimestamp,MSG:.message" --no-headers | tail -1 | cut -c1-220 | sed "s/^/  /"; echo "Hubble: what the policy dropped from the observer pod (DNS):"; hubble observe -P --kube-context kind-poc1 --from-pod hubble-observer/ --verdict DROPPED --last 3 -o compact 2>/dev/null | cut -c1-170 | sed "s/^/  /"; echo "--- revert: policy off ---"; helm upgrade hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer -n hubble-observer --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml 2>&1 | grep -E "REVISION"; kubectl --context kind-poc1 -n hubble-observer rollout restart deploy/hubble-observer >/dev/null; kubectl --context kind-poc1 -n hubble-observer rollout status deploy/hubble-observer --timeout=3m | tail -1
+REVISION: 3
+allow-hubble-observer-cf2cnp-ingress    True
+allow-hubble-observer-to-cf2cnp         True
+allow-hubble-observer-to-hubble-relay   True
+the policy's egress (rendered):
+   [{'toEndpoints': [{'matchLabels': {'app.kubernetes.io/name': 'hubble-relay', 'io.kubernetes.pod.namespace': 'kube-system'}}], 'toPorts': [{'ports': [{'port': '443', 'protocol': 'TCP'}]}]}]
+hubble-observer-5f7fc766dc-l8qcf   false   3
+hubble-observer-85bdf4f677-jl76q   false   0
+  2026-09-12T17:28:40Z   Readiness probe failed: command timed out: "hubble status --server hubble-relay.kube-system.svc.cluster.local:443" timed out after 5s
+Hubble: what the policy dropped from the observer pod (DNS):
+  Sep 12 17:28:47.885: hubble-observer/hubble-observer-85bdf4f677-jl76q:54746 (ID:105795) <> kube-system/coredns-789c5fbdb4-vb8r9:53 (ID:80806) Policy denied DROPPED (UDP)
+  Sep 12 17:28:47.885: hubble-observer/hubble-observer-85bdf4f677-jl76q:60591 (ID:105795) <> kube-system/coredns-789c5fbdb4-qhj2d:53 (ID:80806) policy-verdict:none TRAFFIC_
+  Sep 12 17:28:47.885: hubble-observer/hubble-observer-85bdf4f677-jl76q:60591 (ID:105795) <> kube-system/coredns-789c5fbdb4-qhj2d:53 (ID:80806) Policy denied DROPPED (UDP)
+--- revert: policy off ---
+REVISION: 4
+deployment "hubble-observer" successfully rolled out
+
+### Part 6b — the fix (fork branch fix/cnp-dns-egress), live on poc1 with the policy ON, then back to the vendored chart
+### 2026-09-12T17:30:54Z
+$ bash -c helm upgrade hubble-observer /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/ho-fork/helm/hubble-observer -n hubble-observer --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --set ciliumNetworkPolicy.enabled=true --wait --timeout 3m 2>&1 | grep -E 'REVISION|rror'; kubectl --context kind-poc1 -n hubble-observer get cnp allow-hubble-observer-to-hubble-relay -o jsonpath='{.spec.egress}' | python3 -c 'import json,sys; e=json.load(sys.stdin); print("  policy egress rules:", len(e), "| dns rule:", e[1]["toEndpoints"][0]["matchLabels"], e[1]["toPorts"][0]["ports"], e[1]["toPorts"][0].get("rules"))'; kubectl --context kind-poc1 -n hubble-observer rollout restart deploy/hubble-observer >/dev/null; kubectl --context kind-poc1 -n hubble-observer rollout status deploy/hubble-observer --timeout=3m | tail -1; kubectl --context kind-poc1 -n hubble-observer get pods -l app.kubernetes.io/name=hubble-observer -o custom-columns='  POD:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount' --no-headers; echo 'Hubble: the observer pod'"'"'s DNS, with the policy on (L7 DNS rule → the query is visible and FORWARDED):'; hubble observe -P --kube-context kind-poc1 --from-pod hubble-observer/ --protocol dns --last 2 -o compact 2>/dev/null | cut -c1-190 | sed 's/^/  /'; echo 'dropped from the observer pod in the last 2 min:'; hubble observe -P --kube-context kind-poc1 --from-pod hubble-observer/ --verdict DROPPED --since 2m -o compact 2>/dev/null | wc -l | tr -d ' ' | sed 's/^/  /'; echo 'relay as the observer sees it:'; kubectl --context kind-poc1 -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 2>/dev/null | grep 'Connected Nodes' | sed 's/^/  /'
+REVISION: 5
+  policy egress rules: 2 | dns rule: {'io.kubernetes.pod.namespace': 'kube-system', 'k8s-app': 'kube-dns'} [{'port': '53', 'protocol': 'ANY'}] {'dns': [{'matchPattern': '*'}]}
+error: timed out waiting for the condition
+Waiting for deployment "hubble-observer" rollout to finish: 1 old replicas are pending termination...
+hubble-observer-757b74c67-txjbn   false   4
+hubble-observer-b966d4c8b-kcb9z   false   4
+Hubble: the observer pod's DNS, with the policy on (L7 DNS rule → the query is visible and FORWARDED):
+  Sep 12 17:33:46.099: hubble-observer/hubble-observer-757b74c67-txjbn:46958 (ID:105795) -> kube-system/coredns-789c5fbdb4-vb8r9:53 (ID:80806) dns-request proxy FORWARDED (DNS Query hubble-rel
+  Sep 12 17:33:46.099: hubble-observer/hubble-observer-757b74c67-txjbn:56545 (ID:105795) -> kube-system/coredns-789c5fbdb4-qhj2d:53 (ID:80806) dns-request proxy FORWARDED (DNS Query hubble-rel
+dropped from the observer pod in the last 2 min:
+  166
+relay as the observer sees it:
+
+### 2026-09-12T17:33:58Z
+$ bash -c echo "--- back to the vendored chart (policy off, as our values say) ---"; helm upgrade hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer -n hubble-observer --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --wait --timeout 3m 2>&1 | grep -E "REVISION|rror"; kubectl --context kind-poc1 -n hubble-observer get cnp -o name 2>/dev/null | wc -l | tr -d " " | sed "s/^/  policies left: /"
+--- back to the vendored chart (policy off, as our values say) ---
+REVISION: 6
+  policies left: 0
+
+### Part 6c — the first fix left the pod not Ready: 58 drops to the relay pod :4245 — the chart's rule names the SERVICE port (80/443), Cilium enforces egress on the backend pod's port. Second fix: ciliumNetworkPolicy.relayPort (4245). Live again:
+### 2026-09-12T17:35:40Z
+$ bash -c helm upgrade hubble-observer /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/ho-fork/helm/hubble-observer -n hubble-observer --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --set ciliumNetworkPolicy.enabled=true --wait --timeout 3m 2>&1 | grep -E 'REVISION|rror'; kubectl --context kind-poc1 -n hubble-observer rollout restart deploy/hubble-observer >/dev/null; kubectl --context kind-poc1 -n hubble-observer rollout status deploy/hubble-observer --timeout=3m | tail -1; sleep 20; kubectl --context kind-poc1 -n hubble-observer get pods -l app.kubernetes.io/name=hubble-observer -o custom-columns='  POD:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount' --no-headers; echo "  policy: $(kubectl --context kind-poc1 -n hubble-observer get cnp allow-hubble-observer-to-hubble-relay -o jsonpath='{.spec.egress[0].toPorts[0].ports[0].port} to relay pods, {.spec.egress[1].toPorts[0].ports[0].port} to kube-dns')"; echo '  dropped from the observer pod since the restart:'; hubble observe -P --kube-context kind-poc1 --from-pod hubble-observer/ --verdict DROPPED --since 1m -o compact 2>/dev/null | wc -l | tr -d ' ' | sed 's/^/    /'; echo '  relay as the observer sees it (policy on):'; kubectl --context kind-poc1 -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 2>/dev/null | grep 'Connected Nodes' | sed 's/^/    /'; echo '  its egress, as Hubble sees it (policy verdicts):'; hubble observe -P --kube-context kind-poc1 --from-pod hubble-observer/ --to-namespace kube-system --last 4 -o compact 2>/dev/null | cut -c1-175 | sed 's/^/    /'
+REVISION: 7
+deployment "hubble-observer" successfully rolled out
+hubble-observer-c84fc7c86-24f55   true   0
+  policy: 4245 to relay pods, 53 to kube-dns
+  dropped from the observer pod since the restart:
+    0
+  relay as the observer sees it (policy on):
+    Connected Nodes: 7/7
+  its egress, as Hubble sees it (policy verdicts):
+    Sep 12 17:36:16.467: hubble-observer/hubble-observer-c84fc7c86-24f55:56015 (ID:105795) -> kube-system/coredns-789c5fbdb4-qhj2d:53 (ID:80806) to-endpoint FORWARDED (UDP)
+    Sep 12 17:36:16.468: hubble-observer/hubble-observer-c84fc7c86-24f55:44753 (ID:105795) -> kube-system/coredns-789c5fbdb4-qhj2d:53 (ID:80806) to-endpoint FORWARDED (UDP)
+    Sep 12 17:36:16.474: hubble-observer/hubble-observer-c84fc7c86-24f55:60155 (ID:105795) -> kube-system/coredns-789c5fbdb4-vb8r9:53 (ID:80806) to-endpoint FORWARDED (UDP)
+    Sep 12 17:36:16.479: hubble-observer/hubble-observer-c84fc7c86-24f55:55065 (ID:105795) -> kube-system/coredns-789c5fbdb4-qhj2d:53 (ID:80806) to-endpoint FORWARDED (UDP)
+    Sep 12 17:36:16.487: hubble-observer/hubble-observer-c84fc7c86-24f55:50950 (ID:105795) -> kube-system/coredns-789c5fbdb4-vb8r9:53 (ID:80806) to-endpoint FORWARDED (UDP)
+    Sep 12 17:36:16.488: hubble-observer/hubble-observer-c84fc7c86-24f55:51731 (ID:105795) -> kube-system/coredns-789c5fbdb4-vb8r9:53 (ID:80806) to-endpoint FORWARDED (UDP)
+    Sep 12 17:36:16.491: hubble-observer/hubble-observer-c84fc7c86-24f55:56800 (ID:105795) -> kube-system/coredns-789c5fbdb4-vb8r9:53 (ID:80806) to-endpoint FORWARDED (UDP)
+    Sep 12 17:36:16.491: hubble-observer/hubble-observer-c84fc7c86-24f55:35388 (ID:105795) -> kube-system/coredns-789c5fbdb4-qhj2d:53 (ID:80806) to-endpoint FORWARDED (UDP)
+    Sep 12 17:36:16.497: hubble-observer/hubble-observer-c84fc7c86-24f55:33124 (ID:105795) -> kube-system/hubble-relay-556c4dbb98-g4kpv:4245 (ID:86460) to-endpoint FORWARDED (TCP 
+    Sep 12 17:36:16.524: hubble-observer/hubble-observer-c84fc7c86-24f55:33124 (ID:105795) -> kube-system/hubble-relay-556c4dbb98-g4kpv:4245 (ID:86460) to-endpoint FORWARDED (TCP 
+    Sep 12 17:36:16.524: hubble-observer/hubble-observer-c84fc7c86-24f55:33124 (ID:105795) -> kube-system/hubble-relay-556c4dbb98-g4kpv:4245 (ID:86460) to-endpoint FORWARDED (TCP 
+    Sep 12 17:36:16.524: hubble-observer/hubble-observer-c84fc7c86-24f55:33124 (ID:105795) -> kube-system/hubble-relay-556c4dbb98-g4kpv:4245 (ID:86460) to-endpoint FORWARDED (TCP 
+
+### 2026-09-12T17:36:16Z
+$ bash -c echo "--- back to the vendored chart, policy off ---"; helm upgrade hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer -n hubble-observer --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --wait --timeout 3m 2>&1 | grep -E "REVISION|rror"; kubectl --context kind-poc1 -n hubble-observer get pods -l app.kubernetes.io/name=hubble-observer -o custom-columns="  POD:.metadata.name,READY:.status.containerStatuses[0].ready" --no-headers
+--- back to the vendored chart, policy off ---
+REVISION: 8
+hubble-observer-c84fc7c86-24f55   true
+

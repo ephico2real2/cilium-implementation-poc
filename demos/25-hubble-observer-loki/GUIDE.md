@@ -50,11 +50,13 @@ Open a DROPPED row's link on the dashboard (or `https://cf2cnp.poc.local`), past
 CiliumNetworkPolicy YAML that would ALLOW that flow — read it against demo 19's `intent.yaml` before
 even thinking of applying it: the cell denied that flow on purpose.
 
-## Exercise 6 — the chart's own policy (why it is off)
+## Exercise 6 — the chart's own policy (why it is off, and the fix)
 
-`--set ciliumNetworkPolicy.enabled=true` on a `helm upgrade`. *Expect:* the observer's readiness probe
-failing on DNS (`no such host`): the chart's policy allows egress to the relay only and nothing to
-kube-dns. Add a DNS egress rule (demo 19's baseline shows the shape) or set it back.
+`--set ciliumNetworkPolicy.enabled=true` on a `helm upgrade` of the vendored chart. *Expect:* the
+observer never Ready — first because its DNS is denied (no rule), and, once you add one, because the
+relay rule names the Service port 443 while Cilium enforces egress on the relay pod's port 4245
+(gotcha #76): `hubble observe --from-pod hubble-observer/ --verdict DROPPED` shows both. Then install
+the fork branch of PR #9 with the policy on and watch DNS and `:4245` turn `FORWARDED`. Set it back.
 
 ## Exercise 7 — prove the relay is closed, then open it for one client
 
