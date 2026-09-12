@@ -17,10 +17,18 @@ endpoint by DNS name, the second cluster's disjoint CIDRs) and the **network lay
 |---|---|
 | pod and service CIDRs chosen inside the `kind` docker bridge; node IPs are container IPs on that bridge (172.18.0.0/16); the two clusters can only mesh because they share it | a real subnet plan: routable node networks, non-overlapping pod/service CIDRs per cluster, and a route (or a tunnel) between the clusters' networks |
 | LoadBalancer addresses handed out by Cilium's LB IPAM from a slice of the docker bridge (`cilium/lb-ippool.yaml`), reached from macOS through a static route into the Docker VM (Step 3.5) | an LB pool on a real VLAN, announced by L2 or BGP (demo 12 parks BGP for exactly this reason) |
-| hostnames such as `grafana.poc.local`, `bank.poc.local`, `cf2cnp.poc.local` written into the MacBook's `/etc/hosts` by each demo's `hosts-entries.sh` | DNS records — a zone on the homelab's DNS server, or external-dns writing them from the Gateway's addresses |
+| **DNS:** every hostname — `bank`, `grafana`, `petclinic`, `cf2cnp`, `web`, `grpc`, `deathstar`, `hubble` … `.poc.local` — is written into the MacBook's `/etc/hosts` by each demo's `hosts-entries.sh`, all pointing at the one Gateway address `172.18.255.240`; nothing resolves the names for the pods or for anyone else | a **wildcard A record `*.poc.local` → the Gateway's LoadBalancer address** in the homelab's DNS zone (one record replaces every `hosts-entries.sh`), with exact records only where a listener is exact (`exact.example.test` in demo 09); or external-dns creating records from the HTTPRoutes' hostnames; the pods use the same zone through CoreDNS forwarding (gotcha #63 is the Docker VM's upstream, not a design) |
+| **TLS:** one **wildcard certificate `*.poc.local`** on the Gateway's `https-wildcard` listener (`wildcard-poc-local-tls`), issued by **cert-manager from the demo 08 enterprise root** (`ClusterIssuer/ca-issuer`, 90-day validity, renewed automatically), plus an exact-name certificate for the exact listener; the Mac trusts the root by passing `docs/root-ca.crt` to `curl` and the browser | the same Gateway listener and the same cert-manager `Certificate` — issued by the enterprise CA (a real PKI root or intermediate, the root distributed to workstations through the OS trust store, not a `--cacert` flag) or, for a public zone, by an ACME issuer with DNS-01 (the only ACME path that can issue a wildcard); the listener's `certificateRefs` do not change |
 | the ClusterMesh API server as a NodePort on a control-plane container IP (`clusters.yaml`) | a LoadBalancer or a DNS name per cluster (`address:` in the guide's `clusters.yaml`), with the shared CA provisioned before the join (demo 08/24) |
 | the Docker Desktop VM kernel (6.6, no `CONFIG_SECURITY`) and its memory ceiling: the reason Tetragon and OBI's generic tracer are parked (gotchas #60, #66) | the kernel and the RAM you chose — none of those gotchas apply |
 | a Mac as the operator's workstation: the `hubble` CLI, Playwright, `sudo` for hosts entries | a bastion or the operator's Linux box; the same CLI, the same certificates (`scripts/hubble-tls.sh`) |
+
+**The networking design, in one sentence:** one Gateway with one LoadBalancer address, one wildcard
+DNS record and one wildcard certificate in front of every HTTP application, exact names and exact
+certificates only where a demo proves the difference (demo 09), and mTLS from the enterprise root for
+everything that is not a browser (the relay, the mesh API server, the observer, the CLI). The lab
+fakes the DNS half with `/etc/hosts` and trusts the root by hand; a real network replaces exactly
+those two things and keeps the rest.
 
 **Everything else applies to most Kubernetes clusters as it stands**: the Cilium values (per-cluster
 install, ClusterMesh, Gateway API, L7 policy, WireGuard, Hubble metrics and export, relay mTLS from
