@@ -168,12 +168,28 @@ demos/15-bank/hosts-entries.sh
 172.18.255.240  bank.poc.local bankapi.poc.local
 # ---- end cilium-kind-poc bank ----
 ```
+Add it, verify one layer at a time, then use the names — the `sudo` lines are yours to run:
+
 ```bash
-sudo sh -c 'demos/15-bank/hosts-entries.sh >> /etc/hosts'                  # add (needs sudo; the script never writes)
-grep -c 'bankapi.poc.local' /etc/hosts                                      # 1
-dscacheutil -flushcache; sudo killall -HUP mDNSResponder
-open https://bank.poc.local ; curl -s --cacert docs/root-ca.crt https://bankapi.poc.local/api/balance/chk-1001
-sudo sed -i '' '/---- cilium-kind-poc bank/,/---- end cilium-kind-poc bank/d' /etc/hosts   # remove
+cd /Users/olasumbo/gitRepos/cilium-kind-poc
+demos/15-bank/hosts-entries.sh                                  # review first
+sudo sh -c 'demos/15-bank/hosts-entries.sh >> /etc/hosts'      # you run this
+grep -c 'bankapi.poc.local' /etc/hosts                          # expect 1
+dscacheutil -flushcache; sudo killall -HUP mDNSResponder        # drop the macOS resolver cache
+open https://bank.poc.local
+curl -s --cacert docs/root-ca.crt https://bankapi.poc.local/api/balance/chk-1001
+```
+
+Expected from the last line (your balance will differ):
+
+```
+{"account":"chk-1001","balance_cents":245251,"owner":"Ada Lovelace","served_by":{"cluster":"poc1",…},"upstream":{…"served_by":{"cluster":"poc2",…}}}
+```
+
+Remove the block later, on its own, leaving the demo 09 block untouched:
+
+```bash
+sudo sed -i '' '/---- cilium-kind-poc bank/,/---- end cilium-kind-poc bank/d' /etc/hosts
 ```
 
 (`scripts/hosts-entries.sh` also lists both names now, since it reads every route on the Gateway;
