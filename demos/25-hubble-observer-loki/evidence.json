@@ -1,0 +1,16 @@
+{
+ "captures": [
+  {
+   "name": "grafana-hubble-observer",
+   "url": "https://grafana.poc.local/d/hubble-observer-23862?orgId=1&from=now-1h&to=now",
+   "wait": "text:Total Flows",
+   "look": "the Loki-backed flow history: total, by verdict, direction, namespace, destination, drop reason, denying policy, the flows-per-minute chart and the table"
+  },
+  {
+   "name": "cf2cnp-ui",
+   "url": "https://cf2cnp.poc.local/",
+   "wait": 6000,
+   "look": "cf2cnp behind the Gateway: paste a flow, get a CiliumNetworkPolicy"
+  }
+ ]
+}

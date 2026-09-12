@@ -487,3 +487,44 @@ See [`GUIDE.md`](GUIDE.md).
   own certificate, is the standard — and it cost the bank nothing (225×200).
 - **Labels are the contract.** The dashboard's `{namespace, container}` came from Promtail; the
   collector and Loki were configured to honour it, rather than editing nine queries.
+
+## Evidence
+
+Captured 2026-09-12 with `scripts/evidence/capture.js` and `scripts/evidence/collect.sh` (both re-runnable; the pod and Cilium output is the recorded file [`output/evidence.txt`](output/evidence.txt)). Every image is what the browser saw, with traffic running.
+
+**grafana hubble observer** — the Loki-backed flow history: total, by verdict, direction, namespace, destination, drop reason, denying policy, the flows-per-minute chart and the table
+
+![grafana-hubble-observer](output/screenshots/grafana-hubble-observer.png)
+
+**cf2cnp ui** — cf2cnp behind the Gateway: paste a flow, get a CiliumNetworkPolicy
+
+![cf2cnp-ui](output/screenshots/cf2cnp-ui.png)
+
+**Running pods** (from `output/evidence.txt`):
+
+```console
+$ kubectl --context kind-poc1 -n hubble-observer get pods -o wide
+NAME                                      READY   STATUS    RESTARTS   AGE     IP            NODE           NOMINATED NODE   READINESS GATES
+hubble-observer-6f865f8f94-4vvzb          1/1     Running   0          84m     10.10.4.185   poc1-worker    <none>           <none>
+hubble-observer-cf2cnp-7d6576479c-jh4n7   1/1     Running   0          7h40m   10.10.3.149   poc1-worker2   <none>           <none>
+```
+
+```console
+$ kubectl --context kind-poc1 -n monitoring get pods -o wide
+NAME                                                     READY   STATUS    RESTARTS         AGE     IP            NODE                  NOMINATED NODE
+alertmanager-monitoring-kube-prometheus-alertmanager-0   2/2     Running   0                19h     10.10.3.207   poc1-worker2          <none>        
+loki-0                                                   2/2     Running   0                7h50m   10.10.3.140   poc1-worker2          <none>        
+monitoring-grafana-85f995b8c8-gqnc8                      3/3     Running   0                11h     10.10.4.99    poc1-worker           <none>        
+monitoring-kube-prometheus-operator-57b74d8f5b-zw957     1/1     Running   9 (2m25s ago)    19h     10.10.3.227   poc1-worker2          <none>        
+monitoring-kube-state-metrics-7f584dc46d-dpxkb           1/1     Running   11 (2m36s ago)   19h     10.10.4.165   poc1-worker           <none>        
+monitoring-prometheus-node-exporter-d9h5h                1/1     Running   3 (2m44s ago)    19h     172.18.0.7    poc1-control-plane2   <none>        
+monitoring-prometheus-node-exporter-fzxrc                1/1     Running   2 (2m23s ago)    19h     172.18.0.3    poc1-control-plane3   <none>        
+monitoring-prometheus-node-exporter-jwqp7                1/1     Running   4 (7h31m ago)    19h     172.18.0.5    poc1-worker           <none>        
+monitoring-prometheus-node-exporter-n6jl7                1/1     Running   3 (7h31m ago)    19h     172.18.0.6    poc1-control-plane    <none>        
+monitoring-prometheus-node-exporter-nqvbt                1/1     Running   1 (8h ago)       19h     172.18.0.4    poc1-worker2          <none>        
+prometheus-monitoring-kube-prometheus-prometheus-0       2/2     Running   1 (111s ago)     177m    10.10.3.98    poc1-worker2          <none>        
+tempo-0                                                  1/1     Running   6 (2m1s ago)     9h      10.10.3.228   poc1-worker2          <none>        
+```
+
+The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
+

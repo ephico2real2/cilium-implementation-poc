@@ -1,0 +1,47 @@
+# evidence for demos/25-hubble-observer-loki — recorded 2026-09-12T22:25Z by scripts/evidence/collect.sh
+### 2026-09-12T22:25:36Z
+$ kubectl --context kind-poc1 -n hubble-observer get pods -o wide
+NAME                                      READY   STATUS    RESTARTS   AGE     IP            NODE           NOMINATED NODE   READINESS GATES
+hubble-observer-6f865f8f94-4vvzb          1/1     Running   0          84m     10.10.4.185   poc1-worker    <none>           <none>
+hubble-observer-cf2cnp-7d6576479c-jh4n7   1/1     Running   0          7h40m   10.10.3.149   poc1-worker2   <none>           <none>
+
+### 2026-09-12T22:25:37Z
+$ kubectl --context kind-poc1 -n monitoring get pods -o wide
+NAME                                                     READY   STATUS    RESTARTS         AGE     IP            NODE                  NOMINATED NODE   READINESS GATES
+alertmanager-monitoring-kube-prometheus-alertmanager-0   2/2     Running   0                19h     10.10.3.207   poc1-worker2          <none>           <none>
+loki-0                                                   2/2     Running   0                7h50m   10.10.3.140   poc1-worker2          <none>           <none>
+monitoring-grafana-85f995b8c8-gqnc8                      3/3     Running   0                11h     10.10.4.99    poc1-worker           <none>           <none>
+monitoring-kube-prometheus-operator-57b74d8f5b-zw957     1/1     Running   9 (2m25s ago)    19h     10.10.3.227   poc1-worker2          <none>           <none>
+monitoring-kube-state-metrics-7f584dc46d-dpxkb           1/1     Running   11 (2m36s ago)   19h     10.10.4.165   poc1-worker           <none>           <none>
+monitoring-prometheus-node-exporter-d9h5h                1/1     Running   3 (2m44s ago)    19h     172.18.0.7    poc1-control-plane2   <none>           <none>
+monitoring-prometheus-node-exporter-fzxrc                1/1     Running   2 (2m23s ago)    19h     172.18.0.3    poc1-control-plane3   <none>           <none>
+monitoring-prometheus-node-exporter-jwqp7                1/1     Running   4 (7h31m ago)    19h     172.18.0.5    poc1-worker           <none>           <none>
+monitoring-prometheus-node-exporter-n6jl7                1/1     Running   3 (7h31m ago)    19h     172.18.0.6    poc1-control-plane    <none>           <none>
+monitoring-prometheus-node-exporter-nqvbt                1/1     Running   1 (8h ago)       19h     172.18.0.4    poc1-worker2          <none>           <none>
+prometheus-monitoring-kube-prometheus-prometheus-0       2/2     Running   1 (111s ago)     177m    10.10.3.98    poc1-worker2          <none>           <none>
+tempo-0                                                  1/1     Running   6 (2m1s ago)     9h      10.10.3.228   poc1-worker2          <none>           <none>
+
+### 2026-09-12T22:25:37Z
+$ bash -c demos/25-hubble-observer-loki/check.sh 2
+== observer ==
+hubble-observer-6f865f8f94-4vvzb          true   0     poc1-worker
+hubble-observer-cf2cnp-7d6576479c-jh4n7   true   0     poc1-worker2
+  relay as the observer sees it: Connected Nodes: 7/7
+== collector → Loki (per pod: spans of the Loki exporter's queue) ==
+  otel-collector-5qwgc       loki queue=0 sent_logs=0 failed=0
+  otel-collector-7vbhr       loki queue=0 sent_logs=498 failed=0
+  otel-collector-cfgjr       loki queue=0 sent_logs=0 failed=0
+  otel-collector-lntgk       loki queue=0 sent_logs=739 failed=0
+  otel-collector-xvft4       loki queue=0 sent_logs=0 failed=0
+== Loki ==
+  index labels: container k8s_cluster_name k8s_container_name k8s_namespace_name k8s_pod_name namespace service_name
+  stored flows, last 2 h, by source cluster and verdict:
+    {'flow_source_cluster_name': 'poc1', 'flow_verdict': 'DROPPED'} 622
+    {'flow_source_cluster_name': 'poc2', 'flow_verdict': 'DROPPED'} 80
+== Grafana ==
+  ds: Loki loki http://loki.monitoring.svc.cluster.local:3100
+  dashboard: Cilium Flows - Hubble Observer | folder: Hubble | /d/hubble-observer-23862
+== cf2cnp ==
+cf2cnp   [cf2cnp.poc.local]   True
+  health: OK
+
