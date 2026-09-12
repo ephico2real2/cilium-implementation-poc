@@ -231,3 +231,21 @@ GOTCHAS #35 and #36 and recorded in `output/transcript.txt`:
 > (`demos/18-obi/20-collector-service.yaml`) so OBI in both clusters sends its spans here. The
 > logs pipeline and everything above are unchanged.
 
+## Evidence
+
+Captured 2026-09-12 with `scripts/evidence/capture.js` and `scripts/evidence/collect.sh` (both re-runnable; the pod and Cilium output is the recorded file [`output/evidence.txt`](output/evidence.txt)). Every image is what the browser saw, with traffic running.
+
+**Running pods** (from `output/evidence.txt`):
+
+```console
+$ kubectl --context kind-poc1 -n otel get pods -o wide
+NAME                   READY   STATUS    RESTARTS   AGE     IP            NODE                  NOMINATED NODE   READINESS GATES
+otel-collector-5qwgc   1/1     Running   0          7h38m   10.10.1.96    poc1-control-plane2   <none>           <none>
+otel-collector-7vbhr   1/1     Running   0          7h39m   10.10.4.220   poc1-worker           <none>           <none>
+otel-collector-cfgjr   1/1     Running   0          7h38m   10.10.2.196   poc1-control-plane3   <none>           <none>
+otel-collector-lntgk   1/1     Running   0          7h39m   10.10.3.58    poc1-worker2          <none>           <none>
+otel-collector-xvft4   1/1     Running   0          7h39m   10.10.0.189   poc1-control-plane    <none>           <none>
+```
+
+The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
+
