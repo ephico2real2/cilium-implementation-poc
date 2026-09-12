@@ -141,8 +141,8 @@ bridge100
 
 $ ifconfig bridge100
 bridge100: flags=8a63<UP,BROADCAST,SMART,RUNNING,ALLMULTI,SIMPLEX,MULTICAST> mtu 1500
-	inet 192.168.64.1 netmask 0xffffff00 broadcast 192.168.64.255
-	member: vmenet0 flags=10803<LEARNING,DISCOVER,PRIVATE,CSUM>
+ inet 192.168.64.1 netmask 0xffffff00 broadcast 192.168.64.255
+ member: vmenet0 flags=10803<LEARNING,DISCOVER,PRIVATE,CSUM>
 ```
 
 Identify it by its `vmenet` member, not by its number. The VM side:

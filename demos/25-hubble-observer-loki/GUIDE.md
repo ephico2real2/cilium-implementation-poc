@@ -8,6 +8,7 @@ to expect. `demos/25-hubble-observer-loki/check.sh [hours]` after each shows the
 ```bash
 demos/25-hubble-observer-loki/chart-prep.sh
 ```
+
 *Expect:* the sources, the versions, the four default-values files refreshed, and every key of our two
 values files printed against its default. Change one key in `values-loki.yaml`, run it again, find the `≠`.
 
@@ -17,6 +18,7 @@ values files printed against its default. Change one key in `values-loki.yaml`, 
 helm template t oci://ghcr.io/onzack/helm-charts/hubble-observer --version 2.5.0 -n hubble-observer | grep -A1 -- '--server' | head -4
 helm template t demos/25-hubble-observer-loki/chart/hubble-observer -n hubble-observer | grep -A1 -- '--server' | head -4
 ```
+
 *Expect:* `$(HUBBLE_RELAY_HOST):$(HUBBLE_RELAY_PORT)` in the first, the FQDN in the second. Install 2.5.0
 into a throwaway namespace and watch the startup probe kill a working container every 60 s.
 
@@ -26,6 +28,7 @@ into a throwaway namespace and watch the startup probe kill a working container 
 demos/19-zero-trust-cell/egress-test.sh poc1; demos/19-zero-trust-cell/egress-test.sh poc2
 sleep 45; demos/25-hubble-observer-loki/check.sh 1
 ```
+
 *Expect:* the Loki count by `flow_source_cluster_name` rising for both clusters; the dashboard's table
 naming `egress-test (Pod)` in each. (The bank images are distroless — `kubectl exec … sh` cannot be the
 probe; gotcha #74.)
@@ -64,6 +67,7 @@ the fork branch of PR #9 with the policy on and watch DNS and `:4245` turn `FORW
 kubectl --context kind-poc1 -n default run anyone --image=quay.io/cilium/hubble:v1.16.4 --restart=Never --command -- sleep 600
 kubectl --context kind-poc1 -n default exec anyone -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 --tls --tls-allow-insecure
 ```
+
 *Expect:* `tls: certificate required` (Part 5c). Then issue that pod a certificate the way the observer
 got one (a `Certificate` from `ca-issuer` in `default`, mount the secret, `--tls-ca-cert-files`,
 `--tls-client-cert-file`, `--tls-client-key-file`): *expect* `Connected Nodes: 7/7`. Delete the pod.
@@ -94,6 +98,7 @@ docker run --rm --entrypoint hubble quay.io/cilium/hubble:v1.16.4 version
 trivy image --severity CRITICAL,HIGH quay.io/cilium/hubble:v1.16.4 | tail -20
 trivy image --severity CRITICAL,HIGH quay.io/cilium/cilium:v1.20.1 | grep -A3 "usr/bin/hubble"
 ```
+
 *Expect:* a 2024 push date, an end-of-life Go, CRITICAL findings — and none in the agent image's CLI.
 Then `kubectl -n kube-system get ds cilium -o jsonpath='{.spec.template.spec.containers[0].image}'`:
 that digest is what the observer should run, and it moves when Cilium moves (demo 01's pinning rule).
@@ -105,8 +110,8 @@ demos/19-zero-trust-cell/egress-test.sh poc1   # then IMMEDIATELY (the ring buff
 kubectl -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hubble observe --server hubble-relay.kube-system.svc.cluster.local:443 --verdict DROPPED --namespace bank --last 40 -o json | awk '{b+=length($0)} END{print b/NR " bytes/line full"}'
 kubectl -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hubble observe --server hubble-relay.kube-system.svc.cluster.local:443 --verdict DROPPED --namespace bank --last 40 -o json --field-mask time,verdict,IP,l4,source.namespace,destination.namespace | awk '{b+=length($0)} END{print b/NR " bytes/line minimal"}'
 ```
+
 *Expect:* ~1300 vs a few hundred bytes. Then open the dashboard with that minimal mask applied through
 `fieldMask` in the values: *Flows per Destination* empties (no `destination_names`), the table loses its
 Source names (no `labels`). The mask in the values is the smallest one that keeps every panel — remove
 one field at a time and watch which panel goes dark.
-

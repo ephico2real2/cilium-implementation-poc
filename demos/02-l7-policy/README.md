@@ -176,4 +176,3 @@ xwing                         1/1     Running   2 (24h ago)   41h   10.10.4.57  
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

@@ -102,10 +102,12 @@ pod-scoped tracing policies neutralised. That is the failure mode of a security 
 1. **Upgrade Docker Desktop** to the current cask (4.90.0). The VM restarts; every kind node comes
    back the way a reboot brings it back — re-pin addresses with `scripts/cluster-resume.sh` (gotcha #43).
    Verify the one fact this demo needs before anything else:
+
    ```bash
    docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -- sh -c \
      'uname -r; zcat /proc/config.gz | grep "^CONFIG_SECURITY="; grep -c " security_bprm_committing_creds$" /proc/kallsyms'
    ```
+
    Expected: `CONFIG_SECURITY=y` and `1`.
 2. **A cluster with the mount.** The `extraMounts` are now in the three cluster configs; they apply
    to the next `kind create`. Two ways to get one without touching poc1/poc2's state:
@@ -115,6 +117,7 @@ pod-scoped tracing policies neutralised. That is the failure mode of a security 
 3. **Install with the docs' flag** — the values file gains one line, and then this demo's Parts 3+
    (exec events for the bank, a `TracingPolicy` on the Postgres data directory, the ServiceMonitor
    feeding the demo 16 Grafana) are written from recorded output like every other demo here:
+
    ```bash
    helm install tetragon cilium/tetragon --version 1.7.1 -n kube-system --kube-context kind-poc4 \
      -f demos/17-tetragon/values-tetragon.yaml --set tetragon.hostProcPath=/procHost
@@ -134,4 +137,3 @@ pod-scoped tracing policies neutralised. That is the failure mode of a security 
 ## Evidence
 
 **Captures not taken yet** — blocked on this machine: Docker Desktop 4.27.2's kernel has no `CONFIG_SECURITY`, so every Tetragon agent crash-loops (gotcha #60; fixed in Docker Desktop 4.30). Captures to add on a kernel with LSM hooks: `tetra getevents` for a process exec and a policy violation, and the Tetragon Grafana dashboard. See [`output/screenshots/MISSING-CAPTURE.md`](output/screenshots/MISSING-CAPTURE.md) and [`/missing-captures.md`](../../missing-captures.md).
-

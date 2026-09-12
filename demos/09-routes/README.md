@@ -286,6 +286,7 @@ Measured on the Gateway, before the fix:
 ```bash
 echo | openssl s_client -connect 172.18.255.240:443 -servername grpc.poc.local -alpn h2,http/1.1 2>/dev/null | grep ALPN
 ```
+
 ```
 No ALPN negotiated
 ```
@@ -300,13 +301,16 @@ kubectl -n kube-system rollout restart deploy/cilium-operator
 kubectl -n kube-system rollout status deploy/cilium-operator --timeout=180s
 kubectl -n routes get ciliumenvoyconfig -o yaml | grep -A1 alpnProtocols
 ```
+
 ```
               alpnProtocols:
               - h2,http/1.1
 ```
+
 ```bash
 for s in grpc.poc.local web.poc.local exact.example.test; do printf '%-20s ' $s; echo | openssl s_client -connect 172.18.255.240:443 -servername $s -alpn h2,http/1.1 2>/dev/null | grep ALPN; done
 ```
+
 ```
 grpc.poc.local       ALPN protocol: h2
 web.poc.local        ALPN protocol: h2
@@ -348,9 +352,11 @@ Three separate facts, and all three have to be true:
    lists `TCPRoute`, `TLSRoute` and `UDPRoute`. Cilium can do it.
 2. **Installed.** The `TCPRoute` CRD is in Gateway API's **experimental** channel. The standard
    channel installed in demo 05 does not include it:
+
    ```bash
    kubectl apply --server-side -f https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.6.1/config/crd/experimental/gateway.networking.k8s.io_tcproutes.yaml
    ```
+
 3. **Discovered.** After installing the CRD, the `TCPRoute` was accepted by the API server —
    and then silently ignored. `attachedRoutes=0`, and **no `status.parents` at all**. The
    operator's log had never once mentioned TCPRoute.
@@ -501,6 +507,7 @@ empty:
 ```bash
 grep -c 'poc.local' /etc/hosts
 ```
+
 ```
 3
 ```
@@ -513,6 +520,7 @@ dscacheutil -q host -a name hubble.poc.local               # 2. the resolver see
 curl -s --cacert docs/root-ca.crt -o /dev/null -w '%{http_code}\n' https://hubble.poc.local/   # 3. TLS + route
 open https://hubble.poc.local                              # 4. the browser
 ```
+
 ```
 name: hubble.poc.local
 ip_address: 172.18.255.240
@@ -661,6 +669,7 @@ the current directory to the repo root, so both of these work:
 ./routedemo -mode client -target 172.18.255.240                          # still in demos/09-routes/app
 demos/09-routes/app/routedemo -mode client -target 172.18.255.240        # from the repo root
 ```
+
 ```
 2026/09/11 14:28:58 using CA /Users/olasumbo/gitRepos/cilium-kind-poc/docs/root-ca.crt (found by walking up from the current directory)
 ```
@@ -680,6 +689,7 @@ To test one route type only — the gRPC question on its own, for example — ad
 ```bash
 ./routedemo -mode client -only grpc -target 172.18.255.240        # from demos/09-routes/app; the CA is found automatically
 ```
+
 ```
 3. GRPCRoute -- grpc.health.v1.Health/Check, over h2c (:80) and over TLS (:443)
   PASS  h2c  grpc.poc.local:80   SERVING
@@ -763,6 +773,7 @@ ls -l routedemo                        # timestamp must be now
 ```bash
 ./routedemo -mode client -only grpc -target 172.18.255.240
 ```
+
 ```
 2026/09/11 15:44:18 using CA /Users/olasumbo/gitRepos/cilium-kind-poc/docs/root-ca.crt (found by walking up from the current directory)
 3. GRPCRoute -- grpc.health.v1.Health/Check, over h2c (:80) and over TLS (:443)
@@ -784,6 +795,7 @@ demos/09-routes/app/routedemo -mode client -only grpc -target 172.18.255.240; ec
 ```bash
 cd /tmp && /Users/olasumbo/gitRepos/cilium-kind-poc/demos/09-routes/app/routedemo -mode client -only grpc -target 172.18.255.240; echo "exit=$?"
 ```
+
 ```
 read CA docs/root-ca.crt: open docs/root-ca.crt: no such file or directory
   pass -ca <path to docs/root-ca.crt>; from demos/09-routes/app that is -ca ../../../docs/root-ca.crt
@@ -804,6 +816,7 @@ cd /Users/olasumbo/gitRepos/cilium-kind-poc/demos/09-routes/app
 ./routedemo -mode client -only tcp   -target 172.18.255.240    # 1 PASS, FAILED CHECKS: 0
 ./routedemo -mode client -only bogus -target 172.18.255.240; echo "exit=$?"
 ```
+
 ```
 2026/09/11 15:44:18 unknown -only "bogus" (want http, grpc, tcp or all)
 exit=1
@@ -829,6 +842,7 @@ for n in poc1-control-plane poc1-control-plane2 poc1-control-plane3 poc1-worker 
   [ "$id" = "$LOCAL" ] && echo "same as laptop" || echo "DIFFERENT: $id"
 done
 ```
+
 ```
 poc1-control-plane     same as laptop
 poc1-control-plane2    same as laptop
@@ -896,4 +910,3 @@ web-775dfff659-ndjw7    1/1     Running   0          9h    10.10.4.235   poc1-wo
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

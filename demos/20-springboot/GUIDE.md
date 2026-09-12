@@ -14,6 +14,7 @@ its configuration from GitHub).
 ```bash
 demos/20-springboot/scale.sh down
 ```
+
 *Why:* six JVMs need ~2.5 GB; the VM had ~2.8 GB available at load 20. The bank's and demo 09's
 Deployments go to zero; the StatefulSets (Postgres, Redis) keep the demo 15 ledger.
 *Expect:* `poc1/bank api payments web -> 0 … poc2/bank accounts payments -> 0 … routes echo grpc web -> 0`,
@@ -27,6 +28,7 @@ kubectl --context kind-poc1 -n otel rollout restart ds/otel-collector
 kubectl --context kind-poc1 apply -f demos/18-obi/20-collector-service.yaml
 kubectl --context kind-poc2 apply -f demos/18-obi/20-collector-service.yaml
 ```
+
 *Why:* Spring Boot's `docker` profile exports Micrometer spans in **Zipkin** format to
 `tracing-server:9411`. The demo 10 collector gained a `zipkin` receiver on its `traces` pipeline,
 and the global Service (demo 18) a `9411` port — the same object in both clusters, the ClusterMesh rule.
@@ -47,6 +49,7 @@ The receiver block that was added (from `demos/10-tracing/otel-collector.yaml`):
 ```bash
 kubectl --context kind-poc1 apply -f demos/20-springboot/10-petclinic.yaml
 ```
+
 *Why:* the upstream project ships docker-compose only; this file is its translation, with the
 reasons for every deviation in the header. Read the header first:
 
@@ -155,6 +158,7 @@ Deployments created.
 ```bash
 kubectl --context kind-poc1 -n springboot get pods -w
 ```
+
 *Why:* the order is enforced by init containers: config-server first (its startup probe passes on
 `/actuator/health`), then discovery-server, then the four that wait for both.
 *Expect:* `Init:0/1` / `Init:0/2` on five pods while config-server starts; then `Running` one after
@@ -165,6 +169,7 @@ The trap, reproduced on purpose once config-server is Ready:
 ```bash
 kubectl --context kind-poc1 -n springboot exec deploy/config-server -c config-server -- sh -c 'curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8888/actuator/health; curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8888/actuator/health/readiness'
 ```
+
 *Why:* the second URL is answered by the config-serving controller (`/{app}/{profile}/{label}` →
 git label "readiness"), not by the actuator — which is why the manifest probes `/actuator/health` only.
 *Expect:* `200` then `404` (or `500`), and in `kubectl logs deploy/config-server` a jgit stack trace
@@ -173,6 +178,7 @@ ending in `Ref readiness cannot be resolved` / `Cannot check out from unborn bra
 ```bash
 for d in config-server discovery-server customers-service vets-service visits-service api-gateway; do kubectl --context kind-poc1 -n springboot rollout status deploy/$d --timeout=10m; done
 ```
+
 *Expect:* six `successfully rolled out`.
 
 ## Exercise 4 — the Gateway route and the hosts block
@@ -205,6 +211,7 @@ sudo sh -c 'demos/20-springboot/hosts-entries.sh >> /etc/hosts'      # you run t
 dscacheutil -flushcache; sudo killall -HUP mDNSResponder
 open https://petclinic.poc.local
 ```
+
 *Why:* one HTTPRoute on the demo 09 Gateway (the wildcard certificate covers the name) and the
 ReferenceGrant that lets a route in `routes` reach a Service in `springboot` (gotcha #32).
 *Expect:* `ACCEPTED True  RESOLVED True`, and the petclinic UI in the browser.
@@ -214,12 +221,14 @@ ReferenceGrant that lets a route in `routes` reach a Service in `springboot` (go
 ```bash
 demos/20-springboot/check.sh 5
 ```
+
 *Why:* owners, a fan-out, vets, visits, and a POST — every route the gateway defines, through the Cilium Gateway.
 *Expect:* `200`, `George Franklin pets: ['Leo']`, `6 vets`, `… visits`, `200`, `201`, five `200`s at 50–100 ms.
 
 ```bash
 kubectl --context kind-poc1 -n springboot exec deploy/discovery-server -c discovery-server -- curl -s -H accept:application/json http://localhost:8761/eureka/apps | python3 -c 'import json,sys; [print(a["name"], len(a["instance"]), a["instance"][0]["status"]) for a in json.load(sys.stdin)["applications"]["application"]]'
 ```
+
 *Why:* the gateway routes `lb://customers-service` through Eureka, not through the Kubernetes Service. This is who Eureka knows.
 *Expect:* `API-GATEWAY 1 UP`, `CUSTOMERS-SERVICE 1 UP`, `VETS-SERVICE 1 UP`, `VISITS-SERVICE 1 UP`.
 
@@ -232,6 +241,7 @@ demos/20-springboot/check.sh 3          # immediately after "successfully rolled
 hubble observe -P --kube-context kind-poc1 --namespace springboot --verdict DROPPED --since 3m
 sleep 90; demos/20-springboot/check.sh 3
 ```
+
 *Why:* the pod is replaced; Eureka's client-side cache (30 s) in the gateway still holds the old IP.
 *Expect:* first check: `405` / `500` / `000` on the customer paths; Hubble: `api-gateway → <old pod IP>:8081 … STALE_OR_UNROUTABLE_IP`;
 second check: all `200`. Nothing to fix in Cilium — it reported the cause. Kubernetes Services (the bank) have no such window.
@@ -243,6 +253,7 @@ demos/20-springboot/check.sh 3; sleep 20
 kubectl --context kind-poc1 -n otel logs ds/otel-collector --since=3m | grep "service.name:" | sort | uniq -c
 kubectl --context kind-poc1 -n otel logs ds/otel-collector --since=3m | demos/18-obi/tracetree.py "GET /api/gateway"
 ```
+
 *Why:* Micrometer (Spring Boot's own tracing) → Zipkin format → the collector; `tracetree.py` (demo 18) draws any trace the debug exporter printed.
 *Expect:* `api-gateway`, `customers-service`, `vets-service`, `visits-service` spans, and a tree rooted at `GET /api/gateway/owners/{ownerId}`.
 
@@ -254,6 +265,7 @@ demos/18-obi/deploy.sh poc1
 sleep 60; demos/20-springboot/check.sh 3; sleep 20
 for p in $(kubectl --context kind-poc1 -n obi get pods -o name | cut -d/ -f2); do kubectl --context kind-poc1 -n obi logs $p | grep -E "java|Stopping process tracer"; done
 ```
+
 *Why:* OBI's Java path is its own injected Java agent (TLS/thread context) plus the generic kernel tracer for the network.
 *Expect:* `instrumenting process cmd=/opt/java/openjdk/bin/java … type=java`, then `unable to attach java agent … java attach timed out`
 and `Stopping process tracer … "security_socket_accept" … not found` — this Docker Desktop kernel has no `CONFIG_SECURITY`
@@ -296,6 +308,7 @@ spec:
 ```bash
 demos/20-springboot/javaagent.sh on
 ```
+
 *Why:* an init container fetches the pinned jar into an emptyDir; `JAVA_TOOL_OPTIONS` loads it; OTLP goes to the collector;
 the app's own Zipkin export is switched off so nothing arrives twice. One Deployment at a time — a patch is a rolling restart,
 and six cold JVMs at once would double the memory the VM has left.
@@ -306,6 +319,7 @@ and six cold JVMs at once would double the memory the VM has left.
 demos/20-springboot/check.sh 3; sleep 25
 kubectl --context kind-poc1 -n otel logs ds/otel-collector --since=2m | demos/18-obi/tracetree.py "GET /api/gateway"
 ```
+
 *Expect:* a 12-span tree: gateway → customers-service → `OwnerRepository.findById` → `Session.find` → `SELECT …`, and the
 visits branch — framework internals no kernel tracer sees.
 
@@ -367,6 +381,7 @@ kubectl --context kind-poc1 apply -f demos/20-springboot/40-monitoring.yaml
 sleep 60; demos/20-springboot/check.sh 5; sleep 30
 open https://grafana.poc.local/d/springboot-19004/spring-boot-3-x-statistics-petclinic
 ```
+
 *Why:* Micrometer's `/actuator/prometheus` on the four application JVMs, relabeled so the standard dashboard's `application`
 and `instance` variables work; the dashboard arrives through the same sidecar path as Cilium's (a labelled ConfigMap).
 The ConfigMap was generated, not hand-written — demo 16 Part 1b and `demos/16-monitoring/dashboard-configmap.sh 19004 springboot
@@ -383,5 +398,6 @@ kubectl --context kind-poc1 delete -f demos/20-springboot/40-monitoring.yaml -f 
 sudo sed -i '' '/---- cilium-kind-poc springboot/,/---- end cilium-kind-poc springboot/d' /etc/hosts
 demos/20-springboot/scale.sh up
 ```
+
 *Why:* the JVMs' memory goes back to the bank and demo 09; the collector keeps its zipkin receiver (harmless).
 *Expect:* `scale.sh up` prints the demo 15 / demo 09 replica counts and a higher `VM available`.

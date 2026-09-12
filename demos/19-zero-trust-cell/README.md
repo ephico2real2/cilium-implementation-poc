@@ -257,4 +257,3 @@ postgres-0                  1/1     Running   0          20h   10.20.1.217   poc
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

@@ -778,7 +778,6 @@ kubectl --context kind-poc1 delete -f demos/16-monitoring/20-visibility-policies
 > when the bank became a default-deny cell; the rendered cell policies carry the same `http: [{}]`
 > and `dns` rules, so the dashboards of Parts 8–9 keep their data.
 
-
 ## Part 11 — "I cannot see histograms in the Hubble UI": checked with a browser
 
 Checked with Playwright (Chromium, headless, from the Mac through the Gateway), not by reading docs.
@@ -876,4 +875,3 @@ tempo-0                                                  1/1     Running   6 (71
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

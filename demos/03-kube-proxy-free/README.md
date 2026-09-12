@@ -185,4 +185,3 @@ coredns-789c5fbdb4-qhj2d                      1/1     Running   0               
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

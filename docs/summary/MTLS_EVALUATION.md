@@ -121,7 +121,7 @@ Until then, the honest sentence for the network/security team is: *"Cilium gives
 policy today, WireGuard for encryption when we want it, and mTLS proper is a beta we have not yet
 measured; the older 'mutual authentication' feature is being removed and we will not adopt it."*
 
-## 7. Are we on the latest Cilium? Yes.
+## 7. Are we on the latest Cilium? Yes
 
 Checked 2026-09-11: newest chart in the `cilium` helm repo **1.20.1**; newest non-prerelease
 upstream tag **v1.20.1**; running `quay.io/cilium/cilium:v1.20.1` on both clusters; cilium-cli

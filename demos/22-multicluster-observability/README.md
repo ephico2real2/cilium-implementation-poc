@@ -320,4 +320,3 @@ prometheus-edge-kube-prometheus-stack-prometheus-0     1/2     Running   1 (8s a
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

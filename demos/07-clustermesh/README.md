@@ -578,4 +578,3 @@ xcheck                        0/1     Completed   0             31h   <none>    
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

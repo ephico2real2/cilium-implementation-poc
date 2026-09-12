@@ -345,6 +345,7 @@ admitted only `org=empire`. **A Gateway is not a privileged bypass.**
 ```bash
 curl -XPUT http://172.18.255.200/v1/exhaust-port
 ```
+
 ```
 Panic: deathstar exploded
 ```
@@ -405,6 +406,7 @@ any claimed difference smaller than that is noise.
 ```bash
 cilium-dbg status --all-health | grep -A2 socket-termination
 ```
+
 ```
 [DEGRADED] service LV socket termination not supported by kernel
 ```
@@ -417,6 +419,7 @@ Another linuxkit limitation.
 ## <a name="20"></a>20. ClusterMesh refuses to connect: CA mismatch
 
 **Symptom.**
+
 ```
 Error: Cilium CA certificates do not match between clusters poc1 and poc2.
 Use --allow-mismatching-ca to allow this by adding remote CAs to the CA bundle
@@ -947,6 +950,7 @@ after (uses the *current* kube context; it does not take `--context`):
 hubble status -P
 hubble observe -P --since 5m --protocol http
 ```
+
 ```
 Healthcheck (via 127.0.0.1:4245): Ok
 Current/Max Flows: 20,475/20,475 (100.00%)
@@ -1852,8 +1856,8 @@ the pod `READY false, RESTARTS 4`; Hubble: 58 × `-> kube-system/hubble-relay-�
 The rule allowed `toPorts: 443` — the relay's Service port.
 
 **Cause.** Cilium applies egress L4 policy after service translation, on the destination pod's port
-(4245, the relay's `listenPort`); the Service's 80/443 never appears there. (The mirror of gotcha
-#64: a ClusterIP on a non-Service port is not translated at all.)
+(4245, the relay's `listenPort`); the Service's 80/443 never appears there. (The mirror of
+gotcha #64: a ClusterIP on a non-Service port is not translated at all.)
 
 **Fix.** `ciliumNetworkPolicy.relayPort: "4245"` in the chart — [PR onzack/hubble-observer#9](https://github.com/onzack/hubble-observer/pull/9),
 with the DNS rule ([issue #8](https://github.com/onzack/hubble-observer/issues/8)). Rule of thumb for
@@ -1883,8 +1887,8 @@ size a receiver for the sum of its writers, and give it an out-of-order window.
 ## <a name="78"></a>78. The chart's default image is unmaintained — version compatibility is not support
 
 **Symptom.** Demo 25 Part 7d: `quay.io/cilium/hubble:v1.16.4`, the hubble-observer default, is the
-last image that registry ever published (2024-11-21); Go 1.23 (EOL), alpine 3.20.3; trivy 5 CRITICAL
-+ 51 HIGH. It works against a 1.20.1 relay (stable API, identical JSON), which hid the problem.
+last image that registry ever published (2024-11-21); Go 1.23 (EOL), alpine 3.20.3; trivy
+5 CRITICAL + 51 HIGH. It works against a 1.20.1 relay (stable API, identical JSON), which hid the problem.
 
 **Cause.** The Hubble CLI project stopped publishing a container image; the maintained CLI ships
 inside the Cilium agent image, on the relay's release train.

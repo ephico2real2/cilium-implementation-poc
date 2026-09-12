@@ -190,4 +190,3 @@ kube-scheduler-poc2-control-plane            1/1     Running   15 (2m25s ago)   
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

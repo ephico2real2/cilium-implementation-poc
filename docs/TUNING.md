@@ -120,6 +120,7 @@ went from ~1.2 k to ~9 k qps (demo 11) — that is the knob.
 helm install cilium cilium/cilium --version 1.20.1 -n kube-system -f cilium/values-poc1.yaml   # bpf.masquerade: true is in the file
 kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status | grep -E '^KubeProxyReplacement|^Routing|^Masquerading'
 ```
+
 ```
 KubeProxyReplacement:    True
 Routing:                 Network: Tunnel [vxlan]   Host: BPF

@@ -309,9 +309,11 @@ Tempo is already a datasource (uid `tempo`, Part 2; *Connections → Data source
    (or any petclinic service), a span name, min duration, status; *Run query*. A table of traces; click
    a trace id for the timeline. This is `GET /api/search` on Tempo behind the scenes.
 3. **Explore → Tempo → TraceQL** for exact questions, for example every gateway fan-out slower than 100 ms:
+
    ```
    { resource.service.name="api-gateway" && name=~"GET /api.*" && duration > 100ms }
    ```
+
    or by a Kubernetes attribute the Java agent stamped (demo 20 Part 3): `{ resource.k8s.deployment.name="visits-service" }`.
 4. **By trace id** — paste it as the TraceQL query. From an exemplar, from the collector's log
    (`tracetree.py`), from OBI's printer, from a Hubble flow: all the same id.
@@ -429,7 +431,7 @@ On a busy cluster that is the processor to turn off first, or to filter.
 
 Captured 2026-09-12 with `scripts/evidence/capture.js` and `scripts/evidence/collect.sh` (both re-runnable; the pod and Cilium output is the recorded file [`output/evidence.txt`](output/evidence.txt)). Every image is what the browser saw, with traffic running.
 
-**grafana service graph** — the service graph from Tempo’s metrics-generator: user → api → payments → accounts across the mesh, with rates and p90
+**grafana service graph** — the service graph from Tempo’s metrics-generator, full page: the table of routes with rate and p90 above, the node graph below — user → web → api → payments → accounts across the mesh, each node with its ms/request and req/s
 
 ![grafana-service-graph](output/screenshots/grafana-service-graph.png)
 
@@ -457,4 +459,3 @@ tempo-0                                                  1/1     Running   6 (78
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

@@ -395,4 +395,3 @@ web-775dfff659-ndjw7    1/1     Running   0          9h    10.10.4.235   poc1-wo
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

@@ -166,4 +166,3 @@ otel-collector-8f8c6fd76-dtdzn   1/1     Running   1 (8h ago)   9h    10.20.1.41
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

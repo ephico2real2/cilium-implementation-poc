@@ -4,7 +4,8 @@
    "name": "grafana-service-graph",
    "url": "https://grafana.poc.local/explore?schemaVersion=1&panes=%7B%2217w%22:%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22datasource%22:%7B%22type%22:%22tempo%22,%22uid%22:%22tempo%22%7D,%22queryType%22:%22serviceMap%22%7D%5D,%22range%22:%7B%22from%22:%22now-30m%22,%22to%22:%22now%22%7D%7D%7D&orgId=1",
    "wait": "text:Node graph",
-   "look": "the service graph from Tempo\u2019s metrics-generator: user \u2192 api \u2192 payments \u2192 accounts across the mesh, with rates and p90"
+   "look": "the service graph from Tempo\u2019s metrics-generator, full page: the table of routes with rate and p90 above, the node graph below \u2014 user \u2192 web \u2192 api \u2192 payments \u2192 accounts across the mesh, each node with its ms/request and req/s",
+   "height": 2200
   },
   {
    "name": "grafana-traces-drilldown",

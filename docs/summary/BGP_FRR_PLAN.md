@@ -120,10 +120,12 @@ docker exec tor0 vtysh -c 'show bgp summary'          # expect: 0 neighbours yet
 bgpControlPlane:
   enabled: true
 ```
+
 ```bash
 helm upgrade cilium cilium/cilium -n kube-system --version 1.20.1 -f cilium/values-poc1.yaml --kube-context kind-poc1
 kubectl --context kind-poc1 label node --all bgp=65001          # the nodeSelector below
 ```
+
 ```yaml
 # demos/11-bgp/01-bgp.yaml — planned; shapes copied from Cilium's lab, addresses ours
 apiVersion: cilium.io/v2
@@ -168,6 +170,7 @@ spec:
   blocks: [{cidr: "10.99.0.0/24"}]
   serviceSelector: {matchExpressions: [{key: bgp, operator: In, values: [tor]}]}
 ```
+
 ```yaml
 # demos/11-bgp/02-service.yaml — planned: the routes demo's web app, exposed a second time via BGP
 apiVersion: v1

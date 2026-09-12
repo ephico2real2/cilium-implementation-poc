@@ -13,6 +13,7 @@ demo 09), Go 1.25+, Docker.
 ```bash
 docker build -t bankdemo:local -f demos/15-bank/app/Containerfile demos/15-bank/app
 ```
+
 *Why:* one static Go binary plays all four roles (`-mode web|api|payments|accounts`); one image means
 "which role runs where" is the only variable in the demo. `golang:1.25` because `pgx` v5.11 needs
 Go ≥ 1.25 (a 1.24 builder fails at `go mod download` — gotcha kept in the transcript).
@@ -21,6 +22,7 @@ Go ≥ 1.25 (a 1.24 builder fails at `go mod download` — gotcha kept in the tr
 kind load docker-image bankdemo:local --name poc1
 kind load docker-image bankdemo:local --name poc2
 ```
+
 *Why:* no registry in this lab; `kind load` copies the image into every node's containerd. Pods use
 `imagePullPolicy: IfNotPresent`, so a rebuilt image needs a `kind load` **and** a rollout restart.
 *Expect:* `Image: "bankdemo:local" … loading…` once per node (5 lines for poc1, 2 for poc2).
@@ -222,6 +224,7 @@ spec:
 kubectl --context kind-poc2 apply -f demos/15-bank/10-poc2.yaml
 kubectl --context kind-poc2 apply -f demos/15-bank/10-poc2.yaml     # a second time, on purpose
 ```
+
 *Why twice:* a brand-new namespace's `default` ServiceAccount is created asynchronously; bare Pods
 created in the same apply can be refused with `serviceaccount "default" not found` (gotcha #39).
 The second apply creates only what the first could not. *Why poc2 before poc1:* `accounts` in poc2
@@ -232,6 +235,7 @@ kubectl --context kind-poc2 -n bank rollout status sts/postgres --timeout=300s
 kubectl --context kind-poc2 -n bank rollout status deploy/accounts deploy/payments --timeout=300s
 kubectl --context kind-poc2 -n bank get pvc
 ```
+
 *Why:* Postgres binds its PVC (`standard`, `WaitForFirstConsumer` — bound when the pod schedules)
 and runs `initdb` + the `postgres-init` script (replicator role, replication slot, `pg_hba` line);
 `accounts` retries its connection until then rather than crash-looping.
@@ -407,6 +411,7 @@ kubectl --context kind-poc1 apply -f demos/15-bank/20-poc1.yaml
 kubectl --context kind-poc1 apply -f demos/15-bank/20-poc1.yaml     # same SA race
 kubectl --context kind-poc1 -n bank rollout status sts/redis deploy/payments deploy/api deploy/web --timeout=300s
 ```
+
 *Why the `accounts`, `postgres-primary`, `postgres-standby` Services exist here with no backends:*
 a global Service merges **endpoints**, not objects — a client resolves the name through its own
 cluster's DNS, so the object must exist locally for the remote endpoints to attach to (demo 07).
@@ -414,6 +419,7 @@ cluster's DNS, so the object must exist locally for the remote endpoints to atta
 ```bash
 kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -A2 "$(kubectl --context kind-poc1 -n bank get svc accounts -o jsonpath='{.spec.clusterIP}'):80"
 ```
+
 *Why:* the proof that the mesh did its job — poc1's eBPF service map lists a backend poc1 never
 scheduled. *Expect:* `1 => 10.20.x.x:8080/TCP (active)` — a poc2 pod IP under a poc1 ClusterIP.
 
@@ -459,6 +465,7 @@ spec:
 kubectl --context kind-poc1 apply -f demos/15-bank/30-gateway.yaml
 kubectl --context kind-poc1 -n routes get httproute bank bank-api
 ```
+
 *Why the routes live in `routes` and the grant in `bank`:* the Gateway is in `routes`; a route may
 point at another namespace's Service only with that namespace's consent — the `ReferenceGrant`
 (gotcha #32). *Why `bankapi.poc.local` and not `api.bank.poc.local`:* the wildcard certificate and
@@ -470,6 +477,7 @@ sudo sh -c 'demos/15-bank/hosts-entries.sh >> /etc/hosts'      # your terminal; 
 dscacheutil -flushcache; sudo killall -HUP mDNSResponder
 open https://bank.poc.local
 ```
+
 *Why a separate hosts script:* its own delimited block, added and removed without touching the
 demo 09 block; it reads the two routes live so the address is never typed by hand.
 
@@ -478,6 +486,7 @@ demo 09 block; it reads the two routes live so the address is never typed by han
 ```bash
 scripts/record.sh demos/15-bank/output/transcript.txt demos/15-bank/check.sh
 ```
+
 *Why `record.sh`:* every command and its real output lands in the transcript, so the README quotes
 captures, not memory. *What `check.sh` does, in order:* waits until both clusters' maps list both
 `payments` backends → one statement call whose body shows `api: poc1, accounts: poc2` → a payment
@@ -489,6 +498,7 @@ and its idempotent replay → 40 payments counted per cluster → a 60-second lo
 demos/15-bank/exercise.sh 20 chk-1001
 demos/15-bank/exercise.sh 60 chk-1002 --failover
 ```
+
 *Why:* the same thing as a watchable table — one line per payment with the cluster/pod of every
 hop, a ledger check (`before − after == sum`), declines separated from failures. `--failover`
 scales poc1's `payments` to 0 at call 20 and restores it at 40. *Expect:* `FAILED (infrastructure): 0`.
@@ -496,6 +506,7 @@ scales poc1's `payments` to 0 at call 20 and restores it at 40. *Expect:* `FAILE
 ```bash
 scripts/record.sh demos/15-bank/output/transcript.txt demos/15-bank/resilience.sh
 ```
+
 *Why:* three drills judged by responses — `payments` poc1 → 0 statically, an `accounts` pod killed
 under a read loop, `postgres-0` and `redis-0` deleted. *Expect:* `DATA SURVIVED the pod`,
 `HISTORY SURVIVED`, `replay=True` after the Redis restart.
@@ -503,6 +514,7 @@ under a read loop, `postgres-0` and `redis-0` deleted. *Expect:* `DATA SURVIVED 
 ```bash
 scripts/record.sh demos/15-bank/output/transcript.txt demos/15-bank/scale.sh
 ```
+
 *Why:* load balancing for a scaled-out service across both clusters. It scales `payments` to 3+3
 (`kubectl scale deploy/payments --replicas=3` in each cluster), shows the six-backend pool in poc1's
 eBPF map, fires 300 payments from 16 parallel `curl`s (`xargs -P 16`; a new connection each, because
@@ -521,6 +533,7 @@ kubectl --context kind-poc2 -n bank exec postgres-0 -- psql -U bank -d bank \
   -c "CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD 'replicator'" \
   -c "SELECT pg_create_physical_replication_slot('standby_poc1')"
 ```
+
 *Why a role:* replication should not run as the superuser the app uses. *Why a slot:* `wal_keep_size`
 is 0 by default, so without a slot the primary may discard WAL the standby has not received yet and
 the standby would need a rebuild after any pause.
@@ -528,6 +541,7 @@ the standby would need a rebuild after any pause.
 ```bash
 kubectl --context kind-poc2 -n bank exec postgres-0 -- sh -c 'echo "host replication replicator all scram-sha-256" >> $PGDATA/pg_hba.conf && psql -U bank -d bank -Atc "SELECT pg_reload_conf()"'
 ```
+
 *Why:* the image writes `host all all all scram-sha-256` but **not** a `replication` line, so a
 remote standby is refused; `pg_reload_conf()` applies it without a restart. Nothing else needed:
 `wal_level=replica`, `max_wal_senders=10`, `hot_standby=on` are PostgreSQL 16 defaults — read back
@@ -597,6 +611,7 @@ kubectl --context kind-poc1 apply -f demos/15-bank/40-postgres-standby-poc1.yaml
 kubectl --context kind-poc1 -n bank logs postgres-standby-0 -c basebackup
 kubectl --context kind-poc1 -n bank logs postgres-standby-0 -c postgres | grep -E 'standby|streaming|recovery'
 ```
+
 *Why an init container:* on an empty volume it runs `pg_basebackup … -R --slot` against
 `postgres-primary` — a global Service whose pod is in poc2, so the copy crosses the mesh — and `-R`
 writes `standby.signal` + `primary_conninfo`; the stock image then simply starts as a standby.
@@ -606,6 +621,7 @@ writes `standby.signal` + `primary_conninfo`; the stock image then simply starts
 kubectl --context kind-poc2 -n bank exec postgres-0 -- psql -U bank -d bank -c "SELECT client_addr, state, sync_state, replay_lag FROM pg_stat_replication"
 kubectl --context kind-poc1 -n bank exec postgres-standby-0 -c postgres -- psql -U bank -d bank -c "SELECT pg_is_in_recovery(), status, sender_host FROM pg_stat_wal_receiver"
 ```
+
 *Why both sides:* the primary names who is streaming from it (`client_addr` is a **poc1** pod IP);
 the standby names whom it follows and that it is in recovery. *Expect:* `streaming | async |
 00:00:00.0003` and `t | streaming | postgres-primary.bank.svc.cluster.local`.
@@ -615,6 +631,7 @@ the standby names whom it follows and that it is in recovery. *Expect:* `streami
 ```bash
 kubectl --context kind-poc2 -n bank get deploy accounts -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}' | grep PG_
 ```
+
 *Why two DSNs:* `PG_DSN` (writes and first-choice reads) → `postgres-primary`; `PG_STANDBY_DSN`
 (reads only, only when the primary does not answer) → `postgres-standby`. Writes never go to a
 standby; promotion is an operator's decision. *Expect:* a balance response carrying `"db": "primary"`.
@@ -625,6 +642,7 @@ standby; promotion is an operator's decision. *Expect:* a balance response carry
 scripts/record.sh demos/15-bank/output/transcript.txt demos/15-bank/dbfailover.sh
 FROM=3 demos/15-bank/dbfailover.sh          # only promotion + failback
 ```
+
 The commands the script runs, and why:
 
 | Step | Command | Why |
@@ -648,5 +666,6 @@ equal, `a payment -> http 201`.
 kubectl --context kind-poc1 delete -f demos/15-bank/30-gateway.yaml -f demos/15-bank/40-postgres-standby-poc1.yaml -f demos/15-bank/20-poc1.yaml
 kubectl --context kind-poc2 delete -f demos/15-bank/10-poc2.yaml
 ```
+
 *Why this order:* routes and the standby first (they reference the others), then the namespaces —
 the PVCs are deleted with them. The image and the `.tmp/` dumps stay.

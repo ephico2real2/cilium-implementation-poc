@@ -142,7 +142,7 @@ unchanged, with BGP substituted for L2 in production.
 | ✅ | **Collector per cluster (demo 23)** — gateway pattern, persistent queue, the global-service trap measured | done |
 | ✅ | **Multi-cluster observability (demo 22)** — poc2's metrics and traces in the central Grafana/Tempo on poc1; the `cluster` dropdown lists both | done |
 | ✅ | **Tempo (demo 21)** — traces stored and clickable from Hubble's exemplars; demo 16 Section C reconciled the reference Hubble values (dashboards in `monitoring`, in folders) | done |
-| ✅ | **Spring Boot lab (demo 20)** — petclinic's six JVMs in `springboot`, the app's own spans and the Java agent's spans in the demo 10 collector; `scale.sh down|up` frees the memory it needs by parking the bank and demo 09 Deployments | done; `https://petclinic.poc.local` |
+| ✅ | **Spring Boot lab (demo 20)** — petclinic's six JVMs in `springboot`, the app's own spans and the Java agent's spans in the demo 10 collector; `scale.sh down\|up` frees the memory it needs by parking the bank and demo 09 Deployments | done; `https://petclinic.poc.local` |
 | ✅ | **Zero-trust cell (demo 19)** — the bank runs default-deny on both clusters under a clusterwide baseline and rendered per-component policies; this is the standing posture now | done; `demos/19-zero-trust-cell/` |
 | ✅ | **OBI (demo 18)** — zero-code distributed tracing and RED metrics for the bank on both clusters, one collector, Cilium untouched | done; `demos/18-obi/check.sh`, `tracetree.py` |
 | ⛔ | **Tetragon (demo 17)** | cannot run on Docker Desktop 4.27.2 (`# CONFIG_SECURITY is not set`; fixed in 4.30.0) and needs the `/procHost` extraMount now in `clusters/poc*.yaml` — [demos/17-tetragon/README.md](demos/17-tetragon/README.md); resumes after the Docker Desktop upgrade on a cluster built with the mount |
@@ -337,7 +337,7 @@ ifconfig bridge100 | grep -E 'inet |member'
 
 ```
 inet 192.168.64.1 netmask 0xffffff00 broadcast 192.168.64.255
-	member: vmenet0 flags=10803<LEARNING,DISCOVER,PRIVATE,CSUM>
+ member: vmenet0 flags=10803<LEARNING,DISCOVER,PRIVATE,CSUM>
 ```
 
 See NETWORKING_DESIGN.md §4 and SETUP.md Step 3.5.

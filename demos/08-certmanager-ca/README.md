@@ -349,4 +349,3 @@ cert-manager-webhook-646c95c5ff-cx8gv      1/1     Running   6 (57s ago)   31h  
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

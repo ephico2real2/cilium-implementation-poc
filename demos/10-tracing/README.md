@@ -248,4 +248,3 @@ otel-collector-xvft4   1/1     Running   0          7h39m   10.10.0.189   poc1-c
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

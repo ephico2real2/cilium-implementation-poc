@@ -13,6 +13,7 @@ const { chromium } = require('playwright'); const fs = require('fs'); const path
   for (const c of spec.captures) {
     if (c.url.includes('grafana.poc.local') && !loggedIn) { await p.goto('https://grafana.poc.local/login', { waitUntil: 'load' }); await p.fill('input[name=user]', 'admin'); await p.fill('input[name=password]', 'poc-grafana'); await p.click('button[type=submit]'); await p.waitForTimeout(3000); loggedIn = true; }
     try {
+      await p.setViewportSize({ width: 1600, height: c.height || 1000 });   // Grafana scrolls inside a fixed-height app shell: fullPage does not help, a taller viewport does
       await p.goto(c.url, { waitUntil: 'load', timeout: 90000 });
       if (typeof c.wait === 'string' && c.wait.startsWith('text:')) { const t = c.wait.slice(5); let ok = false; for (let i = 0; i < 72; i++) { await p.waitForTimeout(5000); if ((await p.evaluate(() => document.body.innerText)).includes(t)) { ok = true; break; } } await p.waitForTimeout(4000); console.log(`${c.name}: waited for "${t}" → ${ok ? 'seen' : 'NOT seen (captured anyway)'}`); }
       else { await p.waitForTimeout(Number(c.wait || 15000)); }

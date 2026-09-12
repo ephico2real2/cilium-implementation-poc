@@ -231,6 +231,7 @@ cluster (Step 2.7). Do it first. Docker Desktop 4.26+ only:
 ```bash
 defaults read /Applications/Docker.app/Contents/Info.plist CFBundleShortVersionString
 ```
+
 ```
 4.27.2
 ```
@@ -246,6 +247,7 @@ d = json.loads(p.read_text()); d['kernelForUDP'] = True
 p.write_text(json.dumps(d, indent=2)); print('kernelForUDP ->', d['kernelForUDP'])
 "
 ```
+
 ```
 kernelForUDP -> True
 ```
@@ -255,6 +257,7 @@ Proof it worked, after the restart — a `bridgeNNN` with a `vmenet` member exis
 ```bash
 ifconfig | awk '/^bridge[0-9]+:/{b=$1} /member: vmenet/{print b; exit}'
 ```
+
 ```
 bridge100:
 ```
@@ -270,6 +273,7 @@ There is nothing to do by hand, but **look at it**, because every later address 
 ```bash
 docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} gw {{.Gateway}}{{"\n"}}{{end}}'
 ```
+
 ```
 172.18.0.0/16 gw 172.18.0.1
 fc00:f853:ccd:e793::/64 gw fc00:f853:ccd:e793::1
@@ -284,6 +288,7 @@ bottom:
 ```bash
 docker network inspect kind --format '{{range .Containers}}{{printf "%-32s" .Name}} {{.IPv4Address}}{{"\n"}}{{end}}' | sort -t. -k4 -n
 ```
+
 ```
 poc1-external-load-balancer      172.18.0.2/16
 poc1-control-plane3              172.18.0.3/16
@@ -308,6 +313,7 @@ echo "host bridge = $BR ($HOST_IP)"
 echo "gateway     = $VM_IP"
 echo "command     = sudo route -n add -net $DOCKER_NET $VM_IP"
 ```
+
 ```
 destination = 172.18.0.0/16
 host bridge = bridge100 (192.168.64.1)
@@ -323,6 +329,7 @@ Now run the printed command **yourself** (it needs `sudo`; no script in this rep
 ```bash
 sudo route -n add -net 172.18.0.0/16 192.168.64.2
 ```
+
 ```
 add net 172.18.0.0: gateway 192.168.64.2
 ```
@@ -338,6 +345,7 @@ the VM link goes away). Re-run it; `netstat -rn -f inet | grep 172.18` tells you
 netstat -rn -f inet | grep '^172.18'
 route -n get 172.18.255.240 | grep -E 'gateway|interface'
 ```
+
 ```
 172.18             192.168.64.2       UGSc            bridge100
     gateway: 192.168.64.2
@@ -350,6 +358,7 @@ route -n get 172.18.255.240 | grep -E 'gateway|interface'
 ```bash
 arp -an | grep -c '172\.18\.'
 ```
+
 ```
 0
 ```
@@ -361,6 +370,7 @@ its real routing table):
 docker run --rm --privileged --pid=host --net=host alpine sh -c \
   'nsenter -t 1 -n ip -4 route show | grep -E "172\.18|192\.168\.64"; echo ip_forward=$(nsenter -t 1 -n cat /proc/sys/net/ipv4/ip_forward)'
 ```
+
 ```
 172.18.0.0/16 dev br-e1180494aacf scope link src 172.18.0.1
 192.168.64.0/24 dev eth1 scope link src 192.168.64.2
@@ -372,6 +382,7 @@ ip_forward=1
 ```bash
 docker exec poc1-worker ip -4 route show
 ```
+
 ```
 default via 172.18.0.1 dev eth0
 172.18.0.0/16 dev eth0 proto kernel scope link src 172.18.0.5
@@ -386,6 +397,7 @@ bridge, i.e. "another server on the LAN":
 docker exec hubble-ui-proxy sh -c 'wget -q -O /dev/null --header="Host: web.poc.local" http://172.18.255.240/ && echo GET ok; cat /proc/net/arp'
 docker exec poc1-control-plane3 ip -br link show eth0
 ```
+
 ```
 GET ok
 IP address       HW type     Flags       HW address            Mask     Device
@@ -403,6 +415,7 @@ curl -s -o /dev/null -w 'http %{http_code} via %{remote_ip}\n' -H 'Host: web.poc
 curl -s -o /dev/null -w 'http %{http_code} via %{remote_ip}\n' http://172.18.255.201/                            # kind-docker-pool
 traceroute -n -m 3 -q 1 -w 2 172.18.255.240
 ```
+
 ```
 http 200 via 172.18.255.240
 http 200 via 172.18.255.201
@@ -419,6 +432,7 @@ writes:
 ```bash
 scripts/hosts-entries.sh
 ```
+
 ```
 172.18.255.240  hubble.poc.local web.poc.local anything-at-all.poc.local grpc.poc.local exact.example.test
 172.18.255.241  deathstar.poc.local
@@ -461,7 +475,9 @@ BR="br-$(docker network inspect kind -f '{{.Id}}' | cut -c1-12)"
 ip -4 addr show "$BR" | grep inet
 ip -4 route show | grep '^172.18'
 ```
+
 Expected shape:
+
 ```
 172.18.0.0/16 gw 172.18.0.1
     inet 172.18.0.1/16 brd 172.18.255.255 scope global br-e1180494aacf
@@ -476,7 +492,9 @@ Expected shape:
 curl -s -o /dev/null -w 'http %{http_code} via %{remote_ip}\n' -H 'Host: web.poc.local' http://172.18.255.240/
 ip neigh show | grep 172.18.255
 ```
+
 Expected shape:
+
 ```
 http 200 via 172.18.255.240
 172.18.255.240 dev br-e1180494aacf lladdr 02:42:ac:12:00:03 REACHABLE
@@ -514,6 +532,7 @@ as a packet to `172.18.255.240`:
 ```bash
 kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -E '172\.18\.255\.(240|201)'
 ```
+
 ```
 18   172.18.255.201:80/TCP     LoadBalancer   1 => 10.10.3.2:8081/TCP (active)
 46   172.18.255.240:80/TCP     LoadBalancer   1 => 127.0.0.1:10199/TCP (active)    <- Envoy, the Gateway listener

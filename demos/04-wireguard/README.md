@@ -14,7 +14,7 @@ certificates, no application changes. Two Helm values turn it on.
 **"Transparent" is literal here.** Applications are not modified, do not know it is on, and open
 ordinary unencrypted sockets. Encryption happens below them as the packet leaves the node.
 
-### Do I need to install WireGuard first? No.
+### Do I need to install WireGuard first? No
 
 This is the first question everyone asks. **WireGuard has been in the Linux kernel since 5.6**, and
 Cilium drives it directly: it creates the `cilium_wg0` device, generates each node's keypair, and
@@ -289,4 +289,3 @@ coredns-789c5fbdb4-qhj2d                      1/1     Running   0               
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

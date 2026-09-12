@@ -343,4 +343,3 @@ obi-j5874   1/1     Running   0          47m   172.18.0.9   poc2-worker   <none>
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

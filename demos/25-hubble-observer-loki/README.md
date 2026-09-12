@@ -527,4 +527,3 @@ tempo-0                                                  1/1     Running   6 (2m
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

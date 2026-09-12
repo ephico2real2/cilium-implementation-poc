@@ -61,4 +61,3 @@ helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --vers
 ## Evidence
 
 **Captures not taken yet** — the tuning runs need a quiet VM (they measure TCP_CRR under load); the numbers are in the transcript. Captures to add: netperf output before/after each sysctl on a VM with headroom. See [`output/screenshots/MISSING-CAPTURE.md`](output/screenshots/MISSING-CAPTURE.md) and [`/missing-captures.md`](../../missing-captures.md).
-

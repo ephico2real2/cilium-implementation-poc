@@ -80,6 +80,7 @@ Enrollment is per namespace and nothing else (the docs' only supported way):
 ```bash
 kubectl label namespace forensic io.cilium/mtls-enabled=true
 ```
+
 ```
 mtls-enrolled-namespaces: [{"Name": "forensic", "Status": {"kind": "Done"}}]
 ```
@@ -176,4 +177,3 @@ cluster config stay so the exercise can be re-run in ~5 minutes. The ztunnel key
 ## Evidence
 
 **Captures not taken yet** — poc4, the throwaway cluster ztunnel was evaluated on, was deleted (ztunnel cannot run with a `cluster.id`, so never on the meshed clusters). Captures to add if rebuilt: the WireGuard vs ztunnel encryption status and the −73 % throughput comparison. See [`output/screenshots/MISSING-CAPTURE.md`](output/screenshots/MISSING-CAPTURE.md) and [`/missing-captures.md`](../../missing-captures.md).
-

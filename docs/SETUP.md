@@ -146,6 +146,7 @@ That is 16 CPU / 32 GB, comfortably enough.
 build only cluster `poc1` and skip Phase 4 (ClusterMesh).
 
 ---
+
 ## Step 1 — install and verify the toolchain
 
 Four sub-steps, each run and verified on its own. Resist the urge to chain them with `&&`: when a
@@ -304,6 +305,7 @@ The `Kernel` value matters later: the performance demo in Phase 3 needs **≥ 6.
 Note it down now.
 
 ---
+
 ## Step 2 — size the Docker VM, and clear the decks
 
 ### Step 2.1 — find out how big the VM actually is
@@ -717,8 +719,8 @@ ifconfig bridge100 | grep -E 'inet |member'
 ```
 
 ```
-	inet 192.168.64.1 netmask 0xffffff00 broadcast 192.168.64.255
-	member: vmenet0 flags=10803<LEARNING,DISCOVER,PRIVATE,CSUM>
+ inet 192.168.64.1 netmask 0xffffff00 broadcast 192.168.64.255
+ member: vmenet0 flags=10803<LEARNING,DISCOVER,PRIVATE,CSUM>
 ```
 
 `192.168.64.1` is the **host's** address on that segment. The gateway you want is the **VM's**
@@ -1355,6 +1357,7 @@ tests above tell those apart: if the container test returns 200 and the browser 
 cluster is fine and the route is missing.
 
 ---
+
 ## Step 8b — Gateway API flags, and the rule for operator-side flags
 
 Gateway API itself is switched on in **demo 05** (CRDs first, then two helm values), so it is not
@@ -1845,4 +1848,3 @@ helm upgrade hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer
 for c in poc1 poc2; do kubectl --context kind-$c apply -f demos/25-hubble-observer-loki/40-hubble-cli-client-cert.yaml; done
 hubble status -P --kube-context kind-poc1 $(scripts/hubble-tls.sh kind-poc1)                                # every hubble command from here on
 ```
-

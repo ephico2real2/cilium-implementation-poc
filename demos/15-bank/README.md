@@ -165,11 +165,13 @@ delimited block, so it can be added and removed independently of the demo 09 blo
 ```bash
 demos/15-bank/hosts-entries.sh
 ```
+
 ```
 # ---- cilium-kind-poc bank (generated 2026-09-12T01:24Z by demos/15-bank/hosts-entries.sh) ----
 172.18.255.240  bank.poc.local bankapi.poc.local
 # ---- end cilium-kind-poc bank ----
 ```
+
 Add it, verify one layer at a time, then use the names — the `sudo` lines are yours to run:
 
 ```bash
@@ -601,4 +603,3 @@ postgres-0                  1/1     Running   0          20h   10.20.1.217   poc
 ```
 
 The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
-

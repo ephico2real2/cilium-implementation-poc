@@ -1,0 +1,20 @@
+# markdownlint-cli2 — the rules this repository's pages follow. Formatting (wrapping, tables, lists) is prettier's job
+# (.prettierrc); this file is the lint pass that runs after it. Rules that would force mass edits of recorded
+# evidence or of the repo's established style are off, with the reason.
+config:
+  default: true
+  MD013: false        # line length: transcripts, tables and URLs are long on purpose
+  MD024: { siblings_only: true }   # "Part N" headings repeat across demos, not within a section
+  MD033: false        # inline HTML: <a name=…> anchors in GOTCHAS.md
+  MD040: false        # fenced code without a language: hundreds of recorded-output blocks
+  MD041: false        # first line need not be a heading (blockquote pointers under titles)
+  MD036: false        # emphasis used as a heading: "**Part 1b, two attempts.**" is a deliberate style
+  MD034: false        # bare URLs appear inside recorded output
+  MD060: false        # table column style: prettier owns table formatting
+ignores:
+  - "docs/VERIFICATION_RUN.md"
+  - "demos/*/output/**"
+  - "demos/25-hubble-observer-loki/chart/**"
+  - "demos/25-hubble-observer-loki/default-values/**"
+  - ".tmp/**"
+  - "node_modules/**"

@@ -151,6 +151,7 @@ Masquerading:           IPTables [IPv4: Enabled, IPv6: Disabled]
 helm upgrade cilium cilium/cilium -n kube-system --version 1.20.1 --reuse-values --set bpf.masquerade=true
 kubectl -n kube-system rollout restart ds/cilium
 ```
+
 ```
 Routing:                Network: Tunnel [vxlan]   Host: BPF
 Masquerading:           BPF   [eth0]   10.10.0.0/24
@@ -167,6 +168,7 @@ production shape for a rack:
 ```bash
 helm upgrade … --reuse-values --set routingMode=native --set autoDirectNodeRoutes=true --set ipv4NativeRoutingCIDR=10.10.0.0/16
 ```
+
 ```
 Routing:             Network: Native   Host: BPF
 10.10.4.0/24 via 172.18.0.5 dev eth0 proto kernel        <- a pod CIDR route per peer node
@@ -278,4 +280,3 @@ scripts/cluster-pause.sh poc3                       # or: kind delete cluster --
 ## Evidence
 
 **Captures not taken yet** — poc3 (kindnet + kube-proxy) is paused to keep memory for the observability stack; its forensic comparison is recorded in the transcript. Captures to add when poc3 runs again: the iptables chain counts on a poc3 node vs `cilium-dbg bpf lb list` on poc1, and `scripts/forensic.sh` output from both. See [`output/screenshots/MISSING-CAPTURE.md`](output/screenshots/MISSING-CAPTURE.md) and [`/missing-captures.md`](../../missing-captures.md).
-
