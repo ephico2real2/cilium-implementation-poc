@@ -1,0 +1,37 @@
+{
+ "captures": [
+  {
+   "name": "hubble-ui-cf2cnp-lab",
+   "url": "https://hubble.poc.local/?namespace=cf2cnp-lab",
+   "wait": "text:stranger",
+   "look": "Hubble UI on the lab namespace after enforcement: pos \u2192 shop forwarded, stranger \u2192 shop dropped, pos \u2192 world"
+  },
+  {
+   "name": "grafana-network-overview-cf2cnp-lab",
+   "url": "https://grafana.poc.local/d/nlsO8tYVz?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-source_namespace=cf2cnp-lab&var-destination_namespace=cf2cnp-lab",
+   "wait": "text:Network Policy drops",
+   "height": 1900,
+   "look": "Hubble / Network Overview for the lab: flows by verdict, and the Network Policy drops panels naming stranger and shop"
+  },
+  {
+   "name": "grafana-hubble-metrics-denied-sources",
+   "url": "https://grafana.poc.local/d/5HftnJAWz?orgId=1&from=now-30m&to=now&viewPanel=55",
+   "wait": "text:stranger",
+   "look": "Hubble Metrics and Monitoring, Network Policy row: Top 10 Source Pods with Denied Packets (hubble_drop_total, reason POLICY_DENIED)"
+  },
+  {
+   "name": "grafana-hubble-observer-cf2cnp-lab",
+   "url": "https://grafana.poc.local/d/hubble-observer-23862?orgId=1&from=now-30m&to=now&var-destinationnamespace=cf2cnp-lab",
+   "wait": "text:POLICY_DENIED",
+   "height": 1400,
+   "look": "the Loki-backed drop history filtered to the lab: drop reason, denying policy, and the flow table whose Flow UUID column carries the cf2cnp actions"
+  },
+  {
+   "name": "grafana-policy-verdicts",
+   "url": "https://grafana.poc.local/d/policy-verdicts-26?orgId=1&from=now-45m&to=now&var-cluster=poc1&var-namespace=cf2cnp-lab",
+   "wait": "text:Who talked to whom",
+   "height": 1500,
+   "look": "our own dashboard on hubble_policy_verdicts_total: audited / forwarded / dropped totals, the verdict lines by action and by pair, the who-talked-to-whom table with match=none marking the default-deny's decisions, and the POLICY_DENIED drops beside them"
+  }
+ ]
+}

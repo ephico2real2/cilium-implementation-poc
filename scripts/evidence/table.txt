@@ -16,3 +16,4 @@ demos/22-multicluster-observability|poc1:monitoring poc2:monitoring|for c in poc
 demos/23-collector-per-cluster|poc1:otel poc2:otel|demos/23-collector-per-cluster/check.sh 60
 demos/24-clustermesh-enterprise|poc1:kube-system poc2:kube-system|demos/24-clustermesh-enterprise/check.sh
 demos/25-hubble-observer-loki|poc1:hubble-observer poc1:monitoring|demos/25-hubble-observer-loki/check.sh 2
+demos/26-cf2cnp-policy-from-flows|poc1:cf2cnp-lab poc1:hubble-observer|kubectl --context kind-poc1 -n cf2cnp-lab get cnp -o custom-columns='NAME:.metadata.name,VALID:.status.conditions[?(@.type=="Valid")].status,SELECTOR:.spec.endpointSelector.matchLabels,DESCRIPTION:.spec.description'|demos/26-cf2cnp-policy-from-flows/verify.sh 60s|demos/26-cf2cnp-policy-from-flows/policy-metric.sh cf2cnp-lab

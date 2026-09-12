@@ -1,0 +1,734 @@
+### Part 1 — the lab, and the flow JSON from every place this stack keeps flows
+### 2026-09-12T23:21:56Z
+$ bash -c kubectl --context kind-poc1 apply -f demos/26-cf2cnp-policy-from-flows/10-lab.yaml; kubectl --context kind-poc1 -n cf2cnp-lab wait --for=condition=Ready pod --all --timeout=120s 2>&1 | tail -3; sleep 25; kubectl --context kind-poc1 -n cf2cnp-lab get pods -o wide --no-headers | awk "{print \"  \"\$1, \$3, \$6, \$7}"; echo "--- what Hubble sees, no policy yet ---"; demos/26-cf2cnp-policy-from-flows/verify.sh 1m
+namespace/cf2cnp-lab created
+deployment.apps/shop created
+service/shop created
+pod/pos created
+pod/stranger created
+pod/pos condition met
+pod/shop-6d7d797759-4ddlt condition met
+pod/stranger condition met
+  pos Running 10.10.4.93 poc1-worker
+  shop-6d7d797759-4ddlt Running 10.10.3.7 poc1-worker2
+  stranger Running 10.10.4.3 poc1-worker
+--- what Hubble sees, no policy yet ---
+policies in cf2cnp-lab: 
+    56  pos        → shop-6d7d797759-4ddlt            :80    FORWARDED                
+    40  pos        → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+    40  stranger   → shop-6d7d797759-4ddlt            :80    FORWARDED                
+    32  pos        → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+    24  pos        → ,reserved:world                  :443   FORWARDED                
+    10  stranger   → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+     6  stranger   → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+
+### 2026-09-12T23:23:06Z
+$ bash -c G=demos/26-cf2cnp-policy-from-flows/get-flow.sh; P=demos/26-cf2cnp-policy-from-flows/policies; echo "1. the CLI, against the relay (live): the ingress flow stranger → shop:80, and pos → shop:80, and pos → the world:443"; $G cli --namespace cf2cnp-lab --from-pod cf2cnp-lab/stranger --to-pod cf2cnp-lab/shop --verdict FORWARDED --type trace:to-endpoint > $P/flow-stranger-to-shop.json; $G cli --namespace cf2cnp-lab --from-pod cf2cnp-lab/pos --to-pod cf2cnp-lab/shop --verdict FORWARDED --type trace:to-endpoint > $P/flow-pos-to-shop.json; $G cli --namespace cf2cnp-lab --from-pod cf2cnp-lab/pos --to-identity 2 --verdict FORWARDED --type trace:to-stack > $P/flow-pos-to-world.json; for f in $P/flow-*.json; do python3 -c "
+import json,sys; d=json.load(open(sys.argv[1])); f=d[\"flow\"]
+print(\"  %-28s dir=%s verdict=%s src=%s dst=%s port=%s names=%s\" % (sys.argv[1].split(\"/\")[-1], f.get(\"traffic_direction\"), f[\"verdict\"], f[\"source\"].get(\"pod_name\"), f[\"destination\"].get(\"pod_name\") or f[\"destination\"].get(\"labels\"), (f[\"l4\"].get(\"TCP\") or {}).get(\"destination_port\"), f.get(\"destination_names\")))" $f; done; echo "2. the observer pod (DROPPED only — nothing from this namespace yet): $(($G observer cf2cnp-lab | head -c 60) || true)…"; echo "3. Loki (the stored history, same filter): [$($G loki "{namespace=\"hubble-observer\",container=\"hubble-observer\"} |= \"cf2cnp-lab\"" 60 | head -c 60)]"; echo "4. the flow-export file on the node running shop (demo 10): $($G export poc1-worker2 cf2cnp-lab | head -c 140)…"; echo "--- the anatomy cf2cnp reads (from flow-stranger-to-shop.json) ---"; python3 -c "
+import json; f=json.load(open(\"$P/flow-stranger-to-shop.json\"))[\"flow\"]
+for k in (\"traffic_direction\",\"verdict\",\"IP\",\"l4\",\"destination_names\"): print(\"  \", k, \"=\", json.dumps(f.get(k)))
+for side in (\"source\",\"destination\"): print(\"  \", side, \"= namespace\", f[side].get(\"namespace\"), \"| labels\", [l for l in f[side].get(\"labels\",[]) if \"app\" in l])"
+1. the CLI, against the relay (live): the ingress flow stranger → shop:80, and pos → shop:80, and pos → the world:443
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    import json,sys; d=json.load(open(sys.argv[1])); f=d["flow"]
+                       ~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    import json,sys; d=json.load(open(sys.argv[1])); f=d["flow"]
+                       ~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    import json,sys; d=json.load(open(sys.argv[1])); f=d["flow"]
+                       ~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+2. the observer pod (DROPPED only — nothing from this namespace yet): …
+3. Loki (the stored history, same filter): []
+4. the flow-export file on the node running shop (demo 10): {"flow":{"time":"2026-09-12T23:23:10.087289908Z","verdict":"FORWARDED","IP":{"source":"10.10.3.7","destination":"10.10.4.3","ipVersion":"IPv…
+--- the anatomy cf2cnp reads (from flow-stranger-to-shop.json) ---
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    import json; f=json.load(open("demos/26-cf2cnp-policy-from-flows/policies/flow-stranger-to-shop.json"))["flow"]
+                   ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+[exit code: 1]
+
+### 2026-09-12T23:23:12Z
+$ bash -c P=demos/26-cf2cnp-policy-from-flows/policies; G=demos/26-cf2cnp-policy-from-flows/generate.sh; for f in stranger-to-shop pos-to-shop pos-to-world; do echo "=== generate ← flow-$f.json ==="; $G $P/flow-$f.json $P/cnp-$f.yaml; sed "s/^/    /" $P/cnp-$f.yaml; done
+=== generate ← flow-stranger-to-shop.json ===
+http=400 → demos/26-cf2cnp-policy-from-flows/policies/cnp-stranger-to-shop.yaml
+    Request body is empty. Please provide Hubble flow JSON.
+=== generate ← flow-pos-to-shop.json ===
+http=400 → demos/26-cf2cnp-policy-from-flows/policies/cnp-pos-to-shop.yaml
+    Request body is empty. Please provide Hubble flow JSON.
+=== generate ← flow-pos-to-world.json ===
+http=400 → demos/26-cf2cnp-policy-from-flows/policies/cnp-pos-to-world.yaml
+    Request body is empty. Please provide Hubble flow JSON.
+
+### Part 1b — the three flows, fetched with the CLI (the first attempt used a filter the CLI rejected; recorded above)
+### 2026-09-12T23:23:53Z
+$ bash -c G=demos/26-cf2cnp-policy-from-flows/get-flow.sh; P=demos/26-cf2cnp-policy-from-flows/policies; $G cli --namespace cf2cnp-lab --from-pod cf2cnp-lab/stranger --to-pod cf2cnp-lab/shop --to-port 80 --verdict FORWARDED --type trace:to-endpoint > $P/flow-stranger-to-shop.json; $G cli --namespace cf2cnp-lab --from-pod cf2cnp-lab/pos --to-pod cf2cnp-lab/shop --to-port 80 --verdict FORWARDED --type trace:to-endpoint > $P/flow-pos-to-shop.json; $G cli --namespace cf2cnp-lab --from-pod cf2cnp-lab/pos --to-port 443 --verdict FORWARDED > $P/flow-pos-to-world.json; for f in $P/flow-*.json; do python3 -c "
+import json,sys; d=json.load(open(sys.argv[1])); f=d[\"flow\"]
+print(\"  %-26s bytes=%d dir=%s verdict=%s src=%s dst=%s port=%s names=%s type=%s\" % (sys.argv[1].split(\"/\")[-1], len(open(sys.argv[1]).read()), f.get(\"traffic_direction\"), f[\"verdict\"], f[\"source\"].get(\"pod_name\"), f[\"destination\"].get(\"pod_name\") or [l for l in f[\"destination\"].get(\"labels\",[]) if \"reserved\" in l], (f[\"l4\"].get(\"TCP\") or {}).get(\"destination_port\"), f.get(\"destination_names\"), f.get(\"trace_observation_point\")))" $f; done; echo "--- the anatomy cf2cnp reads (flow-stranger-to-shop.json) ---"; python3 -c "
+import json; f=json.load(open(\"$P/flow-stranger-to-shop.json\"))[\"flow\"]
+for k in (\"traffic_direction\",\"verdict\",\"IP\",\"l4\",\"destination_names\"): print(\"  \", k, \"=\", json.dumps(f.get(k)))
+for side in (\"source\",\"destination\"): print(\"  \", side, \"= namespace\", f[side].get(\"namespace\"), \"| labels\", [l for l in f[side].get(\"labels\",[]) if \"app\" in l])"; echo "--- generate, through the API, from each ---"; G2=demos/26-cf2cnp-policy-from-flows/generate.sh; for f in stranger-to-shop pos-to-shop pos-to-world; do echo "=== cnp-$f.yaml ==="; $G2 $P/flow-$f.json $P/cnp-$f.yaml >/dev/null; sed "s/^/    /" $P/cnp-$f.yaml; done
+demos/26-cf2cnp-policy-from-flows/get-flow.sh: line 11: syntax error near unexpected token `)'
+demos/26-cf2cnp-policy-from-flows/get-flow.sh: line 11: `  observer) kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --since=30m 2>/dev/null | grep -- "${1:-.}" | tail -1 ;;'
+demos/26-cf2cnp-policy-from-flows/get-flow.sh: line 11: syntax error near unexpected token `)'
+demos/26-cf2cnp-policy-from-flows/get-flow.sh: line 11: `  observer) kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --since=30m 2>/dev/null | grep -- "${1:-.}" | tail -1 ;;'
+demos/26-cf2cnp-policy-from-flows/get-flow.sh: line 11: syntax error near unexpected token `)'
+demos/26-cf2cnp-policy-from-flows/get-flow.sh: line 11: `  observer) kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --since=30m 2>/dev/null | grep -- "${1:-.}" | tail -1 ;;'
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    import json,sys; d=json.load(open(sys.argv[1])); f=d["flow"]
+                       ~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    import json,sys; d=json.load(open(sys.argv[1])); f=d["flow"]
+                       ~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    import json,sys; d=json.load(open(sys.argv[1])); f=d["flow"]
+                       ~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+--- the anatomy cf2cnp reads (flow-stranger-to-shop.json) ---
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    import json; f=json.load(open("demos/26-cf2cnp-policy-from-flows/policies/flow-stranger-to-shop.json"))["flow"]
+                   ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+--- generate, through the API, from each ---
+=== cnp-stranger-to-shop.yaml ===
+    Request body is empty. Please provide Hubble flow JSON.
+=== cnp-pos-to-shop.yaml ===
+    Request body is empty. Please provide Hubble flow JSON.
+=== cnp-pos-to-world.yaml ===
+    Request body is empty. Please provide Hubble flow JSON.
+
+### Part 1c — the CLI: --from-pod/--to-pod already name the namespace; --namespace cannot be combined with them (the empty files above)
+### 2026-09-12T23:24:22Z
+$ bash -c G=demos/26-cf2cnp-policy-from-flows/get-flow.sh; P=demos/26-cf2cnp-policy-from-flows/policies; $G cli --from-pod cf2cnp-lab/stranger --to-pod cf2cnp-lab/shop --to-port 80 --verdict FORWARDED --type trace:to-endpoint > $P/flow-stranger-to-shop.json; $G cli --from-pod cf2cnp-lab/pos --to-pod cf2cnp-lab/shop --to-port 80 --verdict FORWARDED --type trace:to-endpoint > $P/flow-pos-to-shop.json; $G cli --from-pod cf2cnp-lab/pos --to-port 443 --verdict FORWARDED > $P/flow-pos-to-world.json; for f in $P/flow-*.json; do python3 -c "
+import json,sys; d=json.load(open(sys.argv[1])); f=d[\"flow\"]
+print(\"  %-26s bytes=%d dir=%s verdict=%s src=%s dst=%s port=%s names=%s point=%s\" % (sys.argv[1].split(\"/\")[-1], len(open(sys.argv[1]).read()), f.get(\"traffic_direction\"), f[\"verdict\"], f[\"source\"].get(\"pod_name\"), f[\"destination\"].get(\"pod_name\") or [l for l in f[\"destination\"].get(\"labels\",[]) if \"reserved\" in l], (f[\"l4\"].get(\"TCP\") or {}).get(\"destination_port\"), f.get(\"destination_names\"), f.get(\"trace_observation_point\")))" $f; done; echo "--- the anatomy cf2cnp reads (flow-stranger-to-shop.json) ---"; python3 -c "
+import json; f=json.load(open(\"$P/flow-stranger-to-shop.json\"))[\"flow\"]
+for k in (\"traffic_direction\",\"verdict\",\"IP\",\"l4\",\"destination_names\"): print(\"  \", k, \"=\", json.dumps(f.get(k)))
+for side in (\"source\",\"destination\"): print(\"  \", side, \"= namespace\", f[side].get(\"namespace\"), \"| labels\", [l for l in f[side].get(\"labels\",[]) if \"app\" in l])"; echo "--- generate, through the API, from each ---"; G2=demos/26-cf2cnp-policy-from-flows/generate.sh; for f in stranger-to-shop pos-to-shop pos-to-world; do echo "=== cnp-$f.yaml ==="; $G2 $P/flow-$f.json $P/cnp-$f.yaml >/dev/null; sed "s/^/    /" $P/cnp-$f.yaml; done
+demos/26-cf2cnp-policy-from-flows/get-flow.sh: line 11: syntax error near unexpected token `)'
+demos/26-cf2cnp-policy-from-flows/get-flow.sh: line 11: `  observer) kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --since=30m 2>/dev/null | grep -- "${1:-.}" | tail -1 ;;'
+demos/26-cf2cnp-policy-from-flows/get-flow.sh: line 11: syntax error near unexpected token `)'
+demos/26-cf2cnp-policy-from-flows/get-flow.sh: line 11: `  observer) kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --since=30m 2>/dev/null | grep -- "${1:-.}" | tail -1 ;;'
+demos/26-cf2cnp-policy-from-flows/get-flow.sh: line 11: syntax error near unexpected token `)'
+demos/26-cf2cnp-policy-from-flows/get-flow.sh: line 11: `  observer) kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --since=30m 2>/dev/null | grep -- "${1:-.}" | tail -1 ;;'
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    import json,sys; d=json.load(open(sys.argv[1])); f=d["flow"]
+                       ~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    import json,sys; d=json.load(open(sys.argv[1])); f=d["flow"]
+                       ~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    import json,sys; d=json.load(open(sys.argv[1])); f=d["flow"]
+                       ~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+--- the anatomy cf2cnp reads (flow-stranger-to-shop.json) ---
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    import json; f=json.load(open("demos/26-cf2cnp-policy-from-flows/policies/flow-stranger-to-shop.json"))["flow"]
+                   ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+--- generate, through the API, from each ---
+=== cnp-stranger-to-shop.yaml ===
+    Request body is empty. Please provide Hubble flow JSON.
+=== cnp-pos-to-shop.yaml ===
+    Request body is empty. Please provide Hubble flow JSON.
+=== cnp-pos-to-world.yaml ===
+    Request body is empty. Please provide Hubble flow JSON.
+
+### Part 4a — the Hubble policy-verdict metric switched on (dynamic metrics, additive: only cilium-dynamic-metrics-config changes in the render)
+### 2026-09-12T23:25:05Z
+$ bash -c helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc1 --reuse-values -f demos/16-monitoring/values-cilium-metrics.yaml 2>&1 | grep -E "REVISION|rror"; sleep 5; kubectl --context kind-poc1 -n kube-system get cm cilium-dynamic-metrics-config -o jsonpath="{.data.dynamic-metrics-config\.yaml}" | grep -c "name: policy" | sed "s/^/  policy metric in the ConfigMap: /"; kubectl --context kind-poc1 -n kube-system get pods -l k8s-app=cilium -o custom-columns="  POD:.metadata.name,RESTARTS:.status.containerStatuses[0].restartCount,STARTED:.status.startTime" --no-headers | head -2; echo "  (no agent restart: the dynamic exporter reloads the file — gotcha #59 was about changing an existing metric)"; demos/19-zero-trust-cell/egress-test.sh poc1 >/dev/null 2>&1; sleep 75; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=sum%20by%20(action,%20source_namespace)%20(hubble_policy_verdicts_total)" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print(\"  hubble_policy_verdicts_total by action, source_namespace:\", [(x[\"metric\"], x[\"value\"][1]) for x in r][:8] or \"none yet\")"
+REVISION: 42
+  policy metric in the ConfigMap: 0
+cilium-ntbb4   0     2026-09-12T11:21:21Z
+cilium-pv958   0     2026-09-12T11:20:47Z
+  (no agent restart: the dynamic exporter reloads the file — gotcha #59 was about changing an existing metric)
+  hubble_policy_verdicts_total by action, source_namespace: [({'action': 'forwarded'}, '49'), ({'action': 'forwarded', 'source_namespace': 'monitoring'}, '35'), ({'action': 'dropped', 'source_namespace': 'bank'}, '10'), ({'action': 'forwarded', 'source_namespace': 'kube-system'}, '152'), ({'action': 'forwarded', 'source_namespace': 'bank'}, '8'), ({'action': 'redirected', 'source_namespace': 'bank'}, '4'), ({'action': 'forwarded', 'source_namespace': 'hubble-observer'}, '156'), ({'action': 'redirected', 'source_namespace': 'hubble-observer'}, '111')]
+
+### Part 1d — the flows, with the filters the CLI accepts (get-flow.sh rewritten: --traffic-direction picks the reporting side; the first request, not a reply)
+### 2026-09-12T23:29:05Z
+$ bash -c G=demos/26-cf2cnp-policy-from-flows/get-flow.sh; P=demos/26-cf2cnp-policy-from-flows/policies; $G cli --to-pod cf2cnp-lab/shop --from-pod cf2cnp-lab/stranger --to-port 80 --traffic-direction ingress > $P/flow-stranger-to-shop.json; $G cli --to-pod cf2cnp-lab/shop --from-pod cf2cnp-lab/pos --to-port 80 --traffic-direction ingress > $P/flow-pos-to-shop.json; $G cli --from-pod cf2cnp-lab/pos --to-port 443 --traffic-direction egress > $P/flow-pos-to-world.json; for f in $P/flow-*.json; do python3 -c "
+import json,sys; d=json.load(open(sys.argv[1])); f=d[\"flow\"]
+print(\"  %-26s bytes=%d dir=%s verdict=%s src=%s dst=%s port=%s names=%s point=%s\" % (sys.argv[1].split(\"/\")[-1], len(open(sys.argv[1]).read()), f.get(\"traffic_direction\"), f[\"verdict\"], f[\"source\"].get(\"pod_name\"), f[\"destination\"].get(\"pod_name\") or [l for l in f[\"destination\"].get(\"labels\",[]) if \"reserved\" in l], (f[\"l4\"].get(\"TCP\") or {}).get(\"destination_port\"), f.get(\"destination_names\"), f.get(\"trace_observation_point\")))" $f; done; echo "--- the anatomy cf2cnp reads (flow-stranger-to-shop.json) ---"; python3 -c "
+import json; f=json.load(open(\"$P/flow-stranger-to-shop.json\"))[\"flow\"]
+for k in (\"traffic_direction\",\"verdict\",\"IP\",\"l4\",\"destination_names\"): print(\"  \", k, \"=\", json.dumps(f.get(k)))
+for side in (\"source\",\"destination\"): print(\"  \", side, \"= namespace\", f[side].get(\"namespace\"), \"| labels\", [l for l in f[side].get(\"labels\",[]) if \"app\" in l])"; echo "--- 2. the observer (DROPPED only: nothing for this namespace yet): [$($G observer cf2cnp-lab | head -c 40)]"; echo "--- 3. Loki, same filter: [$($G loki "{namespace=\"hubble-observer\",container=\"hubble-observer\"} |= \"cf2cnp-lab\"" 60 | head -c 40)]"; echo "--- 4. the flow-export file on poc1-worker2 (demo 10): $($G export poc1-worker2 cf2cnp-lab | head -c 120)…"; echo "--- generate, through the API, from each flow ---"; G2=demos/26-cf2cnp-policy-from-flows/generate.sh; for f in stranger-to-shop pos-to-shop pos-to-world; do echo "=== cnp-$f.yaml ==="; $G2 $P/flow-$f.json $P/cnp-$f.yaml >/dev/null; sed "s/^/    /" $P/cnp-$f.yaml; done
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    import json,sys; d=json.load(open(sys.argv[1])); f=d["flow"]
+                       ~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+  flow-pos-to-world.json     bytes=1356 dir=EGRESS verdict=FORWARDED src=pos dst=['reserved:world'] port=443 names=None point=TO_NETWORK
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    import json,sys; d=json.load(open(sys.argv[1])); f=d["flow"]
+                       ~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+--- the anatomy cf2cnp reads (flow-stranger-to-shop.json) ---
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    import json; f=json.load(open("demos/26-cf2cnp-policy-from-flows/policies/flow-stranger-to-shop.json"))["flow"]
+                   ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+--- 2. the observer (DROPPED only: nothing for this namespace yet): []
+--- 3. Loki, same filter: []
+--- 4. the flow-export file on poc1-worker2 (demo 10): {"flow":{"time":"2026-09-12T23:29:09.765610023Z","verdict":"FORWARDED","IP":{"source":"10.10.3.7","destination":"10.10.4…
+--- generate, through the API, from each flow ---
+=== cnp-stranger-to-shop.yaml ===
+    Request body is empty. Please provide Hubble flow JSON.
+=== cnp-pos-to-shop.yaml ===
+    Request body is empty. Please provide Hubble flow JSON.
+=== cnp-pos-to-world.yaml ===
+    apiVersion: cilium.io/v2
+    kind: CiliumNetworkPolicy
+    metadata:
+      name: pos
+      namespace: cf2cnp-lab
+    spec:
+      description: Allow egress traffic from cf2cnp-lab to 104.20.23.154 for the pos
+      endpointSelector:
+        matchLabels:
+          app.kubernetes.io/name: pos
+      egress:
+        - toCIDR:
+            - 104.20.23.154/32
+        # To allow all traffic to world instead of specific IPs, replace toCIDR with:
+        # - toEntities:
+        #     - world
+          toPorts:
+            - ports:
+                - port: "443"
+                  protocol: TCP
+
+### Part 2 — observe first: default-deny ingress on shop, in policy AUDIT mode (nothing dropped, every verdict reported)
+### 2026-09-12T23:30:30Z
+$ bash -c demos/26-cf2cnp-policy-from-flows/audit-mode.sh shop Enabled; kubectl --context kind-poc1 apply -f demos/26-cf2cnp-policy-from-flows/20-shop-default-deny-ingress.yaml; sleep 40; echo "--- what Hubble reports now for flows into shop (direction, verdict, policy) ---"; demos/26-cf2cnp-policy-from-flows/verify.sh 40s; echo "--- clients still get answers? ---"; for c in pos stranger; do echo "  $c → shop: HTTP $(kubectl --context kind-poc1 -n cf2cnp-lab exec $c -- wget -qO- -S --timeout=3 http://shop.cf2cnp-lab/ 2>&1 | grep -m1 "HTTP/" | tr -s " ")"; done
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json,sys; print(next(e['id'] for e in json.load(sys.stdin) if (e.get('status',{}).get('external-identifiers') or {}).get('pod-name')=='cf2cnp-lab/shop-6d7d797759-4ddlt'))
+                           ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+StopIteration
+Error: Cannot get configuration of endpoint : [GET /endpoint/{id}/config] GetEndpointIDConfig (status 400): {}
+
+command terminated with exit code 1
+ciliumnetworkpolicy.cilium.io/shop-default-deny-ingress created
+--- what Hubble reports now for flows into shop (direction, verdict, policy) ---
+policies in cf2cnp-lab: ciliumnetworkpolicy.cilium.io/shop-default-deny-ingress 
+    74  pos        → shop-6d7d797759-4ddlt            :80    FORWARDED                
+    52  stranger   → shop-6d7d797759-4ddlt            :80    FORWARDED                
+    50  pos        → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+    46  pos        → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+    32  pos        → ,reserved:world                  :443   FORWARDED                
+    14  stranger   → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+    10  stranger   → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+--- clients still get answers? ---
+  pos → shop: HTTP  HTTP/1.1 200 OK
+  stranger → shop: HTTP  HTTP/1.1 200 OK
+
+### 2026-09-12T23:35:18Z
+$ bash -c echo "first attempt used ingress: [] — Cilium rejected it:"; kubectl --context kind-poc1 -n cf2cnp-lab get cnp shop-default-deny-ingress -o jsonpath="{.status.conditions[0].type}={.status.conditions[0].status}: {.status.conditions[0].message}{\"\n\"}"; echo "fixed to one empty rule (ingress: [{}]) and audit mode on the shop endpoint:"; demos/26-cf2cnp-policy-from-flows/audit-mode.sh shop Enabled; kubectl --context kind-poc1 apply -f demos/26-cf2cnp-policy-from-flows/20-shop-default-deny-ingress.yaml; sleep 3; kubectl --context kind-poc1 -n cf2cnp-lab get cnp shop-default-deny-ingress -o jsonpath="{.status.conditions[0].type}={.status.conditions[0].status}{\"\n\"}"; kubectl --context kind-poc1 -n kube-system exec pod/cilium-s2wxk -c cilium-agent -- cilium-dbg endpoint list 2>/dev/null | awk "NR==1 || /^[0-9]+ .*(Enabled|Disabled|Audit)/ {print}" | grep -E "ENDPOINT|^1955 "; sleep 45; echo "--- Hubble, last 45s, flows in cf2cnp-lab (verdict / policy) ---"; demos/26-cf2cnp-policy-from-flows/verify.sh 45s; echo "--- clients still answered (audit mode = report, do not drop) ---"; for c in pos stranger; do echo "  $c → shop: $(kubectl --context kind-poc1 -n cf2cnp-lab exec $c -- wget -qO- -S --timeout=3 http://shop.cf2cnp-lab/ 2>&1 | grep -m1 "HTTP/" | tr -s " ")"; done
+first attempt used ingress: [] — Cilium rejected it:
+Valid=False: rule must have at least one of Ingress, IngressDeny, Egress, EgressDeny
+fixed to one empty rule (ingress: [{}]) and audit mode on the shop endpoint:
+endpoint 1955 (shop-6d7d797759-4ddlt on poc1-worker2): PolicyAuditMode=Enabled
+  PolicyAuditMode                   : Enabled
+ciliumnetworkpolicy.cilium.io/shop-default-deny-ingress configured
+Valid=True
+ENDPOINT   POLICY (ingress)   POLICY (egress)   IDENTITY   LABELS (source:key[=value])                                                                  IPv6   IPv4          STATUS   
+1955       Disabled           Disabled          94334      k8s:app.kubernetes.io/name=shop                                                                     10.10.3.7     waiting-to-regenerate   
+--- Hubble, last 45s, flows in cf2cnp-lab (verdict / policy) ---
+policies in cf2cnp-lab: ciliumnetworkpolicy.cilium.io/shop-default-deny-ingress 
+    88  pos        → shop-6d7d797759-4ddlt            :80    FORWARDED                
+    62  pos        → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+    54  stranger   → shop-6d7d797759-4ddlt            :80    FORWARDED                
+    46  pos        → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+    36  pos        → ,reserved:world                  :443   FORWARDED                
+    16  stranger   → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+     9  pos        → shop-6d7d797759-4ddlt            :80    AUDIT                    
+     8  stranger   → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+     6  stranger   → shop-6d7d797759-4ddlt            :80    AUDIT                    
+--- clients still answered (audit mode = report, do not drop) ---
+  pos → shop:  HTTP/1.1 200 OK
+  stranger → shop:  HTTP/1.1 200 OK
+
+### Part 3 — get the Hubble flow JSON (method: hubble CLI). Audit verdicts are reported by shop's own endpoint, so they are INGRESS flows
+### 2026-09-12T23:36:42Z
+$ bash -c for c in pos stranger; do demos/26-cf2cnp-policy-from-flows/get-flow.sh cli --verdict AUDIT --from-pod cf2cnp-lab/$c --to-pod cf2cnp-lab/shop > demos/26-cf2cnp-policy-from-flows/policies/flow-$c-to-shop.json; echo "flow-$c-to-shop.json: $(wc -c < demos/26-cf2cnp-policy-from-flows/policies/flow-$c-to-shop.json) bytes"; python3 -c "
+import json,sys; f=json.load(open(\"demos/26-cf2cnp-policy-from-flows/policies/flow-$c-to-shop.json\"))[\"flow\"]
+print(\"  direction\", f.get(\"traffic_direction\"), \"| verdict\", f.get(\"verdict\"), \"| point\", f.get(\"trace_observation_point\"), \"| node\", f.get(\"node_name\"))
+print(\"  source     \", f[\"source\"].get(\"namespace\"), f[\"source\"].get(\"pod_name\"), f[\"source\"].get(\"labels\"))
+print(\"  destination\", f[\"destination\"].get(\"namespace\"), f[\"destination\"].get(\"pod_name\"), f[\"destination\"].get(\"labels\"))
+print(\"  l4\", f.get(\"l4\"), \"| policy_match_type\", f.get(\"policy_match_type\"), \"| ingress_denied_by\", f.get(\"ingress_denied_by\"), \"| ingress_allowed_by\", f.get(\"ingress_allowed_by\"))"; done
+flow-pos-to-shop.json:     1592 bytes
+  direction INGRESS | verdict AUDIT | point None | node poc1/poc1-worker2
+  source      cf2cnp-lab pos ['k8s:app.kubernetes.io/name=pos', 'k8s:app=pos', 'k8s:io.cilium.k8s.namespace.labels.kubernetes.io/metadata.name=cf2cnp-lab', 'k8s:io.cilium.k8s.policy.cluster=poc1', 'k8s:io.cilium.k8s.policy.serviceaccount=default', 'k8s:io.kubernetes.pod.namespace=cf2cnp-lab']
+  destination cf2cnp-lab shop-6d7d797759-4ddlt ['k8s:app.kubernetes.io/name=shop', 'k8s:app=shop', 'k8s:io.cilium.k8s.namespace.labels.kubernetes.io/metadata.name=cf2cnp-lab', 'k8s:io.cilium.k8s.policy.cluster=poc1', 'k8s:io.cilium.k8s.policy.serviceaccount=default', 'k8s:io.kubernetes.pod.namespace=cf2cnp-lab']
+  l4 {'TCP': {'source_port': 45248, 'destination_port': 80, 'flags': {'SYN': True}}} | policy_match_type None | ingress_denied_by None | ingress_allowed_by None
+flow-stranger-to-shop.json:     1607 bytes
+  direction INGRESS | verdict AUDIT | point None | node poc1/poc1-worker2
+  source      cf2cnp-lab stranger ['k8s:app.kubernetes.io/name=stranger', 'k8s:app=stranger', 'k8s:io.cilium.k8s.namespace.labels.kubernetes.io/metadata.name=cf2cnp-lab', 'k8s:io.cilium.k8s.policy.cluster=poc1', 'k8s:io.cilium.k8s.policy.serviceaccount=default', 'k8s:io.kubernetes.pod.namespace=cf2cnp-lab']
+  destination cf2cnp-lab shop-6d7d797759-4ddlt ['k8s:app.kubernetes.io/name=shop', 'k8s:app=shop', 'k8s:io.cilium.k8s.namespace.labels.kubernetes.io/metadata.name=cf2cnp-lab', 'k8s:io.cilium.k8s.policy.cluster=poc1', 'k8s:io.cilium.k8s.policy.serviceaccount=default', 'k8s:io.kubernetes.pod.namespace=cf2cnp-lab']
+  l4 {'TCP': {'source_port': 35528, 'destination_port': 80, 'flags': {'SYN': True}}} | policy_match_type None | ingress_denied_by None | ingress_allowed_by None
+
+### Part 4 — method 1 of 3: the cf2cnp HTTP API (POST /generate) from the flow JSON
+### 2026-09-12T23:37:05Z
+$ bash -c for c in pos stranger; do demos/26-cf2cnp-policy-from-flows/generate.sh demos/26-cf2cnp-policy-from-flows/policies/flow-$c-to-shop.json demos/26-cf2cnp-policy-from-flows/policies/cnp-$c-to-shop.yaml; echo "=== cnp-$c-to-shop.yaml ==="; cat demos/26-cf2cnp-policy-from-flows/policies/cnp-$c-to-shop.yaml; done
+http=200 → demos/26-cf2cnp-policy-from-flows/policies/cnp-pos-to-shop.yaml
+=== cnp-pos-to-shop.yaml ===
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop
+  namespace: cf2cnp-lab
+spec:
+  description: Allow ingress traffic from cf2cnp-lab to cf2cnp-lab for the shop
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: pos
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+http=200 → demos/26-cf2cnp-policy-from-flows/policies/cnp-stranger-to-shop.yaml
+=== cnp-stranger-to-shop.yaml ===
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop
+  namespace: cf2cnp-lab
+spec:
+  description: Allow ingress traffic from cf2cnp-lab to cf2cnp-lab for the shop
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: stranger
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+
+### Part 5 — apply the generated allow rule (pos only), still in audit mode; then enforce
+### 2026-09-12T23:37:25Z
+$ bash -c echo "both generated policies are named \"shop\" (cf2cnp names a policy after the destination workload) — apply only the one for pos:"; kubectl --context kind-poc1 apply -f demos/26-cf2cnp-policy-from-flows/policies/cnp-pos-to-shop.yaml; kubectl --context kind-poc1 -n cf2cnp-lab get cnp; sleep 40; echo "--- phase A: allow rule in place, endpoint still in AUDIT mode (last 40s) ---"; demos/26-cf2cnp-policy-from-flows/verify.sh 40s; echo "--- phase B: audit mode off = enforce ---"; demos/26-cf2cnp-policy-from-flows/audit-mode.sh shop Disabled; sleep 45; demos/26-cf2cnp-policy-from-flows/verify.sh 45s; echo "--- clients ---"; for c in pos stranger; do echo "  $c → shop: $(kubectl --context kind-poc1 -n cf2cnp-lab exec $c -- wget -qO- -S --timeout=3 http://shop.cf2cnp-lab/ 2>&1 | grep -m1 "HTTP/\|timed out\|failed" | tr -s " ")"; done
+both generated policies are named "shop" (cf2cnp names a policy after the destination workload) — apply only the one for pos:
+ciliumnetworkpolicy.cilium.io/shop created
+NAME                        AGE     VALID
+shop                        0s      True
+shop-default-deny-ingress   6m50s   True
+--- phase A: allow rule in place, endpoint still in AUDIT mode (last 40s) ---
+policies in cf2cnp-lab: ciliumnetworkpolicy.cilium.io/shop ciliumnetworkpolicy.cilium.io/shop-default-deny-ingress 
+    78  pos        → shop-6d7d797759-4ddlt            :80    FORWARDED                
+    48  pos        → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+    48  pos        → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+    48  stranger   → shop-6d7d797759-4ddlt            :80    FORWARDED                
+    32  pos        → ,reserved:world                  :443   FORWARDED                
+    10  stranger   → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+    10  stranger   → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+     8  pos        → shop-6d7d797759-4ddlt            :80    FORWARDED                by shop
+     5  stranger   → shop-6d7d797759-4ddlt            :80    AUDIT                    
+--- phase B: audit mode off = enforce ---
+endpoint 1955 (shop-6d7d797759-4ddlt on poc1-worker2): PolicyAuditMode=Disabled
+  PolicyAuditMode                   : Disabled
+policies in cf2cnp-lab: ciliumnetworkpolicy.cilium.io/shop ciliumnetworkpolicy.cilium.io/shop-default-deny-ingress 
+    90  pos        → shop-6d7d797759-4ddlt            :80    FORWARDED                
+    58  pos        → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+    48  pos        → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+    36  pos        → ,reserved:world                  :443   FORWARDED                
+    22  stranger   → shop-6d7d797759-4ddlt            :80    DROPPED   POLICY_DENIED  
+    18  stranger   → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+     9  pos        → shop-6d7d797759-4ddlt            :80    FORWARDED                by shop
+     6  stranger   → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+     6  stranger   → shop-6d7d797759-4ddlt            :80    FORWARDED                
+--- clients ---
+  pos → shop:  HTTP/1.1 200 OK
+  stranger → shop: wget: download timed out
+
+### Part 6 — the same verdicts as a metric: hubble_policy_verdicts_total (dynamic metric 'policy', enabled in Part 4a)
+### 2026-09-12T23:39:35Z
+$ demos/26-cf2cnp-policy-from-flows/policy-metric.sh cf2cnp-lab
+  cluster  dir      source     destination  action     match  count
+  poc1     ingress  pos        shop         audit      none   22
+  poc1     ingress  pos        shop         forwarded  l3-l4  24
+  poc1     ingress  stranger   shop         audit      none   23
+  poc1     ingress  stranger   shop         dropped    none   21
+
+### Part 3b — the same flow from the other three places this stack keeps flows: Loki (stored history), the observer pod log, the node export file
+### 2026-09-12T23:40:05Z
+$ bash -c P=demos/26-cf2cnp-policy-from-flows; echo "== Loki (query_range through the API server proxy; stranger → shop, DROPPED) =="; $P/get-flow.sh loki "{job=\"hubble-observer\"} | json | flow_source_pod_name=\"stranger\" | flow_destination_namespace=\"cf2cnp-lab\" | flow_verdict=\"DROPPED\"" 30 > $P/policies/flow-stranger-to-shop.loki.json; wc -c < $P/policies/flow-stranger-to-shop.loki.json; python3 -c "import json; f=json.load(open(\"$P/policies/flow-stranger-to-shop.loki.json\"))[\"flow\"]; print(\"  \", f[\"traffic_direction\"], f[\"verdict\"], f.get(\"drop_reason_desc\"), \"ingress_denied_by:\", [ (d[\"name\"], d.get(\"kind\")) for d in f.get(\"ingress_denied_by\",[])])"; echo "== hubble-observer pod stdout (it exports DROPPED flows) =="; $P/get-flow.sh observer "\"stranger\".*cf2cnp-lab" > $P/policies/flow-stranger-to-shop.observer.json; wc -c < $P/policies/flow-stranger-to-shop.observer.json; python3 -c "import json; f=json.load(open(\"$P/policies/flow-stranger-to-shop.observer.json\"))[\"flow\"]; print(\"  \", f[\"traffic_direction\"], f[\"verdict\"], f.get(\"drop_reason_desc\"))"; echo "== Hubble flow-export file on the node that hosts shop (demo 10) =="; $P/get-flow.sh export poc1-worker2 "\"stranger\".*cf2cnp-lab.*DROPPED\|DROPPED.*stranger" > $P/policies/flow-stranger-to-shop.export.json; wc -c < $P/policies/flow-stranger-to-shop.export.json; python3 -c "import json; f=json.load(open(\"$P/policies/flow-stranger-to-shop.export.json\"))[\"flow\"]; print(\"  \", f[\"traffic_direction\"], f[\"verdict\"], f.get(\"drop_reason_desc\"))"; echo "== all four sources generate the same policy through the API =="; for s in loki observer export; do $P/generate.sh $P/policies/flow-stranger-to-shop.$s.json | grep -v "^#" | md5; done; grep -v "^#" $P/policies/cnp-stranger-to-shop.yaml | md5
+== Loki (query_range through the API server proxy; stranger → shop, DROPPED) ==
+       1
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json; f=json.load(open("demos/26-cf2cnp-policy-from-flows/policies/flow-stranger-to-shop.loki.json"))["flow"]; print("  ", f["traffic_direction"], f["verdict"], f.get("drop_reason_desc"), "ingress_denied_by:", [ (d["name"], d.get("kind")) for d in f.get("ingress_denied_by",[])])
+                   ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/Cellar/python@3.13/3.13.5/Frameworks/Python.framework/Versions/3.13/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 2 column 1 (char 1)
+== hubble-observer pod stdout (it exports DROPPED flows) ==
+    1260
+   INGRESS DROPPED POLICY_DENIED
+== Hubble flow-export file on the node that hosts shop (demo 10) ==
+    1137
+   INGRESS DROPPED POLICY_DENIED
+== all four sources generate the same policy through the API ==
+64ee44e07ad496224b15819ca0074f4b
+31c4209aae8c4b8b1e120b5aba82f848
+31c4209aae8c4b8b1e120b5aba82f848
+31c4209aae8c4b8b1e120b5aba82f848
+
+### Part 7 — method 2 of 3: the cf2cnp Web UI (Playwright-driven; screenshots in output/screenshots/ui-*.png)
+### 2026-09-12T23:40:23Z
+$ node demos/26-cf2cnp-policy-from-flows/ui-generate.js demos/26-cf2cnp-policy-from-flows/policies/flow-stranger-to-shop.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop
+  namespace: cf2cnp-lab
+spec:
+  description: Allow ingress traffic from cf2cnp-lab to cf2cnp-lab for the shop
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: stranger
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+download link: (none)
+
+### Part 8 — method 3 of 3: the Grafana dashboard's Flow UUID actions (Playwright-driven; screenshots in output/screenshots/grafana-*.png)
+### 2026-09-12T23:41:21Z
+$ node demos/26-cf2cnp-policy-from-flows/grafana-generate.js cf2cnp-lab
+first flow in the table, uuid: 3e8e091d-46f7-4904-beb7-306952726743
+menu offers: Generate CiliumNetworkPolicy from Flow | Download CiliumNetworkPolicy | Open this Flow UUID
+confirmed the action
+download tab: 
+
+saved → policies/cnp-from-grafana.yaml
+cf2cnp requests made by the browser:
+  GET https://grafana.poc.local/d/hubble-observer-23862?orgId=1&from=now-30m&to=now&var-destinationnamespace=cf2cnp-lab headers={} body=
+    ← 200 <!DOCTYPE html> <html lang="en-US">   <head>          <meta charset="utf-8" />     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />     <meta na
+  POST https://cf2cnp.poc.local/generate headers={"x-grafana-device-id":"f50de6c461bbe25e56e0a0abfc529c9b","accept":"application/json, text/plain, */*","x-grafana-action":"1"} body={"flow":{"time":"2026-09-12T23:41:28.231340706Z","uuid":"3e8e091d-46f7-4904-beb7…
+    ← 200 {"download_url":"http://cf2cnp.poc.local/download/3e8e091d-46f7-4904-beb7-306952726743","filename":"cf2cnp-lab-shop.yaml","message":"Policy generated successful
+
+### 2026-09-12T23:42:28Z
+$ bash -c P=demos/26-cf2cnp-policy-from-flows; GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); U=3e8e091d-46f7-4904-beb7-306952726743; echo "the download the dashboard link opens (GET /download/<uuid>, served from cf2cnp's 10-minute cache):"; curl -s --cacert docs/root-ca.crt --resolve cf2cnp.poc.local:443:$GW -D - "https://cf2cnp.poc.local/download/$U" -o $P/policies/cnp-from-grafana.yaml | grep -i "HTTP/\|content-disposition\|content-type"; cat $P/policies/cnp-from-grafana.yaml; echo "--- the download_url in the JSON answer says http://, yet the route is https-only: does cf2cnp read X-Forwarded-Proto? ---"; curl -s --cacert docs/root-ca.crt --resolve cf2cnp.poc.local:443:$GW -X POST https://cf2cnp.poc.local/generate -H "Content-Type: application/json" -H "Accept: application/json" -H "X-Forwarded-Proto: https" --data-binary @$P/policies/flow-stranger-to-shop.json; echo; echo "(the Gateway sets X-Forwarded-Proto: https itself — the header above is what Envoy forwards; the URL scheme is cf2cnp's choice. The dashboard link uses \${hubbleobservercf2cnpurl}/download/<uuid> and never reads download_url, so the UI path is unaffected)"; echo "--- same content as the API-generated policy? ---"; diff <(grep -v "^#" $P/policies/cnp-from-grafana.yaml) <(grep -v "^#" $P/policies/cnp-stranger-to-shop.yaml) && echo "identical"
+the download the dashboard link opens (GET /download/<uuid>, served from cf2cnp's 10-minute cache):
+HTTP/2 200 
+access-control-allow-headers: Content-Type, Authorization, X-Requested-With, Accept, X-Grafana-Action, X-Grafana-Device-Id, X-Grafana-Org-Id
+access-control-expose-headers: Content-Disposition
+content-disposition: attachment; filename="cf2cnp-lab-shop.yaml"
+content-type: application/x-yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop
+  namespace: cf2cnp-lab
+spec:
+  description: Allow ingress traffic from cf2cnp-lab to cf2cnp-lab for the shop
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: stranger
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+--- the download_url in the JSON answer says http://, yet the route is https-only: does cf2cnp read X-Forwarded-Proto? ---
+{"download_url":"http://cf2cnp.poc.local/download/034db8e8-0240-4582-b94d-47a3411ab5d5","filename":"cf2cnp-lab-shop.yaml","message":"Policy generated successfully. Use the download_url to download the file."}
+
+(the Gateway sets X-Forwarded-Proto: https itself — the header above is what Envoy forwards; the URL scheme is cf2cnp's choice. The dashboard link uses ${hubbleobservercf2cnpurl}/download/<uuid> and never reads download_url, so the UI path is unaffected)
+--- same content as the API-generated policy? ---
+identical
+
+### Part 3b (corrected) — Loki: the observer's streams are labelled namespace/container, not job; the line is the JSON envelope itself
+### 2026-09-12T23:42:35Z
+$ bash -c P=demos/26-cf2cnp-policy-from-flows; $P/get-flow.sh loki "{namespace=\"hubble-observer\",container=\"hubble-observer\"} | json | flow_source_pod_name=\"stranger\" | flow_destination_namespace=\"cf2cnp-lab\" | flow_verdict=\"DROPPED\"" 30 > $P/policies/flow-stranger-to-shop.loki.json; echo "flow-stranger-to-shop.loki.json: $(wc -c < $P/policies/flow-stranger-to-shop.loki.json) bytes"; python3 -c "import json; f=json.load(open(\"$P/policies/flow-stranger-to-shop.loki.json\"))[\"flow\"]; print(\"  \", f[\"traffic_direction\"], f[\"verdict\"], f.get(\"drop_reason_desc\"), \"denied by:\", [(d[\"name\"], d.get(\"kind\")) for d in f.get(\"ingress_denied_by\",[])], \"| uuid\", f[\"uuid\"])"; echo "--- policy generated from each source, md5 of the YAML (comments stripped) ---"; for s in loki observer export; do printf "  %-9s " $s; $P/generate.sh $P/policies/flow-stranger-to-shop.$s.json | grep -v "^#" | md5; done; printf "  %-9s " cli; grep -v "^#" $P/policies/cnp-stranger-to-shop.yaml | md5
+flow-stranger-to-shop.loki.json:     1260 bytes
+   INGRESS DROPPED POLICY_DENIED denied by: [] | uuid 6ff762bd-a6a3-419d-a420-ad334589d96f
+--- policy generated from each source, md5 of the YAML (comments stripped) ---
+  loki      31c4209aae8c4b8b1e120b5aba82f848
+  observer  31c4209aae8c4b8b1e120b5aba82f848
+  export    31c4209aae8c4b8b1e120b5aba82f848
+  cli       31c4209aae8c4b8b1e120b5aba82f848
+
+### Part 9 — can Hubble UI be extended or can something be embedded in it? Measured, not assumed
+### 2026-09-12T23:45:06Z
+$ bash -c GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); echo "== hubble-ui upstream README: any plugin/extension/embed mechanism? (count of matching lines) =="; curl -sL https://raw.githubusercontent.com/cilium/hubble-ui/master/README.md -o .tmp/hubble-ui-README.md; wc -l < .tmp/hubble-ui-README.md; grep -ci "plugin\|extension\|extend\|embed\|iframe" .tmp/hubble-ui-README.md; echo "== hubble-ui repo: files mentioning a plugin/extension API (GitHub code search needs auth; the tree listing does not) =="; curl -s "https://api.github.com/repos/cilium/hubble-ui/git/trees/master?recursive=1" | python3 -c "import json,sys; t=[x[\"path\"] for x in json.load(sys.stdin).get(\"tree\",[])]; print(len(t), \"paths;\", \"plugin/extension paths:\", [p for p in t if \"plugin\" in p.lower() or \"extension\" in p.lower()][:10] or \"none\")"; echo "== hubble-ui image tag deployed here =="; kubectl --context kind-poc1 -n kube-system get deploy hubble-ui -o jsonpath="{range .spec.template.spec.containers[*]}{.name}={.image}{\"\n\"}{end}"; echo "== response headers Hubble UI sends (frame-ancestors / X-Frame-Options decide whether ANOTHER page may embed it) =="; curl -s --cacert docs/root-ca.crt --resolve hubble.poc.local:443:$GW -D - -o /dev/null https://hubble.poc.local/ | grep -i "^HTTP/\|frame\|content-security\|server:"; echo "== Grafana: may it be embedded in another page? (security.allow_embedding, read from the running instance) =="; curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana https://grafana.poc.local/api/admin/settings | python3 -c "import json,sys; s=json.load(sys.stdin)[\"security\"]; print(\"  allow_embedding =\", s.get(\"allow_embedding\"), \"| cookie_samesite =\", s.get(\"cookie_samesite\"))"; curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -D - -o /dev/null https://grafana.poc.local/login | grep -i "x-frame-options"
+== hubble-ui upstream README: any plugin/extension/embed mechanism? (count of matching lines) ==
+      30
+0
+== hubble-ui repo: files mentioning a plugin/extension API (GitHub code search needs auth; the tree listing does not) ==
+10495 paths; plugin/extension paths: ['backend/vendor/github.com/cilium/cilium/pkg/k8s/client/clientset/versioned/typed/cilium.io/v2alpha1/ciliumdatapathplugin.go', 'backend/vendor/github.com/emicklei/go-restful/v3/extensions.go', 'backend/vendor/github.com/golang/protobuf/proto/extensions.go', 'backend/vendor/github.com/google/gnostic-models/compiler/extensions.go', 'backend/vendor/github.com/google/gnostic-models/extensions', 'backend/vendor/github.com/google/gnostic-models/extensions/README.md', 'backend/vendor/github.com/google/gnostic-models/extensions/extension.pb.go', 'backend/vendor/github.com/google/gnostic-models/extensions/extension.proto', 'backend/vendor/github.com/google/gnostic-models/extensions/extensions.go', 'backend/vendor/github.com/json-iterator/go/reflect_extension.go']
+== hubble-ui image tag deployed here ==
+frontend=quay.io/cilium/hubble-ui:v0.13.5@sha256:f7d514fc54d784ed6df9d58cf0e97648b143f92b766dd1780ed3fc845bd4c516
+backend=quay.io/cilium/hubble-ui-backend:v0.13.5@sha256:fac0c300ae119274edca11fd89b1ad23c788792d8bc4ea2ba631c709e8d3c688
+== response headers Hubble UI sends (frame-ancestors / X-Frame-Options decide whether ANOTHER page may embed it) ==
+HTTP/2 200 
+server: envoy
+== Grafana: may it be embedded in another page? (security.allow_embedding, read from the running instance) ==
+  allow_embedding = false | cookie_samesite = lax
+x-frame-options: deny
+
+### Part 10 — our own policy dashboard: audit / forwarded / dropped from hubble_policy_verdicts_total, provisioned like demo 16's
+### 2026-09-12T23:46:46Z
+$ demos/26-cf2cnp-policy-from-flows/dashboard.sh
+configmap/hubble-policy-verdicts-dashboard created
+waiting for the sidecar to load it…
+not seen in the sidecar's folder after 2 min
+[exit code: 1]
+
+### Part 10 (re-run) — the first check used exec … sh inside the grafana container, which has no shell; the dashboard had loaded all along (sidecar log). Check through the API now
+### 2026-09-12T23:49:56Z
+$ demos/26-cf2cnp-policy-from-flows/dashboard.sh
+configmap/hubble-policy-verdicts-dashboard configured
+waiting for the sidecar to load it (its log says where it placed the file)…
+  sidecar: {"time": "2026-09-12T23:49:27.206171+00:00", "level": "INFO", "msg": "Found a folder override annotation, placing the hubble-policy-verdicts-dashboard in: /tmp/dashboards/Hubble"}
+loaded in folder Hubble → https://grafana.poc.local/d/policy-verdicts-26
+
+### Part 10 (fix) — the four stat panels queried a range and reduced lastNotNull: 'Endpoints in audit mode' showed 1 twelve minutes after audit was off (query result now: empty). instant: true on the stats
+### 2026-09-12T23:54:41Z
+$ demos/26-cf2cnp-policy-from-flows/dashboard.sh
+configmap/hubble-policy-verdicts-dashboard configured
+waiting for the sidecar to load it (its log says where it placed the file)…
+  sidecar: {"time": "2026-09-12T23:54:43.493532+00:00", "level": "INFO", "msg": "Writing /tmp/dashboards/Hubble/hubble-policy-verdicts.json (ascii)"}
+loaded in folder Hubble → https://grafana.poc.local/d/policy-verdicts-26
+

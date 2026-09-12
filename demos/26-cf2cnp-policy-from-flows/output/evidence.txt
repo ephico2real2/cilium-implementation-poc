@@ -1,0 +1,41 @@
+# evidence for demos/26-cf2cnp-policy-from-flows — recorded 2026-09-12T23:44Z by scripts/evidence/collect.sh
+### 2026-09-12T23:44:07Z
+$ kubectl --context kind-poc1 -n cf2cnp-lab get pods -o wide
+NAME                    READY   STATUS    RESTARTS   AGE   IP           NODE           NOMINATED NODE   READINESS GATES
+pos                     1/1     Running   0          22m   10.10.4.93   poc1-worker    <none>           <none>
+shop-6d7d797759-4ddlt   1/1     Running   0          22m   10.10.3.7    poc1-worker2   <none>           <none>
+stranger                1/1     Running   0          22m   10.10.4.3    poc1-worker    <none>           <none>
+
+### 2026-09-12T23:44:08Z
+$ kubectl --context kind-poc1 -n hubble-observer get pods -o wide
+NAME                                      READY   STATUS    RESTARTS   AGE    IP            NODE           NOMINATED NODE   READINESS GATES
+hubble-observer-6f865f8f94-4vvzb          1/1     Running   0          162m   10.10.4.185   poc1-worker    <none>           <none>
+hubble-observer-cf2cnp-7d6576479c-jh4n7   1/1     Running   0          8h     10.10.3.149   poc1-worker2   <none>           <none>
+
+### 2026-09-12T23:44:08Z
+$ bash -c kubectl --context kind-poc1 -n cf2cnp-lab get cnp -o custom-columns='NAME:.metadata.name,VALID:.status.conditions[?(@.type=="Valid")].status,SELECTOR:.spec.endpointSelector.matchLabels,DESCRIPTION:.spec.description'
+NAME                        VALID   SELECTOR                           DESCRIPTION
+shop                        True    map[app.kubernetes.io/name:shop]   Allow ingress traffic from cf2cnp-lab to cf2cnp-lab for the shop
+shop-default-deny-ingress   True    map[app:shop]                      Step 2 — default-deny ingress on shop; evaluated in audit mode first, enforced once the generated allow rule is in place
+
+### 2026-09-12T23:44:08Z
+$ bash -c demos/26-cf2cnp-policy-from-flows/verify.sh 60s
+policies in cf2cnp-lab: ciliumnetworkpolicy.cilium.io/shop ciliumnetworkpolicy.cilium.io/shop-default-deny-ingress 
+   106  pos        → shop-6d7d797759-4ddlt            :80    FORWARDED                
+    72  pos        → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+    60  pos        → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+    44  pos        → ,reserved:world                  :443   FORWARDED                
+    24  stranger   → shop-6d7d797759-4ddlt            :80    DROPPED   POLICY_DENIED  
+    20  stranger   → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+    11  pos        → shop-6d7d797759-4ddlt            :80    FORWARDED                by shop
+     6  stranger   → shop-6d7d797759-4ddlt            :80    FORWARDED                
+     4  stranger   → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+
+### 2026-09-12T23:44:12Z
+$ bash -c demos/26-cf2cnp-policy-from-flows/policy-metric.sh cf2cnp-lab
+  cluster  dir      source     destination  action     match  count
+  poc1     ingress  pos        shop         audit      none   22
+  poc1     ingress  pos        shop         forwarded  l3-l4  73
+  poc1     ingress  stranger   shop         audit      none   23
+  poc1     ingress  stranger   shop         dropped    none   81
+

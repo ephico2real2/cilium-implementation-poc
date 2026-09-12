@@ -1,0 +1,538 @@
+{
+ "uid": "policy-verdicts-26",
+ "title": "Hubble / Policy Verdicts (Namespace)",
+ "tags": [
+  "cilium",
+  "hubble",
+  "policy",
+  "demo-26"
+ ],
+ "timezone": "browser",
+ "schemaVersion": 39,
+ "version": 2,
+ "editable": true,
+ "graphTooltip": 1,
+ "time": {
+  "from": "now-30m",
+  "to": "now"
+ },
+ "refresh": "30s",
+ "templating": {
+  "list": [
+   {
+    "name": "DS_PROMETHEUS",
+    "label": "Data Source",
+    "type": "datasource",
+    "query": "prometheus",
+    "current": {},
+    "hide": 0
+   },
+   {
+    "name": "cluster",
+    "label": "cluster",
+    "type": "query",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "${DS_PROMETHEUS}"
+    },
+    "query": {
+     "query": "label_values(hubble_policy_verdicts_total, cluster)",
+     "refId": "c"
+    },
+    "refresh": 2,
+    "includeAll": true,
+    "multi": true,
+    "current": {
+     "text": "All",
+     "value": "$__all"
+    },
+    "allValue": ".*"
+   },
+   {
+    "name": "namespace",
+    "label": "destination namespace",
+    "type": "query",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "${DS_PROMETHEUS}"
+    },
+    "query": {
+     "query": "label_values(hubble_policy_verdicts_total{cluster=~\"$cluster\"}, destination_namespace)",
+     "refId": "n"
+    },
+    "refresh": 2,
+    "includeAll": true,
+    "multi": true,
+    "current": {
+     "text": "All",
+     "value": "$__all"
+    },
+    "allValue": ".*"
+   }
+  ]
+ },
+ "panels": [
+  {
+   "id": 1,
+   "type": "stat",
+   "title": "Audited (policy evaluated, not enforced) \u2014 in range",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 0,
+    "y": 0
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum(increase(hubble_policy_verdicts_total{cluster=~\"$cluster\", destination_namespace=~\"$namespace\", action=\"audit\"}[$__range]))",
+     "legendFormat": "audit",
+     "instant": true
+    }
+   ],
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "decimals": 0,
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "orange"
+     },
+     "noValue": "0"
+    }
+   }
+  },
+  {
+   "id": 2,
+   "type": "stat",
+   "title": "Forwarded by an allow rule \u2014 in range",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 6,
+    "y": 0
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum(increase(hubble_policy_verdicts_total{cluster=~\"$cluster\", destination_namespace=~\"$namespace\", action=\"forwarded\"}[$__range]))",
+     "legendFormat": "forwarded",
+     "instant": true
+    }
+   ],
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "decimals": 0,
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "green"
+     },
+     "noValue": "0"
+    }
+   }
+  },
+  {
+   "id": 3,
+   "type": "stat",
+   "title": "Dropped by policy \u2014 in range",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 12,
+    "y": 0
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum(increase(hubble_policy_verdicts_total{cluster=~\"$cluster\", destination_namespace=~\"$namespace\", action=\"dropped\"}[$__range]))",
+     "legendFormat": "dropped",
+     "instant": true
+    }
+   ],
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "decimals": 0,
+     "color": {
+      "mode": "fixed",
+      "fixedColor": "red"
+     },
+     "noValue": "0"
+    }
+   }
+  },
+  {
+   "id": 4,
+   "type": "stat",
+   "title": "Endpoints in audit mode right now",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 6,
+    "x": 18,
+    "y": 0
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "count(sum(rate(hubble_policy_verdicts_total{cluster=~\"$cluster\", destination_namespace=~\"$namespace\", action=\"audit\"}[5m])) by (destination) > 0)",
+     "legendFormat": "endpoints",
+     "instant": true
+    }
+   ],
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "decimals": 0,
+     "noValue": "0",
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 1
+       }
+      ]
+     }
+    }
+   },
+   "description": "A destination that produced audit verdicts in the last 5 minutes has an endpoint in PolicyAuditMode: policy is being evaluated and reported, nothing is blocked yet. The query is INSTANT: a stat over a range series reduces lastNotNull and would show the last value from the audit window (1) long after audit was switched off \u2014 measured on the first capture."
+  },
+  {
+   "id": 5,
+   "type": "timeseries",
+   "title": "Policy verdicts per second, by action",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 12,
+    "x": 0,
+    "y": 5
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum(rate(hubble_policy_verdicts_total{cluster=~\"$cluster\", destination_namespace=~\"$namespace\"}[$__rate_interval])) by (action)",
+     "legendFormat": "{{action}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ops",
+     "custom": {
+      "fillOpacity": 15,
+      "lineWidth": 2
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "audit"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "orange"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "forwarded"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "green"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "dropped"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "red"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "description": "hubble_policy_verdicts_total \u2014 Hubble's `policy` dynamic metric (demo 26 Part 4a). An audit line rising while forwarded/dropped stay flat is the observe-first phase; dropped appearing after audit vanishes is enforcement."
+  },
+  {
+   "id": 6,
+   "type": "timeseries",
+   "title": "Verdicts per second, by source \u2192 destination and action",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 12,
+    "x": 12,
+    "y": 5
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum(rate(hubble_policy_verdicts_total{cluster=~\"$cluster\", destination_namespace=~\"$namespace\"}[$__rate_interval])) by (source, destination, direction, action)",
+     "legendFormat": "{{source}} \u2192 {{destination}} ({{direction}}) {{action}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ops",
+     "custom": {
+      "fillOpacity": 10,
+      "lineWidth": 1
+     }
+    }
+   }
+  },
+  {
+   "id": 7,
+   "type": "table",
+   "title": "Who talked to whom, and what the policy did \u2014 totals in range",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "gridPos": {
+    "h": 10,
+    "w": 24,
+    "x": 0,
+    "y": 14
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum(increase(hubble_policy_verdicts_total{cluster=~\"$cluster\", destination_namespace=~\"$namespace\"}[$__range])) by (cluster, source, destination, direction, action, match)",
+     "format": "table",
+     "instant": true
+    }
+   ],
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "Time": true
+      },
+      "renameByName": {
+       "Value": "verdicts"
+      },
+      "indexByName": {
+       "cluster": 0,
+       "source": 1,
+       "destination": 2,
+       "direction": 3,
+       "action": 4,
+       "match": 5,
+       "Value": 6
+      }
+     }
+    },
+    {
+     "id": "sortBy",
+     "options": {
+      "sort": [
+       {
+        "field": "verdicts",
+        "desc": true
+       }
+      ]
+     }
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "decimals": 0,
+     "custom": {
+      "filterable": true
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "action"
+      },
+      "properties": [
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-text"
+        }
+       },
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "audit": {
+            "color": "orange",
+            "index": 0
+           },
+           "forwarded": {
+            "color": "green",
+            "index": 1
+           },
+           "dropped": {
+            "color": "red",
+            "index": 2
+           }
+          }
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "description": "match = none means no allow rule matched (the default-deny decided: audit while observing, dropped when enforcing); l3-l4 / l3-only / l4-only / l7 name the rule kind that allowed the flow."
+  },
+  {
+   "id": 8,
+   "type": "timeseries",
+   "title": "POLICY_DENIED drops per second (hubble_drop_total, the demo 16 metric)",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS_PROMETHEUS}"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 24,
+    "x": 0,
+    "y": 24
+   },
+   "targets": [
+    {
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS_PROMETHEUS}"
+     },
+     "expr": "sum(rate(hubble_drop_total{cluster=~\"$cluster\", destination_namespace=~\"$namespace\", reason=\"POLICY_DENIED\"}[$__rate_interval])) by (source, destination)",
+     "legendFormat": "{{source}} \u2192 {{destination}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ops",
+     "custom": {
+      "fillOpacity": 15,
+      "lineWidth": 2
+     },
+     "color": {
+      "mode": "palette-classic"
+     }
+    }
+   },
+   "description": "The same drops the Network Overview and the Hubble Metrics 'Network Policy' row show \u2014 here beside the audit line, so the before/after of enforcement is one picture."
+  }
+ ],
+ "description": "Demo 26: policy verdicts from Hubble's `policy` dynamic metric \u2014 audit (observe first), forwarded (an allow rule matched), dropped (enforced) \u2014 per namespace, with the drop metric beside them."
+}

@@ -531,6 +531,9 @@ A reply packet errors out on purpose (`this is a reply packet - you need to allo
 Every generated policy is a *transcript of what happened*, to be read against demo 19's `intent.yaml`
 before it is applied; that is the tool's own caution, measured.
 
+**Continued as demo 26** — [`../26-cf2cnp-policy-from-flows/README.md`](../26-cf2cnp-policy-from-flows/README.md): where the flow
+JSON comes from, audit mode first, the three doors of cf2cnp on one lab, and the verdicts on every dashboard.
+
 ## Exercises
 
 See [`GUIDE.md`](GUIDE.md).

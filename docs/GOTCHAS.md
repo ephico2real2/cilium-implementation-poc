@@ -67,6 +67,9 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
 | [79](#79) | 0 traces / 0 RED series / no service graph with every pod Running = no traffic: OBI ignores /healthz, the generator's series expire; look for load before restarting | observability |
+| [80](#80) | `ingress: []` is not a default-deny — Cilium rejects it, nothing changes | policy from flows |
+| [81](#81) | cf2cnp names every policy after its destination — two files, one object | policy from flows |
+| [82](#82) | a default-deny drop names no policy — the Denying Policy panel stays empty | policy from flows |
 | [78](#78) | The hubble-observer default image (quay.io/cilium/hubble:v1.16.4) is unmaintained — 2024 push, EOL Go, 5 CRITICAL; run the CLI from the agent image at the agents' digest | supply chain |
 | [77](#77) | The hub Prometheus kept the single-cluster 1Gi limit — 51 OOM kills once poc2 wrote in; 2Gi + an out-of-order window | monitoring |
 | [76](#76) | A policy's egress `toPorts` must be the backend pod's port (relay 4245), not the Service port (443) — Cilium enforces after service translation | Cilium policy |
@@ -1918,6 +1921,62 @@ allow poc2's OBI its attach delay (#61); everything reappears within a minute.
 
 ---
 
+## <a name="80"></a>80. `ingress: []` is not a default-deny — Cilium rejects the policy, and nothing changes
+
+**Symptom.** Demo 26 Part 2: the "default-deny" policy applied without complaint, `kubectl get cnp`
+listed it, and every flow into `shop` stayed FORWARDED with no policy attributed. The status told the
+truth: `Valid=False: rule must have at least one of Ingress, IngressDeny, Egress, EgressDeny`.
+
+**Cause.** An empty list is *no rule*. The documented default-deny is **one empty rule**, `ingress: [{}]`
+(`- {}`): it matches no peer, but its presence puts the selected endpoints into ingress enforcement.
+`ingress: []` has no rule, so the endpoint is never enforced, and since 1.20 the policy is marked
+invalid rather than silently ignored — which only helps if you read `.status.conditions`.
+
+**Fix.** `ingress: [{}]`; after `apply`, read `kubectl get cnp -o custom-columns=NAME:.metadata.name,VALID:.status.conditions[0].status`
+(demo 26's `evidence.txt` does) — a policy with `Valid=False` is not protecting anything.
+
+→ demo 26, Part 2
+
+---
+
+## <a name="81"></a>81. cf2cnp names every policy after its destination — two generated files, one object
+
+**Symptom.** Demo 26 Part 5: the policies generated from the `pos → shop` flow and from the
+`stranger → shop` flow are both `metadata.name: shop`. `kubectl apply` of the second silently
+replaces the first; the intended "allow pos, deny stranger" becomes "allow stranger".
+
+**Cause.** In HTTP mode cf2cnp handles one flow per request and names the CiliumNetworkPolicy after the
+workload it selects (the destination for INGRESS, the source for EGRESS). Only its CLI mode over a
+directory *aggregates* flows into one policy per workload (README: "Flow Aggregation"). Through the
+API, the UI and the Grafana action, every flow is its own file with the same name.
+
+**Fix.** Treat each download as a *rule*, not a policy: rename it (`shop-from-pos`), or merge the
+`ingress` entries into one `shop` policy before applying, and apply only what the intent says
+(demo 19's `intent.yaml` is the reference, not the flow log).
+
+→ demo 26, Part 5
+
+---
+
+## <a name="82"></a>82. A default-deny drop names no policy — "Flows per Denying Policy" stays empty
+
+**Symptom.** Demo 26 Part 9: 94 dropped flows in the hubble-observer dashboard, drop reason
+`POLICY_DENIED` on every one, and the *Flows per Denying Policy* panel says **No data**. The flow JSON
+agrees: `ingress_denied_by: []`.
+
+**Cause.** Hubble's `*_denied_by` lists the **deny rules** (`ingressDeny` / `egressDeny`) that matched.
+A drop because *no allow rule matched* under a default-deny is decided by the absence of a rule, so
+there is nothing to name; `*_allowed_by` on the forwarded flows does name the allow rule (`by shop`
+in `verify.sh`). The dashboard panel is correct; the input is empty by design.
+
+**Fix.** Read the policy from the allowed side (`ingress_allowed_by`) and from the metric
+(`hubble_policy_verdicts_total{match="none"}` = the default-deny decided; demo 26 Part 10's
+dashboard shows it). The panel fills only where an explicit deny rule does the dropping.
+
+→ demo 26, Part 9
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1960,6 +2019,9 @@ Most of these share a shape: **something reported success while not working.**
 - the hub was budgeted like a spoke (#77)
 - it worked, so nobody asked who maintained it (#78)
 - nothing was broken; nothing was happening (#79)
+- an empty list is not an empty rule (#80)
+- two files, one name, the second wins (#81)
+- a rule that does not exist cannot be named (#82)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

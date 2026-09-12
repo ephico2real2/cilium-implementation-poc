@@ -422,6 +422,11 @@ demos/15-bank/exercise.sh 40, 90 s later:                              40/40 OK
 That is a correction to Part 5's number, and it is recorded rather than smoothed over: a single
 `/healthz` probe understates a Gateway rollout. Part 9b measures it properly.
 
+> **Added 2026-09-12 (demo 26):** the `policy` metric (`hubble_policy_verdicts_total`, labels `action` =
+> audit / forwarded / dropped and `match`) joined `values-cilium-metrics.yaml` with the same contexts; applied with
+> `--reuse-values`, the render diff was one key of `cilium-dynamic-metrics-config`, no rollout. It feeds demo 26's
+> *Hubble / Policy Verdicts (Namespace)* dashboard.
+
 ## Part 7 — L7 visibility: why the DNS dashboard was empty and the HTTP one nameless
 
 Hubble only sees DNS names, HTTP methods, status codes and latency on traffic that passes through

@@ -1,0 +1,19 @@
+# Demo 26, step 2 — the starting point of every "policy from flows" workflow: a DEFAULT-DENY ingress policy on the
+# workload to protect, applied while its endpoint is in POLICY AUDIT MODE. Audit mode means Cilium evaluates the policy
+# and reports what it WOULD do (verdict AUDIT in Hubble) without dropping anything — the enterprise "observe first" step.
+# `ingress: [{}]` — ONE EMPTY RULE — is the documented default-deny (an empty rule matches no peer but puts the endpoint
+# into ingress enforcement). `ingress: []` is NOT the same: Cilium rejects it with status Valid=False, "rule must have at
+# least one of Ingress, IngressDeny, Egress, EgressDeny" (measured on 1.20.1 — see docs/GOTCHAS.md). With audit mode on,
+# nothing is blocked yet.
+#   AG=$(kubectl -n kube-system get pods -l k8s-app=cilium --field-selector spec.nodeName=<shop's node> -o name)
+#   ID=$(kubectl -n kube-system exec $AG -c cilium-agent -- cilium-dbg endpoint list -o json | jq '.[] | select(.status.external-identifiers."pod-name"=="cf2cnp-lab/shop-…") | .id')
+#   kubectl -n kube-system exec $AG -c cilium-agent -- cilium-dbg endpoint config $ID PolicyAuditMode=Enabled
+#   kubectl apply -f demos/26-cf2cnp-policy-from-flows/20-shop-default-deny-ingress.yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: shop-default-deny-ingress, namespace: cf2cnp-lab}
+spec:
+  description: Step 2 — default-deny ingress on shop; evaluated in audit mode first, enforced once the generated allow rule is in place
+  endpointSelector: {matchLabels: {app: shop}}
+  ingress:
+    - {}

@@ -1,0 +1,18 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop
+  namespace: cf2cnp-lab
+spec:
+  description: Allow ingress traffic from cf2cnp-lab to cf2cnp-lab for the shop
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: pos
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP

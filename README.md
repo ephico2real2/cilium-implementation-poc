@@ -119,7 +119,9 @@ unchanged, with BGP substituted for L2 in production.
    left in the text is gotcha #47's historical note.
 8c. **[OBSERVABILITY-ARCHITECTURE.md](OBSERVABILITY-ARCHITECTURE.md)** is the one picture of the observability
    stack across the mesh — what runs in the hub, what every spoke runs, and why (demos 10, 16, 18, 21–25).
-9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 79 traps, each with the real error
+8d. **Demo 26** is the foundational policy skill: a Hubble flow JSON → a CiliumNetworkPolicy, three ways,
+   with audit mode first. Read it before writing any policy by hand; demo 19 is where the intent lives.
+9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 82 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -136,6 +138,7 @@ unchanged, with BGP substituted for L2 in production.
 | ✅ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | done — demo 11, with the three-cause forensic on Cilium's default install; poc3 is paused (`scripts/cluster-resume.sh poc3`) |
 | ⛔ | **"Cilium mTLS" (mutual authentication, SPIFFE/SPIRE)** | evaluated, **not enabled and not to be adopted**: deprecated in 1.20, removal planned in 1.21 (cilium#47132), ClusterMesh-incompatible — [docs/summary/MTLS_EVALUATION.md](docs/summary/MTLS_EVALUATION.md) |
 | ✅ | **ztunnel mTLS (demo 13)** — evaluated on a throwaway cluster: real mTLS on the wire, but cannot run on any cluster with a `cluster.id` (so never with ClusterMesh), breaks L4 **and** L7 policy for enrolled traffic, −73 % throughput | **not the standard**; WireGuard + identity policy is — `demos/13-ztunnel/README.md` |
+| ✅ | **Policy from observed flows (demo 26)** — audit mode → default-deny → flow JSON from four sources → cf2cnp by API / UI / Grafana action → apply → enforce; the `policy` verdict metric on, the *Hubble / Policy Verdicts (Namespace)* dashboard provisioned | done; `demos/26-cf2cnp-policy-from-flows/` |
 | ✅ | **Relay mTLS (demo 25 Part 5)** — every `hubble` command now takes `$(scripts/hubble-tls.sh <ctx>)`; earlier demos' commands need it too | done |
 | ✅ | **Historical flows in Loki (demo 25)** — hubble-observer → collector → Loki → the 23862 dashboard, both clusters through one relay | done |
 | ✅ | **Enterprise CA, complete (demo 24)** — Hubble on the same root as the mesh; relay sees all 7 nodes | done |
@@ -217,6 +220,7 @@ an untested combination.
 | 08 | Enterprise CA | cert-manager root in poc1 issuing every cluster's mesh certificates; trust before join |
 | 09 | Wildcard TLS + 3 route types | cert-manager wildcard and exact certs on one Gateway; `HTTPRoute`, `GRPCRoute`, `TCPRoute` from one 14 MB image — and a native Go client (`-mode client`) that tests all three, which is how the missing-ALPN gotcha (#33) was found |
 | 10 | Flow tracing -> OpenTelemetry | Hubble dynamic flow export per node, tailed by an OTel Collector into OTLP; every flow persistent and queryable. **Events, not spans** -- hubble-otel is archived, see gotcha #30 |
+| 26 | **Policy from observed flows, three ways** | the foundational skill under every "generate policy from traffic" feature, done with open-source parts: where a Hubble flow JSON comes from (the live relay, Loki, the observer log, the node's export file — all four produced the byte-identical policy), what cf2cnp reads in it, the measured fact that nobody reports INGRESS until the workload has a policy — so **default-deny in policy audit mode first** (`AUDIT` verdicts, zero drops), then the flow → policy through the API, the Web UI and the Grafana action, applied under audit, then enforced (`stranger` DROPPED, `pos` forwarded *by* the generated rule); the verdicts read in Hubble UI, the chart's dashboards, the observer's Loki dashboard and a policy-verdicts dashboard of our own on the new `policy` metric; `ingress: []` rejected (#80), cf2cnp's one-name-per-destination (#81), default-deny names no policy (#82); Hubble UI has no extension API but can be framed, Grafana refuses framing by default — measured |
 | 25 | **Historical flows, the open-source way** | what Isovalent's Timescape does, built from parts: onzack/hubble-observer (chart vendored from main — the published 2.5.0's probes kill it, #73) streams DROPPED flows from poc1's mesh-wide relay as JSON, the demo 10 collector ships them to a Loki single binary with the labels the grafana.com 23862 dashboard expects, provisioned into the Hubble folder; a drop caused in poc2 lands in Loki through poc1's relay; cf2cnp behind the Gateway; then the relay itself closed: a pod with nothing could read every flow of both clusters in plaintext (#75), so both relays now require mTLS from the enterprise root, with the observer, the UI and the CLI each holding their own cert-manager certificate; a second pass upstream: issues #7/#8, PR #9 (the chart's policy never worked: no DNS rule, Service port instead of pod port, #76) |
 | 24 | **ClusterMesh the enterprise way, complete** | from demo 08 to 24: Hubble joins the mesh API server on the one cert-manager root (`Connected Nodes: 5/7 → 7/7`, zero handshake failures), the mesh declared the guide's way (`clusters.yaml` + per-cluster files), the order it should have followed, and the 3.5-minute outage a "TLS-only" change caused by replacing the apiserver pod (#72) |
 | 23 | **A collector per cluster** | supersedes demo 22's collector part: the gateway is a per-cluster service (same name everywhere, never global — seven backends and the wrong cluster stamp measured), HA in-cluster with 2 replicas + PDB + a persistent queue proven by killing the collectors with the hub down and watching 281 spans leave after the restart |
@@ -269,6 +273,7 @@ paused or blocked by the lab carry a marker file where the images will go and a 
 | [23-collector-per-cluster](demos/23-collector-per-cluster/README.md#evidence) | pods + Cilium output |
 | [24-clustermesh-enterprise](demos/24-clustermesh-enterprise/README.md#evidence) | 1 capture, pods + Cilium output |
 | [25-hubble-observer-loki](demos/25-hubble-observer-loki/README.md#evidence) | 8 captures, pods + Cilium output |
+| [26-cf2cnp-policy-from-flows](demos/26-cf2cnp-policy-from-flows/README.md#evidence) | 5 captures + 7 from the two Playwright scripts, pods + policies + verdicts |
 
 ## Docker and kind: the limits this lab hit, and what they mean for a real cluster
 
@@ -317,7 +322,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 79 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 82 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 
