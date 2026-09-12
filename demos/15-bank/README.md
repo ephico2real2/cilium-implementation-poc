@@ -10,6 +10,8 @@ the demo 09 pattern), deployed *deliberately* half in each cluster, and a script
 claim with the response bodies themselves: every JSON reply carries `served_by: {cluster, pod}`
 and embeds its upstream's reply, so one response shows the whole cross-cluster path.
 
+> **Step by step, every manifest and every command with its reason: [`GUIDE.md`](GUIDE.md).**
+
 ## The design
 
 | Component | Runs in | Depends on | Why there |

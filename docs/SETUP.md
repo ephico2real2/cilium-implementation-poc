@@ -1568,6 +1568,7 @@ Demo 07 then deploys the global service. → [demos/07-clustermesh/README.md](..
 
 ---
 > **Then put an application on the mesh:** demo 15 (`demos/15-bank/`) is a five-component bank split
+> (walk-through with every manifest and command, each with its reason: `demos/15-bank/GUIDE.md`)
 > across poc1 and poc2 over global Services, with active-active and zero-loss failover measured by
 > `demos/15-bank/check.sh`. It is the demo to show a product team.
 
