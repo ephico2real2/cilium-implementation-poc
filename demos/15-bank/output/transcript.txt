@@ -610,3 +610,94 @@ idempotency: the same key twice must debit once
   call 2: replay=True served by poc2
   balance 135861 -> 135761 (must differ by exactly 100)
 
+### 2026-09-12T01:53:43Z
+$ [RESILIENCE DRILLS — payments poc1 -> 0 (static), an accounts pod killed under load, postgres-0 and redis-0 deleted]
+
+### 2026-09-12T01:53:43Z
+$ demos/15-bank/resilience.sh
+
+== A. payments in poc1 scaled to 0 — the bank must keep working from poc2 alone (no labels, no client change)
+  poc1's service map for payments now (only the poc2 backend may remain):
+    53   10.11.166.33:80/TCP       ClusterIP      1 => 10.20.1.95:8080/TCP (active)    
+    54   10.11.36.138:80/TCP       ClusterIP      1 => 10.10.3.232:8080/TCP (active)   
+                                                  2 => 10.10.4.87:8080/TCP (active)    
+  20 payments through the Gateway:
+    calls: 20  ok: 20  declined (409, insufficient funds): 0  FAILED (infrastructure): 0  in 14 s
+    payments served by : poc2=20 
+    balance before 92000, after 53313, spent 38687  ->  LEDGER CONSISTENT: before - after == sum of payments
+  deployment "payments" successfully rolled out
+
+== B. kill one of the two accounts pods (poc2) while balances are read once a second
+  >>> deleting accounts-5fbcc7cc4d-6pzxz
+  reader: 23 ok, 0 failed, longest outage 0s (1 read/s over 25s)
+  deployment "accounts" successfully rolled out
+
+== C1. postgres-0 (poc2, PVC) deleted — the system of record goes away and comes back
+  balances before: chk-1001=53213 chk-1002=135761
+  PVC data-postgres-0 -> PV pvc-3cdad16b-b687-44cb-89dc-17319768fa72
+  >>> 01:54:40 deleting postgres-0
+  >>> 01:54:41 postgres-0 Ready again after ~2s, started 2026-09-12T00:52:29Z
+  reader: 52 ok, 3 failed, longest outage 3s (1 read/s over 60s)
+  PVC data-postgres-0 -> PV pvc-3cdad16b-b687-44cb-89dc-17319768fa72  (must be the same volume)
+  balances after : chk-1001=53213 chk-1002=135761  -> DATA SURVIVED the pod
+
+== C2. redis-0 (poc1, PVC, appendonly) deleted — payment history and idempotency keys must survive
+  payments listed before: 20 (key res-82206-25108 just paid)
+  >>> deleting redis-0
+  redis-0 Ready again after ~2s
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json,sys; print(len(json.load(sys.stdin)["statement"]["payments"]))
+                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+KeyError: 'payments'
+  payments listed after :  -> HISTORY CHANGED
+  replaying key res-82206-25108 after the restart: replay=True
+  balance 53113 -> 53113 (must be unchanged: the key survived in the AOF)
+
+== what this does NOT prove
+  The PVs are kind's local-path volumes: /var/local-path-provisioner/pvc-3cdad16b-b687-44cb-89dc-17319768fa72_bank_data-postgres-0 on poc2-worker.
+  Data survives a POD restart on the same node. It does not survive that NODE. A production system needs replicated storage or a managed database, and a Postgres HA topology — one primary here is a deliberate simplification.
+
+### 2026-09-12T01:56:19Z
+$ [drills re-run: the script now waits for a pod with a NEW uid to be Ready — the first run read the old pod's status and queried Redis before the new one was up]
+
+### 2026-09-12T01:56:19Z
+$ demos/15-bank/resilience.sh
+
+== A. payments in poc1 scaled to 0 — the bank must keep working from poc2 alone (no labels, no client change)
+  poc1's service map for payments now (only the poc2 backend may remain):
+    53   10.11.166.33:80/TCP       ClusterIP      1 => 10.20.1.95:8080/TCP (active)    
+    54   10.11.36.138:80/TCP       ClusterIP      1 => 10.10.3.232:8080/TCP (active)   
+                                                  2 => 10.10.4.87:8080/TCP (active)    
+  20 payments through the Gateway:
+    calls: 20  ok: 20  declined (409, insufficient funds): 0  FAILED (infrastructure): 0  in 14 s
+    payments served by : poc2=20 
+    balance before 92000, after 57220, spent 34780  ->  LEDGER CONSISTENT: before - after == sum of payments
+  deployment "payments" successfully rolled out
+
+== B. kill one of the two accounts pods (poc2) while balances are read once a second
+  >>> deleting accounts-5fbcc7cc4d-7sctb
+  reader: 22 ok, 0 failed, longest outage 0s (1 read/s over 25s)
+  deployment "accounts" successfully rolled out
+
+== C1. postgres-0 (poc2, PVC) deleted — the system of record goes away and comes back
+  balances before: chk-1001=57120 chk-1002=135761
+  PVC data-postgres-0 -> PV pvc-3cdad16b-b687-44cb-89dc-17319768fa72
+  >>> 01:57:16 deleting postgres-0 (uid 0ada1c08…)
+  >>> 01:57:21 a NEW postgres-0 (uid 73f40e6a…) is Ready ~6s after the delete, started 2026-09-12T01:57:17Z
+  reader: 53 ok, 3 failed, longest outage 3s (1 read/s over 60s)
+  PVC data-postgres-0 -> PV pvc-3cdad16b-b687-44cb-89dc-17319768fa72  (must be the same volume)
+  balances after : chk-1001=57120 chk-1002=135761  -> DATA SURVIVED the pod
+
+== C2. redis-0 (poc1, PVC, appendonly) deleted — payment history and idempotency keys must survive
+  payments listed before: 20 (key res-84817-28259 just paid)
+  >>> deleting redis-0 (uid 421de039…)
+  a NEW redis-0 is Ready ~6s after the delete; AOF replayed: 1161 keys
+  payments listed after : 20 -> HISTORY SURVIVED
+  replaying key res-84817-28259 after the restart: replay=True
+  balance 57020 -> 57020 (must be unchanged: the key survived in the AOF)
+
+== what this does NOT prove
+  The PVs are kind's local-path volumes: /var/local-path-provisioner/pvc-3cdad16b-b687-44cb-89dc-17319768fa72_bank_data-postgres-0 on poc2-worker.
+  Data survives a POD restart on the same node. It does not survive that NODE. A production system needs replicated storage or a managed database, and a Postgres HA topology — one primary here is a deliberate simplification.
+

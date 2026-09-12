@@ -391,3 +391,13 @@ payments split 23/17 across clusters (active-active); a continuous loop with poc
 scaled to 0 mid-run and restored — **218 requests, 0 failed** (254/0 in the first run), traffic
 on poc2 within one 5-second window; `affinity: local` 20/20 local then 20/20 remote. The first
 run's 40/40-to-one-cluster was the client's keep-alive pool, not Cilium (gotcha #50).
+
+## Finding — the bank's resilience drills (demo 15, Parts 5–7)
+
+No labels or annotations on any Deployment: the live `payments` Deployments carry none, the
+Service carries `service.cilium.io/global: "true"`, and the docs require only that plus identical
+name/namespace. Drills: `payments` poc1 → 0 statically: 20/20 from poc2, ledger consistent; an
+`accounts` pod killed under 1 read/s: 0 failed; `postgres-0` deleted: new pod in ~6 s, 3 s of
+failed reads, same PV, balances identical; `redis-0` deleted: 1,161 keys replayed from the AOF,
+history intact, the old idempotency key still refused a second debit. Before graceful shutdown was
+added, one payment in the scale-down second returned 502; after it, 60/60 (gotcha #53).

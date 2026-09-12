@@ -258,6 +258,83 @@ or an empty box silently added nothing — and the form re-rendered its hard-cod
 **on the page**, the last payment's result is shown with the clusters that handled it, the
 merchant is remembered, and every POST is logged.
 
+## Part 6 — resilience drills (`resilience.sh`, recorded in `output/transcript.txt`)
+
+Three failures, each judged by the bank's own responses, not by the platform's status.
+
+**A. `payments` in poc1 scaled to 0 — statically, then 20 payments.** poc1's service map keeps a
+single backend, the poc2 pod, and the bank does not notice:
+
+```
+53   10.11.166.33:80/TCP   ClusterIP   1 => 10.20.1.95:8080/TCP (active)      <- the only payments backend left: poc2
+calls: 20  ok: 20  declined: 0  FAILED (infrastructure): 0
+payments served by : poc2=20
+LEDGER CONSISTENT: before - after == sum of payments
+```
+
+**B. One of the two `accounts` pods killed while balances are read once a second:**
+
+```
+reader: 23 ok, 0 failed, longest outage 0s (1 read/s over 25s)
+```
+
+The pod drained on SIGTERM (Part 5) and Cilium had already stopped sending to it.
+
+**C1. `postgres-0` deleted — the system of record itself:**
+
+```
+balances before: chk-1001=57120 chk-1002=135761
+>>> 01:57:16 deleting postgres-0 (uid 0ada1c08…)
+>>> 01:57:21 a NEW postgres-0 (uid 73f40e6a…) is Ready ~6s after the delete
+reader: 53 ok, 3 failed, longest outage 3s (1 read/s over 60s)
+PVC data-postgres-0 -> PV pvc-3cdad16b-…  (the same volume, before and after)
+balances after : chk-1001=57120 chk-1002=135761  -> DATA SURVIVED the pod
+```
+
+A three-second window in which reads fail (there is one primary; nothing hides that), then the
+StatefulSet's replacement pod mounts the **same** PersistentVolume and every balance is what it
+was. `accounts` retried its connection rather than crash-looping (its startup loop).
+
+**C2. `redis-0` deleted — payment history and idempotency keys:**
+
+```
+payments listed before: 20 (key res-84817-28259 just paid)
+a NEW redis-0 is Ready ~6s after the delete; AOF replayed: 1161 keys
+payments listed after : 20 -> HISTORY SURVIVED
+replaying key res-84817-28259 after the restart: replay=True   balance unchanged
+```
+
+`--appendonly yes` on the PVC means the key that was claimed before the restart still blocks a
+second debit after it — idempotency survives the store's own restart.
+
+**What the drills do not prove.** The volumes are kind's `local-path` (`/var/local-path-provisioner/…`
+on one node): data survives the *pod*, not the *node*. Production needs replicated storage or a
+managed database, and a Postgres HA topology; one primary is a deliberate simplification here,
+and the 3-second outage is its honest cost.
+
+## Part 7 — the working principles, each with its evidence
+
+**"Do we need labels on the Deployments for this to work?" — No.** Checked two ways. The docs
+([Global Services](https://docs.cilium.io/en/stable/network/clustermesh/global-services/)) require
+exactly one thing: *"defining a Kubernetes service with identical name and namespace in each
+cluster and adding the annotation `service.cilium.io/global: "true"`"*; the Service's ordinary
+`selector` matches ordinary pod labels (`app: payments`). And the live objects: the `payments`
+Deployments in both clusters carry **no** Cilium label or annotation at all (`labels: None`, pod
+labels `{app: payments}`), while the Service carries the one annotation. Nothing on the workload
+knows it is in a mesh.
+
+| Principle | Mechanism | Where you saw it |
+|---|---|---|
+| **A global Service merges endpoints, not objects** | each cluster's `clustermesh-apiserver` publishes its endpoints; the other cluster's agents import them into the *local* Service's eBPF map; DNS stays local, so the Service object must exist in both clusters | poc1's map for `accounts` lists a `10.20.x` backend it never scheduled; demo 07's "why DNS does not resolve" |
+| **Load balancing is per connection, in eBPF, at the client node** | the SYN picks a backend from the merged map (local or remote); packets go node-to-node over VXLAN; no proxy in the path | 23/17 split across clusters; `served_by` changes per request only once keep-alive was off (#50) |
+| **Failover is endpoint withdrawal, not DNS** | a pod that goes away is removed from every cluster's map; the next SYN simply picks another; the ClusterIP and the name never change | 218/0 and 60/60 through a scale-to-0; poc1's map dropping to the single poc2 backend in drill A |
+| **`affinity: local` is a preference, not a fence** | local backends preferred; remote used *"if and only if all of local backends are not available"* | 20/20 local, then 20/20 remote after scale-to-0 |
+| **Zero-loss needs the app to drain** | endpoint removal is asynchronous; a pod must outlive it, then finish in-flight requests | 1 × 502 at the scale-down instant before; 0 after SIGTERM handling + `terminationGracePeriodSeconds` (#53) |
+| **Idempotency across clusters comes from shared state, not from the mesh** | the key is claimed in Redis before money moves; either cluster's `payments` sees the same claim | replay recognised by the *other* cluster; balance unchanged; survives a Redis restart |
+| **The system of record has one home and one truth** | `accounts` runs only in poc2, every debit is one guarded `UPDATE … WHERE balance >= amount`; the ledger balances across clusters | `debited by accounts: poc2=60`; `before − after == sum of payments` every run |
+| **Durability is the volume's, availability is the topology's** | a StatefulSet re-mounts the same PV; one primary means a short outage | Postgres: same PV, balances identical, 3 s of failed reads |
+| **Observability survives the split** | Hubble on each cluster sees its half; the response bodies carry the cross-cluster path end to end | `served_by` chains; demo 01/10 for the flows |
+
 ## What to take away
 
 | Claim | Evidence |
@@ -272,6 +349,8 @@ merchant is remembered, and every POST is logged.
 | Connection pooling hides load balancing | 40/40 to one cluster until keep-alive was disabled |
 | Zero-loss failover needs the app to drain on SIGTERM | 1 × 502 at the scale-down instant before; 60/60 after graceful shutdown |
 | The ledger stays consistent across clusters | before − after == sum of payments, every run |
+| No labels or annotations on workloads — one annotation on the Service | live Deployments carry none; docs require only `service.cilium.io/global` + same name/namespace |
+| Data survives the pod, not the node | Postgres/Redis deleted: same PV, balances and keys intact; 3 s read outage; local-path caveat |
 
 ## Clean up
 
