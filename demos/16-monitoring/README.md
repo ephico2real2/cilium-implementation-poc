@@ -222,6 +222,7 @@ native discovery — plus the Grafana dashboards as labelled ConfigMaps. All of 
 | `envoy.prometheus.serviceMonitor.enabled` | ServiceMonitor on the existing `cilium-envoy` Service `:9964` | no |
 | `hubble.metrics.serviceMonitor.enabled` + `hubble.metrics.dashboards.enabled` | ServiceMonitor `hubble` → `hubble-metrics :9965`; 4 Hubble dashboard ConfigMaps | no |
 | `hubble.relay.prometheus.enabled` + `…serviceMonitor.enabled` | relay `:9966`, Service, ServiceMonitor | relay restarts |
+| `clustermesh.useAPIServer` + `clustermesh.apiserver.metrics.{enabled, kvstoremesh.enabled, etcd.enabled}` — the docs' ClusterMesh snippet, **now stated explicitly** (Part 5b) | the `clustermesh-apiserver-metrics` Service, ports 9962 / 9964 / 9963 | no — all four were already live (defaults + demo 07) |
 | `clustermesh.apiserver.metrics.serviceMonitor.enabled` | ServiceMonitor with three endpoints: apiserver, kvstoremesh, etcd | no |
 
 **Two things the render diff proved before anything was applied** (`helm template` of the live
@@ -264,6 +265,20 @@ count by (job, container) ({job="clustermesh-apiserver-metrics"})
   container=apiserver     431
   container=etcd         1837      (--metrics=basic on the embedded etcd)
   container=kvstoremesh   626
+```
+
+**Part 5b — the snippet's values are now in the file, explicitly.** On request, the four values
+went into `values-cilium-metrics.yaml` under `clustermesh:` (plus `etcd.mode: basic`, the default
+the pod already runs with `--metrics=basic`), so the intent survives a future chart version that
+changes a default. Proven a no-op before applying, then applied:
+
+```
+render diff, live release vs live + values-cilium-metrics.yaml:   changed: nothing   added: nothing   removed: nothing
+Release "cilium" has been upgraded.   revision 37
+live: useAPIServer=True metrics.enabled=True kvstoremesh=True etcd=True/basic serviceMonitor=True
+clustermesh-apiserver-689b47f875-g59zd   true,true,true   started 00:10:10Z   ← not restarted
+agent start: 03:25:06Z / 03:25:19Z / 03:25:33Z                              ← the Part 9b pods, untouched
+  scraped: apiserver 431 · etcd 1837 · kvstoremesh 626 series
 ```
 
 **Apply**, with a 1 s probe of the Gateway running alongside to measure what the agent rollout costs:

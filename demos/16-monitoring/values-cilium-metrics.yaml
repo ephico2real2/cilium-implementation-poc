@@ -106,8 +106,15 @@ hubble:
         relabelings: *cluster_label
 
 clustermesh:
+  useAPIServer: true             # the docs' ClusterMesh metrics snippet, stated explicitly (set here since demo 07)
   apiserver:
     metrics:
+      enabled: true              # apiserver :9962      — chart default true in 1.20.1, made explicit so the
+      kvstoremesh:               #                        intent survives a chart upgrade that changes a default
+        enabled: true            # kvstoremesh :9964
+      etcd:
+        enabled: true            # embedded etcd :9963, --metrics=basic
+        mode: basic
       serviceMonitor:
         enabled: true              # clustermesh-apiserver + kvstoremesh + etcd metrics — the mesh's own health on a panel
         relabelings: [{targetLabel: cluster, action: replace, replacement: poc1}]

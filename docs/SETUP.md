@@ -1686,7 +1686,7 @@ kubectl --context kind-poc1 apply -f demos/16-monitoring/10-gateway.yaml        
 sudo sh -c 'demos/16-monitoring/hosts-entries.sh >> /etc/hosts'                                              # you run this
 helm get values cilium -n kube-system --kube-context kind-poc1 -o yaml > .tmp/poc1-values-before-demo16.yaml
 helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc1 \
-  --reuse-values -f demos/16-monitoring/values-cilium-metrics.yaml                                           # Section B (agents roll once)
+  --reuse-values -f demos/16-monitoring/values-cilium-metrics.yaml                                           # Section B (agents roll once; includes the docs' clustermesh.apiserver.metrics.* values)
 kubectl --context kind-poc1 apply -f demos/16-monitoring/20-visibility-policies.yaml                        # DNS + HTTP on the proxy for bank
 ```
 
