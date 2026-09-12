@@ -1,0 +1,293 @@
+### Part 1 — BEFORE: the demo 18 global annotation, with poc2 now having a collector (demo 22)
+### 2026-09-12T13:12:18Z
+$ bash -c for C in poc1 poc2; do IP=$(kubectl --context kind-$C -n otel get svc otel-collector -o jsonpath="{.spec.clusterIP}"); AG=$(kubectl --context kind-$C -n kube-system get pods -l k8s-app=cilium --field-selector spec.nodeName=$C-worker -o name | head -1); echo "$C otel-collector $IP annotations: $(kubectl --context kind-$C -n otel get svc otel-collector -o jsonpath="{.metadata.annotations}" | grep -o "service.cilium.io[^,}]*" | tr "\n" " ")"; kubectl --context kind-$C -n kube-system exec $AG -c cilium-agent -- cilium-dbg service list 2>/dev/null | awk -v ip="$IP:4318" "\$2==ip{p=1;print \"   \",\$0;next} p&&/=>/{print \"   \",\$0;next} {p=0}"; done; echo "poc2 collector: replicas=$(kubectl --context kind-poc2 -n otel get deploy otel-collector -o jsonpath="{.spec.replicas}") queue: $(kubectl --context kind-poc2 -n otel get cm otel-collector -o jsonpath="{.data.config\.yaml}" | grep -c sending_queue) sending_queue lines (0 = exporter defaults: in-memory, 1000, retries stop after 300 s)"
+poc1 otel-collector 10.11.115.140 annotations: service.cilium.io/global\":\"true\" service.cilium.io/global":"true" 
+poc2 otel-collector 10.21.35.73 annotations: service.cilium.io/affinity\":\"local\" service.cilium.io/global\":\"true\" service.cilium.io/affinity":"local" service.cilium.io/global":"true" 
+poc2 collector: replicas=1 queue: 0 sending_queue lines (0 = exporter defaults: in-memory, 1000, retries stop after 300 s)
+
+### Part 2 — the per-cluster Service, the upgraded poc2 gateway, the persistent queue on poc1
+### 2026-09-12T13:12:23Z
+$ bash -c for C in poc1 poc2; do kubectl --context kind-$C apply -f demos/23-collector-per-cluster/10-collector-service.yaml; done; kubectl --context kind-poc2 apply -f demos/23-collector-per-cluster/20-otel-collector-poc2.yaml; kubectl --context kind-poc1 apply -f demos/10-tracing/otel-collector.yaml | grep -v unchanged; kubectl --context kind-poc1 -n otel rollout restart ds/otel-collector; kubectl --context kind-poc2 -n otel rollout status deploy/otel-collector --timeout=3m | tail -1; kubectl --context kind-poc1 -n otel rollout status ds/otel-collector --timeout=4m | tail -1
+namespace/otel unchanged
+service/otel-collector configured
+namespace/otel unchanged
+service/otel-collector configured
+namespace/otel unchanged
+configmap/otel-collector configured
+deployment.apps/otel-collector configured
+poddisruptionbudget.policy/otel-collector created
+configmap/otel-collector configured
+daemonset.apps/otel-collector restarted
+deployment "otel-collector" successfully rolled out
+daemon set "otel-collector" successfully rolled out
+
+### Part 1b — the BEFORE state reproduced for the record: put demo 18's global annotation back on poc1 for one minute
+### 2026-09-12T13:13:17Z
+$ bash -c kubectl --context kind-poc1 -n otel annotate svc otel-collector service.cilium.io/global=true --overwrite >/dev/null; sleep 8; IP=$(kubectl --context kind-poc1 -n otel get svc otel-collector -o jsonpath="{.spec.clusterIP}"); AG=$(kubectl --context kind-poc1 -n kube-system get pods -l k8s-app=cilium --field-selector spec.nodeName=poc1-worker -o name | head -1); echo "poc1 otel-collector $IP with service.cilium.io/global=true — backends as poc1-worker sees them:"; kubectl --context kind-poc1 -n kube-system exec $AG -c cilium-agent -- cilium-dbg service list 2>/dev/null | awk -v ip="$IP:4318/TCP" "\$2==ip{p=1;print \"   \",\$0;next} p&&/=>/{print \"   \",\$0;next} {p=0}"; echo "poc2 collector pods (the 10.20.x backends above):"; kubectl --context kind-poc2 -n otel get pods -l app=otel-collector -o wide --no-headers | awk "{print \"    \"\$1, \$6}"; kubectl --context kind-poc1 apply -f demos/23-collector-per-cluster/10-collector-service.yaml >/dev/null; sleep 8; echo "annotation removed again (kubectl apply of the demo 23 Service)"
+poc1 otel-collector 10.11.115.140 with service.cilium.io/global=true — backends as poc1-worker sees them:
+    68   10.11.115.140:4318/TCP    ClusterIP      1 => 10.10.0.118:4318/TCP (active)    
+                                                  2 => 10.10.1.235:4318/TCP (active)    
+                                                  3 => 10.10.2.118:4318/TCP (active)    
+                                                  4 => 10.10.3.26:4318/TCP (active)     
+                                                  5 => 10.10.4.3:4318/TCP (active)      
+    69   10.11.115.140:9411/TCP    ClusterIP      1 => 10.10.0.118:9411/TCP (active)    
+                                                  2 => 10.10.1.235:9411/TCP (active)    
+                                                  3 => 10.10.2.118:9411/TCP (active)    
+                                                  4 => 10.10.3.26:9411/TCP (active)     
+                                                  5 => 10.10.4.3:9411/TCP (active)      
+poc2 collector pods (the 10.20.x backends above):
+    otel-collector-8f8c6fd76-79qwk 10.20.1.3
+    otel-collector-8f8c6fd76-dtdzn 10.20.1.41
+annotation removed again (kubectl apply of the demo 23 Service)
+
+### Part 2b — AFTER: check.sh
+### 2026-09-12T13:13:36Z
+$ demos/23-collector-per-cluster/check.sh 15
+== poc1 ==
+  otel-collector 10.11.115.140:4318 backends (as poc1-worker's agent sees them):
+    68   10.11.115.140:4318/TCP    ClusterIP      1 => 10.10.0.118:4318/TCP (active)    
+                                                  2 => 10.10.1.235:4318/TCP (active)    
+                                                  3 => 10.10.2.118:4318/TCP (active)    
+                                                  4 => 10.10.3.26:4318/TCP (active)     
+                                                  5 => 10.10.4.3:4318/TCP (active)      
+    69   10.11.115.140:9411/TCP    ClusterIP      1 => 10.10.0.118:9411/TCP (active)    
+                                                  2 => 10.10.1.235:9411/TCP (active)    
+                                                  3 => 10.10.2.118:9411/TCP (active)    
+                                                  4 => 10.10.3.26:9411/TCP (active)     
+                                                  5 => 10.10.4.3:9411/TCP (active)      
+  annotations: global=[true] affinity=[]
+  otel-collector-fkl5v               queue= sent= failed=
+  otel-collector-qqqrh               queue= sent= failed=
+  otel-collector-r6bs4               queue= sent= failed=
+  otel-collector-rphkh               queue= sent= failed=
+  otel-collector-tn2rh               queue= sent= failed=
+== poc2 ==
+  otel-collector 10.21.35.73:4318 backends (as poc2-worker's agent sees them):
+    25   10.21.35.73:4318/TCP     ClusterIP      1 => 10.20.1.3:4318/TCP (active)      
+                                                 2 => 10.20.1.41:4318/TCP (active)     
+    26   10.21.35.73:9411/TCP     ClusterIP      1 => 10.20.1.3:9411/TCP (active)      
+                                                 2 => 10.20.1.41:9411/TCP (active)     
+    32   10.21.38.20:9090/TCP     ClusterIP      1 => 10.10.4.97:9090/TCP (active)     
+    33   10.21.178.167:4317/TCP   ClusterIP      1 => 10.10.4.84:4317/TCP (active)     
+    34   10.21.163.234:8080/TCP   ClusterIP      1 => 10.20.1.152:8080/TCP (active)    
+    35   10.21.74.131:443/TCP     ClusterIP      1 => 10.20.1.230:10250/TCP (active)   
+    36   10.21.30.55:9100/TCP     ClusterIP      1 => 172.18.0.9:9100/TCP (active)     
+                                                 2 => 172.18.0.10:9100/TCP (active)    
+    37   10.21.67.238:8080/TCP    ClusterIP      1 => 10.20.1.178:8080/TCP (active)    
+    38   10.21.67.238:9090/TCP    ClusterIP      1 => 10.20.1.178:9090/TCP (active)    
+  annotations: global=[] affinity=[]
+  otel-collector-8f8c6fd76-79qwk     queue=0 sent= failed=
+  otel-collector-8f8c6fd76-dtdzn     queue=0 sent= failed=
+== Tempo (central): traces per cluster, last 15 min ==
+  k8s.cluster.name=poc1: 0 traces
+  k8s.cluster.name=poc2: 0 traces
+
+### 2026-09-12T13:13:43Z
+$ bash -c echo "poc2: $(kubectl --context kind-poc2 -n otel get deploy otel-collector -o jsonpath="{.status.readyReplicas}/{.spec.replicas} ready"), PDB: $(kubectl --context kind-poc2 -n otel get pdb otel-collector -o jsonpath="minAvailable={.spec.minAvailable} allowed-disruptions={.status.disruptionsAllowed}")"; kubectl --context kind-poc2 -n otel get pods -l app=otel-collector -o wide --no-headers | awk "{print \"  \"\$1, \$2, \$3, \$7}"; echo "poc1: $(kubectl --context kind-poc1 -n otel get ds otel-collector -o jsonpath="{.status.numberReady}/{.status.desiredNumberScheduled} ready") — otlp/tempo now: $(kubectl --context kind-poc1 -n otel get cm otel-collector -o jsonpath="{.data.config\.yaml}" | grep -A1 "sending_queue: {storage" | tr -s " " | tr "\n" " ")"
+poc2: 2/2 ready, PDB: minAvailable=1 allowed-disruptions=1
+  otel-collector-8f8c6fd76-79qwk 1/1 Running poc2-worker
+  otel-collector-8f8c6fd76-dtdzn 1/1 Running poc2-worker
+poc1: 5/5 ready — otlp/tempo now:  sending_queue: {storage: file_storage, queue_size: 5000}  retry_on_failure: {max_elapsed_time: 0} 
+
+### Part 1b (second attempt) — the first attempt above annotated poc1 ONLY and saw five backends: a global Service exports a cluster's backends only when THAT cluster's Service is annotated too (the demo 07 rule). Demo 18's state had both annotated; reproduce that.
+### 2026-09-12T13:14:30Z
+$ bash -c for C in poc1 poc2; do kubectl --context kind-$C -n otel annotate svc otel-collector service.cilium.io/global=true --overwrite >/dev/null; done; sleep 10; for C in poc1 poc2; do IP=$(kubectl --context kind-$C -n otel get svc otel-collector -o jsonpath="{.spec.clusterIP}"); AG=$(kubectl --context kind-$C -n kube-system get pods -l k8s-app=cilium --field-selector spec.nodeName=$C-worker -o name | head -1); echo "$C otel-collector $IP with service.cilium.io/global=true in BOTH clusters — backends as $C-worker sees them:"; kubectl --context kind-$C -n kube-system exec $AG -c cilium-agent -- cilium-dbg service list 2>/dev/null | awk -v ip="$IP:4318/TCP" "\$2==ip{p=1;print \"   \",\$0;next} p&&/=>/{print \"   \",\$0;next} {p=0}"; done; echo "poc1 collector pods: $(kubectl --context kind-poc1 -n otel get pods -l app=otel-collector -o jsonpath="{range .items[*]}{.status.podIP} {end}")"; echo "poc2 collector pods: $(kubectl --context kind-poc2 -n otel get pods -l app=otel-collector -o jsonpath="{range .items[*]}{.status.podIP} {end}")"; for C in poc1 poc2; do kubectl --context kind-$C apply -f demos/23-collector-per-cluster/10-collector-service.yaml >/dev/null; done; sleep 10; echo "--- demo 23 Service re-applied to both; backends now:"; for C in poc1 poc2; do IP=$(kubectl --context kind-$C -n otel get svc otel-collector -o jsonpath="{.spec.clusterIP}"); AG=$(kubectl --context kind-$C -n kube-system get pods -l k8s-app=cilium --field-selector spec.nodeName=$C-worker -o name | head -1); echo "  $C: $(kubectl --context kind-$C -n kube-system exec $AG -c cilium-agent -- cilium-dbg service list 2>/dev/null | awk -v ip="$IP:4318/TCP" "\$2==ip{p=1;n=1;next} p&&/=>/{n++;next} {p=0} END{print n}") backends"; done
+poc1 otel-collector 10.11.115.140 with service.cilium.io/global=true in BOTH clusters — backends as poc1-worker sees them:
+    68   10.11.115.140:4318/TCP    ClusterIP      1 => 10.10.0.118:4318/TCP (active)    
+                                                  2 => 10.10.1.235:4318/TCP (active)    
+                                                  3 => 10.10.2.118:4318/TCP (active)    
+                                                  4 => 10.10.3.26:4318/TCP (active)     
+                                                  5 => 10.10.4.3:4318/TCP (active)      
+                                                  6 => 10.20.1.3:4318/TCP (active)      
+                                                  7 => 10.20.1.41:4318/TCP (active)     
+    69   10.11.115.140:9411/TCP    ClusterIP      1 => 10.10.0.118:9411/TCP (active)    
+                                                  2 => 10.10.1.235:9411/TCP (active)    
+                                                  3 => 10.10.2.118:9411/TCP (active)    
+                                                  4 => 10.10.3.26:9411/TCP (active)     
+                                                  5 => 10.10.4.3:9411/TCP (active)      
+                                                  6 => 10.20.1.3:9411/TCP (active)      
+                                                  7 => 10.20.1.41:9411/TCP (active)     
+poc2 otel-collector 10.21.35.73 with service.cilium.io/global=true in BOTH clusters — backends as poc2-worker sees them:
+    25   10.21.35.73:4318/TCP     ClusterIP      1 => 10.10.0.118:4318/TCP (active)    
+                                                 2 => 10.10.1.235:4318/TCP (active)    
+                                                 3 => 10.10.2.118:4318/TCP (active)    
+                                                 4 => 10.10.3.26:4318/TCP (active)     
+                                                 5 => 10.10.4.3:4318/TCP (active)      
+                                                 6 => 10.20.1.3:4318/TCP (active)      
+                                                 7 => 10.20.1.41:4318/TCP (active)     
+    26   10.21.35.73:9411/TCP     ClusterIP      1 => 10.10.0.118:9411/TCP (active)    
+                                                 2 => 10.10.1.235:9411/TCP (active)    
+                                                 3 => 10.10.2.118:9411/TCP (active)    
+                                                 4 => 10.10.3.26:9411/TCP (active)     
+                                                 5 => 10.10.4.3:9411/TCP (active)      
+                                                 6 => 10.20.1.3:9411/TCP (active)      
+                                                 7 => 10.20.1.41:9411/TCP (active)     
+    32   10.21.38.20:9090/TCP     ClusterIP      1 => 10.10.4.97:9090/TCP (active)     
+    33   10.21.178.167:4317/TCP   ClusterIP      1 => 10.10.4.84:4317/TCP (active)     
+    34   10.21.163.234:8080/TCP   ClusterIP      1 => 10.20.1.152:8080/TCP (active)    
+    35   10.21.74.131:443/TCP     ClusterIP      1 => 10.20.1.230:10250/TCP (active)   
+    36   10.21.30.55:9100/TCP     ClusterIP      1 => 172.18.0.9:9100/TCP (active)     
+                                                 2 => 172.18.0.10:9100/TCP (active)    
+    37   10.21.67.238:8080/TCP    ClusterIP      1 => 10.20.1.178:8080/TCP (active)    
+    38   10.21.67.238:9090/TCP    ClusterIP      1 => 10.20.1.178:9090/TCP (active)    
+poc1 collector pods: 10.10.3.26 10.10.4.3 10.10.1.235 10.10.0.118 10.10.2.118 
+poc2 collector pods: 10.20.1.3 10.20.1.41 
+--- demo 23 Service re-applied to both; backends now:
+  poc1: 14 backends
+  poc2: 22 backends
+
+### Part 2b (again, check.sh with its awk fixed — the first run above printed every service after the match) 
+### 2026-09-12T13:15:41Z
+$ demos/23-collector-per-cluster/check.sh 15
+== poc1 ==
+  otel-collector 10.11.115.140:4318 backends (as poc1-worker's agent sees them):
+    68   10.11.115.140:4318/TCP    ClusterIP      1 => 10.10.0.91:4318/TCP (active)     
+                                                  2 => 10.10.1.184:4318/TCP (active)    
+                                                  3 => 10.10.2.26:4318/TCP (active)     
+                                                  4 => 10.10.3.3:4318/TCP (active)      
+                                                  5 => 10.10.4.54:4318/TCP (active)     
+                                                  6 => 10.20.1.3:4318/TCP (active)      
+                                                  7 => 10.20.1.41:4318/TCP (active)     
+  annotations: global=[true] affinity=[]
+  otel-collector-7m449               queue=0 sent=0 failed=0
+  otel-collector-95xt6               queue=0 sent=0 failed=0
+  otel-collector-lw4rb               queue=0 sent=0 failed=0
+  otel-collector-qbsd9               queue=0 sent=0 failed=0
+  otel-collector-vcfr6               queue=0 sent=0 failed=0
+== poc2 ==
+  otel-collector 10.21.35.73:4318 backends (as poc2-worker's agent sees them):
+    25   10.21.35.73:4318/TCP     ClusterIP      1 => 10.10.0.91:4318/TCP (active)     
+                                                 2 => 10.10.1.184:4318/TCP (active)    
+                                                 3 => 10.10.2.26:4318/TCP (active)     
+                                                 4 => 10.10.3.3:4318/TCP (active)      
+                                                 5 => 10.10.4.54:4318/TCP (active)     
+                                                 6 => 10.20.1.3:4318/TCP (active)      
+                                                 7 => 10.20.1.41:4318/TCP (active)     
+  annotations: global=[true] affinity=[]
+  otel-collector-8f8c6fd76-79qwk     queue=0 sent=0 failed=0
+  otel-collector-8f8c6fd76-dtdzn     queue=0 sent=0 failed=0
+== Tempo (central): traces per cluster, last 15 min ==
+  k8s.cluster.name=poc1: 0 traces
+  k8s.cluster.name=poc2: 0 traces
+
+### Part 2c — the annotation put back by 'kubectl annotate' in Part 1b survived 'kubectl apply' (apply removes only what its own last-applied record owned). Remove it explicitly, on both.
+### 2026-09-12T13:16:14Z
+$ bash -c for C in poc1 poc2; do kubectl --context kind-$C -n otel annotate svc otel-collector service.cilium.io/global- service.cilium.io/affinity- 2>&1 | sed "s/^/  $C: /"; done; sleep 10
+  poc1: service/otel-collector annotated
+  poc2: service/otel-collector annotated
+
+### Part 2d — AFTER, for real: check.sh
+### 2026-09-12T13:16:24Z
+$ demos/23-collector-per-cluster/check.sh 15
+== poc1 ==
+  otel-collector 10.11.115.140:4318 backends (as poc1-worker's agent sees them):
+    68   10.11.115.140:4318/TCP    ClusterIP      1 => 10.10.0.91:4318/TCP (active)     
+                                                  2 => 10.10.1.184:4318/TCP (active)    
+                                                  3 => 10.10.2.26:4318/TCP (active)     
+                                                  4 => 10.10.3.3:4318/TCP (active)      
+                                                  5 => 10.10.4.54:4318/TCP (active)     
+  annotations: global=[] affinity=[]
+  otel-collector-7m449               queue=0 sent=0 failed=0
+  otel-collector-95xt6               queue=0 sent=0 failed=0
+  otel-collector-lw4rb               queue=0 sent=0 failed=0
+  otel-collector-qbsd9               queue=0 sent=0 failed=0
+  otel-collector-vcfr6               queue=0 sent=0 failed=0
+== poc2 ==
+  otel-collector 10.21.35.73:4318 backends (as poc2-worker's agent sees them):
+    25   10.21.35.73:4318/TCP     ClusterIP      1 => 10.20.1.3:4318/TCP (active)      
+                                                 2 => 10.20.1.41:4318/TCP (active)     
+  annotations: global=[] affinity=[]
+  otel-collector-8f8c6fd76-79qwk     queue=0 sent=0 failed=0
+  otel-collector-8f8c6fd76-dtdzn     queue=0 sent=0 failed=0
+== Tempo (central): traces per cluster, last 15 min ==
+  k8s.cluster.name=poc1: 0 traces
+  k8s.cluster.name=poc2: 0 traces
+
+### Part 3 — the persistent queue, proven: hub Tempo down, poc2's gateway buffers, its container is killed, the queue survives, Tempo returns, the queue drains
+### 2026-09-12T13:17:54Z
+$ bash -c kubectl --context kind-poc1 -n monitoring scale sts tempo --replicas=0 >/dev/null; kubectl --context kind-poc1 -n monitoring wait pod -l app.kubernetes.io/name=tempo --for=delete --timeout=90s >/dev/null 2>&1; AG=$(kubectl --context kind-poc2 -n kube-system get pods -l k8s-app=cilium --field-selector spec.nodeName=poc2-worker -o name | head -1); IP=$(kubectl --context kind-poc2 -n monitoring get svc tempo-central -o jsonpath="{.spec.clusterIP}"); echo "Tempo scaled to 0 at $(date -u +%H:%M:%S); tempo-central backends as poc2 sees them: $(kubectl --context kind-poc2 -n kube-system exec $AG -c cilium-agent -- cilium-dbg service list 2>/dev/null | awk -v ip="$IP:4317/TCP" "\$1 ~ /^[0-9]+\$/ && \$2 ~ /\\/TCP\$/ {p=(\$2==ip)} p && /=>/ {n++} END{print n+0}")"
+Tempo scaled to 0 at 13:18:02; tempo-central backends as poc2 sees them: 0
+
+### 2026-09-12T13:18:04Z
+$ bash -c echo "drive the bank (payments land on poc2: accounts + the payments replica there):"; demos/15-bank/exercise.sh 30 chk-1001 2>&1 | tail -3; sleep 20; for P in $(kubectl --context kind-poc2 -n otel get pods -l app=otel-collector -o name | cut -d/ -f2); do kubectl --context kind-poc2 get --raw "/api/v1/namespaces/otel/pods/$P:8888/proxy/metrics" | awk -v p="$P" "/^otelcol_exporter_queue_size\\{.*tempo/ {q=\$NF} /^otelcol_exporter_send_failed_spans\\{.*tempo/ {f=\$NF} END{printf \"  %s queue_size=%s send_failed_spans=%s\\n\", p, q, (f==\"\"?0:f)}"; done; kubectl --context kind-poc2 -n otel logs deploy/otel-collector --since=2m 2>/dev/null | grep -m2 "Exporting failed\|retry" | cut -c1-200 | sed "s/^/  log: /"
+drive the bank (payments land on poc2: accounts + the payments replica there):
+  call 1: replay=False served by poc2
+  call 2: replay=True served by poc2
+  balance 67983 -> 67883 (must differ by exactly 100)
+  otel-collector-8f8c6fd76-79qwk queue_size=2 send_failed_spans=0
+  otel-collector-8f8c6fd76-dtdzn queue_size=0 send_failed_spans=0
+
+### 2026-09-12T13:19:17Z
+$ bash -c P=$(for p in $(kubectl --context kind-poc2 -n otel get pods -l app=otel-collector -o name | cut -d/ -f2); do q=$(kubectl --context kind-poc2 get --raw "/api/v1/namespaces/otel/pods/$p:8888/proxy/metrics" | awk "/^otelcol_exporter_queue_size\\{.*tempo/ {print \$NF}"); [ "${q:-0}" -gt 0 ] && echo $p; done | head -1); echo "pod holding the queue: $P (queue on disk: emptyDir /var/lib/otelcol)"; CID=$(docker exec poc2-worker crictl ps --name otel-collector -q | while read c; do docker exec poc2-worker crictl inspect $c | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[\"info\"][\"pid\"], d[\"status\"][\"labels\"][\"io.kubernetes.pod.name\"])"; done | awk -v p="$P" "\$2==p {print \$1}"); echo "its process on poc2-worker: pid $CID — kill -9 (the container dies; the kubelet restarts it in the SAME pod, the emptyDir stays)"; docker exec poc2-worker kill -9 $CID; sleep 12; echo "after: restarts=$(kubectl --context kind-poc2 -n otel get pod $P -o jsonpath="{.status.containerStatuses[0].restartCount}") ready=$(kubectl --context kind-poc2 -n otel get pod $P -o jsonpath="{.status.containerStatuses[0].ready}") queue_size=$(kubectl --context kind-poc2 get --raw "/api/v1/namespaces/otel/pods/$P:8888/proxy/metrics" | awk "/^otelcol_exporter_queue_size\\{.*tempo/ {print \$NF}")"; kubectl --context kind-poc2 -n otel logs $P --since=1m 2>/dev/null | grep -i "queue\|storage" | head -3 | cut -c1-220 | sed "s/^/  log: /"
+pod holding the queue: otel-collector-8f8c6fd76-79qwk (queue on disk: emptyDir /var/lib/otelcol)
+its process on poc2-worker: pid 210522 — kill -9 (the container dies; the kubelet restarts it in the SAME pod, the emptyDir stays)
+after: restarts=1 ready=true queue_size=2
+  log: 2026-09-12T13:19:23.344Z	info	extensions/extensions.go:48	Extension is starting...	{"resource": {"service.instance.id": "b7a51265-1533-40ad-b5f8-430949534ebf", "service.name": "otelcol-contrib", "service.version": "0.160
+  log: 2026-09-12T13:19:23.344Z	info	extensions/extensions.go:66	Extension started.	{"resource": {"service.instance.id": "b7a51265-1533-40ad-b5f8-430949534ebf", "service.name": "otelcol-contrib", "service.version": "0.160.0"}, 
+  log: 2026-09-12T13:19:23.364Z	info	queue/persistent_queue.go:186	Loaded queue metadata	{"resource": {"service.instance.id": "b7a51265-1533-40ad-b5f8-430949534ebf", "service.name": "otelcol-contrib", "service.version": "0.160.
+
+### 2026-09-12T13:19:33Z
+$ bash -c kubectl --context kind-poc1 -n monitoring scale sts tempo --replicas=1 >/dev/null; kubectl --context kind-poc1 -n monitoring rollout status sts/tempo --timeout=3m | tail -1; sleep 45; echo "Tempo back at $(date -u +%H:%M:%S); poc2 gateways:"; for P in $(kubectl --context kind-poc2 -n otel get pods -l app=otel-collector -o name | cut -d/ -f2); do kubectl --context kind-poc2 get --raw "/api/v1/namespaces/otel/pods/$P:8888/proxy/metrics" | awk -v p="$P" "/^otelcol_exporter_queue_size\\{.*tempo/ {q=\$NF} /^otelcol_exporter_sent_spans\\{.*tempo/ {s=\$NF} /^otelcol_exporter_send_failed_spans\\{.*tempo/ {f=\$NF} END{printf \"  %s queue_size=%s sent_spans=%s send_failed_spans=%s\\n\", p, q, (s==\"\"?0:s), (f==\"\"?0:f)}"; done; NOW=$(date +%s); Q=$(python3 -c "import urllib.parse;print(urllib.parse.quote(\"{ resource.k8s.cluster.name = \\\"poc2\\\" }\"))"); kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/search?q=$Q&start=$((NOW-600))&end=$NOW&limit=500" | python3 -c "import json,sys; ts=json.load(sys.stdin).get(\"traces\",[]); print(\"central Tempo: poc2 traces from the outage window (last 10 min):\", len(ts)); [print(\"   \", t[\"traceID\"], t.get(\"rootServiceName\"), t.get(\"rootTraceName\")) for t in ts[:3]]"
+statefulset rolling update complete 1 pods at revision tempo-55b68dbb5c...
+### 2026-09-12T13:22:02Z
+$ bash -c P=$(for p in $(kubectl --context kind-poc2 -n otel get pods -l app=otel-collector -o name | cut -d/ -f2); do q=$(kubectl --context kind-poc2 get --raw "/api/v1/namespaces/otel/pods/$p:8888/proxy/metrics" | awk "/^otelcol_exporter_queue_size\\{.*tempo/ {print \$NF}"); [ "${q:-0}" -gt 0 ] && echo $p; done | head -1); echo "pod holding the queue: $P (queue on disk: emptyDir /var/lib/otelcol)"; PID=$(docker exec poc2-worker crictl ps --name otel-collector -q | while read c; do docker exec poc2-worker crictl inspect $c | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[\"info\"][\"pid\"], d[\"status\"][\"labels\"][\"io.kubernetes.pod.name\"])"; done | awk -v p="$P" "\$2==p {print \$1}"); echo "its process on poc2-worker: pid $PID — kill -9 (the container dies; the kubelet restarts it in the SAME pod, the emptyDir stays)"; docker exec poc2-worker kill -9 $PID; sleep 12; echo "after: restarts=$(kubectl --context kind-poc2 -n otel get pod $P -o jsonpath="{.status.containerStatuses[0].restartCount}") ready=$(kubectl --context kind-poc2 -n otel get pod $P -o jsonpath="{.status.containerStatuses[0].ready}") queue_size=$(kubectl --context kind-poc2 get --raw "/api/v1/namespaces/otel/pods/$P:8888/proxy/metrics" | awk "/^otelcol_exporter_queue_size\\{.*tempo/ {print \$NF}")"
+pod holding the queue:  (queue on disk: emptyDir /var/lib/otelcol)
+its process on poc2-worker: pid  — kill -9 (the container dies; the kubelet restarts it in the SAME pod, the emptyDir stays)
+
+Usage:
+ kill [options] <pid> [...]
+
+Options:
+ <pid> [...]            send signal to every <pid> listed
+ -<signal>, -s, --signal <signal>
+                        specify the <signal> to be sent
+ -q, --queue <value>    integer value to be sent with the signal
+ -l, --list=[<signal>]  list all signal names, or convert one to a name
+ -L, --table            list all signal names in a nice table
+
+ -h, --help     display this help and exit
+ -V, --version  output version information and exit
+
+For more details see kill(1).
+Error from server (BadRequest): invalid pod request ":8888"
+after: restarts= ready= queue_size=
+
+### 2026-09-12T13:22:17Z
+$ bash -c kubectl --context kind-poc1 -n monitoring scale sts tempo --replicas=1 >/dev/null; kubectl --context kind-poc1 -n monitoring rollout status sts/tempo --timeout=3m | tail -1; sleep 45; echo "Tempo back at $(date -u +%H:%M:%S); poc2 gateways:"; for P in $(kubectl --context kind-poc2 -n otel get pods -l app=otel-collector -o name | cut -d/ -f2); do kubectl --context kind-poc2 get --raw "/api/v1/namespaces/otel/pods/$P:8888/proxy/metrics" | awk -v p="$P" "/^otelcol_exporter_queue_size\\{.*tempo/ {q=\$NF} /^otelcol_exporter_sent_spans\\{.*tempo/ {s=\$NF} /^otelcol_exporter_send_failed_spans\\{.*tempo/ {f=\$NF} END{printf \"  %s queue_size=%s sent_spans=%s send_failed_spans=%s\\n\", p, q, (s==\"\"?0:s), (f==\"\"?0:f)}"; done; NOW=$(date +%s); Q=$(python3 -c "import urllib.parse;print(urllib.parse.quote(\"{ resource.k8s.cluster.name = \\\"poc2\\\" }\"))"); kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/search?q=$Q&start=$((NOW-1800))&end=$NOW&limit=500" | python3 -c "import json,sys; ts=json.load(sys.stdin).get(\"traces\",[]); print(\"central Tempo: poc2 traces from the outage window (last 30 min):\", len(ts)); [print(\"   \", t[\"traceID\"], t.get(\"rootServiceName\"), t.get(\"rootTraceName\")) for t in ts[:3]]"
+statefulset rolling update complete 1 pods at revision tempo-55b68dbb5c...
+Tempo back at 13:23:03; poc2 gateways:
+  otel-collector-8f8c6fd76-79qwk queue_size=0 sent_spans=297 send_failed_spans=0
+  otel-collector-8f8c6fd76-dtdzn queue_size=0 sent_spans=0 send_failed_spans=0
+central Tempo: poc2 traces from the outage window (last 30 min): 38
+    d1a6c0537e20c0c40dc738edf1f53212 accounts SELECT accounts
+    fcd313c55a24f3b2bcdf01ff8d03d1f <root span not yet received> None
+    3683490d15ff1fff48cc4e82ef6a9428 accounts UPDATE accounts
+
+### Part 3b — the kill step redone. Part 3's first attempt found no pod with queue_size>0: items a consumer has dequeued and is RETRYING are not counted in queue_size (num_consumers 10 > the 2 batches). So the proof is by counters: spans accepted BEFORE the kill are SENT after the restart while nothing new is accepted.
+### 2026-09-12T13:23:59Z
+$ bash -c kubectl --context kind-poc1 -n monitoring scale sts tempo --replicas=0 >/dev/null; kubectl --context kind-poc1 -n monitoring wait pod -l app.kubernetes.io/name=tempo --for=delete --timeout=90s >/dev/null 2>&1; echo "Tempo scaled to 0 at $(date -u +%H:%M:%S); the bank driven again (30 payments):"; demos/15-bank/exercise.sh 30 chk-1001 2>&1 | tail -1; sleep 20; echo "poc2 gateways, Tempo down (counters since each container started):"; for P in $(kubectl --context kind-poc2 -n otel get pods -l app=otel-collector -o name | cut -d/ -f2); do kubectl --context kind-poc2 get --raw "/api/v1/namespaces/otel/pods/$P:8888/proxy/metrics" | awk -v p="$P" "/^otelcol_receiver_accepted_spans\\{/ {a+=\$NF} /^otelcol_exporter_queue_size\\{.*tempo/ {q=\$NF} /^otelcol_exporter_sent_spans\\{.*tempo/ {s=\$NF} END{printf \"  %-32s accepted_spans=%s queue_size=%s sent_spans=%s\\n\", p, a+0, q, (s==\"\"?0:s)}"; done
+Tempo scaled to 0 at 13:24:06; the bank driven again (30 payments):
+  balance 74533 -> 74433 (must differ by exactly 100)
+poc2 gateways, Tempo down (counters since each container started):
+  otel-collector-8f8c6fd76-79qwk   accepted_spans=281 queue_size=2 sent_spans=297
+  otel-collector-8f8c6fd76-dtdzn   accepted_spans=0 queue_size=0 sent_spans=0
+
+### 2026-09-12T13:24:57Z
+$ bash -c echo "kill -9 BOTH collector processes from the node (crictl → pid): the containers die, the kubelet restarts them in the same pods, the emptyDirs stay"; docker exec poc2-worker crictl ps --name otel-collector -q | while read c; do docker exec poc2-worker crictl inspect $c | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[\"info\"][\"pid\"], d[\"status\"][\"labels\"][\"io.kubernetes.pod.name\"])"; done | while read pid pod; do docker exec poc2-worker kill -9 $pid && echo "  killed pid $pid ($pod)"; done; sleep 15; for P in $(kubectl --context kind-poc2 -n otel get pods -l app=otel-collector -o name | cut -d/ -f2); do echo "  $P restarts=$(kubectl --context kind-poc2 -n otel get pod $P -o jsonpath="{.status.containerStatuses[0].restartCount}") ready=$(kubectl --context kind-poc2 -n otel get pod $P -o jsonpath="{.status.containerStatuses[0].ready}")"; kubectl --context kind-poc2 get --raw "/api/v1/namespaces/otel/pods/$P:8888/proxy/metrics" | awk -v p="$P" "/^otelcol_receiver_accepted_spans\\{/ {a+=\$NF} /^otelcol_exporter_queue_size\\{.*tempo/ {q=\$NF} /^otelcol_exporter_sent_spans\\{.*tempo/ {s=\$NF} END{printf \"  %-32s accepted_spans=%s queue_size=%s sent_spans=%s\\n\", p, a+0, q, (s==\"\"?0:s)}"; done; echo "(counters restarted with the process: accepted 0 — nothing new arrived; the queue reloaded from disk is what remains)"
+kill -9 BOTH collector processes from the node (crictl → pid): the containers die, the kubelet restarts them in the same pods, the emptyDirs stay
+  killed pid 212587 (otel-collector-8f8c6fd76-79qwk)
+  killed pid 210332 (otel-collector-8f8c6fd76-dtdzn)
+  otel-collector-8f8c6fd76-79qwk restarts=2 ready=true
+  otel-collector-8f8c6fd76-79qwk   accepted_spans=0 queue_size=2 sent_spans=0
+  otel-collector-8f8c6fd76-dtdzn restarts=1 ready=true
+  otel-collector-8f8c6fd76-dtdzn   accepted_spans=0 queue_size=0 sent_spans=0
+(counters restarted with the process: accepted 0 — nothing new arrived; the queue reloaded from disk is what remains)
+
+### 2026-09-12T13:25:15Z
+$ bash -c kubectl --context kind-poc1 -n monitoring scale sts tempo --replicas=1 >/dev/null; kubectl --context kind-poc1 -n monitoring rollout status sts/tempo --timeout=3m | tail -1; sleep 45; echo "Tempo back at $(date -u +%H:%M:%S) — no new traffic was sent to the bank:"; for P in $(kubectl --context kind-poc2 -n otel get pods -l app=otel-collector -o name | cut -d/ -f2); do kubectl --context kind-poc2 get --raw "/api/v1/namespaces/otel/pods/$P:8888/proxy/metrics" | awk -v p="$P" "/^otelcol_receiver_accepted_spans\\{/ {a+=\$NF} /^otelcol_exporter_queue_size\\{.*tempo/ {q=\$NF} /^otelcol_exporter_sent_spans\\{.*tempo/ {s=\$NF} END{printf \"  %-32s accepted_spans=%s queue_size=%s sent_spans=%s\\n\", p, a+0, q, (s==\"\"?0:s)}"; done; echo "sent_spans > 0 with accepted_spans = 0 since the restart: the spans came from the queue on disk, written before the kill"
+statefulset rolling update complete 1 pods at revision tempo-55b68dbb5c...
+Tempo back at 13:26:44 — no new traffic was sent to the bank:
+  otel-collector-8f8c6fd76-79qwk   accepted_spans=0 queue_size=0 sent_spans=281
+  otel-collector-8f8c6fd76-dtdzn   accepted_spans=0 queue_size=0 sent_spans=0
+sent_spans > 0 with accepted_spans = 0 since the restart: the spans came from the queue on disk, written before the kill
+

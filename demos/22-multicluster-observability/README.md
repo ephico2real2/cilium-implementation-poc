@@ -1,5 +1,10 @@
 # Demo 22 — one Grafana for the mesh: poc2's metrics and traces into the central stack on poc1
 
+> **Superseded in part by [demo 23](../23-collector-per-cluster/README.md):** the collector Service
+> re-declared global with local affinity in Part 2, and Exercise 4's cross-cluster fallback, were
+> measured to be the trap demo 23 records (seven backends, the wrong cluster stamp). The collector is
+> a per-cluster service now. The rest of this demo — the hub's role-named global Services — stands.
+
 ## Summary context
 
 Until here every dashboard's `cluster` dropdown offered one value. poc1 had the stack (demo 16),

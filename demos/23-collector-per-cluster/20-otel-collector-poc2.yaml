@@ -1,0 +1,87 @@
+# Demo 23 — poc2's gateway collector, the enterprise shape. Supersedes demo 22's 30-otel-collector-poc2.yaml:
+#   - 2 replicas and a PodDisruptionBudget: HA inside the cluster (the OTel gateway pattern: "one or more Collector
+#     instances running as a standalone service", load-balanced by the Service);
+#   - a PERSISTENT sending queue (file_storage extension on an emptyDir): the spans a spoke cannot deliver while the
+#     hub or the mesh is down wait on disk and survive a collector restart; retries never give up (max_elapsed_time 0);
+#   - the cluster stamped on every span that arrives without it (k8s.cluster.name=poc2), so the hub's Tempo can tell
+#     the clusters apart even for instrumentation that does not know its cluster (the OTel Java agent, demo 20).
+#   kubectl --context kind-poc2 apply -f demos/23-collector-per-cluster/20-otel-collector-poc2.yaml
+apiVersion: v1
+kind: Namespace
+metadata: {name: otel}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: otel-collector, namespace: otel}
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc: {endpoint: 0.0.0.0:4317}
+          http: {endpoint: 0.0.0.0:4318}
+      zipkin: {endpoint: 0.0.0.0:9411}            # the Service exposes 9411; a Spring Boot app in poc2 would use it
+    extensions:
+      file_storage:
+        directory: /var/lib/otelcol               # the emptyDir below: survives a container restart, not a reschedule
+        create_directory: true
+    processors:
+      batch: {}
+      resource:                                   # stamp the cluster on anything that arrives without it (insert, not
+        attributes: [{key: k8s.cluster.name, value: poc2, action: insert}]   # upsert: OBI already stamps its own)
+    exporters:
+      debug: {verbosity: detailed}                # tracetree.py reads this log (demo 18)
+      otlp/tempo-central:
+        endpoint: tempo-central.monitoring.svc.cluster.local:4317   # demo 22's role-named global Service → poc1's Tempo
+        tls: {insecure: true}
+        sending_queue:
+          storage: file_storage                   # persistent queue (exporterhelper: "if the collector instance is
+          queue_size: 5000                        # killed while having some items in the persistent queue, on restart
+        retry_on_failure:                         # the items will be picked and the exporting is continued")
+          max_elapsed_time: 0                     # "If set to 0, the retries are never stopped" — the hub being down
+                                                  # is a delay, not a loss, for as long as the queue has room
+    service:
+      extensions: [file_storage]
+      telemetry:
+        metrics: {level: normal, readers: [{pull: {exporter: {prometheus: {host: 0.0.0.0, port: 8888}}}}]}
+      pipelines:
+        traces:
+          receivers: [otlp, zipkin]
+          processors: [resource, batch]
+          exporters: [debug, otlp/tempo-central]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: otel-collector, namespace: otel, labels: {app: otel-collector}}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: otel-collector}}
+  template:
+    metadata: {labels: {app: otel-collector}}
+    spec:
+      affinity:
+        podAntiAffinity:                          # preferred: poc2 has one schedulable worker, so both land there;
+          preferredDuringSchedulingIgnoredDuringExecution:   # on a real cluster they spread
+            - weight: 100
+              podAffinityTerm:
+                labelSelector: {matchLabels: {app: otel-collector}}
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.160.0     # the demo 10 image and version
+          args: ["--config=/etc/otelcol/config.yaml"]
+          ports: [{containerPort: 4317, name: otlp-grpc}, {containerPort: 4318, name: otlp-http}, {containerPort: 9411, name: zipkin}, {containerPort: 8888, name: metrics}]
+          resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 256Mi}}
+          volumeMounts:
+            - {name: config, mountPath: /etc/otelcol}
+            - {name: queue,  mountPath: /var/lib/otelcol}
+      volumes:
+        - {name: config, configMap: {name: otel-collector}}
+        - {name: queue,  emptyDir: {sizeLimit: 200Mi}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: otel-collector, namespace: otel}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app: otel-collector}}

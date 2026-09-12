@@ -66,6 +66,8 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [71](#71) | Hubble on poc1 shows 5/7 nodes: the clusters have different Cilium CAs, poc2's Hubble certs are untrusted | ClusterMesh / Hubble |
+| [70](#70) | A per-cluster collector Service left global after poc2 got backends — seven backends, wrong cluster stamp; global annotations are for app HA | ClusterMesh / tracing |
 | [69](#69) | A global Service for a hub service (Prometheus remote write) selected the spoke's same-named Prometheus too — 404s from the spoke itself; distinct release names per cluster, role-named central Services | ClusterMesh / monitoring |
 | [68](#68) | "connection refused" from Grafana to Tempo: the first Traces Drilldown page's two TraceQL metrics queries OOM-killed the 512Mi single binary; 1Gi, and size from the kill, not the graph | Tempo |
 | [67](#67) | The Tempo chart's port template dereferences `receivers.jaeger.protocols` unconditionally: `jaeger: null` fails the render; keep the default listeners | Tempo / helm |
@@ -1725,6 +1727,43 @@ shared platform service gets a Service whose selector can only match the hub.
 
 ---
 
+## <a name="70"></a>70. A per-cluster platform service left global once the second cluster had backends — seven collector backends, spans stamped with the wrong cluster
+
+**Symptom.** Demo 23: with demo 18's `service.cilium.io/global` still on the collector Service and a
+collector now running in poc2 (demo 22), poc1's `otel-collector` ClusterIP had seven backends: its
+five DaemonSet pods and poc2's two gateways. Two connections in seven from poc1's apps crossed the
+mesh; poc2's gateway stamps `k8s.cluster.name=poc2` on unlabelled spans (the OTel Java agent's).
+
+**Cause.** The annotation was the demo 18 bridge for a cluster that had no collector. A gateway is
+the cluster's own; global-service merging is for application HA, not for it.
+
+**Fix.** The Service without the annotation, applied to both clusters; HA in-cluster (2 replicas,
+PDB, persistent queue). Two traps on the way: backends merge only when BOTH sides are annotated,
+and `kubectl annotate` is not removed by a later `kubectl apply` — use `annotate key-`.
+
+→ demo 23
+
+---
+
+## <a name="71"></a>71. Hubble on poc1 shows 5/7 nodes — the two clusters were installed with different Cilium CAs
+
+**Symptom.** `hubble status` on poc1: `Connected Nodes: 5/7`, `Unavailable Nodes: 2` (poc2's). The
+relay knows poc2's nodes through ClusterMesh and reaches them on TCP 4244.
+
+**Cause.** `hubble-relay` log: `transport: authentication handshake failed: tls: failed to verify
+certificate: x509: certificate signed by unknown authority … "Cilium CA"`. `cilium-ca` differs per
+cluster (md5 `c9e1…` vs `d1df…`); poc2's Hubble server certificate (`*.poc2.hubble-grpc.cilium.io`)
+is signed by a CA poc1 does not trust. The ClusterMesh setup guide's rule: "Copy the Cilium CA to
+cluster2 before enabling Cluster Mesh there, so both clusters generate certificates signed by the
+same CA."
+
+**Fix.** A shared CA for both clusters — demo 24 rebuilds the mesh's certificates with cert-manager
+(the Helm method generates but never renews).
+
+→ demo 24
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1757,6 +1796,8 @@ Most of these share a shape: **something reported success while not working.**
 - `kubectl` told the cluster admin "Forbidden" — the API server was restarting, RBAC was fine (#66)
 - Grafana said Tempo refused the connection — Tempo had just been OOM-killed by the page asking (#68)
 - the hub's remote-write Service answered 404 — half the time it was the spoke talking to itself (#69)
+- the cluster's own gateway had the other cluster's gateway as a backend — the bridge annotation outlived its reason (#70)
+- Hubble saw seven nodes and could talk to five — two CAs, one mesh (#71)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

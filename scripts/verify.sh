@@ -214,6 +214,9 @@ hdr "19. DEMO 22 — poc2 → the hub (remote write across the mesh)"
 run "kubectl --context $CTX get --raw '/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count%20by%20(cluster)%20(up)' 2>/dev/null | python3 -c 'import json,sys; [print(\"cluster=%s up-series=%s\" % (r[\"metric\"].get(\"cluster\",\"-\"), r[\"value\"][1])) for r in json.load(sys.stdin)[\"data\"][\"result\"]]'"
 run "kubectl --context $CTX get --raw '/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=time()%20-%20max(timestamp(up%7Bcluster%3D%22poc2%22%7D))' 2>/dev/null | python3 -c 'import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print(\"newest poc2 sample: %.0f s old\" % float(r[0][\"value\"][1]) if r else \"no poc2 samples\")'"
 
+hdr "20. DEMO 23 — the collector is a per-cluster service (local backends only)"
+run "for C in poc1 poc2; do IP=\$(kubectl --context kind-\$C -n otel get svc otel-collector -o jsonpath='{.spec.clusterIP}'); AG=\$(kubectl --context kind-\$C -n kube-system get pods -l k8s-app=cilium --field-selector spec.nodeName=\$C-worker -o name | head -1); N=\$(kubectl --context kind-\$C -n kube-system exec \$AG -c cilium-agent -- cilium-dbg service list 2>/dev/null | awk -v ip=\"\$IP:4318/TCP\" '\$1 ~ /^[0-9]+\$/ && \$2 ~ /\\/TCP\$/ {p=(\$2==ip)} p && /=>/ {n++} END{print n+0}'); L=\$(kubectl --context kind-\$C -n otel get pods -l app=otel-collector --field-selector status.phase=Running --no-headers | wc -l | tr -d ' '); echo \"\$C: otel-collector backends=\$N local collector pods=\$L global=[\$(kubectl --context kind-\$C -n otel get svc otel-collector -o jsonpath='{.metadata.annotations.service\\.cilium\\.io/global}')]\"; done"
+
 hdr "12. HOST ROUTING (macOS)"
 run "netstat -rn -f inet | grep '^172.18' || echo 'no route — see SETUP Step 3.5'"
 run "ifconfig -l | tr ' ' '\n' | grep -E '^bridge'"

@@ -49,7 +49,7 @@ unchanged, with BGP substituted for L2 in production.
    external-access proof for demo 09.
 8. **[docs/REFERENCES.md](docs/REFERENCES.md)** — every external source the PoC was built against,
    with what each was used for; the place to check a claim's origin.
-9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 69 traps, each with the real error
+9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 71 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -62,10 +62,11 @@ unchanged, with BGP substituted for L2 in production.
 | ✅ | Enterprise CA from day 1; ClusterMesh on cert-manager certs (`issuer=CN=clustermesh-root-ca`) | done |
 | ✅ | **Bank app across the mesh** (demo 15): 5 components, PVC-backed Postgres and Redis, active-active, zero-loss failover, database-restart drills, **a hot standby in the other cluster streaming through the mesh** with promotion and gated failback tested, **load balancing across a 3+3 pool measured per pod** with live scaling and a Maglev twin | done; `https://bank.poc.local` and `https://bankapi.poc.local`; `exercise.sh`, `resilience.sh`, `dbfailover.sh`, `scale.sh` |
 | ✅ | **Monitoring (demo 16)**: kube-prometheus-stack on poc1, Grafana on the Gateway, Cilium/Hubble ServiceMonitors + the chart's six dashboards, exemplars proven with a `traceparent`, L7 visibility for the bank namespace | done; `https://grafana.poc.local` (admin / poc-grafana); `demos/16-monitoring/` |
-| ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (906 lines, 20 sections, from the toolchain to the multi-cluster hub) | regenerable |
+| ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (915 lines, 21 sections, from the toolchain to the per-cluster gateway) | regenerable |
 | ✅ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | done — demo 11, with the three-cause forensic on Cilium's default install; poc3 is paused (`scripts/cluster-resume.sh poc3`) |
 | ⛔ | **"Cilium mTLS" (mutual authentication, SPIFFE/SPIRE)** | evaluated, **not enabled and not to be adopted**: deprecated in 1.20, removal planned in 1.21 (cilium#47132), ClusterMesh-incompatible — [docs/summary/MTLS_EVALUATION.md](docs/summary/MTLS_EVALUATION.md) |
 | ✅ | **ztunnel mTLS (demo 13)** — evaluated on a throwaway cluster: real mTLS on the wire, but cannot run on any cluster with a `cluster.id` (so never with ClusterMesh), breaks L4 **and** L7 policy for enrolled traffic, −73 % throughput | **not the standard**; WireGuard + identity policy is — `demos/13-ztunnel/README.md` |
+| ✅ | **Collector per cluster (demo 23)** — gateway pattern, persistent queue, the global-service trap measured | done |
 | ✅ | **Multi-cluster observability (demo 22)** — poc2's metrics and traces in the central Grafana/Tempo on poc1; the `cluster` dropdown lists both | done |
 | ✅ | **Tempo (demo 21)** — traces stored and clickable from Hubble's exemplars; demo 16 Section C reconciled the reference Hubble values (dashboards in `monitoring`, in folders) | done |
 | ✅ | **Spring Boot lab (demo 20)** — petclinic's six JVMs in `springboot`, the app's own spans and the Java agent's spans in the demo 10 collector; `scale.sh down|up` frees the memory it needs by parking the bank and demo 09 Deployments | done; `https://petclinic.poc.local` |
@@ -143,6 +144,7 @@ an untested combination.
 | 08 | Enterprise CA | cert-manager root in poc1 issuing every cluster's mesh certificates; trust before join |
 | 09 | Wildcard TLS + 3 route types | cert-manager wildcard and exact certs on one Gateway; `HTTPRoute`, `GRPCRoute`, `TCPRoute` from one 14 MB image — and a native Go client (`-mode client`) that tests all three, which is how the missing-ALPN gotcha (#33) was found |
 | 10 | Flow tracing -> OpenTelemetry | Hubble dynamic flow export per node, tailed by an OTel Collector into OTLP; every flow persistent and queryable. **Events, not spans** -- hubble-otel is archived, see gotcha #30 |
+| 23 | **A collector per cluster** | supersedes demo 22's collector part: the gateway is a per-cluster service (same name everywhere, never global — seven backends and the wrong cluster stamp measured), HA in-cluster with 2 replicas + PDB + a persistent queue proven by killing the collectors with the hub down and watching 281 spans leave after the restart |
 | 22 | **One Grafana for the mesh** | poc2 becomes a spoke of the observability hub on poc1: a full Prometheus on poc2 (release `edge`) remote-writing across the mesh through a role-named global Service, a collector per cluster forwarding to the central Tempo, Cilium metrics on poc2 with `cluster=poc2`; the same query answered locally and centrally, both clusters in one panel, and the trap of a hub Service selecting the spoke's look-alike (#69) |
 | 21 | **Tempo: exemplar → trace** | Grafana Tempo behind the demo 10 collector; the Grafana datasource links exemplar trace ids to it; an L7 visibility policy makes Hubble read the Java agent's `traceparent`; the same trace id measured at every hop (Hubble exemplar → Prometheus → Tempo → Grafana's trace view) |
 | 20 | **Spring Boot microservices + Java observability** | The canonical spring-petclinic-microservices (6 JVMs, Spring Boot 3.4) in `springboot` on the Gateway as `petclinic.poc.local`, with three measured fixes (config-server probes, the Boot 3.4 Zipkin key, Eureka's stale-IP window #65); OBI finds and classifies the JVMs but its kernel tracer stops on the same missing LSM hook (#60); the OpenTelemetry Java agent gives the zero-code spans instead |
@@ -166,7 +168,7 @@ scripts/verify.sh                              # to the terminal
 scripts/verify.sh > docs/VERIFICATION_RUN.md   # as a document
 ```
 
-The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 906 lines of
+The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 915 lines of
 real console output in 14 sections: versions, cluster state, full Cilium status, every demo
 through 10, the native route client, and the bank across the mesh.
 
@@ -177,7 +179,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 69 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 71 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

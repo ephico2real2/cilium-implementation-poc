@@ -1,0 +1,26 @@
+# Demo 23 — the collector Service as a PER-CLUSTER service: the same name in every cluster, NO global annotation.
+# Supersedes demo 18's 20-collector-service.yaml (global) and demo 22's re-declaration (global + affinity local).
+# Apply the SAME object to both clusters; `kubectl apply` removes the annotations that are no longer declared.
+#   kubectl --context kind-poc1 apply -f demos/23-collector-per-cluster/10-collector-service.yaml
+#   kubectl --context kind-poc2 apply -f demos/23-collector-per-cluster/10-collector-service.yaml
+#
+# Why not global (measured in the README, Part 1): with the demo 18 annotation still on poc1's Service and a collector
+# now running in poc2 (demo 22), poc1's ClusterIP had SIX backends — its five DaemonSet pods and poc2's collector —
+# so one connection in six from poc1's apps crossed the mesh and came back through poc2's gateway, which stamps
+# k8s.cluster.name=poc2 on anything unlabelled. A collector is the cluster's gateway; its identity is the cluster's.
+# HA for it is in-cluster (replicas, a PodDisruptionBudget, a persistent queue), not a cross-cluster fallback.
+apiVersion: v1
+kind: Namespace
+metadata: {name: otel}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector        # the convention the applications rely on: otel-collector.otel.svc.cluster.local
+  namespace: otel             # resolves in every cluster to THAT cluster's gateway
+spec:
+  selector: {app: otel-collector}
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: 4317}
+    - {name: otlp-http, port: 4318, targetPort: 4318}
+    - {name: zipkin,    port: 9411, targetPort: 9411}   # Spring Boot's own spans (demo 20), if such an app runs here

@@ -1778,3 +1778,12 @@ demos/15-bank/exercise.sh 20 ; sleep 60                                         
 
 Proof and the standard: `demos/22-multicluster-observability/README.md`.
 
+## Step 20 — the collector as a per-cluster gateway (demo 23)
+
+```bash
+for c in poc1 poc2; do kubectl --context kind-$c apply -f demos/23-collector-per-cluster/10-collector-service.yaml; done   # no global annotation (#70)
+kubectl --context kind-poc2 apply -f demos/23-collector-per-cluster/20-otel-collector-poc2.yaml                           # 2 replicas, PDB, persistent queue
+kubectl --context kind-poc1 apply -f demos/10-tracing/otel-collector.yaml; kubectl --context kind-poc1 -n otel rollout restart ds/otel-collector   # poc1's queue
+demos/23-collector-per-cluster/check.sh                                                                                   # local backends only, queue metrics, Tempo per cluster
+```
+
