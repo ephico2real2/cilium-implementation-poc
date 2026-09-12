@@ -267,6 +267,43 @@ and `traces_spanmetrics_calls_total` by service and span name (`GET /api/gateway
 `OwnerRepository.findById`, `SELECT …`, …) — the RED numbers the graph's *Rate* / *Duration (p90)*
 columns and node badges come from.
 
+**The datasource link, and where it is written.** Grafana's service-graph docs show it as a
+provisioning file:
+
+```yaml
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    url: <prometheus-url>
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    url: <tempo-url>
+    jsonData:
+      serviceMap:
+        datasourceUid: 'prometheus'
+```
+
+Nobody writes that file here: kube-prometheus-stack renders it from values into the ConfigMap
+`monitoring-kube-prometheus-grafana-datasource` (label `grafana_datasource=1`), which the Grafana
+datasource sidecar provisions — the same mechanism as the dashboards. The mapping from the docs'
+file to the stack values (`demos/16-monitoring/values-kube-prometheus-stack.yaml`):
+
+| Docs' provisioning file | Stack value | Live (from `/api/datasources`) |
+|---|---|---|
+| Prometheus datasource, `uid: prometheus` | `grafana.sidecar.datasources` (the chart creates it; `uid: prometheus` is its default) | `Prometheus uid=prometheus url=http://monitoring-kube-prometheus-prometheus.monitoring:9090/` |
+| plus the exemplar link (Part 2) | `grafana.sidecar.datasources.exemplarTraceIdDestinations: {datasourceUid: tempo, traceIdLabelName: traceID}` | `exemplarTraceIdDestinations: [{datasourceUid: tempo, name: traceID}]` |
+| Tempo datasource, `uid: tempo`, `serviceMap.datasourceUid: prometheus` | `grafana.additionalDataSources: [{name: Tempo, type: tempo, uid: tempo, url: http://tempo.monitoring.svc.cluster.local:3200, jsonData: {serviceMap: {datasourceUid: prometheus}, tracesToMetrics: {datasourceUid: prometheus}}}]` | `Tempo uid=tempo jsonData={serviceMap: {datasourceUid: prometheus}, tracesToMetrics: {…}}` |
+
+`httpMethod` is left at the chart's `POST` for Prometheus (the docs' `GET` is optional; POST allows
+long queries). To read the rendered file:
+
+```bash
+kubectl --context kind-poc1 -n monitoring get cm monitoring-kube-prometheus-grafana-datasource -o jsonpath='{.data.datasource\.yaml}'
+```
+
 **In Grafana:** Explore → Tempo → query type *Service Graph*, last 30 min: the four petclinic
 services as nodes with the database nodes hanging off them, request rate and p90 on the edges, and
 a table with Rate / Error rate / Duration per node ([screenshot](output/screenshots/grafana-service-graph.png)).
