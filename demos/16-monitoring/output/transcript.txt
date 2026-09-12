@@ -151,3 +151,629 @@ Grafana data source + dashboards the stack installed (before any Cilium dashboar
   dashboards: 25
   hubble/cilium dashboards: []
 
+
+### 2026-09-12T03:01:42Z
+$ [SECTION B — Cilium publishes to the stack: ServiceMonitors + dashboards, helm upgrade --reuse-values]
+
+### 2026-09-12T03:01:42Z
+$ sh -c helm get values cilium -n kube-system --kube-context kind-poc1 -o yaml > .tmp/poc1-values-before-demo16.yaml; echo "snapshot: .tmp/poc1-values-before-demo16.yaml ($(wc -l < .tmp/poc1-values-before-demo16.yaml) lines) — the rollback file"
+snapshot: .tmp/poc1-values-before-demo16.yaml (     130 lines) — the rollback file
+
+### 2026-09-12T03:01:43Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get pods -l k8s-app=cilium -o custom-columns="POD:.metadata.name,NODE:.spec.nodeName,PORTS:.spec.containers[0].ports[*].containerPort,STARTED:.status.startTime" ; kubectl --context kind-poc1 -n kube-system get deploy cilium-operator hubble-relay -o custom-columns="DEPLOY:.metadata.name,READY:.status.readyReplicas,GEN:.metadata.generation"
+POD            NODE                  PORTS            STARTED
+cilium-2jzkj   poc1-control-plane2   9879,4244,9965   2026-09-12T00:32:24Z
+cilium-7dqbd   poc1-worker2          9879,4244,9965   2026-09-12T00:32:38Z
+cilium-bgmk2   poc1-worker           9879,4244,9965   2026-09-12T00:32:24Z
+cilium-pjwt9   poc1-control-plane    9879,4244,9965   2026-09-12T00:32:38Z
+cilium-rn2j4   poc1-control-plane3   9879,4244,9965   2026-09-12T00:32:51Z
+DEPLOY            READY   GEN
+cilium-operator   1       10
+hubble-relay      1       1
+
+### 2026-09-12T03:01:43Z
+$ sh -c helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc1 --reuse-values -f demos/16-monitoring/values-cilium-metrics.yaml 2>&1 | grep -E "Release|Error"; helm history cilium -n kube-system --kube-context kind-poc1 --max 1 | tail -1 | cut -f1,2,4
+Release "cilium" has been upgraded. Happy Helming!
+34      	Fri Sep 11 22:01:45 2026	cilium-1.20.1
+
+### 2026-09-12T03:02:01Z
+$ sh -c kubectl --context kind-poc1 -n kube-system rollout status ds/cilium --timeout=8m 2>&1 | tail -1; kubectl --context kind-poc1 -n kube-system rollout status deploy/cilium-operator --timeout=3m 2>&1 | tail -1; kubectl --context kind-poc1 -n kube-system rollout status deploy/hubble-relay --timeout=3m 2>&1 | tail -1
+daemon set "cilium" successfully rolled out
+deployment "cilium-operator" successfully rolled out
+deployment "hubble-relay" successfully rolled out
+
+### 2026-09-12T03:03:54Z
+$ sh -c python3 - '/private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/outage.log' <<'PY'
+import sys
+rows=[l.split() for l in open(sys.argv[1]) if len(l.split())==2]
+bad=[t for t,c in rows if c!='200']
+print('Gateway probe https://bank.poc.local/healthz every 1 s during the upgrade: %d probes, %d non-200' % (len(rows), len(bad)))
+if bad:
+    # contiguous outage windows
+    win=[]; start=prev=None
+    for t,c in rows:
+        if c!='200':
+            if start is None: start=t
+            prev=t
+        elif start is not None: win.append((start,prev)); start=None
+    if start is not None: win.append((start,prev))
+    for a,b in win: print('  outage window %s -> %s' % (a,b))
+    from collections import Counter; print('  codes seen:', dict(Counter(c for _,c in rows)))
+PY
+Gateway probe https://bank.poc.local/healthz every 1 s during the upgrade: 123 probes, 65 non-200
+  outage window 03:02:27 -> 03:03:35
+  codes seen: {'200': 58, '000': 65}
+
+### 2026-09-12T03:03:54Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get pods -l k8s-app=cilium -o custom-columns="POD:.metadata.name,NODE:.spec.nodeName,PORTS:.spec.containers[0].ports[*].containerPort,STARTED:.status.startTime"; kubectl --context kind-poc1 -n kube-system get cm cilium-config -o jsonpath="prometheus-serve-addr={.data.prometheus-serve-addr}  hubble-metrics-server={.data.hubble-metrics-server}{\"\n\"}"
+POD            NODE                  PORTS                 STARTED
+cilium-cv49p   poc1-control-plane3   9879,4244,9962,9965   2026-09-12T03:02:14Z
+cilium-gtjmd   poc1-control-plane2   9879,4244,9962,9965   2026-09-12T03:02:28Z
+cilium-mfdc5   poc1-worker2          9879,4244,9962,9965   2026-09-12T03:01:58Z
+cilium-qf9xp   poc1-worker           9879,4244,9962,9965   2026-09-12T03:01:58Z
+cilium-t928c   poc1-control-plane    9879,4244,9962,9965   2026-09-12T03:02:14Z
+prometheus-serve-addr=:9962  hubble-metrics-server=:9965
+
+### 2026-09-12T03:03:54Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get servicemonitor -o custom-columns="SERVICEMONITOR:.metadata.name,SELECTS:.spec.selector.matchLabels,PORT:.spec.endpoints[0].port,INTERVAL:.spec.endpoints[0].interval"; echo; kubectl --context kind-poc1 -n kube-system get cm -l grafana_dashboard=1 -o custom-columns="DASHBOARD-CONFIGMAP:.metadata.name,LABEL:.metadata.labels.grafana_dashboard"
+SERVICEMONITOR          SELECTS                                                                                 PORT              INTERVAL
+cilium-agent            map[app.kubernetes.io/name:cilium-agent]                                                metrics           10s
+cilium-envoy            map[k8s-app:cilium-envoy]                                                               envoy-metrics     10s
+cilium-operator         map[io.cilium/app:operator name:cilium-operator]                                        metrics           10s
+clustermesh-apiserver   map[app.kubernetes.io/component:metrics app.kubernetes.io/name:clustermesh-apiserver]   apiserv-metrics   10s
+hubble                  map[k8s-app:hubble]                                                                     hubble-metrics    10s
+hubble-relay            map[k8s-app:hubble-relay]                                                               metrics           10s
+
+DASHBOARD-CONFIGMAP                  LABEL
+cilium-dashboard                     1
+cilium-operator-dashboard            1
+hubble-dashboard                     1
+hubble-dns-namespace                 1
+hubble-l7-http-metrics-by-workload   1
+hubble-network-overview-namespace    1
+
+### 2026-09-12T03:03:55Z
+$ sh -c cilium status --context kind-poc1 --wait --wait-duration 3m 2>/dev/null | sed "s/\x1b\[[0-9;]*m//g" | grep -E "Cilium:|Operator:|Hubble Relay:|ClusterMesh:|Errors" ; scripts/check-routes.sh 2>/dev/null | tail -2
+ /¯¯\__/¯¯\    Cilium:             1 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             OK
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+
+FAILED CHECKS: 0
+
+### 2026-09-12T03:05:05Z
+$ sh -c echo "Prometheus targets now, kube-system pools only (the Section A list plus these):"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/targets?state=active" | python3 -c "import json,sys; ts=json.load(sys.stdin)[\"data\"][\"activeTargets\"]; from collections import Counter; c=Counter((t[\"scrapePool\"], t[\"health\"]) for t in ts if \"/kube-system/\" in t[\"scrapePool\"]); [print(\"  %-52s %-5s x%d\" % (k[0], k[1], v)) for k,v in sorted(c.items())]; print(\"  total targets: %d  up: %d\" % (len(ts), sum(1 for t in ts if t[\"health\"]==\"up\")))"
+Prometheus targets now, kube-system pools only (the Section A list plus these):
+  serviceMonitor/kube-system/cilium-agent/0            up    x5
+  serviceMonitor/kube-system/cilium-envoy/0            up    x5
+  serviceMonitor/kube-system/cilium-operator/0         up    x1
+  serviceMonitor/kube-system/clustermesh-apiserver/0   up    x1
+  serviceMonitor/kube-system/clustermesh-apiserver/1   up    x1
+  serviceMonitor/kube-system/clustermesh-apiserver/2   up    x1
+  serviceMonitor/kube-system/hubble-relay/0            up    x1
+  serviceMonitor/kube-system/hubble/0                  up    x5
+  total targets: 52  up: 52
+
+### 2026-09-12T03:05:06Z
+$ sh -c echo 'Metric families Prometheus now holds from Cilium (count of series per family, top 25):'; kubectl --context kind-poc1 get --raw '/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count%20by%20(__name__)%20(%7B__name__%3D~%22(hubble%7Ccilium%7Cenvoy)_.%2B%22%7D)' | python3 -c "import json,sys; r=json.load(sys.stdin)['data']['result']; fam={}; [fam.setdefault(x['metric']['__name__'].split('_')[0],[]).append((x['metric']['__name__'],int(x['value'][1]))) for x in r]; [print('  %-7s %4d families %6d series' % (k, len(v), sum(n for _,n in v))) for k,v in sorted(fam.items())]; print(); [print('    %-60s %5d' % t) for t in sorted(fam.get('hubble',[]))]"
+Metric families Prometheus now holds from Cilium (count of series per family, top 25):
+  cilium   340 families   9801 series
+  envoy    541 families  22061 series
+  hubble    20 families    421 series
+
+    hubble_drop_total                                                2
+    hubble_dynamic_exporter_config_hash                              5
+    hubble_dynamic_exporter_config_last_applied                      5
+    hubble_dynamic_exporter_exporters_total                         10
+    hubble_dynamic_exporter_reconfigurations_total                   5
+    hubble_dynamic_exporter_up                                      15
+    hubble_flows_processed_total                                    48
+    hubble_http_request_duration_seconds_bucket                     96
+    hubble_http_request_duration_seconds_count                       8
+    hubble_http_request_duration_seconds_sum                         8
+    hubble_http_requests_total                                      10
+    hubble_icmp_total                                               19
+    hubble_lost_events_total                                        15
+    hubble_metrics_http_handler_request_duration_seconds_bucket     60
+    hubble_metrics_http_handler_request_duration_seconds_count       5
+    hubble_metrics_http_handler_request_duration_seconds_sum         5
+    hubble_metrics_http_handler_requests_total                       5
+    hubble_port_distribution_total                                  74
+    hubble_relay_pool_peer_connection_status                         6
+    hubble_tcp_flags_total                                          20
+
+### 2026-09-12T03:05:06Z
+$ sh -c demos/15-bank/exercise.sh 40 2>&1 | tail -12
+40   hardware       982  201    poc1/payments-f5c78      poc2/accounts-f9wjb          147112     155
+
+summary
+  calls: 40  ok: 40  declined (409, insufficient funds): 0  FAILED (infrastructure): 0  in 29 s
+  payments served by : poc2=24 poc1=16 
+  debited by accounts: poc2=40   (accounts runs in poc2 only — every debit must say poc2)
+  balance before 240296, after 147112, spent 93184  ->  LEDGER CONSISTENT: before - after == sum of payments
+
+idempotency: the same key twice must debit once
+  call 1: replay=False served by poc1
+  call 2: replay=True served by poc2
+  balance 147112 -> 147012 (must differ by exactly 100)
+
+### 2026-09-12T03:05:36Z
+$ sh -c kubectl --context kind-poc1 -n default get pod tiefighter -o name >/dev/null 2>&1 && kubectl --context kind-poc1 -n default exec tiefighter -- curl -s -m 5 -XPUT deathstar.default.svc.cluster.local/v1/exhaust-port; echo " <- exit $? (an L7 deny returns Access denied; an L3/L4 deny times out)"; kubectl --context kind-poc1 -n default exec tiefighter -- curl -s -m 5 -XPOST deathstar.default.svc.cluster.local/v1/request-landing
+Access denied
+ <- exit 0 (an L7 deny returns Access denied; an L3/L4 deny times out)
+Ship landed
+
+
+### 2026-09-12T03:06:03Z
+$ [the panels, as PromQL — what each Hubble dashboard draws, read back from Prometheus]
+== hubble-l7-http-metrics-by-workload: requests per second by destination workload / status (bank, last 2 m) ==
+  sum by (destination_namespace, destination_workload, status) (rate(hubble_http_requests_total{destination_namespace="bank"}[2m]))
+        0.3195  destination_namespace=bank destination_workload=- status=201
+        0.0584  destination_namespace=bank destination_workload=- status=200
+== same dashboard: p95 HTTP latency by destination workload (ms) ==
+  histogram_quantile(0.95, sum by (le, destination_workload) (rate(hubble_http_request_duration_seconds_bucket{destination_namespace="bank"}[2m]))) * 1000
+         97.58  destination_workload=-
+== hubble-network-overview-namespace: flows by verdict, namespace bank ==
+  sum by (verdict, type) (rate(hubble_flows_processed_total{destination="bank",destination=~".+"}[2m]))
+    (no series)
+  sum by (verdict) (increase(hubble_flows_processed_total[5m]))
+     2.027e+04  verdict=FORWARDED
+         3.216  verdict=DROPPED
+         1.579  verdict=REDIRECTED
+== hubble-dashboard: drops by reason and protocol (the demo 02 policy deny should be here) ==
+  sum by (reason, protocol) (increase(hubble_drop_total[10m]))
+         3.221  reason=UNSUPPORTED_L3_PROTOCOL protocol=ICMPv6
+             0  reason=DROP_REASON_UNKNOWN protocol=HTTP
+== hubble-dns-namespace: DNS queries by qtype and rcode ==
+  sum by (qtypes, rcode) (increase(hubble_dns_queries_total[10m]))
+    (no series)
+  sum by (rcode) (increase(hubble_dns_responses_total[10m]))
+    (no series)
+== hubble-dashboard: TCP flags (SYN / FIN / RST) per family ==
+  sum by (flag) (increase(hubble_tcp_flags_total[10m]))
+          2586  flag=FIN
+          1655  flag=SYN
+          1213  flag=SYN-ACK
+         477.8  flag=RST
+== port distribution: top destination ports by flow count ==
+  topk(8, sum by (port, protocol) (increase(hubble_port_distribution_total[10m])))
+          3298  port=8080 protocol=TCP
+          1969  port=2380 protocol=TCP
+          1385  port=53 protocol=UDP
+         641.3  port=4240 protocol=TCP
+         537.6  port=6443 protocol=TCP
+         428.8  port=10250 protocol=TCP
+         366.5  port=9090 protocol=TCP
+         354.1  port=8081 protocol=TCP
+== cilium-dashboard (agent): endpoints by state, policy import errors, BPF map pressure, forwarded bytes by direction ==
+  sum by (endpoint_state) (cilium_endpoint_state)
+            60  endpoint_state=ready
+             0  endpoint_state=disconnecting
+             0  endpoint_state=regenerating
+             0  endpoint_state=restoring
+             0  endpoint_state=waiting-for-identity
+             0  endpoint_state=waiting-to-regenerate
+  sum(cilium_policy_import_errors_total)
+    (no series)
+  max by (map_name) (cilium_bpf_map_pressure) > 0.05
+    (no series)
+  sum by (direction) (rate(cilium_forward_bytes_total[2m]))
+     1.328e+06  direction=INGRESS
+     5.566e+05  direction=EGRESS
+== cilium-operator-dashboard: IPAM / identities ==
+  sum(cilium_operator_ipam_ips{type="available"})
+    (no series)
+  cilium_identity{type="cluster_local"}
+            20  container=cilium-agent endpoint=metrics instance=172.18.0.5:9962 job=cilium-agent k8s_app=cilium namespace=kube-system node=poc1-worker pod=cilium-qf9xp service=cilium-agent type=cluster_local
+            19  container=cilium-agent endpoint=metrics instance=172.18.0.4:9962 job=cilium-agent k8s_app=cilium namespace=kube-system node=poc1-worker2 pod=cilium-mfdc5 service=cilium-agent type=cluster_local
+             2  container=cilium-agent endpoint=metrics instance=172.18.0.3:9962 job=cilium-agent k8s_app=cilium namespace=kube-system node=poc1-control-plane3 pod=cilium-cv49p service=cilium-agent type=cluster_local
+             1  container=cilium-agent endpoint=metrics instance=172.18.0.7:9962 job=cilium-agent k8s_app=cilium namespace=kube-system node=poc1-control-plane2 pod=cilium-gtjmd service=cilium-agent type=cluster_local
+             1  container=cilium-agent endpoint=metrics instance=172.18.0.6:9962 job=cilium-agent k8s_app=cilium namespace=kube-system node=poc1-control-plane pod=cilium-t928c service=cilium-agent type=cluster_local
+== ClusterMesh: remote clusters seen by each agent, readiness, and remote nodes/services synced ==
+  sum by (target_cluster) (cilium_clustermesh_remote_clusters)
+             5  target_cluster=-
+  sum by (target_cluster) (cilium_clustermesh_remote_cluster_readiness_status)
+             5  target_cluster=poc2
+  sum by (target_cluster) (cilium_clustermesh_remote_cluster_nodes)
+            10  target_cluster=poc2
+  sum by (source_cluster) (cilium_clustermesh_global_services)
+    (no series)
+  sum by (kind) (cilium_clustermesh_apiserver_kvstoremesh_etcd_sync_errors_total)
+    (no series)
+### 2026-09-12T03:06:08Z
+$ sh -c GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); echo "Grafana: the dashboards the sidecar loaded from the six kube-system ConfigMaps (title, uid, URL):"; curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana "https://grafana.poc.local/api/search?type=dash-db" | python3 -c "import json,sys; d=json.load(sys.stdin); c=[x for x in d if \"ilium\" in x[\"title\"] or \"ubble\" in x[\"title\"]]; [print(\"  %-52s uid=%-28s https://grafana.poc.local%s\" % (x[\"title\"], x[\"uid\"], x[\"url\"])) for x in sorted(c, key=lambda x:x[\"title\"])]; print(\"  total dashboards:\", len(d), \" cilium/hubble:\", len(c))"
+Grafana: the dashboards the sidecar loaded from the six kube-system ConfigMaps (title, uid, URL):
+  Cilium Metrics                                       uid=vtuWtdumz                    https://grafana.poc.local/d/vtuWtdumz/cilium-metrics
+  Cilium Operator                                      uid=1GC0TT4Wz                    https://grafana.poc.local/d/1GC0TT4Wz/cilium-operator
+  Hubble / DNS Overview (Namespace)                    uid=_f0DUpY4k                    https://grafana.poc.local/d/_f0DUpY4k/hubble-dns-overview-namespace
+  Hubble / Network Overview (Namespace)                uid=nlsO8tYVz                    https://grafana.poc.local/d/nlsO8tYVz/hubble-network-overview-namespace
+  Hubble L7 HTTP Metrics by Workload                   uid=3g264CZVz                    https://grafana.poc.local/d/3g264CZVz/hubble-l7-http-metrics-by-workload
+  Hubble Metrics and Monitoring                        uid=5HftnJAWz                    https://grafana.poc.local/d/5HftnJAWz/hubble-metrics-and-monitoring
+  total dashboards: 31  cilium/hubble: 6
+
+
+### 2026-09-12T03:13:51Z
+$ [PART 6 — dynamic Hubble metrics with the contexts the dashboards need, OpenMetrics, cluster label: the LAST agent restart]
+
+### 2026-09-12T03:13:51Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get cm cilium-config -o jsonpath="hubble-metrics (static, before) = [{.data.hubble-metrics}]{\"\n\"}enable-hubble-open-metrics = {.data.enable-hubble-open-metrics}{\"\n\"}"
+hubble-metrics (static, before) = [dns drop tcp flow port-distribution icmp httpV2:exemplars=true;labelsContext=source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload,traffic_direction]
+enable-hubble-open-metrics = false
+
+### 2026-09-12T03:13:51Z
+$ sh -c helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc1 --reuse-values -f demos/16-monitoring/values-cilium-metrics.yaml 2>&1 | grep -E "Release|Error"; helm history cilium -n kube-system --kube-context kind-poc1 --max 1 | tail -1 | cut -f1,2,4
+Release "cilium" has been upgraded. Happy Helming!
+35      	Fri Sep 11 22:13:54 2026	cilium-1.20.1
+
+### 2026-09-12T03:14:08Z
+$ sh -c kubectl --context kind-poc1 -n kube-system rollout status ds/cilium --timeout=8m 2>&1 | tail -1
+daemon set "cilium" successfully rolled out
+
+### 2026-09-12T03:14:51Z
+$ python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/outage.py /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/outage2.log
+Gateway probe https://bank.poc.local/healthz every 1 s during the upgrade: 56 probes, 17 non-200
+  outage window 03:14:33 -> 03:14:50
+
+### 2026-09-12T03:14:51Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get cm cilium-config -o jsonpath="hubble-metrics (static, after) = [{.data.hubble-metrics}]  enable-hubble-open-metrics = {.data.enable-hubble-open-metrics}  dynamic path = {.data.hubble-dynamic-metrics-config-path}{\"\n\"}"; kubectl --context kind-poc1 -n kube-system get cm cilium-dynamic-metrics-config -o jsonpath="{.data.dynamic-metrics\.yaml}" | grep -c "name:" | sed "s/^/dynamic ConfigMap lines with name: /"; P=$(kubectl --context kind-poc1 -n kube-system get pod -l k8s-app=cilium -o jsonpath="{.items[0].metadata.name}"); kubectl --context kind-poc1 -n kube-system logs $P -c cilium-agent 2>/dev/null | grep -i "dynamic.*metric\|metrics.*dynamic\|hubble-metrics" | tail -4 | cut -c1-220
+hubble-metrics (static, after) = []  enable-hubble-open-metrics = true  dynamic path = /dynamic-metrics-config/dynamic-metrics.yaml
+dynamic ConfigMap lines with name: 27
+time=2026-09-12T03:14:15.348865575Z level=info msg="Configured metrics plugin" module=agent.controlplane.hubble.hubble-metrics name=flow status="destination=workload-name|reserved-identity,labels=source_namespace,destina
+time=2026-09-12T03:14:15.349026904Z level=info msg="Configured metrics plugin" module=agent.controlplane.hubble.hubble-metrics name=port-distribution status=""
+time=2026-09-12T03:14:15.349256874Z level=info msg="Configured metrics plugin" module=agent.controlplane.hubble.hubble-metrics name=httpV2 status="destination=workload-name|reserved-identity,labels=source_ip,source_names
+time=2026-09-12T03:14:15.941015089Z level=info msg="Starting Hubble metrics server" module=agent.controlplane.hubble.hubble-metrics address=:9965 tls=false
+
+### 2026-09-12T03:14:52Z
+$ sh -c cilium status --context kind-poc1 --wait --wait-duration 3m 2>/dev/null | sed "s/\x1b\[[0-9;]*m//g" | grep -E "Cilium:|Operator:|Hubble Relay:|ClusterMesh:"; scripts/check-routes.sh 2>/dev/null | tail -1
+ /¯¯\__/¯¯\    Cilium:             5 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       1 errors
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             5 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       1 errors
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             5 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             5 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             5 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             5 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             5 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             5 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             5 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             5 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             5 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             5 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             5 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             5 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             3 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             3 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             3 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             2 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             1 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             1 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             1 warnings
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+ /¯¯\__/¯¯\    Cilium:             OK
+ \__/¯¯\__/    Operator:           OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+FAILED CHECKS: 9
+
+
+### 2026-09-12T03:16:08Z
+$ [PART 7 — L7 visibility policies for the bank namespace (they deny nothing; they move HTTP and DNS onto the proxy)]
+
+### 2026-09-12T03:16:08Z
+$ sh -c demos/15-bank/exercise.sh 10 2>&1 | grep -E "calls:|LEDGER|FAILED" | head -3; echo "(baseline: bank works before the policies)"
+1    cinema        3567  000    FAILED/http 000          -/-                               -     111
+2    coffee        1465  000    FAILED/http 000          -/-                               -     137
+3    coffee        2845  000    FAILED/http 000          -/-                               -     134
+(baseline: bank works before the policies)
+
+### 2026-09-12T03:16:17Z
+$ kubectl --context kind-poc1 apply -f demos/16-monitoring/20-visibility-policies.yaml
+ciliumnetworkpolicy.cilium.io/dns-visibility created
+ciliumnetworkpolicy.cilium.io/http-visibility created
+
+### 2026-09-12T03:16:21Z
+$ sh -c kubectl --context kind-poc1 -n bank get cnp -o custom-columns="POLICY:.metadata.name,VALID:.status.conditions[?(@.type==\"Valid\")].status"; P=$(kubectl --context kind-poc1 -n kube-system get pod -l k8s-app=cilium --field-selector spec.nodeName=poc1-worker -o jsonpath="{.items[0].metadata.name}"); echo "-- endpoints on poc1-worker with policy enforcement (bank pods should now show ingress and/or egress Enabled) --"; kubectl --context kind-poc1 -n kube-system exec $P -c cilium-agent -- cilium-dbg endpoint list -o json 2>/dev/null | python3 -c "import json,sys; [print(\"  %-32s ingress=%-8s egress=%-8s\" % (e[\"status\"][\"external-identifiers\"].get(\"k8s-pod-name\",\"?\"), e[\"status\"][\"policy\"][\"realized\"][\"policy-enabled\"] if False else e[\"status\"][\"policy\"][\"realized\"].get(\"policy-enabled\"), \"\")) for e in json.load(sys.stdin) if e[\"status\"][\"external-identifiers\"].get(\"k8s-namespace\")==\"bank\"]"
+POLICY            VALID
+dns-visibility    True
+http-visibility   True
+-- endpoints on poc1-worker with policy enforcement (bank pods should now show ingress and/or egress Enabled) --
+
+### 2026-09-12T03:16:22Z
+$ sh -c demos/15-bank/exercise.sh 40 2>&1 | grep -E "calls:|served by|LEDGER|FAILED|replay|balance" | head -8; echo "(the same 40-call exercise, now with HTTP :8080 and DNS :53 on the proxy — every call must still succeed)"
+topping up chk-1001 by 26988 cents (balance 147012 < 174000 needed for 40 calls): balance now 174000
+balance before: 174000 cents
+#    merchant     cents  http   payments (cluster/pod)   debited by (cluster/pod)    balance      ms
+  calls: 40  ok: 40  declined (409, insufficient funds): 0  FAILED (infrastructure): 0  in 31 s
+  payments served by : poc2=24 poc1=16 
+  balance before 174000, after 94204, spent 79796  ->  LEDGER CONSISTENT: before - after == sum of payments
+  call 1: replay=False served by poc1
+  call 2: replay=True served by poc1
+(the same 40-call exercise, now with HTTP :8080 and DNS :53 on the proxy — every call must still succeed)
+
+### 2026-09-12T03:16:54Z
+$ sh -c kubectl --context kind-poc1 -n default exec tiefighter -- curl -s -m 5 -XPUT deathstar.default.svc.cluster.local/v1/exhaust-port; echo "  <- demo 02 L7 deny, for a drop with a reason"
+E0911 22:16:55.008208   68881 websocket.go:296] Unknown stream id 1, discarding message
+Access denied
+  <- demo 02 L7 deny, for a drop with a reason
+
+
+### 2026-09-12T03:17:20Z
+$ [PART 8 — the dashboards, read back as PromQL after Parts 6+7]
+== every Cilium/Hubble series now carries cluster=poc1 (the dashboards' top-left dropdown) ==
+  count by (cluster) ({__name__=~"(hubble|cilium)_.+"})
+     1.062e+04  cluster=poc1
+           566  cluster=-
+== Hubble / Network Overview (Namespace): flows by verdict for bank; drops by source/destination/reason ==
+  sum by (verdict) (rate(hubble_flows_processed_total{destination_namespace="bank"}[2m]))
+         36.58  verdict=FORWARDED
+         1.515  verdict=REDIRECTED
+  topk(6, sum by (source, destination) (rate(hubble_flows_processed_total{source_namespace="bank",destination_namespace!=""}[2m])))
+         10.64  source=api destination=-
+         3.549  source=payments destination=-
+         2.904  source=- destination=coredns
+          2.82  source=api destination=coredns
+          1.96  source=payments destination=coredns
+         1.211  source=- destination=payments
+  sum by (source, destination, reason) (increase(hubble_drop_total{destination_namespace="default"}[10m]))
+             0  source=- destination=deathstar reason=DROP_REASON_UNKNOWN
+== Hubble / DNS Overview (Namespace): queries by name, rcode — populated only because of dns-visibility (Part 7) ==
+  topk(8, sum by (query, rcode) (increase(hubble_dns_queries_total{source_namespace="bank"}[10m])))
+         82.46  query=payments.bank.svc.cluster.local. rcode=-
+         82.46  query=payments.bank.svc.cluster.local.bank.svc.cluster.local. rcode=-
+         82.46  query=payments.bank.svc.cluster.local.cluster.local. rcode=-
+         82.46  query=payments.bank.svc.cluster.local.svc.cluster.local. rcode=-
+         37.47  query=accounts.bank.svc.cluster.local. rcode=-
+          36.3  query=accounts.bank.svc.cluster.local.cluster.local. rcode=-
+         35.13  query=accounts.bank.svc.cluster.local.bank.svc.cluster.local. rcode=-
+         34.09  query=accounts.bank.svc.cluster.local.svc.cluster.local. rcode=-
+  sum by (source, rcode) (increase(hubble_dns_responses_total{source_namespace="bank"}[10m]))
+    (no series)
+== Hubble L7 HTTP Metrics by Workload: now with real workloads (reporter=server = the proxy on the destination node) ==
+  sum by (reporter, destination_workload, status) (rate(hubble_http_requests_total{destination_namespace="bank"}[2m]))
+         0.534  reporter=server destination_workload=api status=200
+        0.4945  reporter=server destination_workload=web status=200
+        0.3365  reporter=server destination_workload=api status=201
+        0.2458  reporter=server destination_workload=payments status=200
+        0.1891  reporter=client destination_workload=api status=201
+        0.1592  reporter=client destination_workload=- status=201
+        0.1278  reporter=server destination_workload=payments status=201
+       0.02985  reporter=client destination_workload=- status=200
+      0.009951  reporter=client destination_workload=api status=200
+  histogram_quantile(0.95, sum by (le, destination_workload) (rate(hubble_http_request_duration_seconds_bucket{destination_namespace="bank",reporter="server"}[2m]))) * 1000
+         94.87  destination_workload=api
+         46.27  destination_workload=payments
+         6.886  destination_workload=web
+  sum by (source_workload, destination_workload) (rate(hubble_http_requests_total{destination_namespace="bank",reporter="server"}[2m]))
+        0.8778  source_workload=- destination_workload=api
+        0.4987  source_workload=- destination_workload=web
+        0.3073  source_workload=- destination_workload=payments
+        0.0694  source_workload=api destination_workload=payments
+== TCP flags by namespace pair (Network Overview) ==
+  sum by (flag) (increase(hubble_tcp_flags_total{source_namespace="bank"}[5m]))
+         462.2  flag=SYN-ACK
+         441.1  flag=FIN
+         146.3  flag=SYN
+== exemplars: an OpenMetrics-only feature — does Prometheus hold any? ==
+### 2026-09-12T03:17:23Z
+$ sh -c kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query_exemplars?query=hubble_http_request_duration_seconds_bucket&start=$(( $(date +%s) - 900 ))&end=$(date +%s)" | python3 -c "import json,sys; d=json.load(sys.stdin)[\"data\"]; n=sum(len(x[\"exemplars\"]) for x in d); print(\"  exemplar series:\", len(d), \" exemplars:\", n); print(\"  sample:\", d[0][\"exemplars\"][0] if n else None)"
+  exemplar series: 0  exemplars: 0
+  sample: None
+
+
+### 2026-09-12T03:20:55Z
+$ [PART 9 — change the metric contexts WITHOUT an agent restart (dynamic config), and label the two remaining ClusterMesh endpoints]
+
+### 2026-09-12T03:20:58Z
+$ sh -c python3 - '/private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/before3.yaml' '/private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/after3.yaml' <<'PY'
+import yaml,sys,json
+def load(p): return {(d['kind'], d['metadata'].get('namespace'), d['metadata']['name']): d for d in yaml.safe_load_all(open(p)) if d}
+b,a = map(load, sys.argv[1:3]); print('render diff, live release vs live + values-cilium-metrics.yaml:')
+for k in sorted(set(a)&set(b)):
+    if json.dumps(a[k],sort_keys=True)==json.dumps(b[k],sort_keys=True) or k[0]=='Secret': continue
+    print('  changed:', k[0], k[2], '(pod template SAME → no restart)' if k[0] in ('DaemonSet','Deployment') and json.dumps(a[k]['spec']['template'],sort_keys=True)==json.dumps(b[k]['spec']['template'],sort_keys=True) else '')
+print('  added:', sorted(set(a)-set(b)), ' removed:', sorted(set(b)-set(a)))
+PY
+render diff, live release vs live + values-cilium-metrics.yaml:
+  changed: ConfigMap cilium-dynamic-metrics-config 
+  changed: ServiceMonitor clustermesh-apiserver 
+  added: []  removed: []
+
+### 2026-09-12T03:21:00Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get pods -l k8s-app=cilium -o jsonpath="{range .items[*]}{.metadata.name} started {.status.startTime}{\"\n\"}{end}" | sort > .tmp/agents-before-part9.txt; cat .tmp/agents-before-part9.txt
+cilium-8l6vc started 2026-09-12T03:14:06Z
+cilium-94mqm started 2026-09-12T03:14:21Z
+cilium-jm6pz started 2026-09-12T03:14:19Z
+cilium-kgqcc started 2026-09-12T03:14:33Z
+cilium-pjslf started 2026-09-12T03:14:06Z
+
+### 2026-09-12T03:21:01Z
+$ sh -c helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc1 --reuse-values -f demos/16-monitoring/values-cilium-metrics.yaml 2>&1 | grep -E "Release|Error"; helm history cilium -n kube-system --kube-context kind-poc1 --max 1 | tail -1 | cut -f1,2,4
+Release "cilium" has been upgraded. Happy Helming!
+36      	Fri Sep 11 22:21:03 2026	cilium-1.20.1
+
+### 2026-09-12T03:22:31Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get pods -l k8s-app=cilium -o jsonpath="{range .items[*]}{.metadata.name} started {.status.startTime}{\"\n\"}{end}" | sort | diff - .tmp/agents-before-part9.txt && echo "same 5 agent pods, same start times: NO restart"; P=$(kubectl --context kind-poc1 -n kube-system get pod -l k8s-app=cilium -o jsonpath="{.items[0].metadata.name}"); echo "-- agent log, dynamic metrics reload --"; kubectl --context kind-poc1 -n kube-system logs $P -c cilium-agent --since=3m 2>/dev/null | grep -i "dynamic\|metric" | tail -5 | cut -c1-230
+same 5 agent pods, same start times: NO restart
+-- agent log, dynamic metrics reload --
+time=2026-09-12T03:21:45.36387467Z level=error msg="failed reading dynamic exporter config" module=agent.controlplane.hubble.hubble-metrics subsys=hubble configFile=/dynamic-metrics-config/dynamic-metrics.yaml error="invalid yaml 
+time=2026-09-12T03:21:55.363550834Z level=error msg="failed reading dynamic exporter config" module=agent.controlplane.hubble.hubble-metrics subsys=hubble configFile=/dynamic-metrics-config/dynamic-metrics.yaml error="invalid yaml
+time=2026-09-12T03:22:05.363348831Z level=error msg="failed reading dynamic exporter config" module=agent.controlplane.hubble.hubble-metrics subsys=hubble configFile=/dynamic-metrics-config/dynamic-metrics.yaml error="invalid yaml
+time=2026-09-12T03:22:15.364430547Z level=error msg="failed reading dynamic exporter config" module=agent.controlplane.hubble.hubble-metrics subsys=hubble configFile=/dynamic-metrics-config/dynamic-metrics.yaml error="invalid yaml
+time=2026-09-12T03:22:25.363415317Z level=error msg="failed reading dynamic exporter config" module=agent.controlplane.hubble.hubble-metrics subsys=hubble configFile=/dynamic-metrics-config/dynamic-metrics.yaml error="invalid yaml
+
+### 2026-09-12T03:22:32Z
+$ sh -c demos/15-bank/exercise.sh 20 2>&1 | grep -E "calls:|LEDGER" | head -2
+  calls: 20  ok: 20  declined (409, insufficient funds): 0  FAILED (infrastructure): 0  in 14 s
+  balance before 94104, after 59672, spent 34432  ->  LEDGER CONSISTENT: before - after == sum of payments
+
+== after Part 9: the same query that showed destination=- in Part 8 ==
+  topk(6, sum by (source, destination) (rate(hubble_flows_processed_total{source_namespace="bank",destination_namespace!=""}[2m])))
+         7.218  source=api destination=-
+           2.6  source=payments destination=-
+         1.882  source=- destination=coredns
+         1.745  source=payments destination=coredns
+         1.709  source=api destination=coredns
+        0.9727  source=- destination=payments
+  sum by (source, destination, destination_namespace) (rate(hubble_flows_processed_total{source="api",destination_namespace!="bank",type="Trace"}[2m]))
+         3.054  source=api destination=- destination_namespace=kube-system
+         2.873  source=api destination=reserved:host destination_namespace=-
+        0.8545  source=api destination=coredns destination_namespace=kube-system
+        0.3454  source=api destination=reserved:ingress destination_namespace=-
+== ClusterMesh job: every endpoint now labelled ==
+  count by (job, cluster) ({job="clustermesh-apiserver-metrics"})
+          2894  job=clustermesh-apiserver-metrics cluster=poc1
+  count by (cluster) ({__name__=~"(hubble|cilium)_.+"})
+      1.16e+04  cluster=poc1
+
+### 2026-09-12T03:25:04Z
+$ [PART 9b — the dynamic reload REFUSED the context change (gotcha #58); one rollout restart applies it. Measured: 1 s /healthz probe AND a full check-routes loop until 0 failures]
+
+### 2026-09-12T03:25:04Z
+$ sh -c P=$(kubectl --context kind-poc1 -n kube-system get pod -l k8s-app=cilium -o jsonpath="{.items[0].metadata.name}"); kubectl --context kind-poc1 -n kube-system logs $P -c cilium-agent --since=2m 2>/dev/null | grep -c "failed reading dynamic exporter config" | sed "s/^/errors in the last 2 min on one agent: /"; kubectl --context kind-poc1 -n kube-system logs $P -c cilium-agent --since=2m 2>/dev/null | grep "failed reading dynamic exporter config" | tail -1 | sed "s/.*error=//" | cut -c1-260
+errors in the last 2 min on one agent: 12
+"invalid yaml config file: metric config validation failed - label set cannot be changed without restarting Prometheus. metric: dns\nmetric config validation failed - label set cannot be changed without restarting Prometheus. metric: drop\nmetric config valida
+
+### 2026-09-12T03:25:05Z
+$ sh -c date -u +%T; kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium; kubectl --context kind-poc1 -n kube-system rollout status ds/cilium --timeout=8m 2>&1 | tail -1; date -u +%T
+03:25:05
+daemonset.apps/cilium restarted
+daemon set "cilium" successfully rolled out
+03:25:45
+
+### 2026-09-12T03:26:35Z
+$ python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/outage.py /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/outage3.log
+Gateway probe https://bank.poc.local/healthz every 1 s during the upgrade: 84 probes, 51 non-200
+  outage window 03:25:19 -> 03:25:19
+  outage window 03:25:32 -> 03:26:24
+
+### 2026-09-12T03:26:35Z
+$ sh -c echo 'check-routes (all demo 09 routes: http, grpc, tcp, hubble UI) every 10 s after the rollout:'; sed 's/^/  /' /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/routes3.log
+check-routes (all demo 09 routes: http, grpc, tcp, hubble UI) every 10 s after the rollout:
+  03:25:49 FAILED CHECKS: 9
+  03:26:04 FAILED CHECKS: 9
+  03:26:17 FAILED CHECKS: 9
+  03:26:33 FAILED CHECKS: 0
+
+### 2026-09-12T03:26:35Z
+$ sh -c P=$(kubectl --context kind-poc1 -n kube-system get pod -l k8s-app=cilium -o jsonpath="{.items[0].metadata.name}"); kubectl --context kind-poc1 -n kube-system logs $P -c cilium-agent 2>/dev/null | grep -i "dynamic flow processor\|failed reading dynamic" | tail -2 | cut -c1-200; echo "errors since restart: $(kubectl --context kind-poc1 -n kube-system logs $P -c cilium-agent 2>/dev/null | grep -c "failed reading dynamic exporter config")"
+time=2026-09-12T03:25:42.005539339Z level=info msg="Starting Hubble Metrics dynamic flow processor" module=agent.controlplane.hubble.hubble-metrics metricConfig=/dynamic-metrics-config/dynamic-metrics
+errors since restart: 0
+
+### 2026-09-12T03:26:35Z
+$ sh -c demos/15-bank/exercise.sh 20 2>&1 | grep -E "calls:|LEDGER" | head -2
+  calls: 20  ok: 20  declined (409, insufficient funds): 0  FAILED (infrastructure): 0  in 15 s
+  balance before 92000, after 45520, spent 46480  ->  LEDGER CONSISTENT: before - after == sum of payments
+
+== after the restart: app-first contexts. The Part 8 query that showed destination=- ==
+  topk(8, sum by (source, destination) (rate(hubble_flows_processed_total{source_namespace="bank",destination_namespace!=""}[2m])))
+         7.935  source=api destination=kube-dns
+         2.859  source=payments destination=kube-dns
+         1.247  source=api destination=payments
+        0.8856  source=payments destination=api
+        0.5468  source=redis destination=payments
+        0.5468  source=payments destination=redis
+        0.4544  source=payments destination=accounts
+        0.3263  source=accounts destination=payments
+== cross-cluster peers by name: api (poc1) -> accounts (poc2), payments -> redis/accounts ==
+  sum by (source, destination, destination_namespace, verdict) (rate(hubble_flows_processed_total{source=~"api|payments",destination=~"accounts|postgres|redis|coredns|payments"}[2m]))
+          1.42  source=api destination=payments destination_namespace=bank verdict=FORWARDED
+        0.5478  source=payments destination=redis destination_namespace=bank verdict=FORWARDED
+        0.4577  source=payments destination=accounts destination_namespace=bank verdict=FORWARDED
+        0.2112  source=api destination=accounts destination_namespace=bank verdict=FORWARDED
+       0.09388  source=api destination=payments destination_namespace=bank verdict=REDIRECTED
+== DNS by source and query (Namespace dashboard) ==
+  topk(4, sum by (source, query) (increase(hubble_dns_queries_total{source_namespace="bank", query=~"[a-z]+\\.bank\\.svc\\.cluster\\.local\\."}[5m])))
+         94.68  source=api query=payments.bank.svc.cluster.local.
+         42.62  source=payments query=accounts.bank.svc.cluster.local.
+         19.24  source=api query=accounts.bank.svc.cluster.local.
+== drops by source/destination/reason, last 30 m ==
+  sum by (source, destination, reason) (increase(hubble_drop_total[30m]) > 0)
+         17.26  source=- destination=- reason=UNSUPPORTED_L3_PROTOCOL
+         8.138  source=- destination=reserved:unknown reason=UNSUPPORTED_L3_PROTOCOL
+### 2026-09-12T03:27:18Z
+$ sh -c PW=$(kubectl --context kind-poc1 -n kube-system get pod -l k8s-app=cilium --field-selector spec.nodeName=poc1-worker -o jsonpath="{.items[0].metadata.name}"); echo "policy enforcement on the bank endpoints of poc1-worker (cilium-dbg endpoint list):"; kubectl --context kind-poc1 -n kube-system exec $PW -c cilium-agent -- cilium-dbg endpoint list -o json 2>/dev/null | python3 -c "
+import json,sys
+for x in json.load(sys.stdin):
+    st=x.get(\"status\",{}); labs=(st.get(\"labels\",{}) or {}).get(\"security-relevant\",[]) or []
+    if \"k8s:io.kubernetes.pod.namespace=bank\" not in labs: continue
+    app=[l.split(\"=\")[1] for l in labs if l.startswith(\"k8s:app=\")]; r=st[\"policy\"][\"realized\"]
+    print(\"  app=%-18s policy-enabled=%-7s proxy ports=%s\" % (app[0] if app else \"?\", r.get(\"policy-enabled\"), sorted(set(str(p.get(\"port\"))+\"/\"+str(p.get(\"location\")) for p in (st[\"policy\"].get(\"proxy-statistics\") or []))))"
+policy enforcement on the bank endpoints of poc1-worker (cilium-dbg endpoint list):
+  File "<string>", line 7
+    print("  app=%-18s policy-enabled=%-7s proxy ports=%s" % (app[0] if app else "?", r.get("policy-enabled"), sorted(set(str(p.get("port"))+"/"+str(p.get("location")) for p in (st["policy"].get("proxy-statistics") or []))))
+         ^
+SyntaxError: '(' was never closed
+[exit code: 1]
+
+### 2026-09-12T03:27:53Z
+$ sh -c echo 'policy enforcement on the bank endpoints of poc1-worker (cilium-dbg endpoint list -o json): both policies deny nothing, they put :8080 ingress and :53 egress on the proxy'; kubectl --context kind-poc1 -n kube-system exec cilium-4fkcz -c cilium-agent -- cilium-dbg endpoint list -o json 2>/dev/null | python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/eplist.py
+policy enforcement on the bank endpoints of poc1-worker (cilium-dbg endpoint list -o json): both policies deny nothing, they put :8080 ingress and :53 egress on the proxy
+  app=postgres-standby   policy-enabled=egress  proxy ports=['53/egress']
+  app=redis              policy-enabled=egress  proxy ports=['53/egress']
+  app=api                policy-enabled=both    proxy ports=['53/egress', '8080/ingress']
+  app=web                policy-enabled=both    proxy ports=['53/egress', '8080/ingress']
+

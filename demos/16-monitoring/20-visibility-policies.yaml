@@ -1,0 +1,39 @@
+# Demo 16, Part 7 — Layer 7 visibility for the bank namespace on poc1. Neither policy DENIES anything:
+# both end with an allow-all rule. What they change is WHERE the L7 metrics come from. Hubble only sees
+# DNS names / HTTP methods / status codes / latency on traffic that passes through Cilium's L7 proxy, and
+# a policy with an L7 rule is what puts a port on the proxy ("Layer 7 Protocol Visibility" in the docs).
+#   kubectl --context kind-poc1 apply -f demos/16-monitoring/20-visibility-policies.yaml
+#   kubectl --context kind-poc1 delete -f demos/16-monitoring/20-visibility-policies.yaml   # back to plain L3/L4
+---
+# DNS: every bank pod's lookups go through the DNS proxy → hubble_dns_*_total exist, with the query name.
+# Rule 1 is the L7 rule for kube-dns:53; rule 2 keeps all other egress open (the mesh peer, the world).
+# The BPF policy map keys (identity, port) beat (identity, any-port), so :53 is proxied and nothing else changes.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: dns-visibility, namespace: bank}
+spec:
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels: {io.kubernetes.pod.namespace: kube-system, k8s-app: kube-dns}
+      toPorts:
+        - ports: [{port: "53", protocol: ANY}]
+          rules: {dns: [{matchPattern: "*"}]}
+    - toEntities: [all]
+---
+# HTTP: ingress to web / api / payments on :8080 goes through the proxy ON THE DESTINATION'S NODE, so the
+# reporting agent knows the destination endpoint locally and fills destination_workload (gotcha #57) —
+# that is what makes "Hubble L7 HTTP Metrics by Workload" show web / api / payments with real latency
+# instead of one nameless row from the Gateway. Rule 2 keeps every other ingress port open (probes, exec).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: http-visibility, namespace: bank}
+spec:
+  endpointSelector:
+    matchExpressions: [{key: app, operator: In, values: [web, api, payments]}]
+  ingress:
+    - fromEntities: [all]
+      toPorts:
+        - ports: [{port: "8080", protocol: TCP}]
+          rules: {http: [{}]}
+    - fromEntities: [all]

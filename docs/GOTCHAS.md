@@ -64,6 +64,9 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [54](#54) | A readiness probe that encodes a ROLE (`pg_is_in_recovery()=true`) takes the pod out of its Service the moment the role changes — the promoted standby was unreachable | Kubernetes / Postgres |
 | [55](#55) | The failback destroyed the surviving copy: a rebuild waited on an empty Service, the script did not check, then deleted the other volume too — the ledger was lost | DR runbooks |
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
+| [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
+| [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [59](#59) | The dynamic Hubble metrics config cannot change a registered metric's context options: helm succeeded, every agent logged a refusal every 10 s and kept the old labels | monitoring |
 
 ---
 
@@ -1445,6 +1448,69 @@ withdrawal. Drain = fail readiness, then finish, then exit.
 
 ---
 
+## <a name="57"></a>57. kube-prometheus-stack scrapes only its OWN ServiceMonitors by default — Cilium's would exist and never be read
+
+**Symptom (avoided, because the chart default was read first).** `prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues`
+defaults to `true`: the Prometheus object selects only ServiceMonitors carrying the release's label
+(`release: monitoring`). Rendering the Cilium chart with every `serviceMonitor.enabled=true` shows its
+six ServiceMonitors carry **no `release` label** (transcript, Section A). With the default, the
+Section B objects would have appeared in `kubectl get servicemonitor` and never in Targets.
+
+**Fix.** `serviceMonitorSelectorNilUsesHelmValues: false` (and the PodMonitor twin) in
+`demos/16-monitoring/values-kube-prometheus-stack.yaml`, set *before* Cilium is told to publish.
+Verified: 52/52 targets up, eight `kube-system` scrape pools.
+
+**Also in this family.** The Cilium chart refuses a release with `serviceMonitor.enabled=true` and
+no `monitoring.coreos.com` CRDs (`templates/validate.yaml`) — install the stack first, then the
+Cilium values; that is why demo 16 has two sections in that order.
+
+→ demo 16, Section A Part 1 and Section B Part 5
+
+---
+
+## <a name="58"></a>58. Hubble's `*_workload` labels and `workload-name` context are filled only for endpoints LOCAL to the reporting agent
+
+**Symptom.** `hubble_http_requests_total{destination_namespace="bank"}` had `destination_workload=""`
+for every request through the Gateway, and the "Network Overview" dashboard showed
+`destination=-` for every peer on another node — while demo 02's `tiefighter → deathstar` row said
+`destination_workload=deathstar`.
+
+**Cause (measured on live flows).** A flow's `workloads` field comes from the endpoint manager of
+the agent that reports the flow; for a remote endpoint the ipcache gives namespace and pod name,
+not the owner. The Gateway's Envoy reports from the node holding the LB address
+(`poc1-control-plane`, the L2 lease), the bank pods run on the workers → no workload. A live
+`api → accounts` (poc2) flow: `pod=accounts-…, workloads=None`, labels include `k8s:app=accounts`.
+
+**Fix.** Two halves. Contexts use `app` first — `app|workload-name|reserved-identity` — because
+`app` is read from identity labels, which every agent has for every peer, other cluster included
+(after: `source=payments destination=accounts` across the mesh). And for the `*_workload` labels on
+HTTP metrics, make the *destination's* node the reporter with an L7 visibility policy on the
+destination (`http-visibility`, demo 16 Part 7): `reporter=server` rows then carry `web`, `api`,
+`payments` with per-hop p95 latency. The Gateway hop stays `-` — filter by `reporter`.
+
+→ demo 16, Parts 7–9; `demos/16-monitoring/values-cilium-metrics.yaml`, `20-visibility-policies.yaml`
+
+---
+
+## <a name="59"></a>59. The dynamic Hubble metrics config cannot change a registered metric's context options — helm says Happy Helming, every agent refuses it
+
+**Symptom.** After `helm upgrade` changed only `cilium-dynamic-metrics-config` (render diff: no pod
+template touched), the agents kept the old labels and logged every 10 s:
+`failed reading dynamic exporter config … label set cannot be changed without restarting Prometheus. metric: dns / drop / tcp / icmp / flow / httpV2`.
+
+**Cause.** `pkg/hubble/metrics/metric_config_watcher.go` (v1.20.1) rejects any metric whose
+`ContextOptionConfigs` differ (`reflect.DeepEqual`) from the registered one, because Prometheus
+collectors cannot change their label set once registered. "Reconfigure without an agent restart"
+covers adding/removing metrics and their include/exclude filters — not the contexts.
+
+**Fix.** Get the contexts right before the metrics are registered (they are in
+`values-cilium-metrics.yaml`, and `docs/TUNING.md` §6 says day 1); if they must change,
+`kubectl rollout restart ds/cilium` — measured 88 s until every Gateway route was clean.
+
+→ demo 16, Part 9
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1470,6 +1536,7 @@ Most of these share a shape: **something reported success while not working.**
 - two failover loops reported 0 failures — they had not sent a request in the one second that fails (#53)
 - `pg_promote returned t` while every write failed — the promoted database had just left its own Service (#54)
 - `rollout status` said success while an old pod wired to a dead database still took requests (#56)
+- `helm upgrade` said *Happy Helming* while every agent refused the new metrics config every 10 s (#59)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

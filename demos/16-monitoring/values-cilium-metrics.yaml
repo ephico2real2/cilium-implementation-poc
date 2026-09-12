@@ -1,0 +1,115 @@
+# Demo 16, Section B — the Cilium-side half: publish agent / operator / Envoy / Hubble metrics to the
+# Prometheus Operator installed in Section A, and ship Cilium's Grafana dashboards as ConfigMaps.
+# Applied on top of the live release (the demo 05 pattern, values snapshot first):
+#   helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc1 \
+#     --reuse-values -f demos/16-monitoring/values-cilium-metrics.yaml
+# Requires the monitoring.coreos.com CRDs (Section A) FIRST: with any serviceMonitor.enabled=true and no
+# CRD, the chart's templates/validate.yaml refuses the whole release ("Service Monitor requires
+# monitoring.coreos.com/v1 CRDs") — measured with helm template. That ordering is why Section A exists.
+
+prometheus:
+  enabled: true                    # agent /metrics on :9962. NOTE: this adds a containerPort to the cilium
+  serviceMonitor:                  # DaemonSet → a rolling restart of every agent → the demo 09 Gateway is
+    enabled: true                  # down for the rollout (gotcha #42). Set it on day 1 (TUNING §6), not later.
+    relabelings:                   # `cluster` label on every series (see hubble.metrics.serviceMonitor below)
+      - {sourceLabels: [__meta_kubernetes_pod_node_name], targetLabel: node, action: replace, replacement: "${1}"}
+      - {targetLabel: cluster, action: replace, replacement: poc1}
+dashboards:
+  enabled: true                    # ConfigMap kube-system/cilium-dashboard, label grafana_dashboard=1
+
+operator:
+  prometheus:
+    serviceMonitor:
+      enabled: true                # operator already listens on :9963 by default; this only adds the Service+ServiceMonitor
+      relabelings:
+        - {sourceLabels: [__meta_kubernetes_pod_node_name], targetLabel: node, action: replace, replacement: "${1}"}
+        - {targetLabel: cluster, action: replace, replacement: poc1}
+  dashboards:
+    enabled: true                  # ConfigMap cilium-operator-dashboard
+
+envoy:
+  prometheus:
+    serviceMonitor:
+      enabled: true                # cilium-envoy DaemonSet already exposes :9964 (Gateway API / L7 proxy stats)
+      relabelings:
+        - {sourceLabels: [__meta_kubernetes_pod_node_name], targetLabel: node, action: replace, replacement: "${1}"}
+        - {targetLabel: cluster, action: replace, replacement: poc1}
+
+hubble:
+  metrics:
+    # Part 6: the metric list moves from the static `enabled` list (baked into cilium-config → every change
+    # is an agent restart = a Gateway outage, measured 68 s in Part 5) to the DYNAMIC config: a ConfigMap
+    # the running agents re-read. Docs: "Dynamic metrics may be reconfigured without a need of agent restarts."
+    # The two are independent; the docs' example sets the static list empty when the dynamic one is used.
+    enabled: []
+    enableOpenMetrics: true      # exemplars (trace ids on latency buckets) are only emitted in the OpenMetrics
+                                 # exposition format; Prometheus (Section A) has exemplar-storage on for them
+    dynamic:
+      enabled: true
+      config:
+        createConfigMap: true    # kube-system/cilium-dynamic-metrics-config, rendered from `content` below
+        content:
+          # Every context below is what the chart's own dashboards (Part 5) query by. Measured in Part 5:
+          # without source_namespace/destination_namespace the two "(Namespace)" dashboards have nothing
+          # to filter on, and without sourceContext/destinationContext there is no `source`/`destination`
+          # label for their "by (source)" / "by (destination)" panels.
+          # `app` comes FIRST in every source/destination context (the docs' example uses workload-name):
+          # measured in Part 9, workload-name is known only for endpoints local to the reporting agent, so
+          # every peer on another node (or the other cluster) rendered as "-". `app` is read from the
+          # identity labels (app / app.kubernetes.io/name / k8s-app), which every agent knows for every peer.
+          - name: dns
+            contextOptions:
+              - {name: query}                                   # adds the `query` label (the name asked for)
+              - {name: sourceContext,      values: [app, workload-name, reserved-identity]}
+              - {name: destinationContext, values: [app, workload-name, reserved-identity]}
+              - {name: labelsContext,      values: [source_namespace, destination_namespace]}
+          - name: drop
+            contextOptions:
+              - {name: sourceContext,      values: [app, workload-name, reserved-identity]}
+              - {name: destinationContext, values: [app, workload-name, reserved-identity]}
+              - {name: labelsContext,      values: [source_namespace, destination_namespace]}
+          - name: tcp
+            contextOptions:
+              - {name: sourceContext,      values: [app, workload-name, reserved-identity]}
+              - {name: destinationContext, values: [app, workload-name, reserved-identity]}
+              - {name: labelsContext,      values: [source_namespace, destination_namespace]}
+          - name: icmp
+            contextOptions:
+              - {name: sourceContext,      values: [app, workload-name, reserved-identity]}
+              - {name: destinationContext, values: [app, workload-name, reserved-identity]}
+              - {name: labelsContext,      values: [source_namespace, destination_namespace]}
+          - name: flow
+            contextOptions:
+              - {name: sourceContext,      values: [app, workload-name, reserved-identity]}
+              - {name: destinationContext, values: [app, workload-name, reserved-identity]}
+              - {name: labelsContext,      values: [source_namespace, destination_namespace]}
+          - name: port-distribution                              # no context: one series per port, as before
+          - name: httpV2                                         # the demo 01 string, in the dynamic shape
+            contextOptions:
+              - {name: exemplars, values: [true]}
+              - {name: labelsContext, values: [source_ip, source_namespace, source_workload, destination_ip, destination_namespace, destination_workload, traffic_direction]}
+              - {name: sourceContext,      values: [app, workload-name, reserved-identity]}
+              - {name: destinationContext, values: [app, workload-name, reserved-identity]}
+    serviceMonitor:
+      enabled: true                # ServiceMonitor kube-system/hubble → Service hubble-metrics :9965 on every agent
+      relabelings: &cluster_label  # the chart's dashboards filter every panel on a `cluster` label (a multi-cluster
+        - {sourceLabels: [__meta_kubernetes_pod_node_name], targetLabel: node, action: replace, replacement: "${1}"}   # chart default, kept
+        - {targetLabel: cluster, action: replace, replacement: poc1}   # ← stamped at scrape time; poc2 would get poc2
+    dashboards:
+      enabled: true                # hubble-dashboard, hubble-dns-namespace, hubble-l7-http-metrics-by-workload,
+                                   # hubble-network-overview-namespace — the dashboards this demo is for
+  relay:
+    prometheus:
+      enabled: true                # relay :9966 (flow rate the relay serves to CLI/UI) — a relay restart, nothing else
+      serviceMonitor:
+        enabled: true
+        relabelings: *cluster_label
+
+clustermesh:
+  apiserver:
+    metrics:
+      serviceMonitor:
+        enabled: true              # clustermesh-apiserver + kvstoremesh + etcd metrics — the mesh's own health on a panel
+        relabelings: [{targetLabel: cluster, action: replace, replacement: poc1}]
+        kvstoremesh: {relabelings: [{targetLabel: cluster, action: replace, replacement: poc1}]}   # the other two
+        etcd:        {relabelings: [{targetLabel: cluster, action: replace, replacement: poc1}]}   # endpoints (Part 9)

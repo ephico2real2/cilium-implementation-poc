@@ -1672,3 +1672,23 @@ Read the three gotchas before running it on anything that matters: a readiness p
 encode a role (#54), a failback must verify before it deletes (#55 — the first run here lost the
 demo ledger), and a draining pod must fail readiness first (#56). The write-up, with every run
 kept: `demos/15-bank/README.md` Part 8.
+
+## Step 14 — Prometheus + Grafana, then Hubble on dashboards (demo 16)
+
+Two sections, in this order — the Cilium chart refuses ServiceMonitors until the Operator's CRDs
+exist (gotcha #57):
+
+```bash
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts && helm repo update prometheus-community
+helm install monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --create-namespace \
+  --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml --wait --timeout 10m   # Section A
+kubectl --context kind-poc1 apply -f demos/16-monitoring/10-gateway.yaml                                    # https://grafana.poc.local
+sudo sh -c 'demos/16-monitoring/hosts-entries.sh >> /etc/hosts'                                              # you run this
+helm get values cilium -n kube-system --kube-context kind-poc1 -o yaml > .tmp/poc1-values-before-demo16.yaml
+helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc1 \
+  --reuse-values -f demos/16-monitoring/values-cilium-metrics.yaml                                           # Section B (agents roll once)
+kubectl --context kind-poc1 apply -f demos/16-monitoring/20-visibility-policies.yaml                        # DNS + HTTP on the proxy for bank
+```
+
+Every command, its reason and its recorded output: `demos/16-monitoring/README.md`.
+

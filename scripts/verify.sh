@@ -182,6 +182,14 @@ echo "one request through the Gateway, its path in the body — api in poc1, acc
 # docs/root-ca.crt (the committed public root), not section 10's temp file — that one is removed at the end of section 10.
 run "curl -s --cacert docs/root-ca.crt --resolve bankapi.poc.local:443:$GW https://bankapi.poc.local/api/balance/chk-1001 | python3 -c 'import json,sys; d=json.load(sys.stdin); print({\"api\": d[\"served_by\"][\"cluster\"], \"accounts\": d[\"upstream\"][\"served_by\"][\"cluster\"], \"db\": d[\"upstream\"].get(\"db\"), \"balance_cents\": d[\"balance_cents\"]})'"
 
+hdr "14. DEMO 16 — MONITORING (kube-prometheus-stack + Cilium/Hubble ServiceMonitors)"
+run "$K -n monitoring get pods --no-headers 2>/dev/null | awk '{print \$1, \$2, \$3}'"
+echo "Prometheus targets (via the API-server proxy — the Prometheus image has no shell tools):"
+run "kubectl --context $CTX get --raw '/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/targets?state=active' 2>/dev/null | python3 -c 'import json,sys; ts=json.load(sys.stdin)[\"data\"][\"activeTargets\"]; ks=sorted(set(t[\"scrapePool\"].split(\"/\")[2] for t in ts if \"/kube-system/\" in t[\"scrapePool\"])); print(\"total\", len(ts), \"up\", sum(1 for t in ts if t[\"health\"]==\"up\"), \"| cilium pools:\", ks)'"
+echo "Hubble series with a cluster label, and the six chart dashboards Grafana loaded:"
+run "kubectl --context $CTX get --raw '/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count%20by%20(cluster)%20(%7B__name__%3D~%22hubble_.%2B%22%7D)' 2>/dev/null | python3 -c 'import json,sys; [print(\"hubble series:\", r[\"value\"][1], \"cluster=\"+r[\"metric\"].get(\"cluster\",\"-\")) for r in json.load(sys.stdin)[\"data\"][\"result\"]]'"
+run "curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana 'https://grafana.poc.local/api/search?type=dash-db' | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len([x for x in d if \"ilium\" in x[\"title\"] or \"ubble\" in x[\"title\"]]), \"cilium/hubble dashboards of\", len(d))'"
+
 hdr "12. HOST ROUTING (macOS)"
 run "netstat -rn -f inet | grep '^172.18' || echo 'no route — see SETUP Step 3.5'"
 run "ifconfig -l | tr ' ' '\n' | grep -E '^bridge'"

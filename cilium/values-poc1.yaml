@@ -94,6 +94,11 @@ hubble:
   metrics:
     # These are what make the UI's service map and the flow breakdowns useful. Each entry tells
     # Hubble to emit a Prometheus metric series; without them the UI renders a much emptier graph.
+    # NOTE (demo 16): since Section B the live release runs this list through the DYNAMIC config in
+    # demos/16-monitoring/values-cilium-metrics.yaml (applied on top of this file: `enabled: []`,
+    # `dynamic.enabled: true`, contexts `app|workload-name|reserved-identity` + namespace labels,
+    # `enableOpenMetrics: true`). This static list is what demos 01–15 ran and what a fresh install
+    # starts with; see docs/TUNING.md §6 for why the contexts belong here on day 1.
     enabled:
       - dns
       - drop

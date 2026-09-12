@@ -49,7 +49,7 @@ unchanged, with BGP substituted for L2 in production.
    external-access proof for demo 09.
 8. **[docs/REFERENCES.md](docs/REFERENCES.md)** — every external source the PoC was built against,
    with what each was used for; the place to check a claim's origin.
-9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 56 traps, each with the real error
+9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 59 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -61,7 +61,8 @@ unchanged, with BGP substituted for L2 in production.
 | ✅ | Networking design, two reserved pools, host route, hosts block generated from live state | done |
 | ✅ | Enterprise CA from day 1; ClusterMesh on cert-manager certs (`issuer=CN=clustermesh-root-ca`) | done |
 | ✅ | **Bank app across the mesh** (demo 15): 5 components, PVC-backed Postgres and Redis, active-active, zero-loss failover, database-restart drills, **a hot standby in the other cluster streaming through the mesh** with promotion and gated failback tested, **load balancing across a 3+3 pool measured per pod** with live scaling and a Maglev twin | done; `https://bank.poc.local` and `https://bankapi.poc.local`; `exercise.sh`, `resilience.sh`, `dbfailover.sh`, `scale.sh` |
-| ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (733 lines, 14 sections, including the native client and the bank) | regenerable |
+| ✅ | **Monitoring (demo 16)**: kube-prometheus-stack on poc1, Grafana on the Gateway, Cilium/Hubble ServiceMonitors + the chart's six dashboards, exemplars proven with a `traceparent`, L7 visibility for the bank namespace | done; `https://grafana.poc.local` (admin / poc-grafana); `demos/16-monitoring/` |
+| ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (780 lines, 15 sections, including the native client, the bank and the monitoring stack) | regenerable |
 | ✅ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | done — demo 11, with the three-cause forensic on Cilium's default install; poc3 is paused (`scripts/cluster-resume.sh poc3`) |
 | ⛔ | **"Cilium mTLS" (mutual authentication, SPIFFE/SPIRE)** | evaluated, **not enabled and not to be adopted**: deprecated in 1.20, removal planned in 1.21 (cilium#47132), ClusterMesh-incompatible — [docs/summary/MTLS_EVALUATION.md](docs/summary/MTLS_EVALUATION.md) |
 | ✅ | **ztunnel mTLS (demo 13)** — evaluated on a throwaway cluster: real mTLS on the wire, but cannot run on any cluster with a `cluster.id` (so never with ClusterMesh), breaks L4 **and** L7 policy for enrolled traffic, −73 % throughput | **not the standard**; WireGuard + identity policy is — `demos/13-ztunnel/README.md` |
@@ -135,6 +136,7 @@ an untested combination.
 | 08 | Enterprise CA | cert-manager root in poc1 issuing every cluster's mesh certificates; trust before join |
 | 09 | Wildcard TLS + 3 route types | cert-manager wildcard and exact certs on one Gateway; `HTTPRoute`, `GRPCRoute`, `TCPRoute` from one 14 MB image — and a native Go client (`-mode client`) that tests all three, which is how the missing-ALPN gotcha (#33) was found |
 | 10 | Flow tracing -> OpenTelemetry | Hubble dynamic flow export per node, tailed by an OTel Collector into OTLP; every flow persistent and queryable. **Events, not spans** -- hubble-otel is archived, see gotcha #30 |
+| 16 | **Prometheus + Grafana, then Hubble on dashboards** | kube-prometheus-stack 90.1.1 first (Grafana at `https://grafana.poc.local`, 32/32 targets), then one Cilium helm change: 6 ServiceMonitors, 6 dashboards, 52/52 targets — and what the dashboards needed that the default metric list did not give them: contexts, a `cluster` label, L7 visibility policies, and a context change the "dynamic" config refused (#57–#59) |
 | 15 | **A bank across two clusters** | Five components + Postgres/Redis on PVCs, one image, split half/half across poc1 and poc2 over global Services: the whole call path in one response, idempotent payments across the mesh, **active-active** 23/17, and **zero failed requests** through a scale-to-0 outage and recovery (default and `affinity: local`) |
 | 14 | **TCP_CRR tuning blog, tested** | Bigger maps (at 12 % occupancy), shorter timeouts, socket LB for pods (forced off by Gateway API), client sysctls — none moved the connection rate; this rig's ceiling is Hubble (demo 11), and that is the knob |
 | 13 | **ztunnel mTLS** | Cilium 1.20's beta mTLS (Istio ztunnel, HBONE) proven on the wire on a throwaway cluster — and shown to be incompatible with any `cluster.id`, to break L4/L7 policy on enrolled traffic, and to cost 73 % of throughput; **not our standard** |
@@ -151,7 +153,7 @@ scripts/verify.sh                              # to the terminal
 scripts/verify.sh > docs/VERIFICATION_RUN.md   # as a document
 ```
 
-The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 733 lines of
+The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 780 lines of
 real console output in 14 sections: versions, cluster state, full Cilium status, every demo
 through 10, the native route client, and the bank across the mesh.
 
@@ -162,7 +164,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 56 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 59 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

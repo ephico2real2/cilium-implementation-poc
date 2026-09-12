@@ -128,3 +128,15 @@ Masquerading:            BPF   [eth0]   …
 
 If `Host:` says `Legacy`, the datapath bypass is off and every throughput number you take will be
 the wrong number.
+
+**Metrics belong on day 1 too (demo 16).** Three things on the metrics side each cost an agent
+rollout when added later — measured 52–88 s until every Gateway route was clean:
+
+- `prometheus.enabled: true` — a container port on the DaemonSet;
+- `hubble.metrics.dynamic.enabled: true` with `hubble.metrics.enabled: []` — a volume on the DaemonSet;
+- the metric **contexts** (`app|workload-name|reserved-identity`, `source_namespace,destination_namespace`)
+  — the dynamic config refuses to change them once a metric is registered (gotcha #59).
+
+The ServiceMonitor/dashboard half (`*.serviceMonitor.enabled`, `*.dashboards.enabled`) waits for
+the Prometheus Operator CRDs — the chart refuses the release without them (gotcha #57) — so it lives
+in `demos/16-monitoring/values-cilium-metrics.yaml`, applied on top once the stack is installed.
