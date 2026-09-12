@@ -86,3 +86,15 @@ names `bank-cell-baseline` for the latter only. Then remove the `egressDeny` fro
 re-render and re-apply the cell: the API-server drops move from `POLICY_DENY` to `POLICY_DENIED`
 and the policy panel goes empty — the difference between "denied by rule" and "not allowed".
 
+## Exercise 10 — is the image maintained? (ask this of every image)
+
+```bash
+curl -s "https://quay.io/api/v1/repository/cilium/hubble/tag/?specificTag=v1.16.4" | python3 -c 'import json,sys; print(json.load(sys.stdin)["tags"][0]["last_modified"])'
+docker run --rm --entrypoint hubble quay.io/cilium/hubble:v1.16.4 version
+trivy image --severity CRITICAL,HIGH quay.io/cilium/hubble:v1.16.4 | tail -20
+trivy image --severity CRITICAL,HIGH quay.io/cilium/cilium:v1.20.1 | grep -A3 "usr/bin/hubble"
+```
+*Expect:* a 2024 push date, an end-of-life Go, CRITICAL findings — and none in the agent image's CLI.
+Then `kubectl -n kube-system get ds cilium -o jsonpath='{.spec.template.spec.containers[0].image}'`:
+that digest is what the observer should run, and it moves when Cilium moves (demo 01's pinning rule).
+

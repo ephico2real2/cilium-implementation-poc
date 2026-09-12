@@ -66,6 +66,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [78](#78) | The hubble-observer default image (quay.io/cilium/hubble:v1.16.4) is unmaintained — 2024 push, EOL Go, 5 CRITICAL; run the CLI from the agent image at the agents' digest | supply chain |
 | [77](#77) | The hub Prometheus kept the single-cluster 1Gi limit — 51 OOM kills once poc2 wrote in; 2Gi + an out-of-order window | monitoring |
 | [76](#76) | A policy's egress `toPorts` must be the backend pod's port (relay 4245), not the Service port (443) — Cilium enforces after service translation | Cilium policy |
 | [75](#75) | A plaintext Hubble Relay lets any pod read every flow of the mesh; relay server TLS + mTLS from the enterprise root, each client with its own certificate | Hubble / security |
@@ -1878,6 +1879,23 @@ size a receiver for the sum of its writers, and give it an out-of-order window.
 
 ---
 
+## <a name="78"></a>78. The chart's default image is unmaintained — version compatibility is not support
+
+**Symptom.** Demo 25 Part 7d: `quay.io/cilium/hubble:v1.16.4`, the hubble-observer default, is the
+last image that registry ever published (2024-11-21); Go 1.23 (EOL), alpine 3.20.3; trivy 5 CRITICAL
++ 51 HIGH. It works against a 1.20.1 relay (stable API, identical JSON), which hid the problem.
+
+**Cause.** The Hubble CLI project stopped publishing a container image; the maintained CLI ships
+inside the Cilium agent image, on the relay's release train.
+
+**Fix.** `image.repository: quay.io/cilium/cilium`, `image.tag` = the agents' `v1.20.1@sha256:…`
+(already on every node): 0 CRITICAL, no version warning, same flows. Rule: for every image, check
+the last push date and scan it; an image with no maintainer is a finding whatever its compatibility.
+
+→ demo 25, Part 7d
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1918,6 +1936,7 @@ Most of these share a shape: **something reported success while not working.**
 - the observability API was the most readable thing on the platform (#75)
 - the policy allowed the port the client dialled, not the port the pod listens on (#76)
 - the hub was budgeted like a spoke (#77)
+- it worked, so nobody asked who maintained it (#78)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

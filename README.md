@@ -56,7 +56,7 @@ unchanged, with BGP substituted for L2 in production.
    left in the text is gotcha #47's historical note.
 8c. **[OBSERVABILITY-ARCHITECTURE.md](OBSERVABILITY-ARCHITECTURE.md)** is the one picture of the observability
    stack across the mesh — what runs in the hub, what every spoke runs, and why (demos 10, 16, 18, 21–25).
-9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 77 traps, each with the real error
+9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 78 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -191,7 +191,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 77 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 78 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

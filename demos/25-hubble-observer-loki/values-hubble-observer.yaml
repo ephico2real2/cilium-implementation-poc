@@ -9,6 +9,13 @@
 # nodes of the mesh and every flow carries source.cluster_name / destination.cluster_name.
 #   helm install hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer \
 #     -n hubble-observer --create-namespace --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml
+image:                                   # Part 7d (2026-09-12) — NOT the chart default. The default, quay.io/cilium/hubble:v1.16.4, is the
+  repository: quay.io/cilium/cilium      # last image that registry ever published (pushed 2024-11-21; Go 1.23; alpine 3.20.3; trivy: 2
+  tag: "v1.20.1@sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b"   # CRITICAL + 19 HIGH in the OS layer, 35 in the binary at scan time). Unmaintained means no
+                                         # security fixes, ever. The Hubble CLI that IS maintained ships inside the Cilium agent image,
+                                         # on the same release train as the relay it talks to — so the observer runs the cluster's own
+                                         # Cilium version, pinned by digest like the agents (demo 01), and moves when Cilium moves.
+                                         # Cost: a ~600 MB image already present on every node (it is the agent's), so no extra pull.
 verdictFilter: DROPPED                   # (default) the dashboard's purpose; `none` streams every flow (≈5,000 lines/min here)
 excludeUnsupportedL3Protocols: true      # (default) drops with reason UNSUPPORTED_L3_PROTOCOL are noise
 hubbleRelay:

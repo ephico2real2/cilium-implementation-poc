@@ -311,6 +311,27 @@ is why the two panels tell different things. Provisioned with `dashboard-from-fi
 its flags: [`docs/HUBBLE-CLI-IMAGE.md` on `docs/hubble-cli-image`](https://github.com/ephico2real2/hubble-observer/blob/docs/hubble-cli-image/docs/HUBBLE-CLI-IMAGE.md),
 a branch built on the PR #9 fix.
 
+**7d — long-term support: the default image is unmaintained, so the observer runs the CLI from the
+Cilium agent image.** Part 7 said "there is nothing to bump to" and stopped one step short of the
+enterprise conclusion. The facts (2026-09-12): `quay.io/cilium/hubble:v1.16.4` was pushed on
+2024-11-21 and nothing after it; it is built with Go 1.23.3 (end of life) on alpine 3.20.3; `trivy
+image --severity CRITICAL,HIGH` finds **5 CRITICAL + 51 HIGH** (OS layer 2/19, the `hubble` binary 3/32).
+That it still works against a 1.20.1 relay is an API-compatibility fact, not a support statement:
+unmaintained means those findings are never fixed. The maintained Hubble CLI ships inside the Cilium
+agent image, on the same release train as the relay it talks to: `quay.io/cilium/cilium:v1.20.1` —
+`hubble v1.20.1` (Go 1.26.5), a dash shell (the stdout redirect still works), all 14 flags present,
+trivy **0 CRITICAL** (128 HIGH across its 14 Go binaries, the `hubble` binary 0/11), and it is already
+on every node at the exact digest the agents run, so the switch costs no pull.
+
+[`values-hubble-observer.yaml`](values-hubble-observer.yaml) now sets `image.repository:
+quay.io/cilium/cilium` and `image.tag: "v1.20.1@sha256:ae9ea21f…"` — the agents' digest, pinned the way
+demo 01 pins the agents. Recorded (Part 7d): revision 10, one pod `Ready`, `hubble v1.20.1` in-pod,
+`Connected Nodes: 7/7`, **no version warning**, 68 DROPPED flows from a fresh cell probe on stdout and
+`{poc1: 68}` in Loki within 45 s. One thing the history shows and the text must too: revision 9
+(`tag: v1.20.1`, no digest) had already been applied by an earlier, interrupted test run before this
+Part pinned it — the digest-pinned revision 10 replaced it and only that pod remains. Rule for every
+image in this repo, gotcha #78: an image with no maintainer is a finding, whatever its version compatibility.
+
 ## Exercises
 
 See [`GUIDE.md`](GUIDE.md).

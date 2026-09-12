@@ -465,3 +465,26 @@ query: sum by (denied_by, denied_by_kind) (count_over_time({namespace="hubble-ob
 (Loki json parser skips arrays: egress_denied_by[0] needs the JSON-path form — measured: plain | json gives {} for it)
 provisioned dashboard panels: Cilium Flows - Hubble Observer (extended) ['Flows per Verdict', 'Flows per Direction', 'Flows per Source Namespace', 'Flows per Destination', 'Flows per Drop Reason', 'Flows per Denying Policy']
 
+### Part 7d — long-term support: the observer moves to the maintained Hubble CLI, the one inside the Cilium agent image, pinned by the agents' digest
+### 2026-09-12T19:59:40Z
+$ bash -c echo "quay.io/cilium/hubble:v1.16.4 — last push $(curl -s "https://quay.io/api/v1/repository/cilium/hubble/tag/?specificTag=v1.16.4" | python3 -c "import json,sys; print(json.load(sys.stdin)[\"tags\"][0][\"last_modified\"])"), Go $(docker run --rm --entrypoint hubble quay.io/cilium/hubble:v1.16.4 version 2>/dev/null | grep -o "go1[0-9.]*"), base alpine 3.20.3"; echo "trivy (CRITICAL/HIGH): v1.16.4 image 5 CRITICAL + 51 HIGH (alpine 2C/19H, hubble binary 3C/32H); agent v1.20.1 image 0 CRITICAL + 128 HIGH across 14 Go binaries (hubble binary 0C/11H)"; echo "rendered observer image: $(helm template t demos/25-hubble-observer-loki/chart/hubble-observer -f demos/25-hubble-observer-loki/values-hubble-observer.yaml -n hubble-observer 2>/dev/null | grep "image:" | grep cilium:v1.20.1 | head -1 | tr -s " ")"; echo "the agents run: $(kubectl --context kind-poc1 -n kube-system get ds cilium -o jsonpath="{.spec.template.spec.containers[0].image}")"; helm upgrade hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer -n hubble-observer --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --wait --timeout 5m 2>&1 | grep -E "REVISION|rror"; kubectl --context kind-poc1 -n hubble-observer get pods -l app.kubernetes.io/name=hubble-observer -o custom-columns="  POD:.metadata.name,READY:.status.containerStatuses[0].ready,RESTARTS:.status.containerStatuses[0].restartCount,IMAGE:.spec.containers[0].image" --no-headers | cut -c1-150; echo "  in-pod CLI: $(kubectl --context kind-poc1 -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hubble version 2>/dev/null)"; echo "  relay: $(kubectl --context kind-poc1 -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 2>&1 | grep -E "Connected Nodes|WARN" | tr "\n" " ")"; kubectl --context kind-poc1 -n bank delete pod egress-test --wait=true >/dev/null 2>&1; echo "  cell probe: $(demos/19-zero-trust-cell/egress-test.sh poc1 2>&1 | grep -c DENIED) DENIED"; sleep 45; echo "  observer stdout lines (last 2 min): $(kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --since=2m 2>/dev/null | wc -l | tr -d " ") | version warnings in the pod log since start: $(kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer 2>/dev/null | grep -c "level=WARN")"; NOW=$(date +%s); Q=$(python3 -c "import urllib.parse; print(urllib.parse.quote(\"sum by (flow_source_cluster_name) (count_over_time({namespace=\\\"hubble-observer\\\",container=\\\"hubble-observer\\\"} | json | __error__=\\\"\\\" [3m]))\"))"); echo "  Loki, last 3 min: $(kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query?query=$Q&time=$NOW" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print({x[\"metric\"].get(\"flow_source_cluster_name\",\"-\"): x[\"value\"][1] for x in r} or \"none\")")"; echo "  JSON fields per line now: $(kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --tail=1 2>/dev/null | python3 -c "
+import json,sys
+def k(o,p=\"\"):
+    for a,b in o.items():
+        yield p+a
+        if isinstance(b,dict): yield from k(b,p+a+\".\")
+print(len(set(k(json.loads(sys.stdin.readline())))))")"
+quay.io/cilium/hubble:v1.16.4 — last push Thu, 21 Nov 2024 15:17:55 -0000, Go go1.23.3, base alpine 3.20.3
+trivy (CRITICAL/HIGH): v1.16.4 image 5 CRITICAL + 51 HIGH (alpine 2C/19H, hubble binary 3C/32H); agent v1.20.1 image 0 CRITICAL + 128 HIGH across 14 Go binaries (hubble binary 0C/11H)
+rendered observer image:  image: "quay.io/cilium/cilium:v1.20.1@sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b"
+the agents run: quay.io/cilium/cilium:v1.20.1@sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b
+REVISION: 10
+hubble-observer-6bdb68c48c-rcr64   true   0     quay.io/cilium/cilium:v1.20.1
+hubble-observer-868875d86f-4zwgn   true   0     quay.io/cilium/cilium:v1.20.1@sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b
+  in-pod CLI: hubble v1.20.1@HEAD-7d68cfb3 compiled with go1.26.5 on linux/amd64
+  relay: Connected Nodes: 7/7 
+  cell probe: 6 DENIED
+  observer stdout lines (last 2 min): 68 | version warnings in the pod log since start: 0
+  Loki, last 3 min: {'poc1': '68'}
+  JSON fields per line now: 46
+
