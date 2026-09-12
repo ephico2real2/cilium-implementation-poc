@@ -1742,3 +1742,17 @@ demos/20-springboot/scale.sh up                                                #
 
 Every command with its reason and recorded output: `demos/20-springboot/README.md`.
 
+## Step 18 — the reference Hubble values and dashboard folders (demo 16 Section C), then Tempo (demo 21)
+
+```bash
+helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc1 --reuse-values -f demos/16-monitoring/values-cilium-metrics.yaml   # +ignoreAAAA, dashboards → monitoring
+kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium                        # a context change: the dynamic reload refuses it (gotcha #59)
+helm repo add grafana https://grafana.github.io/helm-charts && helm repo update grafana
+helm install tempo grafana/tempo --version 1.24.4 -n monitoring --kube-context kind-poc1 -f demos/21-tempo/values-tempo.yaml
+helm upgrade monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml   # folders, Tempo datasource, exemplar links
+kubectl --context kind-poc1 apply -f demos/10-tracing/otel-collector.yaml && kubectl --context kind-poc1 -n otel rollout restart ds/otel-collector   # + otlp/tempo exporter
+kubectl --context kind-poc1 apply -f demos/21-tempo/20-springboot-l7-visibility.yaml        # Hubble reads traceparent only on the proxy
+```
+
+Proof and reasoning: `demos/16-monitoring/README.md` Section C, `demos/21-tempo/README.md`.
+

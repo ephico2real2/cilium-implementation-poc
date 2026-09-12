@@ -26,6 +26,21 @@ grafana:
     dashboards:
       enabled: true                  # the sidecar loads any ConfigMap labelled grafana_dashboard=1 from ANY
       searchNamespace: ALL           # namespace — that is how Cilium's dashboards (Section B) appear without copying files
+      folderAnnotation: grafana_folder          # Section C: a ConfigMap's grafana_folder annotation becomes its Grafana
+      provider: {foldersFromFilesStructure: true}   # folder (Hubble / Cilium / Spring Boot); default: everything in General
+    datasources:
+      exemplarTraceIdDestinations:   # demo 21: an exemplar's traceID label becomes a link into the Tempo datasource
+        datasourceUid: tempo
+        traceIdLabelName: traceID
+  additionalDataSources:             # demo 21: Grafana Tempo (single binary, chart grafana/tempo 1.24.4, namespace monitoring)
+    - name: Tempo
+      type: tempo
+      uid: tempo
+      access: proxy
+      url: http://tempo.monitoring.svc.cluster.local:3200
+      jsonData:
+        tracesToMetrics: {datasourceUid: prometheus}
+        serviceMap: {datasourceUid: prometheus}
 
 # kind runs these control-plane components bound to 127.0.0.1 on the control-plane nodes, so the
 # stack's scrapes for them can never reach them and would sit red on the Targets page for the whole

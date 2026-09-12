@@ -205,6 +205,11 @@ run "$K -n springboot get deploy -o custom-columns='DEPLOY:.metadata.name,READY:
 echo "the API through the Gateway (needs the six JVMs up; 503 = none Ready):"
 run "curl -s --cacert docs/root-ca.crt --resolve petclinic.poc.local:443:$GW -m 15 -o /dev/null -w 'GET /api/customer/owners -> %{http_code}\n' https://petclinic.poc.local/api/customer/owners"
 
+hdr "18. DEMO 21 — TEMPO (exemplar trace ids resolve to stored traces)"
+run "kubectl --context $CTX get --raw '/api/v1/namespaces/monitoring/services/tempo:3200/proxy/ready' 2>/dev/null; echo"
+echo "one Hubble exemplar trace id from the last hour, looked up in Tempo:"
+run "ID=\$(kubectl --context $CTX get --raw \"/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query_exemplars?query=hubble_http_request_duration_seconds_bucket&start=\$(( \$(date +%s) - 3600 ))&end=\$(date +%s)\" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin)[\"data\"]; print(next((e[\"labels\"][\"traceID\"] for x in d for e in x[\"exemplars\"]), \"\"))'); echo \"exemplar traceID: \${ID:-none}\"; [ -n \"\$ID\" ] && kubectl --context $CTX get --raw \"/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/traces/\$ID\" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); b=d.get(\"batches\") or []; print(\"in Tempo:\", sum(len(ss.get(\"spans\",[])) for rs in b for ss in rs.get(\"scopeSpans\",[])), \"spans\")'"
+
 hdr "12. HOST ROUTING (macOS)"
 run "netstat -rn -f inet | grep '^172.18' || echo 'no route — see SETUP Step 3.5'"
 run "ifconfig -l | tr ' ' '\n' | grep -E '^bridge'"

@@ -66,6 +66,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [67](#67) | The Tempo chart's port template dereferences `receivers.jaeger.protocols` unconditionally: `jaeger: null` fails the render; keep the default listeners | Tempo / helm |
 | [66](#66) | A 12-hour Hubble dashboard walk drove the VM to load 300: API servers restarted on liveness (graceful, no OOM) and the admin got transient 403s while RBAC re-synced; kernel + iowait, not a pod, had the CPU | Docker Desktop / control plane |
 | [65](#65) | Eureka-routed calls fail for a minute after a rollout: Spring Cloud Gateway keeps the dead pod IP (client-side registry cache); Hubble shows `STALE_OR_UNROUTABLE_IP` | Spring Boot / discovery |
 | [64](#64) | A ClusterIP on a port that is not a Service port is no Service frontend: no translation, identity `world`, denied by the cell — the datapath verdict log says so | policy |
@@ -1656,6 +1657,22 @@ RBAC — check `kubectl -n kube-system get pods -l component=kube-apiserver` bef
 The captures were retaken ten minutes later and rendered cleanly.
 
 → demo 16, Part 11
+
+---
+
+## <a name="67"></a>67. The Tempo chart cannot have its Jaeger receivers removed — `jaeger: null` fails the render
+
+**Symptom.** `helm install tempo grafana/tempo --version 1.24.4` with `tempo.receivers.jaeger: null`
+(OTLP is the only receiver in use): `template: tempo/templates/service.yaml:47:8 … tempo.udp …
+<.Values.tempo.receivers.jaeger.protocols>: nil pointer evaluating interface {}.protocols`.
+
+**Cause.** `_ports.tpl` dereferences `receivers.jaeger.protocols.thrift_compact` unconditionally to
+build the Service's UDP ports; nulling the block removes the map the template expects.
+
+**Fix.** Leave the chart's default Jaeger/OpenCensus receivers in place (extra listeners nobody
+sends to) and set only the OTLP block. Recorded in demo 21 Part 1.
+
+→ demo 21
 
 ---
 

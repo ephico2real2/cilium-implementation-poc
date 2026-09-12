@@ -1,0 +1,82 @@
+### 2026-09-12T11:22:14Z
+$ [PART 1 — Tempo single-binary in monitoring]
+
+### 2026-09-12T11:22:14Z
+$ sh -c helm install tempo grafana/tempo --version 1.24.4 -n monitoring --kube-context kind-poc1 -f demos/21-tempo/values-tempo.yaml 2>&1 | grep -E "^NAME|^STATUS|Error"; kubectl --context kind-poc1 -n monitoring rollout status sts/tempo --timeout=4m 2>&1 | tail -1; kubectl --context kind-poc1 -n monitoring get pod,svc -l app.kubernetes.io/name=tempo -o wide --no-headers | awk "{print \"  \"\$1, \$2, \$3, \$6}"; kubectl --context kind-poc1 -n monitoring get svc tempo -o jsonpath="  ports: {range .spec.ports[*]}{.name}={.port} {end}{\"\n\"}"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/ready" 2>&1 | head -c 100; echo
+Error: INSTALLATION FAILED: template: tempo/templates/service.yaml:47:8: executing "tempo/templates/service.yaml" at <include "tempo.udp" .>: error calling include: template: tempo/templates/_ports.tpl:5:24: executing "tempo.udp" at <.Values.tempo.receivers.jaeger.protocols.thrift_compact>: nil pointer evaluating interface {}.protocols
+Error from server (NotFound): statefulsets.apps "tempo" not found
+No resources found in monitoring namespace.
+Error from server (NotFound): services "tempo" not found
+Error from server (NotFound): services "tempo" not found
+
+
+### 2026-09-12T11:22:59Z
+$ sh -c echo "(first attempt failed: the chart renders receivers.jaeger.protocols unconditionally — jaeger: null → nil pointer; the default Jaeger listeners stay)"; helm install tempo grafana/tempo --version 1.24.4 -n monitoring --kube-context kind-poc1 -f demos/21-tempo/values-tempo.yaml 2>&1 | grep -E "^NAME|^STATUS|Error"; kubectl --context kind-poc1 -n monitoring rollout status sts/tempo --timeout=4m 2>&1 | tail -1; kubectl --context kind-poc1 -n monitoring get pod -l app.kubernetes.io/name=tempo -o custom-columns="POD:.metadata.name,READY:.status.containerStatuses[0].ready,NODE:.spec.nodeName,IP:.status.podIP"; kubectl --context kind-poc1 -n monitoring get svc tempo -o jsonpath="  service ports: {range .spec.ports[*]}{.name}={.port} {end}{\"\n\"}"; sleep 5; echo -n "  /ready: "; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/ready" 2>&1 | head -c 80; echo
+(first attempt failed: the chart renders receivers.jaeger.protocols unconditionally — jaeger: null → nil pointer; the default Jaeger listeners stay)
+NAME: tempo
+NAMESPACE: monitoring
+STATUS: deployed
+statefulset rolling update complete 1 pods at revision tempo-7d94f54f6c...
+POD       READY   NODE          IP
+tempo-0   true    poc1-worker   10.10.4.124
+  service ports: tempo-jaeger-thrift-compact=6831 tempo-jaeger-thrift-binary=6832 tempo-prom-metrics=3200 tempo-jaeger-thrift-http=14268 grpc-tempo-jaeger=14250 tempo-zipkin=9411 tempo-otlp-legacy=55680 tempo-otlp-http-legacy=55681 grpc-tempo-otlp=4317 tempo-otlp-http=4318 tempo-opencensus=55678 
+-n   /ready: 
+ready
+
+
+
+### 2026-09-12T11:25:33Z
+$ [PART 2 — the collector exports traces to Tempo; L7 visibility on springboot so Hubble reads the Java agent's traceparent]
+
+### 2026-09-12T11:25:33Z
+$ sh -c kubectl --context kind-poc1 apply -f demos/10-tracing/otel-collector.yaml | grep -v unchanged; kubectl --context kind-poc1 -n otel rollout restart ds/otel-collector >/dev/null; kubectl --context kind-poc1 -n otel rollout status ds/otel-collector --timeout=3m | tail -1; kubectl --context kind-poc1 apply -f demos/21-tempo/20-springboot-l7-visibility.yaml; sleep 5; kubectl --context kind-poc1 -n springboot get cnp -o custom-columns="CNP:.metadata.name,VALID:.status.conditions[?(@.type==\"Valid\")].status"
+configmap/otel-collector configured
+daemon set "otel-collector" successfully rolled out
+ciliumnetworkpolicy.cilium.io/http-visibility created
+CNP               VALID
+http-visibility   True
+
+
+### 2026-09-12T11:26:50Z
+$ [PART 3 — end to end: Java agent traceparent → Hubble exemplar → Prometheus → Grafana → Tempo]
+
+### 2026-09-12T11:27:32Z
+$ sh -c echo "1. Hubble exemplars for springboot (the trace ids Cilium read from traceparent on the L7 proxy), last 5 min:"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query_exemplars?query=hubble_http_request_duration_seconds_bucket%7Bdestination_namespace%3D%22springboot%22%7D&start=$(( $(date +%s) - 300 ))&end=$(date +%s)" | python3 -c "
+import json,sys; d=json.load(sys.stdin)[\"data\"]; ex=[(x[\"seriesLabels\"].get(\"destination_workload\"), e[\"labels\"][\"traceID\"], e[\"value\"]) for x in d for e in x[\"exemplars\"]]
+print(\"   exemplars:\", len(ex)); [print(\"   \", w, t, \"%.3fs\" % float(v)) for w,t,v in ex[:6]]; open(\".tmp/exemplar-ids.txt\",\"w\").write(\"\n\".join(sorted(set(t for _,t,_ in ex))))"
+1. Hubble exemplars for springboot (the trace ids Cilium read from traceparent on the L7 proxy), last 5 min:
+   exemplars: 9
+    customers-service 719635fab9270092d3fe5839d051139d 0.007s
+    customers-service de1849b914a260446fbf605b35d74bd1 0.015s
+    customers-service 9c079db319c71bb44a65175a94e1e448 0.254s
+    customers-service ead8c423686fd7b27fb707e4cdc19650 0.822s
+    vets-service 2af5b585c9ff81b8feb1651cb84cb9cb 0.823s
+    visits-service de1849b914a260446fbf605b35d74bd1 0.013s
+
+### 2026-09-12T11:27:39Z
+$ sh -c echo "2. the same trace ids, fetched from Tempo (GET /api/traces/<id>): spans and services per trace"; for id in $(head -3 .tmp/exemplar-ids.txt); do kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/traces/$id" 2>/dev/null | python3 -c "
+import json,sys; d=json.load(sys.stdin); b=d.get(\"batches\") or d.get(\"resourceSpans\") or []
+svcs=[]; n=0
+for rs in b:
+    name=next((a[\"value\"].get(\"stringValue\") for a in rs.get(\"resource\",{}).get(\"attributes\",[]) if a[\"key\"]==\"service.name\"),\"?\"); svcs.append(name)
+    for ss in rs.get(\"scopeSpans\") or rs.get(\"instrumentationLibrarySpans\") or []: n+=len(ss.get(\"spans\",[]))
+print(\"    trace $id: %d spans, services %s\" % (n, sorted(set(svcs))))" || echo "    trace $id: not found in Tempo"; done
+2. the same trace ids, fetched from Tempo (GET /api/traces/<id>): spans and services per trace
+    trace 0e5f7f0e705c88b4acf780702f3e570e: 6 spans, services ['api-gateway', 'visits-service']
+    trace 2af5b585c9ff81b8feb1651cb84cb9cb: 13 spans, services ['api-gateway', 'vets-service']
+    trace 719635fab9270092d3fe5839d051139d: 12 spans, services ['api-gateway', 'customers-service', 'visits-service']
+
+### 2026-09-12T11:27:40Z
+$ sh -c echo "3. Tempo search by service (the Java agent's own export, via the collector):"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/search?tags=service.name%3Dapi-gateway&limit=5&start=$(( $(date +%s) - 600 ))&end=$(date +%s)" | python3 -c "import json,sys; d=json.load(sys.stdin); [print(\"    \", t[\"traceID\"], t.get(\"rootServiceName\"), t.get(\"rootTraceName\"), str(t.get(\"durationMs\"))+\"ms\") for t in d.get(\"traces\",[])[:5]]"; echo "4. Grafana reaches Tempo through its datasource (/api/datasources/proxy/uid/tempo):"; GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); ID=$(head -1 .tmp/exemplar-ids.txt); curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana -o /dev/null -w "    GET /api/datasources/proxy/uid/tempo/api/traces/$ID -> %{http_code}\n" "https://grafana.poc.local/api/datasources/proxy/uid/tempo/api/traces/$ID"; echo "    Explore URL for that trace: https://grafana.poc.local/explore?schemaVersion=1&panes=%7B%22t%22:%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22datasource%22:%7B%22type%22:%22tempo%22,%22uid%22:%22tempo%22%7D,%22queryType%22:%22traceql%22,%22query%22:%22$ID%22%7D%5D%7D%7D"
+3. Tempo search by service (the Java agent's own export, via the collector):
+     344931f8c63a533e18c1e507e7d52708 api-gateway GET /actuator/health/{*path} 7ms
+     a4d1c20552cc2c9fc25f476a6cc30b62 api-gateway GET /actuator/health/{*path} 9ms
+     5556de34e4ba21db3b590cba1ecd818 api-gateway GET /actuator/prometheus 27ms
+     3c0ec0819b19bc0d3f16838e817a65d6 api-gateway GET /actuator/health/{*path} 10ms
+     18bf45c5abc57f08329455657fcb046b api-gateway GET /actuator/health/{*path} 10ms
+4. Grafana reaches Tempo through its datasource (/api/datasources/proxy/uid/tempo):
+    GET /api/datasources/proxy/uid/tempo/api/traces/0e5f7f0e705c88b4acf780702f3e570e -> 200
+    Explore URL for that trace: https://grafana.poc.local/explore?schemaVersion=1&panes=%7B%22t%22:%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22datasource%22:%7B%22type%22:%22tempo%22,%22uid%22:%22tempo%22%7D,%22queryType%22:%22traceql%22,%22query%22:%220e5f7f0e705c88b4acf780702f3e570e%22%7D%5D%7D%7D
+
+exemplar markers found on the L7 dashboard: 0
+Explore/Tempo page mentions: Traces | TraceQL | Import trace | Build complex queries using TraceQL to select a list of traces. | Spans Limit: 3 | Table Format: Traces | Trace | api-gateway: GET visits-service | Trace ID | visits-service | 6 spans | Show all spans

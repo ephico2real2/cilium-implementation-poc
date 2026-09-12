@@ -809,3 +809,87 @@ agent start: 2026-09-12T03:25:33Z
   scraped: etcd 1837 series
   scraped: kvstoremesh 626 series
 
+
+### 2026-09-12T11:19:06Z
+$ [SECTION C — the Isovalent/blog Hubble values, reconciled with what Parts 6–9 measured: +ignoreAAAA, dashboards to `monitoring` in Grafana folders; contexts stay app-first (#58)]
+
+### 2026-09-12T11:19:06Z
+$ sh -c helm get values cilium -n kube-system --kube-context kind-poc1 -o yaml > .tmp/poc1-values-before-sectionC.yaml; helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc1 --reuse-values -f demos/16-monitoring/values-cilium-metrics.yaml 2>&1 | grep -E "Release|Error"; helm history cilium -n kube-system --kube-context kind-poc1 --max 1 | tail -1 | cut -f1,2,4; sleep 70; P=$(kubectl --context kind-poc1 -n kube-system get pod -l k8s-app=cilium -o jsonpath="{.items[0].metadata.name}"); echo "-- the dynamic reload, as predicted by gotcha #59 (a contextOptions change on dns) --"; kubectl --context kind-poc1 -n kube-system logs $P -c cilium-agent --since=2m 2>/dev/null | grep "failed reading dynamic" | tail -1 | sed "s/.*error=//" | cut -c1-200; echo "-- where the dashboard ConfigMaps are now --"; kubectl --context kind-poc1 get cm -A -l grafana_dashboard=1 -o custom-columns="NS:.metadata.namespace,NAME:.metadata.name,FOLDER:.metadata.annotations.grafana_folder"
+Release "cilium" has been upgraded. Happy Helming!
+38      	Sat Sep 12 06:19:11 2026	cilium-1.20.1
+-- the dynamic reload, as predicted by gotcha #59 (a contextOptions change on dns) --
+"invalid yaml config file: metric config validation failed - label set cannot be changed without restarting Prometheus. metric: dns"
+-- where the dashboard ConfigMaps are now --
+NS           NAME                                                           FOLDER
+monitoring   cilium-dashboard                                               Cilium
+monitoring   cilium-operator-dashboard                                      Cilium
+monitoring   hubble-dashboard                                               Hubble
+monitoring   hubble-dns-namespace                                           Hubble
+monitoring   hubble-l7-http-metrics-by-workload                             Hubble
+monitoring   hubble-network-overview-namespace                              Hubble
+monitoring   monitoring-kube-prometheus-alertmanager-overview               <none>
+monitoring   monitoring-kube-prometheus-apiserver                           <none>
+monitoring   monitoring-kube-prometheus-cluster-total                       <none>
+monitoring   monitoring-kube-prometheus-grafana-overview                    <none>
+monitoring   monitoring-kube-prometheus-k8s-coredns                         <none>
+monitoring   monitoring-kube-prometheus-k8s-resources-cluster               <none>
+monitoring   monitoring-kube-prometheus-k8s-resources-multicluster          <none>
+monitoring   monitoring-kube-prometheus-k8s-resources-namespace             <none>
+monitoring   monitoring-kube-prometheus-k8s-resources-node                  <none>
+monitoring   monitoring-kube-prometheus-k8s-resources-nodes-overview        <none>
+monitoring   monitoring-kube-prometheus-k8s-resources-pod                   <none>
+monitoring   monitoring-kube-prometheus-k8s-resources-workload              <none>
+monitoring   monitoring-kube-prometheus-k8s-resources-workloads-namespace   <none>
+monitoring   monitoring-kube-prometheus-kubelet                             <none>
+monitoring   monitoring-kube-prometheus-namespace-by-pod                    <none>
+monitoring   monitoring-kube-prometheus-namespace-by-workload               <none>
+monitoring   monitoring-kube-prometheus-node-cluster-rsrc-use               <none>
+monitoring   monitoring-kube-prometheus-node-rsrc-use                       <none>
+monitoring   monitoring-kube-prometheus-nodes                               <none>
+monitoring   monitoring-kube-prometheus-nodes-aix                           <none>
+monitoring   monitoring-kube-prometheus-nodes-darwin                        <none>
+monitoring   monitoring-kube-prometheus-persistentvolumesusage              <none>
+monitoring   monitoring-kube-prometheus-pod-total                           <none>
+monitoring   monitoring-kube-prometheus-prometheus                          <none>
+monitoring   monitoring-kube-prometheus-workload-total                      <none>
+springboot   grafana-dashboard-springboot                                   Spring Boot
+
+### 2026-09-12T11:20:42Z
+$ sh -c GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); ( while true; do c=$(curl -s -o /dev/null -m 2 --cacert docs/root-ca.crt --resolve petclinic.poc.local:443:$GW -w "%{http_code}" https://petclinic.poc.local/actuator/health 2>/dev/null); echo "$(date -u +%T) $c"; sleep 1; done ) > .tmp/outageC.log 2>&1 & PROBE=$!; date -u +%T; kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium; kubectl --context kind-poc1 -n kube-system rollout status ds/cilium --timeout=8m 2>&1 | tail -1; date -u +%T; sleep 40; kill $PROBE 2>/dev/null; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/outage.py .tmp/outageC.log; P=$(kubectl --context kind-poc1 -n kube-system get pod -l k8s-app=cilium -o jsonpath="{.items[0].metadata.name}"); echo "errors since restart: $(kubectl --context kind-poc1 -n kube-system logs $P -c cilium-agent 2>/dev/null | grep -c "failed reading dynamic exporter config")"
+11:20:42
+daemonset.apps/cilium restarted
+daemon set "cilium" successfully rolled out
+11:21:33
+Gateway probe https://bank.poc.local/healthz every 1 s during the upgrade: 84 probes, 51 non-200
+  outage window 11:21:20 -> 11:22:13
+sh: line 1:   871 Terminated: 15          ( while true; do
+    c=$(curl -s -o /dev/null -m 2 --cacert docs/root-ca.crt --resolve petclinic.poc.local:443:$GW -w "%{http_code}" https://petclinic.poc.local/actuator/health 2>/dev/null); echo "$(date -u +%T) $c"; sleep 1;
+done ) > .tmp/outageC.log 2>&1
+errors since restart: 0
+
+
+### 2026-09-12T11:23:58Z
+$ [SECTION C / demo 21 — the stack upgrade: sidecar folder annotations, the Tempo datasource, exemplar traceID → Tempo]
+
+### 2026-09-12T11:23:58Z
+$ sh -c helm upgrade monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml 2>&1 | grep -E "^STATUS|Error|REVISION"; kubectl --context kind-poc1 -n monitoring rollout status deploy/monitoring-grafana --timeout=4m 2>&1 | tail -1; sleep 20; GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); echo "-- datasources --"; curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana https://grafana.poc.local/api/datasources | python3 -c "import json,sys; [print(\"  %-12s uid=%-12s %s  exemplars=%s\" % (d[\"name\"], d[\"uid\"], d[\"url\"], d.get(\"jsonData\",{}).get(\"exemplarTraceIdDestinations\"))) for d in json.load(sys.stdin)]"; echo "-- dashboards by folder --"; curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana "https://grafana.poc.local/api/search?type=dash-db" | python3 -c "import json,sys,collections; d=json.load(sys.stdin); c=collections.Counter(x.get(\"folderTitle\",\"General\") for x in d); [print(\"  %-14s %d\" % kv) for kv in sorted(c.items())]; [print(\"    \", x[\"folderTitle\"], \"/\", x[\"title\"]) for x in d if x.get(\"folderTitle\") in (\"Hubble\",\"Cilium\",\"Spring Boot\")]"
+STATUS: deployed
+REVISION: 2
+deployment "monitoring-grafana" successfully rolled out
+-- datasources --
+  Alertmanager uid=alertmanager http://monitoring-kube-prometheus-alertmanager.monitoring:9093/  exemplars=None
+  Prometheus   uid=prometheus   http://monitoring-kube-prometheus-prometheus.monitoring:9090/  exemplars=[{'datasourceUid': 'tempo', 'name': 'traceID', 'urlDisplayLabel': None}]
+  Tempo        uid=tempo        http://tempo.monitoring.svc.cluster.local:3200  exemplars=None
+-- dashboards by folder --
+  Cilium         2
+  General        25
+  Hubble         4
+  Spring Boot    1
+     Cilium / Cilium Metrics
+     Cilium / Cilium Operator
+     Hubble / Hubble / DNS Overview (Namespace)
+     Hubble / Hubble / Network Overview (Namespace)
+     Hubble / Hubble L7 HTTP Metrics by Workload
+     Hubble / Hubble Metrics and Monitoring
+     Spring Boot / Spring Boot 3.x Statistics (petclinic)
+

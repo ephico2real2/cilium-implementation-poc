@@ -15,7 +15,9 @@ prometheus:
       - {sourceLabels: [__meta_kubernetes_pod_node_name], targetLabel: node, action: replace, replacement: "${1}"}
       - {targetLabel: cluster, action: replace, replacement: poc1}
 dashboards:
-  enabled: true                    # ConfigMap kube-system/cilium-dashboard, label grafana_dashboard=1
+  enabled: true                    # ConfigMap cilium-dashboard, label grafana_dashboard=1
+  namespace: monitoring            # Section C: with Grafana, in the "Cilium" folder
+  annotations: {grafana_folder: Cilium}
 
 operator:
   prometheus:
@@ -26,6 +28,8 @@ operator:
         - {targetLabel: cluster, action: replace, replacement: poc1}
   dashboards:
     enabled: true                  # ConfigMap cilium-operator-dashboard
+    namespace: monitoring          # Section C
+    annotations: {grafana_folder: Cilium}
 
 envoy:
   prometheus:
@@ -60,6 +64,8 @@ hubble:
           - name: dns
             contextOptions:
               - {name: query}                                   # adds the `query` label (the name asked for)
+              - {name: ignoreAAAA}                              # Section C (the Isovalent values): v4-only cluster, the AAAA
+                                                                # lookups Go/Java resolvers fire are noise, not queries
               - {name: sourceContext,      values: [app, workload-name, reserved-identity]}
               - {name: destinationContext, values: [app, workload-name, reserved-identity]}
               - {name: labelsContext,      values: [source_namespace, destination_namespace]}
@@ -98,6 +104,9 @@ hubble:
     dashboards:
       enabled: true                # hubble-dashboard, hubble-dns-namespace, hubble-l7-http-metrics-by-workload,
                                    # hubble-network-overview-namespace — the dashboards this demo is for
+      namespace: monitoring        # Section C: the ConfigMaps live with Grafana, not in kube-system, and land in a
+      annotations:                 # Grafana folder — needs the stack's sidecar to honour the annotation
+        grafana_folder: Hubble     # (grafana.sidecar.dashboards.folderAnnotation, Section C)
   relay:
     prometheus:
       enabled: true                # relay :9966 (flow rate the relay serves to CLI/UI) — a relay restart, nothing else

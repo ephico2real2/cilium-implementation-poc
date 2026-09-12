@@ -653,6 +653,86 @@ you keep both open: Hubble UI for *who talks to whom right now*, Grafana for *ho
 how often, over time*. The closest Grafana gets to a map is the Network Overview's
 `by (source, destination)` tables, which after Part 9 name the peers.
 
+---
+
+# Section C — the reference Hubble values (Isovalent's), reconciled with what was measured
+
+The values Isovalent's Hubble-and-Grafana post ships are these:
+
+```yaml
+hubble:
+  metrics:
+    enabled:
+      - dns:query;ignoreAAAA
+      - drop:sourceContext=identity;destinationContext=identity
+      - tcp
+      - flow
+      - icmp
+      - 'httpV2:exemplars=true;labelsContext=source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload,traffic_direction;sourceContext=workload-name|reserved-identity;destinationContext=workload-name|reserved-identity'
+    enableOpenMetrics: true
+    dashboards:
+      enabled: true
+      namespace: monitoring
+      annotations:
+        grafana_folder: "Hubble"
+```
+
+Line by line against this cluster after Parts 6–9, and what changed (recorded in the transcript,
+Section C):
+
+| Reference value | Here | Decision |
+|---|---|---|
+| `dns:query;ignoreAAAA` | `dns` had `query`, not `ignoreAAAA` | **adopted** — a v4-only cluster; the AAAA lookups Go and Java resolvers fire are noise (Part 8 counted three NXDOMAINs per lookup) |
+| `drop … Context=identity` | `app\|workload-name\|reserved-identity` + namespace labels (Part 9) | **kept ours** — `identity` gives a number; `app` gives a name that resolves for cross-node and cross-cluster peers (gotcha #58), and the namespace labels are what the "(Namespace)" dashboards filter on |
+| `tcp`, `flow`, `icmp` without contexts | with contexts | **kept ours** — same reason; without them the namespace dashboards are empty (Part 6) |
+| no `port-distribution` | present | **kept** — the Part 5 port table |
+| `httpV2 … sourceContext=workload-name\|reserved-identity` | `app\|workload-name\|reserved-identity` | **kept ours** (gotcha #58) |
+| `enableOpenMetrics: true` | already `true` since Part 6 | — |
+| static `enabled:` list | the dynamic config (`enabled: []`) | **kept** — adding a metric later is restart-free; the reference list is static |
+| `dashboards.namespace: monitoring`, folder `Hubble` | ConfigMaps in `kube-system`, no folder | **adopted**, and extended to the agent and operator dashboards (folder `Cilium`) |
+
+**Why the dashboards move to `monitoring`.** Three reasons, in order of weight. The Grafana sidecar's
+default is to watch *its own* namespace; Section A widened that to `ALL` as a convenience, which
+means the sidecar reads ConfigMaps cluster-wide. With the dashboards in `monitoring` the default
+would do, and `kube-system` stays Cilium's. Ownership follows: a dashboard is Grafana's concern, so
+it lives with Grafana, and whoever administers `monitoring` sees every dashboard in one place. And
+folders: the `grafana_folder` annotation only means something once the sidecar is told to honour it
+(`folderAnnotation: grafana_folder`, `provider.foldersFromFilesStructure: true` — a stack upgrade),
+after which Hubble, Cilium and Spring Boot are three folders instead of thirty-two dashboards in *General*.
+
+**Applied** — one Cilium upgrade and one stack upgrade:
+
+```bash
+helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc1 --reuse-values -f demos/16-monitoring/values-cilium-metrics.yaml
+kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium        # the dns context changed: gotcha #59, below
+helm upgrade monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml
+```
+
+```
+Release "cilium" has been upgraded.   revision 38
+-- the dynamic reload, as predicted by gotcha #59 --
+"… metric config validation failed - label set cannot be changed without restarting Prometheus. metric: dns"
+-- rollout restart --
+Gateway probe (petclinic /actuator/health) every 1 s: 84 probes, 51 non-200; outage 11:21:20 -> 11:22:13 (53 s)
+errors since restart: 0
+
+NS           NAME                                 FOLDER              ← helm moved the six ConfigMaps
+monitoring   cilium-dashboard                     Cilium
+monitoring   cilium-operator-dashboard            Cilium
+monitoring   hubble-dashboard                     Hubble
+monitoring   hubble-dns-namespace                 Hubble
+monitoring   hubble-l7-http-metrics-by-workload   Hubble
+monitoring   hubble-network-overview-namespace    Hubble
+springboot   grafana-dashboard-springboot         Spring Boot         ← demo 20's, already annotated
+
+-- Grafana after the stack upgrade --
+  Cilium 2 · Hubble 4 · Spring Boot 1 · General 25
+```
+
+The same stack upgrade also added the Tempo datasource and the exemplar link — that is demo 21.
+
+> **Step by step, as exercises: [`GUIDE.md`](GUIDE.md).**
+
 ## What to take away
 
 - **Order matters, and the chart enforces it.** Prometheus Operator CRDs first (Section A), Cilium

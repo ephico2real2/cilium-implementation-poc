@@ -1,0 +1,14 @@
+# Demo 21 — Grafana Tempo, single-binary chart grafana/tempo 1.24.4 (Tempo 2.9.0), in `monitoring` next to the stack.
+#   helm install tempo grafana/tempo --version 1.24.4 -n monitoring --kube-context kind-poc1 -f demos/21-tempo/values-tempo.yaml
+tempo:
+  retention: 24h                       # a lab; traces older than a day are gone (the chart default, made explicit)
+  receivers:                           # OTLP is what the demo 10 collector sends. The chart's default Jaeger receivers
+    otlp:                              # stay: its templates dereference receivers.jaeger.protocols unconditionally, so
+      protocols:                       # `jaeger: null` fails the render ("nil pointer evaluating interface {}.protocols",
+        grpc: {endpoint: 0.0.0.0:4317}   # measured). Extra listeners nobody talks to cost nothing.
+        http: {endpoint: 0.0.0.0:4318}
+  resources: {requests: {cpu: 50m, memory: 256Mi}, limits: {memory: 512Mi}}   # measured headroom ~2 GB with petclinic up
+  metricsGenerator:
+    enabled: false                     # service graphs / span metrics would remote-write into Prometheus; not needed here
+persistence:
+  enabled: false                       # emptyDir; a pod restart loses traces (24 h of a lab), no PVC to tidy up

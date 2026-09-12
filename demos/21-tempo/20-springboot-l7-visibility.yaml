@@ -1,0 +1,21 @@
+# Demo 21 — L7 visibility for the Spring Boot services, so Hubble sees the trace headers the Java agent propagates.
+# Hubble only parses HTTP (and reads `traceparent`) on ports that pass through Cilium's L7 proxy, and a policy with an
+# `http` rule is what puts a port on the proxy (demo 16 Part 7, demo 19). This policy denies nothing: rule 1 is the
+# L7 rule on every petclinic port, rule 2 keeps all other ingress open. It is what turns Hubble's httpV2 exemplars on
+# for `springboot` — the "[Cilium/Hubble] -> extracts Trace IDs from HTTP headers without a sidecar" step.
+#   kubectl --context kind-poc1 apply -f demos/21-tempo/20-springboot-l7-visibility.yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: http-visibility, namespace: springboot}
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEntities: [all]
+      toPorts:
+        - ports:
+            - {port: "8080", protocol: TCP}   # api-gateway
+            - {port: "8081", protocol: TCP}   # customers-service
+            - {port: "8082", protocol: TCP}   # visits-service
+            - {port: "8083", protocol: TCP}   # vets-service
+          rules: {http: [{}]}
+    - fromEntities: [all]

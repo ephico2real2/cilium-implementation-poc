@@ -80,6 +80,10 @@ data:
     exporters:
       debug:
         verbosity: detailed
+      # Added in demo 21: traces also go to Grafana Tempo (single binary, monitoring namespace), OTLP/gRPC.
+      otlp/tempo:
+        endpoint: tempo.monitoring.svc.cluster.local:4317
+        tls: {insecure: true}
     service:
       extensions: [file_storage]
       pipelines:
@@ -92,7 +96,7 @@ data:
         traces:
           receivers: [otlp, zipkin]
           processors: [batch]
-          exporters: [debug]
+          exporters: [debug, otlp/tempo]   # demo 21: the debug log stays (tracetree.py reads it); Tempo stores
 ---
 apiVersion: apps/v1
 kind: DaemonSet
