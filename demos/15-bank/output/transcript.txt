@@ -1,0 +1,311 @@
+### 2026-09-12T00:52:22Z
+$ [DEPLOY — poc2 first (the system of record), then poc1; the Service objects for global services exist in BOTH]
+### 2026-09-12T00:52:22Z
+$ kubectl --context kind-poc2 apply -f demos/15-bank/10-poc2.yaml
+namespace/bank created
+secret/postgres created
+service/postgres created
+statefulset.apps/postgres created
+service/accounts created
+deployment.apps/accounts created
+service/payments created
+deployment.apps/payments created
+service/redis created
+
+### 2026-09-12T00:52:28Z
+$ kubectl --context kind-poc1 apply -f demos/15-bank/20-poc1.yaml
+namespace/bank created
+service/redis created
+statefulset.apps/redis created
+service/accounts created
+service/payments created
+deployment.apps/payments created
+service/api created
+deployment.apps/api created
+service/web created
+deployment.apps/web created
+
+### 2026-09-12T00:52:34Z
+$ kubectl --context kind-poc1 apply -f demos/15-bank/30-gateway.yaml
+httproute.gateway.networking.k8s.io/bank created
+referencegrant.gateway.networking.k8s.io/allow-routes-to-web created
+
+### 2026-09-12T01:02:30Z
+$ sh -c for c in poc2 poc1; do echo "--- $c ---"; kubectl --context kind-$c -n bank get pods -o wide --no-headers | awk "{print \"  \"\$1, \$2, \$3, \$6, \$7}"; kubectl --context kind-$c -n bank get pvc --no-headers | sed "s/^/  pvc: /"; done
+--- poc2 ---
+  accounts-8446568978-g4w4b 0/1 ImagePullBackOff 10.20.1.202 poc2-worker
+  accounts-8446568978-qz6x9 0/1 ImagePullBackOff 10.20.1.232 poc2-worker
+  payments-68df78b8db-cmn68 0/1 ImagePullBackOff 10.20.1.161 poc2-worker
+  postgres-0 1/1 Running 10.20.1.4 poc2-worker
+  pvc: data-postgres-0   Bound   pvc-3cdad16b-b687-44cb-89dc-17319768fa72   1Gi   RWO   standard   <unset>   10m
+--- poc1 ---
+  api-745d57b664-fpt8b 0/1 ImagePullBackOff 10.10.4.200 poc1-worker
+  api-745d57b664-jsjxz 0/1 ImagePullBackOff 10.10.3.129 poc1-worker2
+  payments-fcf6b58c7-67ssr 0/1 ImagePullBackOff 10.10.4.53 poc1-worker
+  redis-0 1/1 Running 10.10.4.76 poc1-worker
+  web-c485979bb-7r8lr 0/1 ImagePullBackOff 10.10.3.63 poc1-worker2
+  web-c485979bb-wkkkg 0/1 ImagePullBackOff 10.10.4.130 poc1-worker
+  pvc: data-redis-0   Bound   pvc-76672aaf-4270-4f08-96d3-4ef15f5d7f82   1Gi   RWO   standard   <unset>   10m
+
+### 2026-09-12T01:02:30Z
+$ sh -c for c in poc1 poc2; do echo "--- $c services (global = annotated) ---"; kubectl --context kind-$c -n bank get svc -o custom-columns="NAME:.metadata.name,CLUSTER-IP:.spec.clusterIP,GLOBAL:.metadata.annotations.service\.cilium\.io/global" --no-headers | sed "s/^/  /"; done
+--- poc1 services (global = annotated) ---
+  accounts   10.11.12.245    true
+  api        10.11.36.138    <none>
+  payments   10.11.166.33    true
+  redis      10.11.241.162   true
+  web        10.11.32.176    <none>
+--- poc2 services (global = annotated) ---
+  accounts   10.21.234.52    true
+  payments   10.21.193.18    true
+  postgres   None            <none>
+  redis      10.21.179.183   true
+
+### 2026-09-12T01:03:13Z
+$ [the first image build failed: pgx v5.11 needs go >= 1.25 and the builder was golang:1.24-alpine; rebuilt on 1.25, loaded into both clusters — the pods below were waiting on the image]
+
+### 2026-09-12T01:03:14Z
+$ sh -c for c in poc2 poc1; do echo "--- $c ---"; kubectl --context kind-$c -n bank get pods -o wide --no-headers | awk "{print \"  \"\$1, \$2, \$3, \$6, \$7}"; kubectl --context kind-$c -n bank get pvc --no-headers | awk "{print \"  pvc:\", \$1, \$2, \$4, \$6}"; done
+--- poc2 ---
+  accounts-8446568978-g4w4b 0/1 ImagePullBackOff 10.20.1.202 poc2-worker
+  accounts-8446568978-qz6x9 0/1 ImagePullBackOff 10.20.1.232 poc2-worker
+  payments-68df78b8db-cmn68 0/1 ImagePullBackOff 10.20.1.161 poc2-worker
+  postgres-0 1/1 Running 10.20.1.4 poc2-worker
+  pvc: data-postgres-0 Bound 1Gi standard
+--- poc1 ---
+  api-745d57b664-fpt8b 0/1 ImagePullBackOff 10.10.4.200 poc1-worker
+  api-745d57b664-jsjxz 0/1 ImagePullBackOff 10.10.3.129 poc1-worker2
+  payments-fcf6b58c7-67ssr 0/1 ImagePullBackOff 10.10.4.53 poc1-worker
+  redis-0 1/1 Running 10.10.4.76 poc1-worker
+  web-c485979bb-7r8lr 0/1 ImagePullBackOff 10.10.3.63 poc1-worker2
+  web-c485979bb-wkkkg 0/1 ImagePullBackOff 10.10.4.130 poc1-worker
+  pvc: data-redis-0 Bound 1Gi standard
+
+### 2026-09-12T01:03:15Z
+$ sh -c for c in poc1 poc2; do echo "--- $c services ---"; kubectl --context kind-$c -n bank get svc -o custom-columns="NAME:.metadata.name,CLUSTER-IP:.spec.clusterIP,GLOBAL:.metadata.annotations.service\.cilium\.io/global" --no-headers | sed "s/^/  /"; done
+--- poc1 services ---
+  accounts   10.11.12.245    true
+  api        10.11.36.138    <none>
+  payments   10.11.166.33    true
+  redis      10.11.241.162   true
+  web        10.11.32.176    <none>
+--- poc2 services ---
+  accounts   10.21.234.52    true
+  payments   10.21.193.18    true
+  postgres   None            <none>
+  redis      10.21.179.183   true
+
+### 2026-09-12T01:03:15Z
+$ sh -c echo "--- what poc1 Cilium knows as backends for the global services (accounts has NONE locally) ---"; kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | grep -E "Frontend|$(kubectl --context kind-poc1 -n bank get svc accounts -o jsonpath="{.spec.clusterIP}"):80|$(kubectl --context kind-poc1 -n bank get svc payments -o jsonpath="{.spec.clusterIP}"):80|$(kubectl --context kind-poc1 -n bank get svc redis -o jsonpath="{.spec.clusterIP}"):6379" | head -12
+--- what poc1 Cilium knows as backends for the global services (accounts has NONE locally) ---
+ID   Frontend                  Service Type   Backend                                   
+51   10.11.241.162:6379/TCP    ClusterIP      1 => 10.10.4.76:6379/TCP (active)         
+52   10.11.12.245:80/TCP       ClusterIP                                                
+53   10.11.166.33:80/TCP       ClusterIP      1 => 10.10.4.53:8080/TCP (maintenance)    
+
+### 2026-09-12T01:05:43Z
+$ [image rebuilt on golang:1.25 (the first build failed on 1.24; then a trailing comment on FROM), loaded into both clusters]
+
+### 2026-09-12T01:05:43Z
+$ sh -c for c in poc2 poc1; do echo "--- $c ---"; kubectl --context kind-$c -n bank get pods -o wide --no-headers | awk "{print \"  \"\$1, \$2, \$3, \$6, \$7}"; done
+--- poc2 ---
+  accounts-8446568978-kq8nc 0/1 Running 10.20.1.7 poc2-worker
+  accounts-8446568978-qgw5d 1/1 Running 10.20.1.91 poc2-worker
+  payments-68df78b8db-5f5nt 1/1 Running 10.20.1.66 poc2-worker
+  postgres-0 1/1 Running 10.20.1.4 poc2-worker
+--- poc1 ---
+  api-745d57b664-4v7br 1/1 Running 10.10.4.223 poc1-worker
+  api-745d57b664-ll8cd 1/1 Running 10.10.3.171 poc1-worker2
+  payments-fcf6b58c7-d4kgq 1/1 Running 10.10.4.84 poc1-worker
+  redis-0 1/1 Running 10.10.4.76 poc1-worker
+  web-c485979bb-46479 1/1 Running 10.10.3.236 poc1-worker2
+  web-c485979bb-lfwll 1/1 Running 10.10.4.144 poc1-worker
+
+### 2026-09-12T01:05:43Z
+$ sh -c echo "--- poc1 Cilium service map for the global services ---"; kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | grep -E "Frontend|$(kubectl --context kind-poc1 -n bank get svc accounts -o jsonpath="{.spec.clusterIP}"):80|$(kubectl --context kind-poc1 -n bank get svc payments -o jsonpath="{.spec.clusterIP}"):80|$(kubectl --context kind-poc1 -n bank get svc redis -o jsonpath="{.spec.clusterIP}"):6379"; echo "--- poc2 ---"; kubectl --context kind-poc2 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | grep -E "Frontend|$(kubectl --context kind-poc2 -n bank get svc accounts -o jsonpath="{.spec.clusterIP}"):80|$(kubectl --context kind-poc2 -n bank get svc payments -o jsonpath="{.spec.clusterIP}"):80|$(kubectl --context kind-poc2 -n bank get svc redis -o jsonpath="{.spec.clusterIP}"):6379"
+--- poc1 Cilium service map for the global services ---
+ID   Frontend                  Service Type   Backend                              
+51   10.11.241.162:6379/TCP    ClusterIP      1 => 10.10.4.76:6379/TCP (active)    
+52   10.11.12.245:80/TCP       ClusterIP      1 => 10.20.1.91:8080/TCP (active)    
+53   10.11.166.33:80/TCP       ClusterIP      1 => 10.10.4.84:8080/TCP (active)    
+--- poc2 ---
+ID   Frontend                 Service Type   Backend                                 
+18   10.21.234.52:80/TCP      ClusterIP      1 => 10.20.1.7:8080/TCP (maintenance)   
+19   10.21.193.18:80/TCP      ClusterIP      1 => 10.10.4.84:8080/TCP (active)       
+20   10.21.179.183:6379/TCP   ClusterIP      1 => 10.10.4.76:6379/TCP (active)       
+
+### 2026-09-12T01:06:42Z
+$ demos/15-bank/check.sh
+
+== 0. readiness and the merged service maps (both clusters must list BOTH payments backends)
+  poc1 not-ready pods: 0
+  poc2 not-ready pods: 0
+  payments backends known: poc1=4 poc2=3 (after ~5s)
+    poc1: 53   10.11.166.33:80/TCP       ClusterIP      1 => 10.10.4.84:8080/TCP (active)    
+    poc1:                                               2 => 10.20.1.66:8080/TCP (active)    
+    poc1: 54   10.11.36.138:80/TCP       ClusterIP      1 => 10.10.3.171:8080/TCP (active)   
+    poc1:                                               2 => 10.10.4.223:8080/TCP (active)   
+
+== 1. the whole path in one response: web's api -> accounts (must be poc2) and -> payments
+
+== 2. a card payment: api(poc1) -> payments(either) -> accounts(poc2) -> postgres; then the SAME key again = idempotent replay, no second debit
+
+== 3. ACTIVE-ACTIVE: 40 payments through the global service — which cluster served each
+E0911 20:06:48.595623   45798 websocket.go:296] Unknown stream id 1, discarding message
+
+== 4. FAILOVER A (default affinity): continuous traffic; at t=15s poc1's payments is scaled to 0 (sudden downtime); at t=40s restored
+  t=0s ok=1 fail=0 poc1=1 poc2=0
+  t=5s ok=22 fail=0 poc1=22 poc2=0
+  t=10s ok=43 fail=0 poc1=43 poc2=0
+  >>> 01:07:13 scaling poc1 payments to 0
+  t=15s ok=65 fail=0 poc1=65 poc2=0
+  t=20s ok=85 fail=0 poc1=65 poc2=20
+  t=25s ok=107 fail=0 poc1=65 poc2=42
+  t=30s ok=128 fail=0 poc1=65 poc2=63
+  t=35s ok=149 fail=0 poc1=65 poc2=84
+  t=40s ok=171 fail=0 poc1=65 poc2=106
+  >>> 01:07:38 restoring poc1 payments to 1
+  t=45s ok=192 fail=0 poc1=65 poc2=127
+  t=50s ok=212 fail=0 poc1=65 poc2=147
+  t=55s ok=234 fail=0 poc1=65 poc2=169
+  TOTAL ok=254 fail=0 poc1=65 poc2=189
+deployment "payments" successfully rolled out
+
+== 5. FAILOVER B (affinity: local): prefer local, use remote only when no local backend is healthy
+  with local healthy, 20 requests:
+  local scaled to 0, 20 requests:
+deployment "payments" successfully rolled out
+
+== 6. the poc2 side: payments there reaches redis (poc1) and accounts (poc2) — a throwaway curl pod in poc2
+
+== 7. the page through the Gateway (bank.poc.local on the wildcard cert)
+  https://bank.poc.local -> http 200
+  this page: poc1/web-c485979bb-46479 → api: poc1/api-745d57b664-4v7br → accounts: poc2/accounts-8446568978-kq8nc · payments: poc2/payments-68df78b8db-5f5nt
+
+balance now:  cents on chk-1002 (started at 120000)
+
+### 2026-09-12T01:09:12Z
+$ demos/15-bank/check.sh
+
+== 0. readiness and the merged service maps (both clusters must list BOTH payments backends)
+  poc1 not-ready pods: 0
+  poc2 not-ready pods: 0
+  payments backends known: poc1=4 poc2=3 (after ~5s)
+    poc1: 53   10.11.166.33:80/TCP       ClusterIP      1 => 10.10.4.86:8080/TCP (active)    
+    poc1:                                               2 => 10.20.1.66:8080/TCP (active)    
+    poc1: 54   10.11.36.138:80/TCP       ClusterIP      1 => 10.10.3.171:8080/TCP (active)   
+    poc1:                                               2 => 10.10.4.223:8080/TCP (active)   
+
+== 1. the whole path in one response: web's api -> accounts (must be poc2) and -> payments
+{"api":"poc1","accounts":"poc2","accounts_pod":"accounts-8446568978-kq8nc","balance_cents":248750,"payments":"poc2"}
+
+== 2. a card payment: api(poc1) -> payments(either) -> accounts(poc2) -> postgres; then the SAME key again = idempotent replay, no second debit
+{"balance_after":247500,"payments_cluster":"poc2","debited_by":"poc2","debited_pod":"accounts-8446568978-qgw5d","replay":null}
+{"replay":true,"payments_cluster":"poc2"}
+{"balance_cents_after_ONE_debit":247500,"answered_by":"poc2"}
+
+== 3. ACTIVE-ACTIVE: 40 payments through the global service — which cluster served each
+       40 poc2
+
+== 4. FAILOVER A (default affinity): continuous traffic; at t=15s poc1's payments is scaled to 0 (sudden downtime); at t=40s restored
+  t=0s ok=1 fail=0 poc1=0 poc2=1
+  t=5s ok=19 fail=0 poc1=0 poc2=19
+  t=10s ok=40 fail=0 poc1=0 poc2=40
+  t=15s ok=62 fail=0 poc1=0 poc2=62
+  >>> 01:09:32 scaling poc1 payments to 0
+  t=20s ok=83 fail=0 poc1=0 poc2=83
+  t=25s ok=104 fail=0 poc1=0 poc2=104
+  t=30s ok=126 fail=0 poc1=0 poc2=126
+  t=35s ok=147 fail=0 poc1=0 poc2=147
+  t=40s ok=168 fail=0 poc1=0 poc2=168
+  >>> 01:09:57 restoring poc1 payments to 1
+  t=45s ok=190 fail=0 poc1=0 poc2=190
+  t=50s ok=211 fail=0 poc1=0 poc2=211
+  t=55s ok=232 fail=0 poc1=0 poc2=232
+  TOTAL ok=253 fail=0 poc1=0 poc2=253
+deployment "payments" successfully rolled out
+
+== 5. FAILOVER B (affinity: local): prefer local, use remote only when no local backend is healthy
+  with local healthy, 20 requests:
+          2 FAIL
+         18 poc1
+  local scaled to 0, 20 requests:
+         20 poc2
+deployment "payments" successfully rolled out
+
+== 6. the poc2 side: payments there reaches redis (poc1) and accounts (poc2) — a throwaway curl pod in poc2
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json,sys; d=json.loads([l for l in sys.stdin if l.startswith("{")][0]); print("  ", {"payments_cluster": d["served_by"]["cluster"], "debited_by": d["upstream"]["served_by"]["cluster"], "stored_in_redis_via_mesh": "key" in d})
+                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^
+IndexError: list index out of range
+
+== 7. the page through the Gateway (bank.poc.local on the wildcard cert)
+  https://bank.poc.local -> http 200
+  this page: poc1/web-c485979bb-lfwll → api: poc1/api-745d57b664-4v7br → accounts: poc2/accounts-8446568978-kq8nc · payments: poc2/payments-68df78b8db-5f5nt
+
+balance now: 111412 cents on chk-1002 (started at 120000)
+
+### 2026-09-12T01:12:35Z
+$ [image rebuilt with keep-alive DISABLED in the app's upstream client: the first run sent 40/40 to one cluster because Go pooled one connection; all deployments rolled]
+
+### 2026-09-12T01:12:35Z
+$ demos/15-bank/check.sh
+
+== 0. readiness and the merged service maps (both clusters must list BOTH payments backends)
+  poc1 not-ready pods: 0
+  poc2 not-ready pods: 0
+  payments backends known: poc1=4 poc2=3 (after ~5s)
+    poc1: 53   10.11.166.33:80/TCP       ClusterIP      1 => 10.10.3.81:8080/TCP (active)    
+    poc1:                                               2 => 10.20.1.84:8080/TCP (active)    
+    poc1: 54   10.11.36.138:80/TCP       ClusterIP      1 => 10.10.3.74:8080/TCP (active)    
+    poc1:                                               2 => 10.10.4.41:8080/TCP (active)    
+
+== 1. the whole path in one response: web's api -> accounts (must be poc2) and -> payments
+{"api":"poc1","accounts":"poc2","accounts_pod":"accounts-6f57c85d5c-n7298","balance_cents":247500,"payments":"poc1"}
+
+== 2. a card payment: api(poc1) -> payments(either) -> accounts(poc2) -> postgres; then the SAME key again = idempotent replay, no second debit
+E0911 20:12:38.501531   50162 websocket.go:296] Unknown stream id 1, discarding message
+{"balance_after":246250,"payments_cluster":"poc1","debited_by":"poc2","debited_pod":"accounts-6f57c85d5c-n7298","replay":null}
+{"replay":true,"payments_cluster":"poc2"}
+{"balance_cents_after_ONE_debit":246250,"answered_by":"poc2"}
+
+== 3. ACTIVE-ACTIVE: 40 payments through the global service — which cluster served each
+       23 poc1
+       17 poc2
+
+== 4. FAILOVER A (default affinity): continuous traffic; at t=15s poc1's payments is scaled to 0 (sudden downtime); at t=40s restored
+  t=0s ok=1 fail=0 poc1=0 poc2=1
+  t=5s ok=18 fail=0 poc1=10 poc2=8
+  t=10s ok=34 fail=0 poc1=18 poc2=16
+  t=15s ok=52 fail=0 poc1=23 poc2=29
+  >>> 01:12:57 scaling poc1 payments to 0
+  t=20s ok=71 fail=0 poc1=23 poc2=48
+  t=25s ok=90 fail=0 poc1=23 poc2=67
+  t=30s ok=108 fail=0 poc1=23 poc2=85
+  t=35s ok=127 fail=0 poc1=23 poc2=104
+  t=40s ok=145 fail=0 poc1=23 poc2=122
+  >>> 01:13:22 restoring poc1 payments to 1
+  t=45s ok=163 fail=0 poc1=25 poc2=138
+  t=50s ok=181 fail=0 poc1=32 poc2=149
+  t=55s ok=200 fail=0 poc1=41 poc2=159
+  TOTAL ok=218 fail=0 poc1=51 poc2=167
+deployment "payments" successfully rolled out
+
+== 5. FAILOVER B (affinity: local): prefer local, use remote only when no local backend is healthy
+  with local healthy, 20 requests:
+E0911 20:13:47.912841   50934 websocket.go:296] Unknown stream id 1, discarding message
+         20 poc1
+  local scaled to 0, 20 requests:
+         20 poc2
+deployment "payments" successfully rolled out
+
+== 6. the poc2 side: payments there reaches redis (poc1) and accounts (poc2) — a throwaway curl pod in poc2
+   {'payments_cluster': 'poc1', 'debited_by': 'poc2', 'stored_in_redis_via_mesh': True}
+
+== 7. the page through the Gateway (bank.poc.local on the wildcard cert)
+  https://bank.poc.local -> http 200
+  this page: poc1/web-5db7d8df6c-pxxpn → api: poc1/api-d69f45d57-9znbw → accounts: poc2/accounts-6f57c85d5c-vzblp · payments: poc1/payments-747b5c96db-smqps
+
+balance now: 107149 cents on chk-1002 (started at 120000)
+

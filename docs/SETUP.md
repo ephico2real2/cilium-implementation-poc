@@ -1567,6 +1567,10 @@ Run it on **both** sides. `--wait` matters: the first attempts legitimately repo
 Demo 07 then deploys the global service. → [demos/07-clustermesh/README.md](../demos/07-clustermesh/README.md)
 
 ---
+> **Then put an application on the mesh:** demo 15 (`demos/15-bank/`) is a five-component bank split
+> across poc1 and poc2 over global Services, with active-active and zero-loss failover measured by
+> `demos/15-bank/check.sh`. It is the demo to show a product team.
+
 ## Step 10 — flow export and tracing (demo 10)
 
 Optional. Adds a persistent, queryable record of every flow, shipped to an OpenTelemetry Collector.

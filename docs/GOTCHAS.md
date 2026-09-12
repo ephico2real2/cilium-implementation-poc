@@ -57,6 +57,8 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [47](#47) | "Hubble lost all its data" — the flow store is an in-memory ring buffer per agent; every agent restart empties it; the export files and OTel are the durable copy and flow one way | Hubble |
 | [48](#48) | Route B's CA copy left poc2's Hubble leaf certificates signed by the CA it replaced — hubble-relay crash-looped for nine hours behind a green `cilium status` | TLS |
 | [49](#49) | `socketLB.hostNamespaceOnly=false` silently does nothing while Gateway API is enabled — the chart forces `bpf-lb-sock-hostns-only: "true"` | helm chart |
+| [50](#50) | "Active-active" sent 40/40 requests to one cluster — Go's keep-alive pinned one pooled connection to one backend; Cilium balances connections, not requests | load balancing |
+| [51](#51) | `kubectl exec a -- curl … \| kubectl exec b -- jq` prints nothing — the second exec has no stdin; run the pipeline inside one exec | tooling |
 
 ---
 
@@ -1283,6 +1285,45 @@ after any helm change, read the status line the change is supposed to move (#17,
 
 ---
 
+## <a name="50"></a>50. "Active-active" sent 40/40 requests to one cluster — Go's keep-alive pinned one pooled connection to one backend
+
+**Symptom.** The bank's `payments` Service is global with a backend in each cluster; 40 payments
+through it were answered **40/40 by poc2**, and in the failover loop the first 65 were **65/65 by
+poc1** until that pod was scaled away, after which everything went to poc2 and stayed there. It
+looked like Cilium had no load balancing — or a sticky affinity nobody set.
+
+**Cause.** Cilium's kube-proxy replacement balances **connections** (the SYN picks a backend), not
+requests. The `api` service used Go's default `http.Client`, which keeps connections alive: one
+TCP connection to the `payments` ClusterIP, reused for every request, so every request went to
+whichever backend accepted the first SYN. The outage broke that connection; the next SYN chose
+the only live backend; the pool then held that one.
+
+**Fix.** For a demo whose point is to *show* balancing, one connection per request
+(`http.Transport{DisableKeepAlives: true}`, with the reason in the source). After that:
+23/17 across the clusters, and failover A/B behaved as the docs describe. In production keep the
+pool — the spread appears across many clients — but never judge a load balancer by one pooled
+client, and remember that an L4 balancer cannot rebalance a live connection: draining a cluster
+means closing connections, not just removing endpoints.
+
+→ demo 15, Part 3; `demos/15-bank/app/main.go` (`httpClient`)
+
+---
+
+## <a name="51"></a>51. `kubectl exec a -- curl … | kubectl exec b -- jq` prints nothing — the second exec has no stdin
+
+**Symptom.** Sections of `demos/15-bank/check.sh` produced empty output while the one section that
+ran its whole pipeline inside a single `bash -c` worked.
+
+**Cause.** `kubectl exec` without `-i` does not connect the local stdin to the remote process, so
+`jq` in the second exec read nothing and exited quietly. The pipe looked right and returned 0.
+
+**Fix.** Run the pipeline **inside one exec**: `kubectl exec pod -- sh -c 'curl … | jq …'`, or
+bring the JSON out and post-process locally. The script now has a `q()` helper for exactly that.
+
+→ `demos/15-bank/check.sh`
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1304,6 +1345,7 @@ Most of these share a shape: **something reported success while not working.**
 - `hubble status -P` reported Relay unreachable — it was asking a different, paused cluster (#44)
 - `cilium status` said `Hubble Relay: OK` on the cluster being looked at while the other cluster's relay had crashed 131 times (#48)
 - `helm upgrade` accepted `socketLB.hostNamespaceOnly=false` and rendered the opposite (#49)
+- a load-balancing test reported one backend forever because the client reused one connection (#50)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

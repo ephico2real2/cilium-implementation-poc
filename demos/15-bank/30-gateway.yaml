@@ -1,0 +1,18 @@
+# bank.poc.local on the demo 09 Gateway: an HTTPRoute in `routes` pointing at web in `bank`, which
+# needs bank's consent (ReferenceGrant) — gotcha #32. The wildcard cert covers the name already.
+#   kubectl --context kind-poc1 apply -f demos/15-bank/30-gateway.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: bank, namespace: routes}
+spec:
+  parentRefs: [{name: routes-gw}]
+  hostnames: ["bank.poc.local"]
+  rules:
+    - backendRefs: [{name: web, namespace: bank, port: 80}]
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata: {name: allow-routes-to-web, namespace: bank}
+spec:
+  from: [{group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: routes}]
+  to: [{group: "", kind: Service, name: web}]

@@ -381,3 +381,13 @@ L7 policy blocked everything (000/000/000); throughput 1,216 vs 4,536 Mbit/s enr
 Verdict: WireGuard + identity policy remain the standard. Side findings on the way: the
 `cilium clustermesh` CLI rewrites helm values (#46); Hubble's ring buffer is not storage (#47);
 poc2's relay had crash-looped nine hours on orphaned leaf certs from Route B (#48, fixed).
+
+## Finding — an application split across two clusters loses nothing when a cluster loses a component (demo 15)
+
+A five-component bank (web, api, payments, accounts + Postgres/Redis on PVCs), one image, half in
+each cluster over global Services. Measured: the statement call's path `api(poc1) → accounts(poc2)`
+in the response body; a payment debited once across the mesh and replayed idempotently; 40
+payments split 23/17 across clusters (active-active); a continuous loop with poc1's `payments`
+scaled to 0 mid-run and restored — **218 requests, 0 failed** (254/0 in the first run), traffic
+on poc2 within one 5-second window; `affinity: local` 20/20 local then 20/20 remote. The first
+run's 40/40-to-one-cluster was the client's keep-alive pool, not Cilium (gotcha #50).

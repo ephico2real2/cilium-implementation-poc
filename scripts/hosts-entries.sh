@@ -26,7 +26,16 @@ HUBBLE_LB=$(addr_of_svc kube-system hubble-ui)
 
 echo "# ---- cilium-kind-poc (generated $(date -u +%Y-%m-%dT%H:%MZ) by scripts/hosts-entries.sh) ----"
 if [ -n "$ROUTES_GW" ]; then
-  echo "$ROUTES_GW  hubble.poc.local web.poc.local anything-at-all.poc.local grpc.poc.local exact.example.test"
+  # Every hostname of every HTTPRoute/GRPCRoute attached to routes-gw, in any namespace — read live,
+  # so a new route (demo 15's bank.poc.local) shows up here without editing this script.
+  NAMES=$(k get httproute,grpcroute -A -o json 2>/dev/null | python3 -c '
+import json, sys
+names = []
+for r in json.load(sys.stdin)["items"]:
+    if any(p.get("name") == "routes-gw" for p in r["spec"].get("parentRefs", [])):
+        names += r["spec"].get("hostnames", [])
+print(" ".join(dict.fromkeys(names)))')
+  echo "$ROUTES_GW  $NAMES"
 else
   echo "# WARNING: Gateway routes/routes-gw has no address yet; demo 09 names omitted" >&2
 fi

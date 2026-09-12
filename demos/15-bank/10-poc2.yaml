@@ -1,0 +1,120 @@
+# poc2 — the SYSTEM OF RECORD side: Postgres on a PVC, the accounts service, and one replica of the
+# shared payments service.
+#
+#   kubectl --context kind-poc2 apply -f demos/15-bank/10-poc2.yaml
+#
+# Global Services (service.cilium.io/global: "true") merge ENDPOINTS across the mesh; they do not
+# copy Service objects. So every global Service here is defined again, name-for-name, in 20-poc1.yaml
+# (demo 07 learned that the hard way). `redis` is global too: payments in THIS cluster needs the
+# redis that runs only in poc1.
+apiVersion: v1
+kind: Namespace
+metadata: {name: bank}
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: postgres, namespace: bank}
+stringData: {POSTGRES_USER: bank, POSTGRES_PASSWORD: bank, POSTGRES_DB: bank}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: postgres, namespace: bank}
+spec:
+  clusterIP: None                     # headless: one pod, stable DNS, no load balancing wanted
+  selector: {app: postgres}
+  ports: [{port: 5432}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: postgres, namespace: bank}
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector: {matchLabels: {app: postgres}}
+  template:
+    metadata: {labels: {app: postgres}}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          envFrom: [{secretRef: {name: postgres}}]
+          env: [{name: PGDATA, value: /var/lib/postgresql/data/pgdata}]
+          ports: [{containerPort: 5432}]
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+          readinessProbe: {exec: {command: [pg_isready, -U, bank]}, periodSeconds: 5}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 1Gi}}}   # StorageClass "standard" (kind's local-path), WaitForFirstConsumer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: accounts
+  namespace: bank
+  annotations: {service.cilium.io/global: "true"}     # backends exist ONLY here; poc1 has the Service object alone
+spec:
+  selector: {app: accounts}
+  ports: [{port: 80, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: accounts, namespace: bank}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: accounts}}
+  template:
+    metadata: {labels: {app: accounts}}
+    spec:
+      containers:
+        - name: accounts
+          image: bankdemo:local
+          imagePullPolicy: IfNotPresent
+          args: ["-mode", "accounts"]
+          env:
+            - {name: CLUSTER, value: poc2}
+            - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+            - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+            - {name: PG_DSN, value: "postgres://bank:bank@postgres.bank.svc.cluster.local:5432/bank?sslmode=disable"}
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments
+  namespace: bank
+  annotations: {service.cilium.io/global: "true"}     # shared: backends in BOTH clusters, one pool
+spec:
+  selector: {app: payments}
+  ports: [{port: 80, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: payments, namespace: bank}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: payments}}
+  template:
+    metadata: {labels: {app: payments}}
+    spec:
+      containers:
+        - name: payments
+          image: bankdemo:local
+          imagePullPolicy: IfNotPresent
+          args: ["-mode", "payments"]
+          env:
+            - {name: CLUSTER, value: poc2}
+            - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+            - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: bank
+  annotations: {service.cilium.io/global: "true"}     # runs ONLY in poc1; this object lets poc2's payments resolve it
+spec:
+  selector: {app: redis}
+  ports: [{port: 6379}]

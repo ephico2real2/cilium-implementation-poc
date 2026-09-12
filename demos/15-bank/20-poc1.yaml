@@ -1,0 +1,136 @@
+# poc1 — the CUSTOMER-FACING side: web and api (local only), redis on a PVC, one replica of the
+# shared payments service, and the Service OBJECTS for accounts and postgres-free dependencies
+# that live in poc2.
+#
+#   kubectl --context kind-poc1 apply -f demos/15-bank/20-poc1.yaml
+apiVersion: v1
+kind: Namespace
+metadata: {name: bank}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: bank
+  annotations: {service.cilium.io/global: "true"}     # backends here; poc2's payments reaches it through the mesh
+spec:
+  selector: {app: redis}
+  ports: [{port: 6379}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: redis, namespace: bank}
+spec:
+  serviceName: redis
+  replicas: 1
+  selector: {matchLabels: {app: redis}}
+  template:
+    metadata: {labels: {app: redis}}
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args: ["--appendonly", "yes", "--dir", "/data"]
+          ports: [{containerPort: 6379}]
+          volumeMounts: [{name: data, mountPath: /data}]
+          readinessProbe: {exec: {command: [redis-cli, ping]}, periodSeconds: 5}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 1Gi}}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: accounts
+  namespace: bank
+  annotations: {service.cilium.io/global: "true"}     # NO backends here — every call crosses to poc2
+spec:
+  selector: {app: accounts}
+  ports: [{port: 80, targetPort: 8080}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments
+  namespace: bank
+  annotations: {service.cilium.io/global: "true"}
+spec:
+  selector: {app: payments}
+  ports: [{port: 80, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: payments, namespace: bank}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: payments}}
+  template:
+    metadata: {labels: {app: payments}}
+    spec:
+      containers:
+        - name: payments
+          image: bankdemo:local
+          imagePullPolicy: IfNotPresent
+          args: ["-mode", "payments"]
+          env:
+            - {name: CLUSTER, value: poc1}
+            - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+            - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: api, namespace: bank}                 # local only: not global on purpose
+spec:
+  selector: {app: api}
+  ports: [{port: 80, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: api, namespace: bank}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: api}}
+  template:
+    metadata: {labels: {app: api}}
+    spec:
+      containers:
+        - name: api
+          image: bankdemo:local
+          imagePullPolicy: IfNotPresent
+          args: ["-mode", "api"]
+          env:
+            - {name: CLUSTER, value: poc1}
+            - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+            - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: web, namespace: bank}
+spec:
+  selector: {app: web}
+  ports: [{port: 80, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: web, namespace: bank}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: web}}
+  template:
+    metadata: {labels: {app: web}}
+    spec:
+      containers:
+        - name: web
+          image: bankdemo:local
+          imagePullPolicy: IfNotPresent
+          args: ["-mode", "web"]
+          env:
+            - {name: CLUSTER, value: poc1}
+            - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+            - {name: NODE_NAME, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 5}
