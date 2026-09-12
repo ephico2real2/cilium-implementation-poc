@@ -1147,6 +1147,33 @@ the client is performing. Reach for `openssl x509 -text` early.
 
 ---
 
+### Step 5.4 — "is the service mesh on?" — what a plain install enables, and what this PoC adds
+
+"Cilium Service Mesh" is not one feature with one switch. It is Cilium's Envoy-based L7 layer plus
+the things built on it, each with its own helm value and its own default. Read from the 1.20.1
+chart (`helm show values cilium/cilium --version 1.20.1`) and from poc1's release, 2026-09-12:
+
+| Component | Chart default | poc1 | Where it is proven |
+|---|---|---|---|
+| **`l7Proxy`** — the Envoy proxy that makes HTTP-aware network policy work; the mesh *datapath* | **on** | on | demo 02 (`POST` allowed, `PUT` denied, same pods) |
+| **Envoy as its own `cilium-envoy` DaemonSet** (`envoy.enabled`, the default mode in 1.20) | on | `cilium-envoy` 5/5 | demo 05 ("every hop is Cilium") |
+| **`hubble.enabled`** — observability | **on** (`relay`, `ui` off) | on, with relay, UI and flow export | demos 01, 10 |
+| `gatewayAPI.enabled` — Cilium as the Gateway controller (ingress) | off | **on** (`+ enableAlpn`) | demos 05, 09 |
+| `ingressController.enabled` — the older Ingress support | off | off (Gateway API replaces it) | — |
+| `encryption.enabled` — WireGuard / IPsec / ztunnel | off | off, by decision | demo 04 (WireGuard proven, left off) |
+| `authentication.mutual…` — the deprecated "mutual auth" | off | off, not adopting | demo 13, `docs/summary/MTLS_EVALUATION.md` |
+| `kubeProxyReplacement` | off | **on** (required for Gateway API) | demo 03 |
+
+The honest sentence: **the service-mesh *datapath* (Envoy + L7 policy) is on by default; the
+service-mesh *features* people usually mean — ingress via Gateway API, encryption, mTLS, the
+observability UI — are off by default and enabled one value at a time.** poc1 has all of them on
+except encryption and mTLS, each by a recorded decision.
+
+One practical consequence: because `l7Proxy` and Envoy are on by default, any
+`CiliumNetworkPolicy` with an `http:` rule *automatically* steers that traffic through Envoy —
+there is no sidecar to inject and nothing to enable per workload. That is the real difference
+from sidecar meshes, and it is the property ztunnel would break (demo 13, Part 4).
+
 ## Step 6 — verify the install
 
 ### Step 6.1 — Cilium's own status

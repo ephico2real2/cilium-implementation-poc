@@ -94,6 +94,10 @@ it is deliberately minimal. The CIDRs do not overlap because ClusterMesh require
 
 Both clusters run with **no kube-proxy** (`kubeProxyMode: none`) and **no default CNI**
 (`disableDefaultCNI: true`) — Cilium is both.
+"Is the service mesh on?" — the Envoy L7 datapath is on by default, the features built on it are enabled
+one value at a time; the table of what a plain install gives you versus what poc1 runs is
+[SETUP Step 5.4](docs/SETUP.md#step-54--is-the-service-mesh-on--what-a-plain-install-enables-and-what-this-poc-adds).
+
 Both are installed with **eBPF masquerading and eBPF host routing** from day 1 (`bpf.masquerade: true`;
 `Host: BPF` in `cilium status`) — the chart default leaves the netfilter bypass off, see [docs/TUNING.md](docs/TUNING.md).
 
