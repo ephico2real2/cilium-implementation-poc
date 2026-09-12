@@ -16,6 +16,7 @@ prometheus:
     # Cilium's Hubble httpV2 metrics carry OpenMetrics exemplars (trace links on histogram buckets);
     # Prometheus stores them only with this on. Harmless without a tracing backend.
     enableFeatures: [exemplar-storage]
+    enableRemoteWriteReceiver: true    # demo 21 Part 5: Tempo's metrics-generator remote-writes service-graph and span metrics here
 
 grafana:
   adminPassword: poc-grafana         # a lab; change it the moment this leaves the laptop

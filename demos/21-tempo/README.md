@@ -217,10 +217,63 @@ the Tempo datasource; log in first):
 
 What you see in a trace: the service and operation per span, the timeline, and each span's
 attributes — the Java agent's `http.route`, `db.statement`, `k8s.pod.name`; *Critical path*, *Errors*
-and *High latency* filters on the span list. What is **not** there: the *Service Graph* tab (Tempo's
-metrics-generator is off in `values-tempo.yaml`, it would remote-write span metrics into
-Prometheus), and logs (no Loki in this lab).
+and *High latency* filters on the span list. What is **not** there: logs (no Loki in this lab). The *Service Graph* tab needs Tempo's
+metrics-generator and a Prometheus that accepts remote writes — Part 5.
 
 To trace the **bank** instead of petclinic: `demos/20-springboot/scale.sh up` (after scaling petclinic
 down, memory), then OBI's spans (demo 18) reach Tempo through the same collector, with
 `resource.service.name="api"`, `"payments"`, `"accounts"` and `k8s.cluster.name` `poc1`/`poc2`.
+
+## Part 5 — the Service Graph ("No service graph data found")
+
+Grafana's Tempo datasource draws the *Service Graph* tab from **metrics**, not from traces: Tempo's
+metrics-generator must derive them from the spans it receives and write them into Prometheus, and
+Grafana reads them back from the Prometheus datasource named under *Service graph* in the Tempo
+datasource settings (already `prometheus`, Part 2). Without the generator the tab says
+"No service graph data found". Three switches, two helm upgrades:
+
+| Switch | Where | Value |
+|---|---|---|
+| the generator, and the processors that make the two metric families | [`values-tempo.yaml`](values-tempo.yaml) | `metricsGenerator.enabled: true`; `overrides.defaults.metrics_generator.processors: [service-graphs, span-metrics]` |
+| where it writes | same | `metricsGenerator.remoteWriteUrl: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090/api/v1/write` — the chart default names a Service that does not exist here |
+| Prometheus accepting remote writes (a Prometheus restart) | `demos/16-monitoring/values-kube-prometheus-stack.yaml` | `prometheus.prometheusSpec.enableRemoteWriteReceiver: true` |
+
+```bash
+helm upgrade monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml
+helm upgrade tempo grafana/tempo --version 1.24.4 -n monitoring --kube-context kind-poc1 -f demos/21-tempo/values-tempo.yaml
+```
+
+```
+before: enableRemoteWriteReceiver=[]     after: enableRemoteWriteReceiver=[true]
+tempo.yaml:  overrides.defaults.metrics_generator.processors: [service-graphs, span-metrics]
+             metrics_generator.storage.remote_write: [{url: http://monitoring-kube-prometheus-prometheus…:9090/api/v1/write}]
+tempo log:   msg=starting module=metrics-generator
+             (one transient "error tailing WAL" while its remote-write WAL is created — gone after the first flush)
+tempo /metrics: spans_received_total 984 · processor_service_graphs_edges 491 · registry_active_series 1455     ← 3 min of traffic
+```
+
+**In Prometheus, remote-written — the edges** (`rate(traces_service_graph_request_total[5m])`):
+
+```
+   0.2126  client=user               server=api-gateway          ← "user": a root span with no caller (the Gateway's requests)
+   0.0357  client=api-gateway        server=visits-service
+   0.0357  client=api-gateway        server=customers-service
+   0.0179  client=api-gateway        server=discovery-server     ← Eureka heartbeats
+   0.0952  client=customers-service  server=d18b97ce-8358-…      ← the database: HSQLDB's in-memory db name is a UUID,
+   0.0608  client=vets-service       server=370e59a6-4fed-…         so the Java agent's db.name, and the graph's node, is one
+```
+
+and `traces_spanmetrics_calls_total` by service and span name (`GET /api/gateway/owners/{ownerId}`,
+`OwnerRepository.findById`, `SELECT …`, …) — the RED numbers the graph's *Rate* / *Duration (p90)*
+columns and node badges come from.
+
+**In Grafana:** Explore → Tempo → query type *Service Graph*, last 30 min: the four petclinic
+services as nodes with the database nodes hanging off them, request rate and p90 on the edges, and
+a table with Rate / Error rate / Duration per node ([screenshot](output/screenshots/grafana-service-graph.png)).
+Clicking a node runs a TraceQL search for that service; the Spring Boot dashboard's *Rate* and
+this graph's *Rate* are the same requests counted by two independent instruments (Micrometer in the
+JVM; the generator from spans).
+
+Cost: Tempo's registry holds 1,455 series for four services after three minutes of light traffic;
+`span-metrics` in particular grows with every distinct span name (`db.statement` names included).
+On a busy cluster that is the processor to turn off first, or to filter.

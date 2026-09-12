@@ -90,3 +90,75 @@ recent api traces (Tempo /api/search, TraceQL { resource.service.name="api-gatew
    ad7aa0bf3151c15fe387169f7bbcf0c6 api-gateway GET /api/gateway/owners/{ownerId} 178ms
 URL trace   : https://grafana.poc.local/explore?schemaVersion=1&orgId=1&panes=%7B%22t%22%3A%20%7B%22datasource%22%3A%20%22tempo%22%2C%20%22queries%22%3A%20%5B%7B%22refId%22%3A%20%22A%22%2C%20%22datasource%22%3A%20%7B%22type%22%3A%20%22tempo%22%2C%20%22uid%22%3A%20%22tempo%22%7D%2C%20%22queryType%22%3A%20%22traceql%22%2C%20%22query%22%3A%20%22e017fddf489420dc2b732f7aaef65bbc%22%7D%5D%2C%20%22range%22%3A%20%7B%22from%22%3A%20%22now-1h%22%2C%20%22to%22%3A%20%22now%22%7D%7D%7D
 URL traceql : https://grafana.poc.local/explore?schemaVersion=1&orgId=1&panes=%7B%22t%22%3A%20%7B%22datasource%22%3A%20%22tempo%22%2C%20%22queries%22%3A%20%5B%7B%22refId%22%3A%20%22A%22%2C%20%22datasource%22%3A%20%7B%22type%22%3A%20%22tempo%22%2C%20%22uid%22%3A%20%22tempo%22%7D%2C%20%22queryType%22%3A%20%22traceql%22%2C%20%22query%22%3A%20%22%7B%20resource.service.name%3D%5C%22api-gateway%5C%22%20%26%26%20name%3D~%5C%22GET%20%2Fapi.%2A%5C%22%20%7D%22%7D%5D%2C%20%22range%22%3A%20%7B%22from%22%3A%20%22now-1h%22%2C%20%22to%22%3A%20%22now%22%7D%7D%7D
+
+### 2026-09-12T11:56:06Z
+$ [PART 5 — the Service Graph: Tempo metrics-generator (service-graphs, span-metrics) → Prometheus remote-write receiver → Grafana Tempo datasource Service graph tab]
+
+### 2026-09-12T11:56:06Z
+$ sh -c kubectl --context kind-poc1 -n monitoring get prometheus monitoring-kube-prometheus-prometheus -o jsonpath="before: enableRemoteWriteReceiver=[{.spec.enableRemoteWriteReceiver}]{\"\n\"}"; helm upgrade monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml 2>&1 | grep -E "^STATUS|^REVISION|Error"; helm upgrade tempo grafana/tempo --version 1.24.4 -n monitoring --kube-context kind-poc1 -f demos/21-tempo/values-tempo.yaml 2>&1 | grep -E "^STATUS|^REVISION|Error"; kubectl --context kind-poc1 -n monitoring rollout status sts/tempo --timeout=4m 2>&1 | tail -1; kubectl --context kind-poc1 -n monitoring rollout status sts/prometheus-monitoring-kube-prometheus-prometheus --timeout=4m 2>&1 | tail -1; kubectl --context kind-poc1 -n monitoring get prometheus monitoring-kube-prometheus-prometheus -o jsonpath="after:  enableRemoteWriteReceiver=[{.spec.enableRemoteWriteReceiver}]{\"\n\"}"; kubectl --context kind-poc1 -n monitoring get cm tempo -o jsonpath="{.data.tempo\.yaml}" | grep -n -A6 "^metrics_generator:\|^overrides:" | head -20
+before: enableRemoteWriteReceiver=[]
+STATUS: deployed
+REVISION: 3
+STATUS: deployed
+REVISION: 2
+statefulset rolling update complete 1 pods at revision tempo-697fc66d7b...
+statefulset rolling update complete 1 pods at revision prometheus-monitoring-kube-prometheus-prometheus-8cc5897c...
+after:  enableRemoteWriteReceiver=[true]
+43:overrides:
+44-      defaults:
+45-        metrics_generator:
+46-          processors:
+47-          - service-graphs
+48-          - span-metrics
+49-      per_tenant_override_config: /conf/overrides.yaml
+50:metrics_generator:
+51-  storage:
+52-    path: "/tmp/tempo"
+53-    remote_write:
+54-      - url: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+55-  traces_storage:
+56-    path: "/tmp/traces"
+
+### 2026-09-12T11:59:57Z
+$ sh -c echo "-- Tempo metrics-generator: is it producing and writing? --"; kubectl --context kind-poc1 -n monitoring logs sts/tempo --since=5m 2>/dev/null | grep -iE "metrics.generator|remote_write|remote write|service.graph|error" | tail -4 | cut -c1-200; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/metrics" | grep -E "^tempo_metrics_generator_(registry_active_series|spans_received_total|processor_service_graphs_edges)" | head -5 | sed "s/^/  /"; echo "-- in Prometheus (remote-written) --"; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (client, server) (rate(traces_service_graph_request_total[5m]))" client,server; python3 /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/promq.py "sum by (service, span_name) (rate(traces_spanmetrics_calls_total{service=~\"api-gateway|customers-service|vets-service|visits-service\"}[5m]) > 0)" service,span_name
+-- Tempo metrics-generator: is it producing and writing? --
+level=info ts=2026-09-12T11:57:31.192523765Z caller=module_service.go:82 msg=starting module=metrics-generator
+level=info ts=2026-09-12T11:57:31.194954021Z caller=basic_lifecycler.go:321 msg="instance not found in the ring" instance=tempo-0 ring=metrics-generator
+time=2026-09-12T11:58:13.605Z level=ERROR source=/home/runner/work/tempo/tempo/vendor/github.com/prometheus/prometheus/tsdb/wlog/watcher.go:254 msg="error tailing WAL" tenant=single-tenant component=r
+level=info ts=2026-09-12T11:58:29.888201938Z caller=search_handlers.go:196 msg="search response" tenant=single-tenant query="({nestedSetParent<0 && true } &>> { kind = server }) || ({nestedSetParent<0
+  tempo_metrics_generator_processor_service_graphs_edges{tenant="single-tenant"} 491
+  tempo_metrics_generator_registry_active_series{tenant="single-tenant"} 1455
+  tempo_metrics_generator_spans_received_total{tenant="single-tenant"} 984
+-- in Prometheus (remote-written) --
+  sum by (client, server) (rate(traces_service_graph_request_total[5m]))
+        0.2126  client=user server=api-gateway
+        0.1215  client=user server=vets-service
+        0.1116  client=user server=customers-service
+        0.1027  client=user server=visits-service
+        0.0952  client=customers-service server=d18b97ce-8358-40c7-bee7-6d4f235901a0
+       0.08481  client=user server=config-server
+       0.08481  client=user server=discovery-server
+       0.06076  client=vets-service server=370e59a6-4fed-4f27-91e7-a1ed1a3bd95c
+       0.04009  client=visits-service server=66bb6564-4690-43e4-950e-d974f7585416
+       0.03571  client=api-gateway server=visits-service
+       0.03571  client=api-gateway server=customers-service
+       0.02004  client=discovery-server server=discovery-server
+       0.01785  client=api-gateway server=discovery-server
+       0.01002  client=customers-service server=discovery-server
+  sum by (service, span_name) (rate(traces_spanmetrics_calls_total{service=~"api-gateway|customers-service|vets-service|visits-service"}[5m]) > 0)
+        0.1524  service=api-gateway span_name=GET
+        0.1002  service=vets-service span_name=GET /actuator/health/**
+       0.09581  service=api-gateway span_name=GET /actuator/health/{*path}
+       0.09065  service=customers-service span_name=SELECT d18b97ce-8358-40c7-bee7-6d4f235901a0
+       0.06547  service=customers-service span_name=GET /actuator/health/**
+       0.06547  service=visits-service span_name=GET /actuator/health/**
+       0.05226  service=api-gateway span_name=GET /api/gateway/owners/{ownerId}
+       0.05226  service=vets-service span_name=SELECT 370e59a6-4fed-4f27-91e7-a1ed1a3bd95c
+       0.04029  service=customers-service span_name=Transaction.commit
+       0.03525  service=customers-service span_name=Session.find org.springframework.samples.petclinic.customers.model.Owner
+       0.03525  service=visits-service span_name=SELECT 66bb6564-4690-43e4-950e-d974f7585416.visits
+       0.03525  service=customers-service span_name=OwnerRepository.findById
+       0.03525  service=customers-service span_name=GET /owners/{ownerId}
+       0.03525  service=visits-service span_name=SELECT org.springframework.samples.petclinic.visits.model.Visit
+
+page: Service Graph | Rate | Duration (p90) | vets-service | api-gateway | customers-service | visits-service

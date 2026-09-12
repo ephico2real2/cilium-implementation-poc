@@ -8,7 +8,14 @@ tempo:
         grpc: {endpoint: 0.0.0.0:4317}   # measured). Extra listeners nobody talks to cost nothing.
         http: {endpoint: 0.0.0.0:4318}
   resources: {requests: {cpu: 50m, memory: 256Mi}, limits: {memory: 512Mi}}   # measured headroom ~2 GB with petclinic up
-  metricsGenerator:
-    enabled: false                     # service graphs / span metrics would remote-write into Prometheus; not needed here
+  metricsGenerator:                    # Part 5: the Service Graph. Tempo derives RED metrics and service-to-service edges
+    enabled: true                      # from the spans it receives and remote-writes them into Prometheus; Grafana's
+    remoteWriteUrl: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+                                       # ← the demo 16 Prometheus, which must accept remote write (enableRemoteWriteReceiver,
+                                       #   a stack value) — the chart default points at a Service that does not exist here
+  overrides:
+    defaults:
+      metrics_generator:
+        processors: [service-graphs, span-metrics]   # traces_service_graph_* and traces_spanmetrics_* (Grafana's service-graph docs)
 persistence:
   enabled: false                       # emptyDir; a pod restart loses traces (24 h of a lab), no PVC to tidy up

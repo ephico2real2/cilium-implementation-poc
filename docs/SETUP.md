@@ -1752,6 +1752,8 @@ helm install tempo grafana/tempo --version 1.24.4 -n monitoring --kube-context k
 helm upgrade monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml   # folders, Tempo datasource, exemplar links
 kubectl --context kind-poc1 apply -f demos/10-tracing/otel-collector.yaml && kubectl --context kind-poc1 -n otel rollout restart ds/otel-collector   # + otlp/tempo exporter
 kubectl --context kind-poc1 apply -f demos/21-tempo/20-springboot-l7-visibility.yaml        # Hubble reads traceparent only on the proxy
+# Service Graph: the same two files with tempo.metricsGenerator.enabled + processors, and prometheusSpec.enableRemoteWriteReceiver;
+# the two helm upgrade lines above again (demo 21 Part 5).
 ```
 
 Proof and reasoning: `demos/16-monitoring/README.md` Section C, `demos/21-tempo/README.md`.
