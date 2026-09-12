@@ -680,3 +680,32 @@ kubectl --context kind-poc1 delete -f demos/16-monitoring/20-visibility-policies
 > when the bank became a default-deny cell; the rendered cell policies carry the same `http: [{}]`
 > and `dns` rules, so the dashboards of Parts 8–9 keep their data.
 
+
+## Part 11 — "I cannot see histograms in the Hubble UI": checked with a browser
+
+Checked with Playwright (Chromium, headless, from the Mac through the Gateway), not by reading docs.
+The scripts are in [`browser/`](browser/) and the captures in [`output/screenshots/`](output/screenshots/).
+
+**Hubble UI v0.13.5** (`quay.io/cilium/hubble-ui:v0.13.5`), namespace `springboot` selected,
+95 flows/s live: the page is a **service map and a flow table** — the only controls are the namespace
+picker, the flow filter, a verdict filter and the *Visual* toggle; the flow table's columns are
+*Source Identity, Destination Identity, Destination Port, L7 info, Verdict, Timestamp*. A search of the
+whole DOM for `metric`, `histogram`, `latenc`, `chart`, `graph`, `p95`, `percentile`, `duration`
+returned **nothing**. The UI talks to two backend streams only (`/api/control-stream`,
+`/api/service-map-stream`); there is no metrics endpoint behind it. That is the measurement behind
+this demo's first sentence: Hubble UI has no metrics view. ([screenshot](output/screenshots/hubble-ui-springboot.png))
+
+**Where the histograms are — Grafana, three dashboards, captured the same way:**
+
+| Dashboard | What the capture shows |
+|---|---|
+| [Hubble L7 HTTP Metrics by Workload](output/screenshots/grafana-hubble-l7-bank-api.png) — `bank` / `api` / `reporter=server`, last 12 h | *Request Duration* P50 75 ms · P95 97.5 ms · P99 99.5 ms (the bank's last traffic before it was scaled down), request volume, success rate, requests by source and code. That **is** the histogram (`hubble_http_request_duration_seconds_bucket`, Part 8) |
+| [Hubble / Network Overview (Namespace)](output/screenshots/grafana-hubble-network-bank.png) — `bank`, last 12 h | flows by type and verdict over time, top sources/destinations by name (Part 9's contexts), drop panels |
+| [Spring Boot 3.x Statistics (petclinic)](output/screenshots/grafana-springboot-customers.png) — `customers-service` | uptime, heap and non-heap gauges, CPU, load average, open files; JVM/GC/HikariCP/HTTP sections below (demo 20 Part 4) |
+
+**What the browser walk cost, and a retraction.** The first L7 capture showed a red error triangle
+on every panel; that was *not* a broken dashboard. Replaying the panel's exact query through
+Grafana's API returned 200 with data, and a capture ten minutes later rendered every panel
+(7 datasource queries, 0 failed, 1 legitimately empty *CPU Usage by Source*). The errors were query
+timeouts during a VM load spike the walk coincided with — gotcha #66. Twelve-hour ranges over Hubble's
+per-workload series are not free on a 16 GB VM running three clusters.

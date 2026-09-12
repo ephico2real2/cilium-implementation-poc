@@ -66,6 +66,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [66](#66) | A 12-hour Hubble dashboard walk drove the VM to load 300: API servers restarted on liveness (graceful, no OOM) and the admin got transient 403s while RBAC re-synced; kernel + iowait, not a pod, had the CPU | Docker Desktop / control plane |
 | [65](#65) | Eureka-routed calls fail for a minute after a rollout: Spring Cloud Gateway keeps the dead pod IP (client-side registry cache); Hubble shows `STALE_OR_UNROUTABLE_IP` | Spring Boot / discovery |
 | [64](#64) | A ClusterIP on a port that is not a Service port is no Service frontend: no translation, identity `world`, denied by the cell — the datapath verdict log says so | policy |
 | [63](#63) | Pods cannot resolve external names on Docker Desktop: CoreDNS forwards to `192.168.65.254`, which times out for pod sources; `toFQDNs` has nothing to match until the Corefile forwards elsewhere | Docker Desktop / DNS |
@@ -1635,6 +1636,29 @@ that way. Wait ~90 s after a petclinic rollout before judging a check.
 
 ---
 
+## <a name="66"></a>66. A browser walk over 12-hour Hubble dashboards pushed the VM to load 300: API servers restarted on liveness, `kubectl` said Forbidden to the admin
+
+**Symptom.** During the Part 11 browser checks (demo 16): Grafana panels with red error triangles,
+then `kubectl get --raw …services/proxy`: `forbidden: User "kubernetes-admin" cannot get resource
+"services/proxy"`, and `/healthz` Forbidden too. Minutes later everything answered normally.
+
+**Cause (measured).** VM load 1-min 209 → 308 on 16 cores; node-exporter at 10:36Z: `system` 14.7
+cores, `user` 11.5, `iowait` 10.7 — the CPU went to the kernel and to disk, not to any pod (the
+busiest container, hubble-ui streaming the service map, was 0.48 cores; Prometheus 0.29). All three
+poc1 API servers logged a graceful *Shutting down* at 10:38Z (kubelet liveness under load, not a
+crash; no OOM in `dmesg`; etcd untouched) and came back within 10 s. During their restart the RBAC
+authorizer had not synced, so a `kubeadm:cluster-admins` user got 403 — transient, and the bindings
+were intact (`auth can-i` → yes afterwards).
+
+**Fix / lesson.** Nothing to repair. On this VM, keep Hubble dashboards to short ranges (1 h) unless
+you mean it; a Forbidden for the admin on a kind cluster is an API server that is restarting, not
+RBAC — check `kubectl -n kube-system get pods -l component=kube-apiserver` before touching anything.
+The captures were retaken ten minutes later and rendered cleanly.
+
+→ demo 16, Part 11
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1664,6 +1688,7 @@ Most of these share a shape: **something reported success while not working.**
 - Tetragon without the host `/proc` keeps running and emits events with the pod field empty (#60, tetragon#4883)
 - a policy that read "any endpoint in this namespace" matched none of the namespace's pods in the other cluster (#62)
 - every petclinic pod was Ready while the gateway kept calling a pod that no longer existed (#65)
+- `kubectl` told the cluster admin "Forbidden" — the API server was restarting, RBAC was fine (#66)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the
