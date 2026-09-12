@@ -369,3 +369,15 @@ Cilium v1.20 … removed in Cilium v1.21"* (cilium#47132, open CFP), and the cha
 `encryption.type=ztunnel` (beta in 1.20.1, Cilium-internal CA, HBONE), unmeasured here for
 ClusterMesh, Gateway and throughput. We run the newest Cilium (chart and tag 1.20.1). Evaluation
 and plan: `docs/summary/MTLS_EVALUATION.md`.
+
+## Finding — ztunnel mTLS works, and is not our standard (demo 13)
+
+On poc1 it cannot start: the chart sets `CILIUM_CLUSTERMESH_CONFIG` unconditionally and Cilium's
+ClusterMesh object is nil only for `cluster.id 0`, so any cluster ever given an id — connected or
+not — gets `ztunnel is not compatible with clustermesh` (three attempts, source-verified). On a
+throwaway `cluster.id 0` cluster: HBONE on :15008 (82 packets), marker unreadable, TLS ClientHello
+captured; enrollment is iptables inside the pod netns; an L4 policy dropped the allowed peer and an
+L7 policy blocked everything (000/000/000); throughput 1,216 vs 4,536 Mbit/s enrolled vs not.
+Verdict: WireGuard + identity policy remain the standard. Side findings on the way: the
+`cilium clustermesh` CLI rewrites helm values (#46); Hubble's ring buffer is not storage (#47);
+poc2's relay had crash-looped nine hours on orphaned leaf certs from Route B (#48, fixed).

@@ -1,0 +1,23 @@
+# poc4 — a THROWAWAY cluster for demo 13 (ztunnel). It exists because ztunnel cannot run on poc1:
+# the chart sets CILIUM_CLUSTERMESH_CONFIG unconditionally and Cilium's ClusterMesh object is nil
+# only when cluster.id == 0 — poc1 is cluster.id 1 for the mesh, so the agent refuses to start
+# ("ztunnel is not compatible with clustermesh"). poc4 keeps the chart default cluster.id 0 and is
+# never meshed. Own docker network (NETWORKING_DESIGN §2b), disjoint CIDRs, deleted when the demo ends.
+#
+#   docker network create --subnet 172.31.0.0/16 --gateway 172.31.0.1 kind-lab
+#   KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-lab kind create cluster --config clusters/poc4.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: poc4
+networking:
+  disableDefaultCNI: true
+  kubeProxyMode: none
+  podSubnet: "10.40.0.0/16"
+  serviceSubnet: "10.41.0.0/16"
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  - role: worker
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  - role: worker
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed

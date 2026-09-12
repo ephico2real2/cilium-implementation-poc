@@ -95,7 +95,22 @@ comments are the documentation.
 | **C. Mutual auth (SPIFFE/SPIRE) + WireGuard** | the thing Cilium called mTLS | deprecated in 1.20, gone in 1.21; ClusterMesh-incompatible; SPIRE to run | **do not build on it** |
 | **D. `encryption.type=ztunnel`** | mTLS proper (HBONE, per-workload identity, encryption) with Cilium's internal CA | beta; agent restart (gotcha #42); mesh/Gateway/Hubble interactions unmeasured | **the one to evaluate** — as a demo on poc1 with poc2 paused, restore from a values snapshot as in demo 11 |
 
-## 6. Recommendation
+## 6. Recommendation — now measured (demo 13, 2026-09-12)
+
+The ztunnel exercise was run: on poc1 it **cannot start at all** (`cluster.id 1` — the agent
+refuses any non-zero id, gotcha #45), so it ran on a throwaway `poc4` with `cluster.id 0`. There
+it is real mTLS (HBONE :15008, request marker unreadable on the wire, TLS handshake captured) — and
+it **drops every Cilium network policy on enrolled traffic**: an L4 policy denied the *allowed*
+peer (`Policy denied` on :15008), an L7 policy returned 000/000/000 where 200/403/403 was expected.
+Throughput 1,216 vs 4,536 Mbit/s, same pods, enrollment toggled. Full write-up:
+`demos/13-ztunnel/README.md`.
+
+**Decision: not the production standard.** The standard for this design is identity-based policy
+(demos 02/05/09) plus **WireGuard** where encryption is required (demo 04, GA, coexists with policy
+and the mesh, ~50 % cost). Re-evaluate ztunnel at GA, when it is policy-aware and cluster-id
+agnostic. The paragraph below is the pre-measurement plan, kept for the record.
+
+### 6a. The plan as written before the run
 
 Do not enable mutual authentication. Evaluate **ztunnel** as parked demo 13, the same forensic
 way demo 11 was done: snapshot the release values; `--set encryption.enabled=true

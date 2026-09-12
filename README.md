@@ -44,7 +44,7 @@ unchanged, with BGP substituted for L2 in production.
 6. **`scripts/verify.sh`** — regenerate every piece of evidence on *your* cluster and diff it
    against [docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md). `scripts/check-routes.sh` is the
    external-access proof for demo 09.
-7. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 44 traps, each with the real error
+7. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 48 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -58,7 +58,7 @@ unchanged, with BGP substituted for L2 in production.
 | ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (663 lines, 13 sections, including the native client) | regenerable |
 | ✅ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | done — demo 11, with the three-cause forensic on Cilium's default install; poc3 is paused (`scripts/cluster-resume.sh poc3`) |
 | ⛔ | **"Cilium mTLS" (mutual authentication, SPIFFE/SPIRE)** | evaluated, **not enabled and not to be adopted**: deprecated in 1.20, removal planned in 1.21 (cilium#47132), ClusterMesh-incompatible — [docs/summary/MTLS_EVALUATION.md](docs/summary/MTLS_EVALUATION.md) |
-| ⏳ | **ztunnel mTLS (demo 13)** — `encryption.type=ztunnel`, beta in 1.20.1, the named successor | parked with a measurement plan in the same document |
+| ✅ | **ztunnel mTLS (demo 13)** — evaluated on a throwaway cluster: real mTLS on the wire, but cannot run on any cluster with a `cluster.id` (so never with ClusterMesh), breaks L4 **and** L7 policy for enrolled traffic, −73 % throughput | **not the standard**; WireGuard + identity policy is — `demos/13-ztunnel/README.md` |
 | ⏳ | **BGP with an FRR router (demo 12)** | researched and planned in [docs/summary/BGP_FRR_PLAN.md](docs/summary/BGP_FRR_PLAN.md); parked |
 | ✅ | Hubble UI through the Gateway, including its **data stream** | HTML/JS/CSS at 200, and the relay shows the browser's `POST /api/control-stream` and `/api/service-map-stream` → 200 arriving as identity `ingress` via `https://hubble.poc.local` (demo 09 Part 10) |
 | ⏳ | Wildcard **name** resolution (dnsmasq, `*.poc.local`) | documented in demo 09 Part 3c, not run (needs sudo) |
@@ -125,6 +125,7 @@ an untested combination.
 | 08 | Enterprise CA | cert-manager root in poc1 issuing every cluster's mesh certificates; trust before join |
 | 09 | Wildcard TLS + 3 route types | cert-manager wildcard and exact certs on one Gateway; `HTTPRoute`, `GRPCRoute`, `TCPRoute` from one 14 MB image — and a native Go client (`-mode client`) that tests all three, which is how the missing-ALPN gotcha (#33) was found |
 | 10 | Flow tracing -> OpenTelemetry | Hubble dynamic flow export per node, tailed by an OTel Collector into OTLP; every flow persistent and queryable. **Events, not spans** -- hubble-otel is archived, see gotcha #30 |
+| 13 | **ztunnel mTLS** | Cilium 1.20's beta mTLS (Istio ztunnel, HBONE) proven on the wire on a throwaway cluster — and shown to be incompatible with any `cluster.id`, to break L4/L7 policy on enrolled traffic, and to cost 73 % of throughput; **not our standard** |
 | 11 | **kube-proxy vs Cilium, forensic** | A third cluster (`poc3`: kindnet + kube-proxy iptables, its own docker network) and one script on both: 48 vs 11,078 iptables rules at 1,000 Services, ~2× faster programming, conntrack out of the kernel — **and** the default install losing on throughput and churn until three causes were isolated (legacy host routing, VXLAN, Hubble's per-flow CPU) |
 
 ## Regenerating the evidence
@@ -149,7 +150,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 44 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 48 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 
@@ -240,8 +241,6 @@ the **name** and not the address for `k8sServiceHost`: had the IP been baked int
 
 ## Parked
 
-- **ztunnel mTLS (demo 13)** — the beta successor to the deprecated mutual-auth feature;
-  evaluation and plan in [docs/summary/MTLS_EVALUATION.md](docs/summary/MTLS_EVALUATION.md).
 - **BGP with an FRR router (demo 12)** — researched and planned, not built:
   [docs/summary/BGP_FRR_PLAN.md](docs/summary/BGP_FRR_PLAN.md). Every VIP is reachable by L2 today and
   nothing on the docker network speaks BGP (measured), so the router *is* the demo.

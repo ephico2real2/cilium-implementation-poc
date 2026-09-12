@@ -135,6 +135,9 @@ reproduced).
 The Mac needs the second route only to reach poc3's services from a browser; none of demo 11's
 measurements run from the Mac, so it is optional there.
 
+The same pattern gave demo 13 a throwaway `poc4` on `kind-lab` (`172.31.0.0/16`), deleted with
+its network afterwards — one network per cluster is the rule now.
+
 ## 3. The addressing plan (live, and how to reprint it)
 
 Run this any time; it reads everything from Docker and the cluster, nothing is hardcoded:

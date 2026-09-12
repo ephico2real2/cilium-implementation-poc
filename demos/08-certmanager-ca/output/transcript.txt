@@ -1,0 +1,25 @@
+### 2026-09-11T23:56:00Z
+$ kubectl --context kind-poc2 -n kube-system delete secret hubble-server-certs hubble-relay-client-certs
+secret "hubble-server-certs" deleted
+secret "hubble-relay-client-certs" deleted
+
+### 2026-09-11T23:56:00Z
+$ sh -c helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc2 --version 1.20.1 --reuse-values 2>&1 | grep -E "Release|Error"
+Release "cilium" has been upgraded. Happy Helming!
+
+### 2026-09-11T23:56:14Z
+$ sh -c cd /tmp; for s in hubble-server-certs hubble-relay-client-certs; do kubectl --context kind-poc2 -n kube-system get secret $s -o jsonpath="{.data.tls\.crt}" | base64 -d > $s.pem; done; kubectl --context kind-poc2 -n kube-system get secret cilium-ca -o jsonpath="{.data.ca\.crt}" | base64 -d > ca.pem; for s in hubble-server-certs hubble-relay-client-certs; do printf "  %-26s " $s; openssl verify -CAfile ca.pem $s.pem 2>&1 | tail -1; done; rm -f *.pem
+  hubble-server-certs        hubble-server-certs.pem: OK
+  hubble-relay-client-certs  hubble-relay-client-certs.pem: OK
+
+### 2026-09-11T23:56:15Z
+$ kubectl --context kind-poc2 -n kube-system rollout restart ds/cilium deploy/hubble-relay
+daemonset.apps/cilium restarted
+deployment.apps/hubble-relay restarted
+
+### 2026-09-11T23:57:13Z
+$ sh -c kubectl --context kind-poc2 -n kube-system get pod -l k8s-app=hubble-relay --no-headers; hubble status -P --kube-context kind-poc2 2>&1 | grep -E "Healthcheck|Flows" | head -2
+hubble-relay-77d4fc5897-6956w   1/1   Running   0     58s
+Healthcheck (via 127.0.0.1:4245): Ok
+Current/Max Flows: 623/8,190 (7.61%)
+

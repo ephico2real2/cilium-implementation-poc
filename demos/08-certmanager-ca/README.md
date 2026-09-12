@@ -309,3 +309,13 @@ touched.**
 | Renewal | quarterly CronJob | cert-manager, automatic |
 | Adding a cluster | copy the Secret again | provision the root, apply the same issuer |
 | Order | join, then fix trust | **trust first, then join** |
+
+## Addendum (2026-09-12) — the Route B trap that survived into Route A
+
+poc2's `hubble-relay` had been crash-looping for nine hours (131 restarts) behind a green
+`cilium status` on poc1. Its two Hubble leaf certificates were issued by poc2's original
+"Cilium CA" at 14:15:43 — two seconds before demo 07's Route B replaced `cilium-ca` with poc1's
+copy — and `openssl verify` failed both ways; both CAs are named `CN=Cilium CA`, so no subject
+line shows it. Fixed by deleting the two leaf secrets, `helm upgrade --reuse-values`, and restarting
+agents + relay; recorded in `output/transcript.txt`, gotcha #48. **When you replace a CA, verify
+every leaf against it, on every cluster.**

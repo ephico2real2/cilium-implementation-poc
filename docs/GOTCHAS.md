@@ -52,6 +52,10 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [42](#42) | A Cilium agent rollout takes the Gateway off the air for 2–3 minutes; tuning flags need a restart, so every tuning step costs an outage | Cilium |
 | [43](#43) | Resuming a paused kind cluster by starting containers in address order breaks the moment a lower address was freed — pin with `docker network connect --ip` | kind / Docker |
 | [44](#44) | `kind create cluster` silently switches your current kube context; `hubble -P` follows it — three evidence checks failed against a paused cluster's API server | kind / Hubble |
+| [45](#45) | ztunnel refuses to start on any cluster with a non-zero `cluster.id` — not just a connected mesh; the chart sets `CILIUM_CLUSTERMESH_CONFIG` unconditionally | Cilium |
+| [46](#46) | `cilium clustermesh enable/disable` rewrite the helm release behind your back — `disable` leaves the mesh values, `enable` turns `tls.auto.method` from `certmanager` into `cronJob` | Cilium CLI |
+| [47](#47) | "Hubble lost all its data" — the flow store is an in-memory ring buffer per agent; every agent restart empties it; the export files and OTel are the durable copy and flow one way | Hubble |
+| [48](#48) | Route B's CA copy left poc2's Hubble leaf certificates signed by the CA it replaced — hubble-relay crash-looped for nine hours behind a green `cilium status` | TLS |
 
 ---
 
@@ -1142,6 +1146,114 @@ name. Any command that has its own idea of "current" is a hidden input until you
 
 ---
 
+## <a name="45"></a>45. ztunnel refuses to start on any cluster with a non-zero `cluster.id` — not just a connected mesh
+
+**Symptom.** `encryption.type=ztunnel` on poc1, with ClusterMesh disabled by the CLI, then with its
+helm values cleared, then with the rendered ConfigMap proven to have no `clustermesh-config` key —
+three times the same fatal on every restarted agent:
+
+```
+level=fatal msg="unable to run agent: failed to start: failed to populate object graph: ztunnel is not compatible with clustermesh"
+```
+
+**Cause.** `ztunnel.validateConfig` (`pkg/ztunnel/cell.go:40`) checks `params.ClusterMesh != nil`,
+and `NewClusterMesh` (`pkg/clustermesh/clustermesh.go:133`) returns nil only if
+`c.ClusterInfo.ID == 0 || c.ClusterMeshConfig == ""`. The chart's DaemonSet sets
+`CILIUM_CLUSTERMESH_CONFIG=/var/lib/cilium/clustermesh/` **unconditionally** — rendered with the
+mesh fully off and read back from the live DaemonSet — so the config path is never empty on a
+helm install. The only remaining escape is `cluster.id == 0`, and poc1 is `cluster.id 1` because
+the mesh requires it. The docs' *"Cluster Mesh is not enabled"* precondition really means *"a
+cluster that was never given an id"*.
+
+**Fix.** None on the cluster; changing a live cluster's id is a rebuild. Run the exercise on a
+cluster created for it with the chart default id (`clusters/poc4.yaml`), and treat the feature as
+mutually exclusive with any multi-cluster design.
+
+→ demo 13, Part 1
+
+---
+
+## <a name="46"></a>46. `cilium clustermesh enable/disable` rewrite the helm release behind your back
+
+**Symptom.** After `cilium clustermesh disable --context kind-poc1` printed two warnings —
+*"cannot overwrite table with non table for clustermesh.config.clusters"* — the apiserver
+Deployment was gone but the agents still refused ztunnel (#45). After `cilium clustermesh enable`
+during the restore, `helm get values` showed `clustermesh.apiserver.tls.auto.method: cronJob` and
+the new apiserver certificate was `issuer=CN=Cilium CA` — the demo 08 enterprise-CA setup
+(`certmanager`, `issuer=CN=clustermesh-root-ca`) had been silently undone. `clustermesh connect`
+then refused: *"Cilium CA certificates do not match between clusters"*.
+
+**Cause.** Both CLI commands are `helm upgrade` under the hood with the CLI's own value set merged
+over the release. `disable` failed to remove the `config.clusters` table and left `useAPIServer`;
+`enable` wrote its default certificate method. The CLI does not know the release was installed
+with cert-manager.
+
+**Fix.** On a cluster whose mesh was set up with helm values (as SETUP Step 9 does), manage the
+mesh lifecycle with **helm and a values snapshot**, not the CLI: `helm get values > snapshot`
+before, `helm upgrade -f snapshot` (no `--reuse-values`) to restore. That is how poc1 came back:
+apiserver re-issued by `clustermesh-root-ca`, 5/5 connected, no `connect` command needed because
+the stored `clustermesh.config.clusters` does the connecting.
+
+→ demo 13, Part 1; `.tmp/poc1-values-before-ztunnel.yaml` (the pattern from demo 11)
+
+---
+
+## <a name="47"></a>47. "Hubble lost all its data" — the flow store is a ring buffer, emptied by every agent restart
+
+**Symptom.** After demo 13's attempts (several agent rollouts in an hour), the Hubble UI showed
+nothing, and the OTel records "were not in Hubble either".
+
+**Cause.** Hubble's flow store is an in-memory ring buffer **per agent** (`Current/Max Flows:
+…/4095`); an agent restart starts it empty, and the relay merges only what the agents hold. It
+is not storage. The durable copy is the export (demo 10): per-node files under
+`/var/run/cilium/hubble/` (which survived every restart tonight — 4,795–9,412 lines per node) and
+the OTel collectors tailing them (418 records in 5 min on one node). And that pipeline is **one
+way**: Hubble → files → collector. Nothing ever flows back into Hubble; OTel data is read from the
+collector (or the backend it exports to), never from the Hubble UI.
+
+**Fix.** Nothing to fix — a mental model to correct. Measured after the restore: relay
+`Healthcheck: Ok`, 38 flows/s, 4,305 flows in 2 minutes, UI 200 through the Gateway. If flow
+history matters, the export is the product; size `hubble.eventBufferCapacity` only for the live
+window you want in the UI.
+
+→ demo 13 transcript ("Hubble 'lost data'"); demo 10
+
+---
+
+## <a name="48"></a>48. Route B's CA copy left poc2's Hubble leaf certificates signed by the CA it replaced
+
+**Symptom.** poc2's `hubble-relay` had been `CrashLoopBackOff` for **nine hours** (131 restarts)
+while `cilium status` on poc1 — the cluster every check looked at — said `Hubble Relay: OK`.
+The relay's error, once read in full:
+
+```
+transport: authentication handshake failed: tls: failed to verify certificate: x509: certificate signed by unknown authority (… candidate authority certificate "Cilium CA")
+```
+
+**Cause.** Timeline from the certificates themselves: `hubble-server-certs` and
+`hubble-relay-client-certs` issued at **14:15:43** by poc2's own "Cilium CA"; the `cilium-ca`
+Secret replaced at **14:15:45** by demo 07's Route B copy of poc1's CA (#20). Both leaves now
+chained to a CA that no longer existed in the cluster — `openssl verify` failed both ways — and
+both CAs are named `CN=Cilium CA`, so nothing in a subject line shows it. `helm upgrade` does not
+re-issue existing leaf secrets (#21), so the fault persisted through every later upgrade.
+
+**Fix.** Delete the two leaf secrets, `helm upgrade --reuse-values` re-issues them under the
+current CA, restart the agents (Hubble server) and the relay:
+
+```bash
+kubectl -n kube-system delete secret hubble-server-certs hubble-relay-client-certs
+helm upgrade cilium cilium/cilium -n kube-system --version 1.20.1 --reuse-values
+kubectl -n kube-system rollout restart ds/cilium deploy/hubble-relay
+```
+
+`openssl verify -CAfile ca.pem <leaf>.pem` → `OK` for both; `hubble status -P --kube-context
+kind-poc2` → `Healthcheck: Ok`. **The lesson:** after replacing a CA, verify every leaf against
+it with `openssl verify`, and check the second cluster's components, not only the first's.
+
+→ `demos/08-certmanager-ca/output/transcript.txt` (addendum)
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1161,6 +1273,7 @@ Most of these share a shape: **something reported success while not working.**
 - `rollout status` said success while the Gateway refused every HTTP connection for two minutes (#42)
 - the ordered-restart dry run on poc2 passed — and then the same script put poc2-worker on the wrong address (#43)
 - `hubble status -P` reported Relay unreachable — it was asking a different, paused cluster (#44)
+- `cilium status` said `Hubble Relay: OK` on the cluster being looked at while the other cluster's relay had crashed 131 times (#48)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

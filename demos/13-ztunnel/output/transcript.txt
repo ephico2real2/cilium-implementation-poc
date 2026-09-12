@@ -1,0 +1,768 @@
+### 2026-09-11T22:59:13Z
+$ [BASELINE before ztunnel — poc1 as documented today: tunnel/vxlan, BPF host routing, Hubble + export ON, encryption OFF]
+### 2026-09-11T22:59:13Z
+$ sh -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E "^Encryption|^Routing|^Masquerading|^Hubble"; docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -- sh -c "free -m | head -2; cut -d\" \" -f1-3 /proc/loadavg"
+Routing:                 Network: Tunnel [vxlan]   Host: BPF
+Masquerading:            BPF   [eth0]   10.10.0.0/24  [IPv4: Enabled, IPv6: Disabled]
+Hubble:                  Ok              Current/Max Flows: 4095/4095 (100.00%), Flows/s: 6.06   Metrics: Ok
+Encryption:              Disabled        
+              total        used        free      shared  buff/cache   available
+Mem:          15993        8165         283         217        7545        7280
+13.33 13.35 11.83
+
+### 2026-09-11T22:59:15Z
+$ scripts/churn-decompose.sh poc1 baseline: encryption OFF, Hubble ON
+=== churn decomposition on poc1 (baseline: encryption OFF, Hubble ON) — 64 conns, Connection: close, 8 s each; daemon=cilium-agent on poc1-worker ===
+  VM load: 13.33 13.35 11.83
+  target     url                                               qps    p50_ms    p99_ms cilium-agent%
+  pod-ip     http://10.10.4.139:8080/                       1228.2      41.1     227.8 100
+  clusterip  http://10.11.108.33/                           1428.6      33.4     192.4 110
+  dns-name   http://web.forensic.svc.cluster.local/         1194.6      47.2     153.5 100
+
+### 2026-09-11T22:59:46Z
+$ scripts/bench.sh baseline pod-ip, encryption OFF kind-poc1 forensic client 10.10.4.16 5
+=== baseline pod-ip, encryption OFF ===
+context=kind-poc1  ns=forensic  client=client  target=10.10.4.16  runs=5  duration=10s
+
+  run 1: 6326 Mbits/sec
+  run 2: 7398 Mbits/sec
+  run 3: 7552 Mbits/sec
+  run 4: 7378 Mbits/sec
+  run 5: 6895 Mbits/sec
+
+  samples : 5
+  sorted  : 6326, 6895, 7378, 7398, 7552
+  median  : 7378 Mbits/sec
+  min/max : 6326 / 7552 Mbits/sec
+  spread  : 16.6%  of median   <-- treat any difference smaller than this as noise
+
+### 2026-09-11T23:02:06Z
+$ [STEP A — the docs' precondition: ClusterMesh must be off ('Attempting to enable both will result in a validation error'). Disable it on poc1 for the evaluation; it is re-enabled in the restore step.]
+### 2026-09-11T23:02:06Z
+$ cilium clustermesh disable --context kind-poc1
+2026/09/11 18:02:07 warning: cannot overwrite table with non table for clustermesh.config.clusters (map[poc2:map[ips:[172.18.0.10] port:32379]])
+2026/09/11 18:02:07 warning: cannot overwrite table with non table for cilium.clustermesh.config.clusters (map[poc2:map[ips:[172.18.0.10] port:32379]])
+
+### 2026-09-11T23:02:13Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get deploy clustermesh-apiserver --no-headers 2>&1 | head -1; cilium status --context kind-poc1 2>/dev/null | grep -E "ClusterMesh:" | sed "s/\x1b\[[0-9;]*m//g"
+Error from server (NotFound): deployments.apps "clustermesh-apiserver" not found
+    \__/       ClusterMesh:        disabled
+
+### 2026-09-11T23:02:15Z
+$ [STEP A — secrets, generated with Cilium's own examples/kubernetes-ztunnel/generate-secrets.sh (keys stay in .tmp/, never committed)]
+### 2026-09-11T23:02:15Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get secret cilium-ztunnel-secrets -o jsonpath="{.data}" | python3 -c "import json,sys; print(\"  keys:\", sorted(json.load(sys.stdin).keys()))"; openssl x509 -in .tmp/ztunnel/ca-root.crt -noout -subject -dates | sed "s/^/  ca-root: /"
+  keys: ['bootstrap-private.key', 'bootstrap-root.crt', 'ca-private.key', 'ca-root.crt']
+  ca-root: subject=O=cluster.local
+  ca-root: notBefore=Sep 11 23:02:15 2026 GMT
+  ca-root: notAfter=Sep  8 23:02:15 2036 GMT
+
+### 2026-09-11T23:02:16Z
+$ [STEP A — enable: encryption.enabled=true encryption.type=ztunnel (ca.type internal = Cilium's built-in CA)]
+### 2026-09-11T23:02:16Z
+$ sh -c helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 --reuse-values --set encryption.enabled=true --set encryption.type=ztunnel 2>&1 | grep -E "Release|Error"; helm history cilium -n kube-system --kube-context kind-poc1 --max 1 | tail -1 | cut -f1,7
+Release "cilium" has been upgraded. Happy Helming!
+24      
+
+### 2026-09-11T23:02:27Z
+$ kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium deploy/cilium-operator
+daemonset.apps/cilium restarted
+deployment.apps/cilium-operator restarted
+
+### 2026-09-11T23:07:48Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get cm cilium-config -o json | python3 -c "import json,sys; d=json.load(sys.stdin)[\"data\"]; [print(\"  \",k,\"=\",v) for k,v in sorted(d.items()) if \"ztunnel\" in k or k.startswith(\"enable-ipsec\") or k==\"encryption-type\"]"
+   enable-ztunnel = true
+   ztunnel-ca-type = internal
+
+### 2026-09-11T23:07:48Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get ds -o wide --no-headers | grep -E "ztunnel|cilium " ; kubectl --context kind-poc1 -n kube-system get pods -l app=ztunnel -o wide --no-headers 2>/dev/null || kubectl --context kind-poc1 -n kube-system get pods -o wide --no-headers | grep -i ztunnel
+cilium           5     5     3     2     3     kubernetes.io/os=linux   26h     cilium-agent   quay.io/cilium/cilium:v1.20.1@sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b                                                             k8s-app=cilium
+ztunnel-cilium   5     5     0     5     0     kubernetes.io/os=linux   5m23s   istio-proxy    quay.io/cilium/ztunnel:v1.0.0@sha256:884de5adde400e39f58e36c7a729f7690466ca4a8eb4c2a8daa9c1c025115b24                                                             app=ztunnel-cilium
+
+### 2026-09-11T23:07:49Z
+$ sh -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E "^Encryption|^Routing"
+Routing:                    Network: Tunnel [vxlan]   Host: BPF
+Encryption:                 Disabled        
+
+### 2026-09-11T23:07:49Z
+$ [STEP A — enroll the forensic namespace (label-based, the only supported way)]
+### 2026-09-11T23:07:49Z
+$ kubectl --context kind-poc1 label namespace forensic io.cilium/mtls-enabled=true
+namespace/forensic labeled
+
+### 2026-09-11T23:07:59Z
+$ sh -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg statedb dump 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get(\"mtls-enrolled-namespaces\"), indent=1)[:600])"
+[
+ {
+  "Name": "forensic",
+  "Status": {
+   "updated-at": "2026-09-11T23:07:49.836773055Z",
+   "id": 518,
+   "kind": "Pending"
+  }
+ }
+]
+
+### 2026-09-11T23:08:01Z
+$ sh -c docker exec poc1-worker nsenter -t 2838 -n iptables-save 2>/dev/null | grep -E '15008|15001|15006|ZTUNNEL|ISTIO' | head -8; echo '  (^ redirect rules INSIDE the web pod netns, per the docs)'
+  (^ redirect rules INSIDE the web pod netns, per the docs)
+
+### 2026-09-11T23:08:18Z
+$ [STEP A diagnostics — rollout timed out: cilium 3/5 ready, ztunnel-cilium 0/5, enrollment Pending]
+### 2026-09-11T23:08:18Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get pods -o wide --no-headers | grep -E "^cilium-[a-z0-9]{5} |ztunnel" | awk "{print \$1, \$2, \$3, \$4, \$7}"
+cilium-8r4lc 0/1 CrashLoopBackOff 5 5m50s
+cilium-f426d 1/1 Running 0 poc1-control-plane2
+cilium-hml9h 1/1 Running 0 poc1-worker2
+cilium-pfg9x 0/1 CrashLoopBackOff 5 5m50s
+cilium-xzkpp 1/1 Running 0 poc1-control-plane3
+ztunnel-cilium-2bwr4 0/1 Running 0 poc1-worker
+ztunnel-cilium-gzjb7 0/1 Running 0 poc1-control-plane3
+ztunnel-cilium-ks6gb 0/1 Running 0 poc1-control-plane2
+ztunnel-cilium-nqzqx 0/1 Running 0 poc1-worker2
+ztunnel-cilium-x7qsf 0/1 Running 0 poc1-control-plane
+
+### 2026-09-11T23:08:18Z
+$ sh -c kubectl --context kind-poc1 -n kube-system describe pod ztunnel-cilium-2bwr4 | sed -n '/^Containers:/,/^Conditions:/p' | grep -E 'State|Reason|Exit Code|Message|Image:|Ready' | head -12; kubectl --context kind-poc1 -n kube-system describe pod ztunnel-cilium-2bwr4 | grep -A12 '^Events:' | tail -8
+    Image:         quay.io/cilium/ztunnel:v1.0.0@sha256:884de5adde400e39f58e36c7a729f7690466ca4a8eb4c2a8daa9c1c025115b24
+    State:          Running
+    Ready:          False
+  Type     Reason     Age                   From               Message
+  ----     ------     ----                  ----               -------
+  Normal   Scheduled  5m54s                 default-scheduler  Successfully assigned kube-system/ztunnel-cilium-2bwr4 to poc1-worker
+  Normal   Pulling    5m53s                 kubelet            Pulling image "quay.io/cilium/ztunnel:v1.0.0@sha256:884de5adde400e39f58e36c7a729f7690466ca4a8eb4c2a8daa9c1c025115b24"
+  Normal   Pulled     5m47s                 kubelet            Successfully pulled image "quay.io/cilium/ztunnel:v1.0.0@sha256:884de5adde400e39f58e36c7a729f7690466ca4a8eb4c2a8daa9c1c025115b24" in 6.297s (6.297s including waiting). Image size: 17696691 bytes.
+  Normal   Created    5m47s                 kubelet            Container created
+  Normal   Started    5m47s                 kubelet            Container started
+  Warning  Unhealthy  41s (x36 over 5m47s)  kubelet            Readiness probe failed: HTTP probe failed with statuscode: 500
+
+### 2026-09-11T23:08:19Z
+$ sh -c kubectl --context kind-poc1 -n kube-system logs ztunnel-cilium-2bwr4 --all-containers --tail=25 2>&1 | tail -25
+2026-09-11T23:02:35.282166Z	warn	xds::client:xds{id=8}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 2.56s	
+2026-09-11T23:02:37.844983Z	warn	xds::client:xds{id=9}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 5.12s	
+2026-09-11T23:02:42.967977Z	warn	xds::client:xds{id=10}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 10.24s	
+2026-09-11T23:02:53.213021Z	warn	xds::client:xds{id=11}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:03:08.218649Z	warn	xds::client:xds{id=12}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:03:23.221548Z	warn	xds::client:xds{id=13}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:03:38.226686Z	warn	xds::client:xds{id=14}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:03:53.230415Z	warn	xds::client:xds{id=15}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:04:08.234138Z	warn	xds::client:xds{id=16}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:04:23.238436Z	warn	xds::client:xds{id=17}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:04:38.242247Z	warn	xds::client:xds{id=18}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:04:53.246500Z	warn	xds::client:xds{id=19}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:05:08.250205Z	warn	xds::client:xds{id=20}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:05:23.253614Z	warn	xds::client:xds{id=21}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:05:38.257673Z	warn	xds::client:xds{id=22}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:05:53.260938Z	warn	xds::client:xds{id=23}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:06:08.265401Z	warn	xds::client:xds{id=24}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:06:23.267515Z	warn	xds::client:xds{id=25}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:06:38.271942Z	warn	xds::client:xds{id=26}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:06:53.275295Z	warn	xds::client:xds{id=27}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:07:08.279437Z	warn	xds::client:xds{id=28}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:07:23.284169Z	warn	xds::client:xds{id=29}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:07:38.289820Z	warn	xds::client:xds{id=30}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:07:53.292972Z	warn	xds::client:xds{id=31}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+2026-09-11T23:08:08.297808Z	warn	xds::client:xds{id=32}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", source: tcp connect error, retrying in 15s	
+
+### 2026-09-11T23:08:19Z
+$ sh -c kubectl --context kind-poc1 -n kube-system logs cilium-8r4lc -c cilium-agent --tail=300 2>&1 | grep -iE 'level=(error|fatal)|ztunnel|zds|xds' | tail -12
+time=2026-09-11T23:05:53.833199379Z level=info msg="  --ztunnel-ca-type='internal'"
+time=2026-09-11T23:05:53.833204757Z level=info msg="  --ztunnel-endpoint-event-channel-buffer-size='1'"
+time=2026-09-11T23:05:54.265129482Z level=error msg="Forcefully terminating sockets connected to deleted service backends not supported by underlying kernel" module=agent.controlplane.loadbalancer-reconciler.socket-termination error="failed while iterating sockets: not supported: operation to destroy probe socket is unsupported. This likely means that kernel CONFIG_INET_DIAG_DESTROY must be set in order for this functionality to work"
+time=2026-09-11T23:05:54.298401713Z level=error msg="Invoke failed" error="ztunnel is not compatible with clustermesh" function="ztunnel.validateConfig (pkg/ztunnel/cell.go:40)"
+time=2026-09-11T23:05:56.301808754Z level=fatal msg="unable to run agent: failed to start: failed to populate object graph: ztunnel is not compatible with clustermesh" subsys=daemon
+
+### 2026-09-11T23:08:19Z
+$ sh -c kubectl --context kind-poc1 -n kube-system describe pod cilium-8r4lc | grep -A10 '^Events:' | tail -6
+  Normal   Created    5m51s                  kubelet            Container created
+  Normal   Started    5m50s                  kubelet            Container started
+  Normal   Pulled     5m50s                  kubelet            Container image "quay.io/cilium/cilium:v1.20.1@sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b" already present on machine and can be accessed by the pod
+  Normal   Created    5m49s                  kubelet            Container created
+  Normal   Started    5m49s                  kubelet            Container started
+  Normal   Pulled     5m47s                  kubelet            Container image "quay.io/cilium/cilium:v1.20.1@sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b" already present on machine and can be accessed by the pod
+
+### 2026-09-11T23:08:43Z
+$ [STEP A fix — the agent's fatal: 'ztunnel is not compatible with clustermesh'. cilium clustermesh disable left the mesh VALUES in the release (its own warnings said so); clear them explicitly.]
+### 2026-09-11T23:08:43Z
+$ sh -c helm get values cilium -n kube-system --kube-context kind-poc1 | grep -n -A8 "^clustermesh:" | head -14
+8:clustermesh:
+9-  apiserver:
+10-    service:
+11-      type: NodePort
+12-    tls:
+13-      auto:
+14-        certManagerIssuerRef:
+15-          group: cert-manager.io
+16-          kind: ClusterIssuer
+
+### 2026-09-11T23:08:44Z
+$ sh -c helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 --reuse-values --set clustermesh.useAPIServer=false --set clustermesh.config.enabled=false --set clustermesh.config.clusters=null 2>&1 | grep -E "Release|Error"; helm get values cilium -n kube-system --kube-context kind-poc1 | grep -n -A8 "^clustermesh:" | head -12
+Release "cilium" has been upgraded. Happy Helming!
+8:clustermesh:
+9-  apiserver:
+10-    service:
+11-      type: NodePort
+12-    tls:
+13-      auto:
+14-        certManagerIssuerRef:
+15-          group: cert-manager.io
+16-          kind: ClusterIssuer
+
+### 2026-09-11T23:08:54Z
+$ kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium
+daemonset.apps/cilium restarted
+
+### 2026-09-11T23:17:38Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get ds cilium ztunnel-cilium -o custom-columns="DS:.metadata.name,DESIRED:.status.desiredNumberScheduled,READY:.status.numberReady"; kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E "^Encryption|^Routing"
+DS               DESIRED   READY
+cilium           5         3
+ztunnel-cilium   5         0
+Routing:                    Network: Tunnel [vxlan]   Host: BPF
+Encryption:                 Disabled        
+
+### 2026-09-11T23:17:39Z
+$ sh -c kubectl --context kind-poc1 -n kube-system logs ztunnel-cilium-2bwr4 --tail=6 2>&1 | cut -c1-200
+2026-09-11T23:16:23.435730Z	warn	xds::client:xds{id=65}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", so
+2026-09-11T23:16:38.438888Z	warn	xds::client:xds{id=66}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", so
+2026-09-11T23:16:53.441572Z	warn	xds::client:xds{id=67}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", so
+2026-09-11T23:17:08.445342Z	warn	xds::client:xds{id=68}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", so
+2026-09-11T23:17:23.448601Z	warn	xds::client:xds{id=69}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", so
+2026-09-11T23:17:38.453597Z	warn	xds::client:xds{id=70}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client error (Connect)", so
+
+### 2026-09-11T23:17:50Z
+$ sh -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg statedb dump 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get(\"mtls-enrolled-namespaces\"), indent=1)[:400])"
+[
+ {
+  "Name": "forensic",
+  "Status": {
+   "updated-at": "2026-09-11T23:07:49.836773055Z",
+   "id": 518,
+   "kind": "Pending"
+  }
+ }
+]
+
+### 2026-09-11T23:17:51Z
+$ sh -c echo 'iptables inside web-85c8cb547f-d74c7 netns (node poc1-worker, pid 2838):'; docker exec poc1-worker nsenter -t 2838 -n iptables-save 2>/dev/null | grep -E '^-A' | head -12
+iptables inside web-85c8cb547f-d74c7 netns (node poc1-worker, pid 2838):
+
+### 2026-09-11T23:18:25Z
+$ sh -c kubectl --context kind-poc1 -n kube-system logs cilium-9x7vj -c cilium-agent --tail=400 2>&1 | grep -E 'level=fatal|Invoke failed' | tail -2 | cut -c1-260; helm get values cilium -n kube-system --kube-context kind-poc1 | python3 -c "import sys,yaml; d=yaml.safe_load(sys.stdin); print('  clustermesh values still in the release:', d.get('clustermesh'))"
+time=2026-09-11T23:15:02.394520527Z level=error msg="Invoke failed" error="ztunnel is not compatible with clustermesh" function="ztunnel.validateConfig (pkg/ztunnel/cell.go:40)"
+time=2026-09-11T23:15:04.39690889Z level=fatal msg="unable to run agent: failed to start: failed to populate object graph: ztunnel is not compatible with clustermesh" subsys=daemon
+  clustermesh values still in the release: {'apiserver': {'service': {'type': 'NodePort'}, 'tls': {'auto': {'certManagerIssuerRef': {'group': 'cert-manager.io', 'kind': 'ClusterIssuer', 'name': 'ca-issuer'}, 'enabled': True, 'method': 'certmanager', 'schedule': '0 0 1 */4 *'}}}, 'config': {'enabled': False}, 'useAPIServer': False}
+
+### 2026-09-11T23:18:27Z
+$ [VERDICT REACHED — ztunnel is incompatible with ClusterMesh (docs + agent fatal + values stickiness). RESTORE poc1: values snapshot, disenroll, drop the ztunnel secret, re-enable and reconnect the mesh.]
+### 2026-09-11T23:18:27Z
+$ kubectl --context kind-poc1 label namespace forensic io.cilium/mtls-enabled-
+namespace/forensic unlabeled
+
+### 2026-09-11T23:18:29Z
+$ sh -c helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 -f .tmp/poc1-values-before-ztunnel.yaml 2>&1 | grep -E "Release|Error"; helm get values cilium -n kube-system --kube-context kind-poc1 | grep -cE "ztunnel|encryption:" | sed "s/^/  ztunnel keys left: /"
+Release "cilium" has been upgraded. Happy Helming!
+  ztunnel keys left: 1
+
+### 2026-09-11T23:18:44Z
+$ kubectl --context kind-poc1 -n kube-system delete secret cilium-ztunnel-secrets
+secret "cilium-ztunnel-secrets" deleted
+
+### 2026-09-11T23:18:44Z
+$ kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium deploy/cilium-operator
+daemonset.apps/cilium restarted
+deployment.apps/cilium-operator restarted
+
+### 2026-09-11T23:19:51Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get ds -o custom-columns="DS:.metadata.name,DESIRED:.status.desiredNumberScheduled,READY:.status.numberReady" | grep -E "DS|cilium |ztunnel"; kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E "^Encryption|^Routing|^Hubble"
+DS             DESIRED   READY
+cilium         5         5
+Routing:                 Network: Tunnel [vxlan]   Host: BPF
+Hubble:                  Ok         Current/Max Flows: 290/4095 (7.08%), Flows/s: 4.30   Metrics: Ok
+Encryption:              Disabled   
+
+### 2026-09-11T23:19:56Z
+$ cilium clustermesh enable --context kind-poc1 --service-type NodePort
+⚠️  Using service type NodePort may fail when nodes are removed from the cluster!
+2026/09/11 18:20:03 warning: destination for cilium.clustermesh.config.clusters is a table. Ignoring non-table value ([])
+
+### 2026-09-11T23:21:04Z
+$ cilium clustermesh connect --context kind-poc1 --destination-context kind-poc2
+✨ Extracting access information of cluster poc1...
+🔑 Extracting secrets from cluster poc1...
+⚠️  Service type NodePort detected! Service may fail when nodes are removed from the cluster!
+ℹ️  Found ClusterMesh service IPs: [172.18.0.6]
+✨ Extracting access information of cluster poc2...
+🔑 Extracting secrets from cluster poc2...
+⚠️  Service type NodePort detected! Service may fail when nodes are removed from the cluster!
+ℹ️  Found ClusterMesh service IPs: [172.18.0.10]
+
+Error: Unable to connect cluster: Cilium CA certificates do not match between clusters poc1 and poc2. Use --allow-mismatching-ca to allow this by adding remote CAs to the CA bundle
+[exit code: 1]
+
+### 2026-09-11T23:21:11Z
+$ cilium clustermesh status --context kind-poc1 --wait --wait-duration 6m
+⚠️  Service type NodePort detected! Service may fail when nodes are removed from the cluster!
+✅ Service "clustermesh-apiserver" of type "NodePort" found
+✅ Cluster access information is available:
+  - 172.18.0.6:32379
+✅ Deployment clustermesh-apiserver is ready
+ℹ️  KVStoreMesh is enabled
+⌛ Waiting (51s) for clusters to be connected: unable to determine status of pod "cilium-ltb4h": command failed (pod=kube-system/cilium-ltb4h, container=cilium-agent): unable to upgrade connection: container not found ("cilium-agent")
+⌛ Waiting (1m4s) for clusters to be connected: unable to determine status of pod "cilium-ltb4h": command failed (pod=kube-system/cilium-ltb4h, container=cilium-agent): unable to upgrade connection: container not found ("cilium-agent")
+⌛ Waiting (1m14s) for clusters to be connected: unable to determine status of pod "cilium-ltb4h": command failed (pod=kube-system/cilium-ltb4h, container=cilium-agent): unable to upgrade connection: container not found ("cilium-agent")
+⌛ Waiting (1m40s) for clusters to be connected: unable to determine status of pod "cilium-ltb4h": command failed (pod=kube-system/cilium-ltb4h, container=cilium-agent): unable to upgrade connection: container not found ("cilium-agent")
+⌛ Waiting (1m51s) for clusters to be connected: unable to determine status of pod "cilium-ltb4h": command failed (pod=kube-system/cilium-ltb4h, container=cilium-agent): command terminated with exit code 1: "Get \"http://localhost/v1/healthz\": dial unix /var/run/cilium/cilium.sock: connect: no such file or directory\nIs the agent running?\n"
+⌛ Waiting (2m15s) for clusters to be connected: unable to determine status of pod "cilium-ltb4h": command failed (pod=kube-system/cilium-ltb4h, container=cilium-agent): command terminated with exit code 1: "Get \"http://localhost/v1/healthz\": dial unix /var/run/cilium/cilium.sock: connect: no such file or directory\nIs the agent running?\n"
+⌛ Waiting (3m3s) for clusters to be connected: unable to determine status of pod "cilium-zw9qs": command failed (pod=kube-system/cilium-zw9qs, container=cilium-agent): unable to upgrade connection: pods "cilium-zw9qs" not found
+⌛ Waiting (3m15s) for clusters to be connected: unable to determine status of pod "cilium-krfbp": command failed (pod=kube-system/cilium-krfbp, container=cilium-agent): unable to upgrade connection: container not found ("cilium-agent")
+⌛ Waiting (3m33s) for clusters to be connected: unable to determine status of pod "cilium-krfbp": command failed (pod=kube-system/cilium-krfbp, container=cilium-agent): command terminated with exit code 1: "Get \"http://localhost/v1/healthz\": dial unix /var/run/cilium/cilium.sock: connect: no such file or directory\nIs the agent running?\n"
+⌛ Waiting (3m56s) for clusters to be connected: 4 nodes are not ready
+⌛ Waiting (4m8s) for clusters to be connected: unable to determine status of pod "cilium-v66v4": command failed (pod=kube-system/cilium-v66v4, container=cilium-agent): unable to upgrade connection: container not found ("cilium-agent")
+⌛ Waiting (4m22s) for clusters to be connected: unable to determine status of pod "cilium-v66v4": command failed (pod=kube-system/cilium-v66v4, container=cilium-agent): command terminated with exit code 1: "Get \"http://localhost/v1/healthz\": dial unix /var/run/cilium/cilium.sock: connect: no such file or directory\nIs the agent running?\n"
+⌛ Waiting (4m53s) for clusters to be connected: 5 nodes are not ready
+⌛ Waiting (5m49s) for clusters to be connected: unable to determine status of pod "cilium-zc96k": command failed (pod=kube-system/cilium-zc96k, container=cilium-agent): context deadline exceeded
+
+Error: Unable to determine status:  timeout while waiting for condition, last error: unable to determine status of pod "cilium-zc96k": command failed (pod=kube-system/cilium-zc96k, container=cilium-agent): context deadline exceeded
+[exit code: 1]
+
+### 2026-09-11T23:40:20Z
+$ [STEP A, take 2 — mesh fully off on the agent side (clustermesh-config empty => the ClusterMesh object the ztunnel validation checks is nil). VM load was 166 after the first attempt's rollouts; waited for it to drain.]
+### 2026-09-11T23:40:20Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get cm cilium-config -o jsonpath="clustermesh-config=[{.data.clustermesh-config}] enable-ztunnel=[{.data.enable-ztunnel}]{\"\n\"}"; cilium status --context kind-poc1 2>/dev/null | grep -E "ClusterMesh:" | sed "s/\x1b\[[0-9;]*m//g"; docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -- cut -d" " -f1-3 /proc/loadavg
+clustermesh-config=[] enable-ztunnel=[]
+    \__/       ClusterMesh:        1 errors
+22.32 85.86 94.32
+
+### 2026-09-11T23:40:25Z
+$ sh -c cd .tmp/ztunnel && kubectl --context kind-poc1 -n kube-system create secret generic cilium-ztunnel-secrets --from-file=bootstrap-private.key --from-file=bootstrap-root.crt --from-file=ca-private.key --from-file=ca-root.crt
+secret/cilium-ztunnel-secrets created
+
+### 2026-09-11T23:40:25Z
+$ sh -c helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 --reuse-values --set encryption.enabled=true --set encryption.type=ztunnel 2>&1 | grep -E "Release|Error"; helm history cilium -n kube-system --kube-context kind-poc1 --max 1 | tail -1 | cut -f1,7
+Release "cilium" has been upgraded. Happy Helming!
+28      
+
+### 2026-09-11T23:40:41Z
+$ kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium deploy/cilium-operator
+daemonset.apps/cilium restarted
+deployment.apps/cilium-operator restarted
+
+### 2026-09-11T23:43:43Z
+$ [STEP A, take 2 — mesh fully off on the agent side (clustermesh-config empty => the ClusterMesh object the ztunnel validation checks is nil). The first attempt's VM load of 166 was CRC's VM competing for the same cores; CRC stopped, load 11.9.]
+### 2026-09-11T23:43:44Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get cm cilium-config -o jsonpath="clustermesh-config=[{.data.clustermesh-config}] enable-ztunnel=[{.data.enable-ztunnel}]{\"\n\"}"; cilium status --context kind-poc1 2>/dev/null | grep -E "ClusterMesh:" | sed "s/\x1b\[[0-9;]*m//g"; docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -- cut -d" " -f1-3 /proc/loadavg
+clustermesh-config=[] enable-ztunnel=[true]
+    \__/       ClusterMesh:        1 errors
+10.87 50.18 78.61
+
+### 2026-09-11T23:43:46Z
+$ sh -c cd .tmp/ztunnel && kubectl --context kind-poc1 -n kube-system create secret generic cilium-ztunnel-secrets --from-file=bootstrap-private.key --from-file=bootstrap-root.crt --from-file=ca-private.key --from-file=ca-root.crt
+error: failed to create secret secrets "cilium-ztunnel-secrets" already exists
+[exit code: 1]
+
+### 2026-09-11T23:43:46Z
+$ sh -c helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 --reuse-values --set encryption.enabled=true --set encryption.type=ztunnel 2>&1 | grep -E "Release|Error"; helm history cilium -n kube-system --kube-context kind-poc1 --max 1 | tail -1 | cut -f1,7
+Release "cilium" has been upgraded. Happy Helming!
+29      
+
+### 2026-09-11T23:43:58Z
+$ kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium deploy/cilium-operator
+daemonset.apps/cilium restarted
+deployment.apps/cilium-operator restarted
+
+### 2026-09-11T23:57:08Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get ds cilium ztunnel-cilium -o custom-columns="DS:.metadata.name,DESIRED:.status.desiredNumberScheduled,READY:.status.numberReady"; kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E "^Encryption|^Routing|^Hubble"
+DS               DESIRED   READY
+cilium           5         3
+ztunnel-cilium   5         0
+Routing:             Network: Tunnel [vxlan]   Host: BPF
+Hubble:                     Ok              Current/Max Flows: 4095/4095 (100.00%), Flows/s: 5.30   Metrics: Ok
+Encryption:                 Disabled        
+
+### 2026-09-11T23:57:09Z
+$ sh -c kubectl --context kind-poc1 -n kube-system logs ztunnel-cilium-2shq7 --tail=4 2>&1 | cut -c1-180
+2026-09-11T23:56:16.583728Z	warn	xds::client:xds{id=72}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client 
+2026-09-11T23:56:31.609179Z	warn	xds::client:xds{id=73}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client 
+2026-09-11T23:56:46.614875Z	warn	xds::client:xds{id=74}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client 
+2026-09-11T23:57:01.620633Z	warn	xds::client:xds{id=75}	XDS client connection error: gRPC connection error connecting to https://localhost:15012: status: Unknown, message: "client 
+
+### 2026-09-11T23:57:10Z
+$ kubectl --context kind-poc1 label namespace forensic io.cilium/mtls-enabled=true --overwrite
+namespace/forensic labeled
+
+### 2026-09-11T23:57:25Z
+$ sh -c kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg statedb dump 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get(\"mtls-enrolled-namespaces\"), indent=1)[:300])"
+[
+ {
+  "Name": "forensic",
+  "Status": {
+   "updated-at": "2026-09-11T23:57:10.298397632Z",
+   "id": 500,
+   "kind": "Pending"
+  }
+ }
+]
+
+### 2026-09-11T23:57:27Z
+$ sh -c echo 'iptables INSIDE web-85c8cb547f-d74c7 (node poc1-worker): the redirect to ztunnel the docs describe'; docker exec poc1-worker nsenter -t 10514 -n iptables-save 2>/dev/null | grep -E '^-A' | head -14
+iptables INSIDE web-85c8cb547f-d74c7 (node poc1-worker): the redirect to ztunnel the docs describe
+
+### 2026-09-11T23:58:54Z
+$ [STEP A, take 3 — the restore's 'cilium clustermesh enable' had put clustermesh.useAPIServer=true back; take 2 only set encryption. Source guard: ClusterMesh is nil only if cluster-id==0 || clustermesh-config=="". Switch the mesh off in the RELEASE, then ztunnel can start.]
+### 2026-09-11T23:58:54Z
+$ sh -c helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 --reuse-values --set clustermesh.useAPIServer=false --set clustermesh.config.enabled=false --set clustermesh.config.clusters=null 2>&1 | grep -E "Release|Error"; kubectl --context kind-poc1 -n kube-system get cm cilium-config -o jsonpath="clustermesh-config=[{.data.clustermesh-config}] enable-ztunnel=[{.data.enable-ztunnel}]{\"\n\"}"
+Release "cilium" has been upgraded. Happy Helming!
+clustermesh-config=[] enable-ztunnel=[true]
+
+### 2026-09-11T23:59:06Z
+$ kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium
+daemonset.apps/cilium restarted
+
+### 2026-09-12T00:10:00Z
+$ [VERDICT for poc1 — final and exact: the chart sets CILIUM_CLUSTERMESH_CONFIG=/var/lib/cilium/clustermesh/ unconditionally (rendered and live), and NewClusterMesh returns nil only if cluster-id==0 || clustermesh-config=="". poc1 has cluster.id 1, so ClusterMesh is never nil and ztunnel can never start here. RESTORE poc1 from the pre-ztunnel snapshot; the exercise moves to a throwaway cluster with cluster.id 0.]
+### 2026-09-12T00:10:00Z
+$ kubectl --context kind-poc1 label namespace forensic io.cilium/mtls-enabled-
+namespace/forensic unlabeled
+
+### 2026-09-12T00:10:00Z
+$ sh -c helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 -f .tmp/poc1-values-before-ztunnel.yaml 2>&1 | grep -E "Release|Error"; helm get values cilium -n kube-system --kube-context kind-poc1 | python3 -c "import sys,yaml; d=yaml.safe_load(sys.stdin); c=d.get(\"clustermesh\",{}); print(\"  release: encryption=\", d.get(\"encryption\"), \" mesh useAPIServer=\", c.get(\"useAPIServer\"), \" method=\", c[\"apiserver\"][\"tls\"][\"auto\"][\"method\"], \" clusters=\", list(c[\"config\"][\"clusters\"].keys()))"; kubectl --context kind-poc1 -n kube-system get cm cilium-config -o jsonpath="  cilium-config: enable-ztunnel=[{.data.enable-ztunnel}]{\"\n\"}"
+Release "cilium" has been upgraded. Happy Helming!
+  release: encryption= {'enabled': False, 'type': 'wireguard'}  mesh useAPIServer= True  method= certmanager  clusters= ['poc2']
+  cilium-config: enable-ztunnel=[]
+
+### 2026-09-12T00:10:13Z
+$ kubectl --context kind-poc1 -n kube-system delete secret cilium-ztunnel-secrets
+secret "cilium-ztunnel-secrets" deleted
+
+### 2026-09-12T00:10:14Z
+$ kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium deploy/cilium-operator
+daemonset.apps/cilium restarted
+deployment.apps/cilium-operator restarted
+
+### 2026-09-12T00:11:05Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get ds -o custom-columns="DS:.metadata.name,DESIRED:.status.desiredNumberScheduled,READY:.status.numberReady" | grep -E "DS|cilium |ztunnel"; kubectl --context kind-poc1 -n kube-system get deploy clustermesh-apiserver --no-headers 2>&1; kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E "^Encryption|^Routing|^Hubble|^ClusterMesh"
+DS             DESIRED   READY
+cilium         5         5
+clustermesh-apiserver   1/1   1     1     56s
+ClusterMesh:             1/1 remote clusters ready
+Routing:                 Network: Tunnel [vxlan]   Host: BPF
+Hubble:                  Ok         Current/Max Flows: 261/4095 (6.37%), Flows/s: 5.15   Metrics: Ok
+Encryption:              Disabled   
+
+### 2026-09-12T00:13:05Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get ds cilium ztunnel-cilium -o custom-columns="DS:.metadata.name,DESIRED:.status.desiredNumberScheduled,READY:.status.numberReady"; kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E "^Encryption|^Routing|^Hubble"; docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -- cut -d" " -f1-3 /proc/loadavg
+DS       DESIRED   READY
+cilium   5         5
+Error from server (NotFound): daemonsets.apps "ztunnel-cilium" not found
+Routing:                 Network: Tunnel [vxlan]   Host: BPF
+Hubble:                  Ok              Current/Max Flows: 895/4095 (21.86%), Flows/s: 4.49   Metrics: Ok
+Encryption:              Disabled        
+### 2026-09-12T00:13:06Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get secret clustermesh-apiserver-server-cert -o jsonpath="{.data.tls\.crt}" | base64 -d | openssl x509 -noout -issuer | sed "s/^/  apiserver cert /"; timeout 120 cilium clustermesh status --context kind-poc1 2>&1 | grep -E "✅ All|⚠️  [0-9]|connected|Error" | head -3; cilium status --context kind-poc1 2>/dev/null | grep -E "Cilium:|ClusterMesh:|Hubble Relay:" | sed "s/\x1b\[[0-9;]*m//g"
+  apiserver cert issuer=CN=clustermesh-root-ca
+15.61 14.70 22.77
+
+### 2026-09-12T00:13:08Z
+$ sh -c kubectl --context kind-poc1 -n kube-system logs  --tail=3 2>&1 | cut -c1-200
+error: expected 'logs [-f] [-p] (POD | TYPE/NAME) [-c CONTAINER]'.
+POD or TYPE/NAME is a required argument for the logs command
+See 'kubectl logs -h' for help and examples
+
+✅ All 5 nodes are connected to all clusters [min:1 / avg:1.0 / max:1]
+✅ All 1 KVStoreMesh replicas are connected to all clusters [min:1 / avg:1.0 / max:1]
+  - poc2: 5/5 configured, 5/5 connected - KVStoreMesh: 1/1 configured, 1/1 connected
+ /¯¯\__/¯¯\    Cilium:             OK
+ \__/¯¯\__/    Hubble Relay:       OK
+    \__/       ClusterMesh:        OK
+
+### 2026-09-12T00:13:42Z
+$ [Hubble 'lost data' — what it is: the flow store is an in-memory ring buffer per agent, emptied by every agent restart; the export files + OTel are the persistent copy and flow ONE way (Hubble -> files -> collector), never back into Hubble.]
+### 2026-09-12T00:13:42Z
+$ sh -c hubble status -P --kube-context kind-poc1 2>&1 | grep -E "Healthcheck|Flows"; printf "flows in the last 2 min via relay: "; hubble observe -P --kube-context kind-poc1 --since 2m -o compact 2>/dev/null | wc -l
+Healthcheck (via 127.0.0.1:4245): Ok
+Current/Max Flows: 6,977/20,475 (34.08%)
+Flows/s: 38.15
+flows in the last 2 min via relay:     4305
+
+### 2026-09-12T00:13:43Z
+$ sh -c for n in poc1-worker poc1-worker2 poc1-control-plane3; do printf "  %-20s " $n; docker exec $n sh -c "ls -la --time-style=+%T /var/run/cilium/hubble/events.log | awk \"{print \\\$6, \\\$5\\\" bytes\\\"}\"; wc -l < /var/run/cilium/hubble/events.log | sed \"s/^/lines=/\""; done; date -u +%T
+  poc1-worker          00:13:43 4392828 bytes
+lines=4795
+  poc1-worker2         00:13:43 8826070 bytes
+lines=9412
+  poc1-control-plane3  00:13:43 4715130 bytes
+lines=6167
+00:13:44
+
+### 2026-09-12T00:13:44Z
+$ sh -c P=$(kubectl --context kind-poc1 -n otel get pod --field-selector spec.nodeName=poc1-worker -o jsonpath="{.items[0].metadata.name}"); echo "collector $P — records in the last 5 min: $(kubectl --context kind-poc1 -n otel logs $P --since=5m | grep -c "^LogRecord #")"; kubectl --context kind-poc1 -n otel logs $P --since=5m | grep -E "^Timestamp:|hubble.verdict|Body:" | tail -3 | cut -c1-200
+collector otel-collector-fhljm — records in the last 5 min: 418
+Timestamp: 2026-09-12 00:13:45.134171428 +0000 UTC
+Body: Str({"flow":{"time":"2026-09-12T00:13:45.134171428Z","verdict":"FORWARDED","IP":{"source":"10.20.1.24","destination":"10.10.4.20","ipVersion":"IPv4"},"l4":{"TCP":{"source_port":38854,"destinatio
+     -> hubble.verdict: Str(FORWARDED)
+
+### 2026-09-12T00:13:45Z
+$ sh -c curl -s --cacert docs/root-ca.crt --resolve hubble.poc.local:443:172.18.255.240 -o /dev/null -w "https://hubble.poc.local -> http %{http_code}\n" https://hubble.poc.local/
+https://hubble.poc.local -> http 200
+
+### 2026-09-12T00:14:05Z
+$ [poc4 — throwaway cluster for the exercise: own network kind-lab 172.31.0.0/16, cluster.id 0, ztunnel at install]
+### 2026-09-12T00:14:05Z
+$ docker network create --subnet 172.31.0.0/16 --gateway 172.31.0.1 kind-lab
+ba18aff047fb0d9dbb214b07291a47cce04468fd36df4f782535e552ed29421f
+
+### 2026-09-12T00:14:05Z
+$ env KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-lab kind create cluster --config clusters/poc4.yaml
+Creating cluster "poc4" ...
+ • Ensuring node image (kindest/node:v1.36.4) 🖼️  ...
+WARNING: Overriding docker network due to KIND_EXPERIMENTAL_DOCKER_NETWORK
+WARNING: Here be dragons! This is not supported currently.
+ ✓ Ensuring node image (kindest/node:v1.36.4) 🖼️
+ • Preparing nodes 📦 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-poc4"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-poc4
+
+Thanks for using kind! 😊
+
+### 2026-09-12T00:15:33Z
+$ sh -c docker network inspect kind-lab --format "{{range .Containers}}{{.IPv4Address}} {{.Name}}{{println}}{{end}}" | sort -t. -k4 -n
+
+172.31.0.2/16 poc4-worker
+172.31.0.3/16 poc4-worker2
+172.31.0.4/16 poc4-control-plane
+
+### 2026-09-12T00:15:33Z
+$ sh -c cd .tmp/ztunnel && kubectl --context kind-poc4 -n kube-system create secret generic cilium-ztunnel-secrets --from-file=bootstrap-private.key --from-file=bootstrap-root.crt --from-file=ca-private.key --from-file=ca-root.crt
+secret/cilium-ztunnel-secrets created
+
+### 2026-09-12T00:15:33Z
+$ sh -c helm install cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc4 -f cilium/values-poc4-ztunnel.yaml 2>&1 | grep -E "STATUS|Error|NAME:"
+NAME: cilium
+STATUS: deployed
+
+### 2026-09-12T00:17:26Z
+$ sh -c kubectl --context kind-poc4 get nodes --no-headers; kubectl --context kind-poc4 -n kube-system get ds -o custom-columns="DS:.metadata.name,DESIRED:.status.desiredNumberScheduled,READY:.status.numberReady"; kubectl --context kind-poc4 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E "^KubeProxyReplacement|^Encryption|^Routing|^Masquerading|^Hubble"
+poc4-control-plane   Ready   control-plane   2m8s   v1.36.4
+poc4-worker          Ready   <none>          116s   v1.36.4
+poc4-worker2         Ready   <none>          116s   v1.36.4
+DS               DESIRED   READY
+cilium           3         3
+cilium-envoy     3         3
+ztunnel-cilium   3         3
+KubeProxyReplacement:    True   [eth0  172.31.0.2 (Direct Routing)]
+Routing:                 Network: Tunnel [vxlan]   Host: BPF
+Masquerading:            BPF   [eth0]   10.0.0.0/24  [IPv4: Enabled, IPv6: Disabled]
+Hubble:                  Ok        Current/Max Flows: 30/4095 (0.73%), Flows/s: 0.00   Metrics: Disabled
+Encryption:              Ztunnel   
+
+### 2026-09-12T00:17:29Z
+$ sh -c kubectl --context kind-poc4 -n kube-system logs ztunnel-cilium-ltmqx --tail=4 2>&1 | cut -c1-200
+2026-09-12T00:17:03.765531Z	info	readiness	Task 'state manager' complete (149.063946ms), still awaiting 1 tasks	
+2026-09-12T00:17:03.765979Z	info	inpod::workloadmanager	handling new stream	
+2026-09-12T00:17:03.781393Z	info	inpod::statemanager	received snapshot sent	
+2026-09-12T00:17:03.781425Z	info	readiness	Task 'workload proxy manager' complete (164.958788ms), marking server ready	
+
+### 2026-09-12T00:18:17Z
+$ [poc4 — the demo 11 rig, then ENROLL the forensic namespace]
+### 2026-09-12T00:18:52Z
+$ sh -c kubectl --context kind-poc4 -n forensic get pods -o wide --no-headers | awk "{print \$1, \$3, \$6, \$7}"
+client Running 10.0.2.60 poc4-worker2
+fortio Running 10.0.2.254 poc4-worker2
+iperf3-server Running 10.0.0.152 poc4-worker
+web-6c8cd5c5b6-frvxq Running 10.0.0.37 poc4-worker
+web-6c8cd5c5b6-lzp7n Running 10.0.0.104 poc4-worker
+web-6c8cd5c5b6-s4sxc Running 10.0.0.38 poc4-worker
+
+### 2026-09-12T00:18:52Z
+$ sh -c kubectl --context kind-poc4 -n forensic exec client -- curl -s -o /dev/null -w "BEFORE enrollment: client -> web service: http %{http_code}\n" http://web.forensic.svc.cluster.local/
+BEFORE enrollment: client -> web service: http 200
+
+### 2026-09-12T00:18:53Z
+$ kubectl --context kind-poc4 label namespace forensic io.cilium/mtls-enabled=true
+namespace/forensic labeled
+
+### 2026-09-12T00:19:13Z
+$ sh -c kubectl --context kind-poc4 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg statedb dump 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get(\"mtls-enrolled-namespaces\"), indent=1))"
+[
+ {
+  "Name": "forensic",
+  "Status": {
+   "updated-at": "2026-09-12T00:18:53.757210422Z",
+   "id": 163,
+   "kind": "Done"
+  }
+ }
+]
+
+### 2026-09-12T00:19:17Z
+$ sh -c echo 'iptables INSIDE web-6c8cd5c5b6-frvxq (node poc4-worker) after enrollment:'; docker exec poc4-worker nsenter -t 2483 -n iptables-save 2>/dev/null | grep -E '^-A|^\*' | head -20
+iptables INSIDE web-6c8cd5c5b6-frvxq (node poc4-worker) after enrollment:
+*nat
+-A PREROUTING -j CILIUM_PREROUTING
+-A OUTPUT -j CILIUM_OUTPUT
+-A CILIUM_OUTPUT -p tcp -m mark --mark 0x111/0xfff -j ACCEPT
+-A CILIUM_OUTPUT ! -d 127.0.0.1/32 -o lo -j ACCEPT
+-A CILIUM_OUTPUT ! -d 127.0.0.1/32 -p tcp -m mark ! --mark 0x539/0xfff -j REDIRECT --to-ports 15001
+-A CILIUM_PREROUTING ! -d 127.0.0.1/32 -p tcp -m tcp ! --dport 15008 -m mark ! --mark 0x539/0xfff -j REDIRECT --to-ports 15006
+*mangle
+-A PREROUTING -j CILIUM_PREROUTING
+-A OUTPUT -j CILIUM_OUTPUT
+-A CILIUM_OUTPUT -m connmark --mark 0x111/0xfff -j CONNMARK --restore-mark --nfmask 0xffffffff --ctmask 0xffffffff
+-A CILIUM_PREROUTING -m mark --mark 0x539/0xfff -j CONNMARK --set-xmark 0x111/0xfff
+
+### 2026-09-12T00:19:18Z
+$ sh -c kubectl --context kind-poc4 -n forensic exec client -- curl -s -o /dev/null -w "AFTER enrollment: client -> web service: http %{http_code}\n" http://web.forensic.svc.cluster.local/
+AFTER enrollment: client -> web service: http 200
+
+### 2026-09-12T00:19:18Z
+$ [PROOF 1 — on the wire: capture on the backend NODE while the client sends a request carrying a marker header; HBONE port 15008 must appear and the marker must NOT be readable]
+### 2026-09-12T00:20:33Z
+$ sh -c docker exec cap sh -c 'tcpdump -nn -r /tmp/cap.pcap 2>/dev/null | awk "{print \$3\" > \"\$5}" | sed "s/[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*\.//g" | sort | uniq -c | sort -rn | head -6; echo; echo "packets to/from port 15008: $(tcpdump -nn -r /tmp/cap.pcap port 15008 2>/dev/null | wc -l)"; echo "packets on port 8080 seen by the node: $(tcpdump -nn -r /tmp/cap.pcap port 8080 2>/dev/null | wc -l)"; echo "marker readable in ANY packet: $(tcpdump -nn -A -r /tmp/cap.pcap 2>/dev/null | grep -c PLAINTEXT-CANARY)  (0 = encrypted)"'
+Error response from daemon: No such container: cap
+[exit code: 1]
+
+### 2026-09-12T00:20:34Z
+$ [PROOF 2 — what Hubble sees for an enrolled pod pair]
+### 2026-09-12T00:20:34Z
+$ sh -c hubble observe -P --kube-context kind-poc4 --since 2m --namespace forensic -o compact 2>/dev/null | grep -E "client|fortio" | grep -vE "coredns|DNS" | tail -6
+Sep 12 00:20:30.921: forensic/client:56766 (ID:8423) <- forensic/web-6c8cd5c5b6-s4sxc:15008 (ID:51131) to-endpoint FORWARDED (TCP Flags: SYN, ACK)
+Sep 12 00:20:30.921: forensic/client:56766 (ID:8423) -> forensic/web-6c8cd5c5b6-s4sxc:15008 (ID:51131) to-overlay FORWARDED (TCP Flags: ACK)
+Sep 12 00:20:30.922: forensic/client:56766 (ID:8423) -> forensic/web-6c8cd5c5b6-s4sxc:15008 (ID:51131) to-endpoint FORWARDED (TCP Flags: ACK, PSH)
+Sep 12 00:20:30.922: forensic/client:56766 (ID:8423) -> forensic/web-6c8cd5c5b6-s4sxc:15008 (ID:51131) to-overlay FORWARDED (TCP Flags: ACK, PSH)
+Sep 12 00:20:30.922: forensic/client:56766 (ID:8423) <- forensic/web-6c8cd5c5b6-s4sxc:15008 (ID:51131) to-overlay FORWARDED (TCP Flags: ACK, PSH)
+Sep 12 00:20:30.923: forensic/client:56766 (ID:8423) <- forensic/web-6c8cd5c5b6-s4sxc:15008 (ID:51131) to-endpoint FORWARDED (TCP Flags: ACK, PSH)
+
+### 2026-09-12T00:21:16Z
+$ [PROOF 1 (redo) — capture on the backend node poc4-worker while the client sends 3 requests carrying X-Marker: PLAINTEXT-CANARY-7391]
+### 2026-09-12T00:21:33Z
+$ sh -c docker exec cap sh -c "echo \"packets on port 15008 (HBONE): \$(tcpdump -nn -r /tmp/cap.pcap port 15008 2>/dev/null | wc -l)\"; echo \"packets on port 8080 (plain) : \$(tcpdump -nn -r /tmp/cap.pcap port 8080 2>/dev/null | wc -l)\"; echo \"marker readable in any packet: \$(tcpdump -nn -A -r /tmp/cap.pcap 2>/dev/null | grep -c PLAINTEXT-CANARY)   (0 = the request was encrypted on the wire)\"; echo \"TLS handshake seen (ClientHello bytes 16 03 01): \$(tcpdump -nn -X -r /tmp/cap.pcap port 15008 2>/dev/null | grep -c \"1603 01\")\"; echo; tcpdump -nn -r /tmp/cap.pcap port 15008 2>/dev/null | head -3"
+packets on port 15008 (HBONE): 82
+packets on port 8080 (plain) : 21
+marker readable in any packet: 0   (0 = the request was encrypted on the wire)
+TLS handshake seen (ClientHello bytes 16 03 01): 1
+
+00:21:18.866502 cilium_vxlan P   IP 10.0.2.60.51682 > 10.0.0.37.15008: Flags [P.], seq 3040308048:3040308087, ack 1316859735, win 250, options [nop,nop,TS val 2310212441 ecr 948424734], length 39
+00:21:18.866506 lxc4a3df80e71d8 In  IP 10.0.0.37.15008 > 10.0.2.60.51682: Flags [P.], seq 1:40, ack 0, win 249, options [nop,nop,TS val 948434695 ecr 2310202480], length 39
+00:21:18.866818 cilium_vxlan Out IP 10.0.0.37.15008 > 10.0.2.60.51682: Flags [P.], seq 1:40, ack 0, win 249, options [nop,nop,TS val 948434695 ecr 2310202480], length 39
+
+### 2026-09-12T00:21:34Z
+$ [MEASURE — enrollment ON (mTLS via ztunnel): churn decomposition + iperf3]
+### 2026-09-12T00:21:34Z
+$ scripts/churn-decompose.sh poc4 ztunnel ON (forensic enrolled), Hubble ON
+=== churn decomposition on poc4 (ztunnel ON (forensic enrolled), Hubble ON) — 64 conns, Connection: close, 8 s each; daemon=cilium-agent on poc4-worker ===
+  VM load: 25.00 24.80 24.62
+  target     url                                               qps    p50_ms    p99_ms cilium-agent%
+  pod-ip     http://10.0.0.37:8080/                         1134.3      49.9     148.1 10
+  clusterip  http://10.41.47.16/                             952.7      56.3     244.4 10
+  dns-name   http://web.forensic.svc.cluster.local/         1106.7      53.5     135.1 20
+
+### 2026-09-12T00:22:06Z
+$ scripts/bench.sh poc4 pod-ip, ztunnel ON kind-poc4 forensic client 10.0.0.152 5
+=== poc4 pod-ip, ztunnel ON ===
+context=kind-poc4  ns=forensic  client=client  target=10.0.0.152  runs=5  duration=10s
+
+  run 1: 1187 Mbits/sec
+  run 2: 1216 Mbits/sec
+  run 3: 1175 Mbits/sec
+  run 4: 1447 Mbits/sec
+  run 5: 1373 Mbits/sec
+
+  samples : 5
+  sorted  : 1175, 1187, 1216, 1373, 1447
+  median  : 1216 Mbits/sec
+  min/max : 1175 / 1447 Mbits/sec
+  spread  : 22.4%  of median   <-- treat any difference smaller than this as noise
+
+### 2026-09-12T00:22:58Z
+$ [PROOF 3 — the docs' limitation, measured: an L4 CiliumNetworkPolicy on the enrolled namespace (only client may reach web:8080)]
+### 2026-09-12T00:23:03Z
+$ sh -c kubectl --context kind-poc4 -n forensic exec client -- curl -s -o /dev/null --max-time 5 -w "client (allowed by policy) -> web: http %{http_code}\n" http://web.forensic.svc.cluster.local/; kubectl --context kind-poc4 -n forensic exec fortio -- fortio curl -timeout 5s http://web.forensic.svc.cluster.local/ 2>&1 | grep -E "^HTTP/|error|timeout|refused" | head -1 | sed "s/^/fortio (NOT allowed by policy) -> web: /"
+client (allowed by policy) -> web: http 000
+command terminated with exit code 28
+fortio (NOT allowed by policy) -> web: {"ts":1789172594.474084,"level":"warn","msg":"[E] Timeout error (incomplete/invalid response), err=\"read tcp 10.0.2.254:46142->10.41.47.16:80: i/o timeout\", size=0, header_len=0, dest={\"IP\":\"10.41.47.16\",\"Port\":80,\"Zone\":\"\"}, url=\"http://web.forensic.svc.cluster.local/\", thread=0, run=0","src":"std"}
+
+### 2026-09-12T00:23:14Z
+$ sh -c hubble observe -P --kube-context kind-poc4 --since 1m --namespace forensic --verdict DROPPED -o compact 2>/dev/null | tail -3; echo "(drops above, if any)"
+Sep 12 00:23:14.988: forensic/client:38010 (ID:8423) <> forensic/web-6c8cd5c5b6-lzp7n:15008 (ID:51131) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: ACK, PSH)
+Sep 12 00:23:14.988: forensic/client:38010 (ID:8423) <> forensic/web-6c8cd5c5b6-lzp7n:15008 (ID:51131) Policy denied DROPPED (TCP Flags: ACK, PSH)
+Sep 12 00:23:14.988: forensic/client:38010 (ID:8423) <> forensic/web-6c8cd5c5b6-lzp7n:15008 (ID:51131) Policy denied DROPPED (TCP Flags: ACK)
+(drops above, if any)
+
+### 2026-09-12T00:23:15Z
+$ [PROOF 4 — service mesh L7: an HTTP policy (only GET / allowed) on the enrolled namespace]
+### 2026-09-12T00:23:20Z
+$ sh -c kubectl --context kind-poc4 -n forensic exec client -- sh -c "curl -s -o /dev/null --max-time 5 -w \"GET /        -> http %{http_code}\n\" http://web.forensic.svc.cluster.local/; curl -s -o /dev/null --max-time 5 -w \"GET /denied  -> http %{http_code}\n\" http://web.forensic.svc.cluster.local/denied; curl -s -o /dev/null --max-time 5 -X PUT -w \"PUT /        -> http %{http_code}\n\" http://web.forensic.svc.cluster.local/"; echo "(with L7 policy working: 200 / 403 / 403)"
+GET /        -> http 000
+GET /denied  -> http 000
+PUT /        -> http 000
+command terminated with exit code 28
+(with L7 policy working: 200 / 403 / 403)
+
+### 2026-09-12T00:23:31Z
+$ [MEASURE — enrollment OFF (disenrolled, same cluster, same pods): the cost of ztunnel isolated]
+### 2026-09-12T00:23:31Z
+$ kubectl --context kind-poc4 label namespace forensic io.cilium/mtls-enabled-
+namespace/forensic unlabeled
+
+### 2026-09-12T00:23:51Z
+$ sh -c kubectl --context kind-poc4 -n forensic exec client -- curl -s -o /dev/null -w "client -> web after disenrollment: http %{http_code}\n" http://web.forensic.svc.cluster.local/; hubble observe -P --kube-context kind-poc4 --since 20s --namespace forensic -o compact 2>/dev/null | grep -E "client.*web" | tail -1
+E0911 19:23:51.856195   14291 websocket.go:296] Unknown stream id 1, discarding message
+client -> web after disenrollment: http 200
+Sep 12 00:23:51.949: forensic/client:54150 (ID:8423) -> forensic/web-6c8cd5c5b6-s4sxc:8080 (ID:33288) to-endpoint FORWARDED (TCP Flags: ACK)
+
+### 2026-09-12T00:23:52Z
+$ scripts/churn-decompose.sh poc4 ztunnel OFF (disenrolled), Hubble ON
+=== churn decomposition on poc4 (ztunnel OFF (disenrolled), Hubble ON) — 64 conns, Connection: close, 8 s each; daemon=cilium-agent on poc4-worker ===
+  VM load: 21.58 24.77 24.75
+  target     url                                               qps    p50_ms    p99_ms cilium-agent%
+  pod-ip     http://10.0.0.37:8080/                         1166.3      43.5     212.1 20
+  clusterip  http://10.41.47.16/                            1366.7      35.1     197.4 18.2
+  dns-name   http://web.forensic.svc.cluster.local/         1141.8      51.6     135.6 10
+
+### 2026-09-12T00:24:22Z
+$ scripts/bench.sh poc4 pod-ip, ztunnel OFF kind-poc4 forensic client 10.0.0.152 5
+=== poc4 pod-ip, ztunnel OFF ===
+context=kind-poc4  ns=forensic  client=client  target=10.0.0.152  runs=5  duration=10s
+
+  run 1: 4536 Mbits/sec
+  run 2: 4479 Mbits/sec
+  run 3: 4067 Mbits/sec
+  run 4: 4754 Mbits/sec
+  run 5: 4788 Mbits/sec
+
+  samples : 5
+  sorted  : 4067, 4479, 4536, 4754, 4788
+  median  : 4536 Mbits/sec
+  min/max : 4067 / 4788 Mbits/sec
+  spread  : 15.9%  of median   <-- treat any difference smaller than this as noise
+
+### 2026-09-12T00:25:50Z
+$ [TEARDOWN — poc4 was throwaway; the values file, cluster config and this transcript are what remain]
+### 2026-09-12T00:25:50Z
+$ kind delete cluster --name poc4
+Deleting cluster "poc4" ...
+Deleted nodes: ["poc4-control-plane" "poc4-worker" "poc4-worker2"]
+
+### 2026-09-12T00:25:59Z
+$ docker network rm kind-lab
+kind-lab
+
+### 2026-09-12T00:25:59Z
+$ sh -c kind get clusters; docker network ls --format "{{.Name}} {{range .IPAM.Config}}{{.Subnet}}{{end}}" | grep kind
+poc1
+poc2
+poc3
+template parsing error: template: :1:23: executing "" at <.IPAM.Config>: can't evaluate field IPAM in type *network.networkContext
+[exit code: 1]
+
