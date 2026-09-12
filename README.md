@@ -232,6 +232,58 @@ an untested combination.
 | 13 | **ztunnel mTLS** | Cilium 1.20's beta mTLS (Istio ztunnel, HBONE) proven on the wire on a throwaway cluster — and shown to be incompatible with any `cluster.id`, to break L4/L7 policy on enrolled traffic, and to cost 73 % of throughput; **not our standard** |
 | 11 | **kube-proxy vs Cilium, forensic** | A third cluster (`poc3`: kindnet + kube-proxy iptables, its own docker network) and one script on both: 48 vs 11,078 iptables rules at 1,000 Services, ~2× faster programming, conntrack out of the kernel — **and** the default install losing on throughput and churn until three causes were isolated (legacy host routing, VXLAN, Hubble's per-flow CPU) |
 
+## Evidence — screenshots and running pods, per demo
+
+Every demo that runs today carries an **Evidence** section at the end of its README: the Grafana
+dashboards, the Hubble UI and the web UIs as the browser saw them with traffic running, and the
+`kubectl get pods -o wide` of its namespaces in both clusters plus the Cilium command that proves the
+claim. Taken by [`scripts/evidence/capture.js`](scripts/evidence/capture.js) (one Playwright runner,
+one `evidence.json` per demo) and [`scripts/evidence/collect.sh`](scripts/evidence/collect.sh) (one
+table, `scripts/evidence/table.txt`); both re-run in place. Demos whose workload is scaled down,
+paused or blocked by the lab carry a marker file where the images will go and a row in
+[missing-captures.md](missing-captures.md).
+
+| Demo | Evidence |
+|---|---|
+| [01-hubble](demos/01-hubble/README.md#evidence) | 1 capture, pods + Cilium output |
+| [02-l7-policy](demos/02-l7-policy/README.md#evidence) | 2 captures, pods + Cilium output |
+| [03-kube-proxy-free](demos/03-kube-proxy-free/README.md#evidence) | pods + Cilium output |
+| [04-wireguard](demos/04-wireguard/README.md#evidence) | pods + Cilium output |
+| [05-gateway-api](demos/05-gateway-api/README.md#evidence) | 2 captures, pods + Cilium output |
+| [06-perf](demos/06-perf/README.md#evidence) | **captures pending** (see missing-captures.md) |
+| [07-clustermesh](demos/07-clustermesh/README.md#evidence) | 1 capture, pods + Cilium output |
+| [08-certmanager-ca](demos/08-certmanager-ca/README.md#evidence) | pods + Cilium output |
+| [09-routes](demos/09-routes/README.md#evidence) | 3 captures, pods + Cilium output |
+| [10-tracing](demos/10-tracing/README.md#evidence) | pods + Cilium output |
+| [11-kube-proxy-vs-cilium](demos/11-kube-proxy-vs-cilium/README.md#evidence) | **captures pending** (see missing-captures.md) |
+| [13-ztunnel](demos/13-ztunnel/README.md#evidence) | **captures pending** (see missing-captures.md) |
+| [14-tcp-crr-tuning](demos/14-tcp-crr-tuning/README.md#evidence) | **captures pending** (see missing-captures.md) |
+| [15-bank](demos/15-bank/README.md#evidence) | 4 captures, pods + Cilium output |
+| [16-monitoring](demos/16-monitoring/README.md#evidence) | 11 captures, pods + Cilium output |
+| [17-tetragon](demos/17-tetragon/README.md#evidence) | **captures pending** (see missing-captures.md) |
+| [18-obi](demos/18-obi/README.md#evidence) | 2 captures, pods + Cilium output |
+| [19-zero-trust-cell](demos/19-zero-trust-cell/README.md#evidence) | 2 captures, pods + Cilium output |
+| [20-springboot](demos/20-springboot/README.md#evidence) | **captures pending** (see missing-captures.md) |
+| [21-tempo](demos/21-tempo/README.md#evidence) | 8 captures, pods + Cilium output |
+| [22-multicluster-observability](demos/22-multicluster-observability/README.md#evidence) | 9 captures, pods + Cilium output |
+| [23-collector-per-cluster](demos/23-collector-per-cluster/README.md#evidence) | pods + Cilium output |
+| [24-clustermesh-enterprise](demos/24-clustermesh-enterprise/README.md#evidence) | 1 capture, pods + Cilium output |
+| [25-hubble-observer-loki](demos/25-hubble-observer-loki/README.md#evidence) | 8 captures, pods + Cilium output |
+
+## Docker and kind: the limits this lab hit, and what they mean for a real cluster
+
+These are measured, each with its gotcha, not assumed. None of them is a Cilium limit.
+
+| Limit | What it blocked here | On a production-capable cluster |
+|---|---|---|
+| Docker Desktop 4.27.2's kernel has no `CONFIG_SECURITY` (no LSM hooks) — gotcha #60 | **Tetragon** (every agent crash-loops), **OBI's generic tracer** and its Java agent injection | any distribution kernel; fixed in Docker Desktop 4.30 for this laptop |
+| the 6.6.12-linuxkit kernel — demo 06 Part 4 | **netkit**, the **bandwidth manager with BBR**, **BIG TCP** | a 6.7+ kernel with the features compiled in |
+| one VM for seven kind nodes, two Cilium installs, Envoy, the whole observability stack — gotchas #66, #77 | control-plane restarts under load 100–300, the hub Prometheus OOM-killed 51 times, petclinic and poc3 kept scaled down / paused | real nodes with their own memory; the observability hub sized for the sum of its spokes |
+| the Docker VM's DNS upstream unreachable from pods — gotcha #63 | CoreDNS forwarding to 1.1.1.1 / 8.8.8.8 instead | the site resolvers |
+| all node IPs on one docker bridge; LoadBalancer addresses from a slice of it; `/etc/hosts` on the Mac | the only reason the two clusters can mesh; every hostname typed by hand | a subnet plan, an LB pool on a VLAN (L2 or BGP — demo 12 is parked for exactly this), a wildcard DNS record |
+| no second node for the poc2 spoke, one worker | the observer's two replicas land on the same node; the PDB cannot help | anti-affinity that spreads |
+| Hubble UI open source — demo 16 Part 11b | no time range, no flows-per-minute chart, no cluster picker in the UI (enterprise, Timescape) | the same: this lab builds the store with Loki instead (demo 25) |
+
 ## Regenerating the evidence
 
 Every README here quotes captured output, and quoted output goes stale. `scripts/verify.sh` re-runs
