@@ -5,6 +5,27 @@ stock CNI + kube-proxy Kubernetes cluster — measured, not quoted — built fro
 [kind](https://kind.sigs.k8s.io/) on a laptop. (The working directory and the git history still
 carry the lab's original name, `cilium-kind-poc`.)
 
+## Start here — where the kind and Cilium installation lives
+
+Everything is installed by hand and documented one command at a time in **[docs/SETUP.md](docs/SETUP.md)**;
+the files those commands use are in [`clusters/`](clusters/) (the kind cluster definitions) and
+[`cilium/`](cilium/) (the Helm values). In order:
+
+| Step | What | Where |
+|---|---|---|
+| 1 | the toolchain — `brew upgrade kind`, `brew install cilium-cli hubble`, versions verified | [Step 1 — install and verify the toolchain](docs/SETUP.md#step-1--install-and-verify-the-toolchain) |
+| 2 | size the Docker Desktop VM (the whole lab lives in it) | [Step 2 — size the Docker VM, and clear the decks](docs/SETUP.md#step-2--size-the-docker-vm-and-clear-the-decks) |
+| 3 | **create the first kind cluster**: `kind create cluster --config clusters/poc1.yaml` — 3 control planes + 2 workers, `disableDefaultCNI: true`, `kubeProxyMode: none`, node image pinned to `kindest/node:v1.36.4` by digest ([`clusters/poc1.yaml`](clusters/poc1.yaml)) | [Step 3 — create the poc1 cluster](docs/SETUP.md#step-3--create-the-poc1-cluster) |
+| 3.5 | route the docker network from macOS (kind-specific) | [Step 3.5 — route the docker network from macOS](docs/SETUP.md#step-35--route-the-docker-network-from-macos) |
+| 4 | the API server endpoint Cilium must use (the load balancer by DNS name, not IP — a TLS SAN lesson) | [Step 4 — find the API server endpoint Cilium must use](docs/SETUP.md#step-4--find-the-api-server-endpoint-cilium-must-use) |
+| 5 | **install Cilium**: `helm repo add cilium https://helm.cilium.io/` then `helm install cilium cilium/cilium --version 1.20.1 -n kube-system -f cilium/values-poc1.yaml …` — kube-proxy replacement, Hubble with relay mTLS from day one, cluster name/id ([`cilium/values-poc1.yaml`](cilium/values-poc1.yaml)) | [Step 5 — install Cilium](docs/SETUP.md#step-5--install-cilium) |
+| 6 | verify: `cilium status --wait`, `hubble status`, no kube-proxy anywhere | [Step 6 — verify the install](docs/SETUP.md#step-6--verify-the-install) |
+| 8 | LoadBalancer addresses from Cilium's own LB IPAM ([`cilium/lb-ippool.yaml`](cilium/lb-ippool.yaml)) | [Step 8 — LoadBalancer addresses without a cloud (and without MetalLB or kube-vip)](docs/SETUP.md#step-8--loadbalancer-addresses-without-a-cloud-and-without-metallb-or-kube-vip) |
+| 9 | **the second cluster and ClusterMesh**: `clusters/poc2.yaml`, `cilium/values-poc2.yaml`, the shared CA, the join | [Step 9 — the second cluster and ClusterMesh](docs/SETUP.md#step-9--the-second-cluster-and-clustermesh) |
+
+Steps 10 onward install what each demo adds, in the demo's order. There is no Makefile: every step is
+meant to be read and typed, with its output recorded beside it.
+
 ## Scope: kind is the lab, not the design
 
 **kind was used for the Kubernetes clusters; only the initial setup needs kind-specific instructions.**
