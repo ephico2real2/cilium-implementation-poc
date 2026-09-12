@@ -57,3 +57,8 @@ kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cil
 scripts/churn-decompose.sh poc1 "socket LB for pods"
 helm upgrade cilium cilium/cilium -n kube-system --kube-context kind-poc1 --version 1.20.1 -f .tmp/snapshot.yaml && kubectl --context kind-poc1 -n kube-system rollout restart ds/cilium
 ```
+
+## Evidence
+
+**Captures not taken yet** — the tuning runs need a quiet VM (they measure TCP_CRR under load); the numbers are in the transcript. Captures to add: netperf output before/after each sysctl on a VM with headroom. See [`output/screenshots/MISSING-CAPTURE.md`](output/screenshots/MISSING-CAPTURE.md) and [`/missing-captures.md`](../../missing-captures.md).
+
