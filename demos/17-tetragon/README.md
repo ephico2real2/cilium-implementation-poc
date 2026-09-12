@@ -130,3 +130,8 @@ pod-scoped tracing policies neutralised. That is the failure mode of a security 
 - **Docker Desktop's kernel config is Docker's, not linuxkit's** (maintainer, above). Demo 06 proved
   the same for netkit, BBR and BIG TCP: the VM kernel is the ceiling of this lab, and it moves with
   Docker Desktop releases.
+
+## Evidence
+
+**Captures not taken yet** — blocked on this machine: Docker Desktop 4.27.2's kernel has no `CONFIG_SECURITY`, so every Tetragon agent crash-loops (gotcha #60; fixed in Docker Desktop 4.30). Captures to add on a kernel with LSM hooks: `tetra getevents` for a process exec and a policy violation, and the Tetragon Grafana dashboard. See [`output/screenshots/MISSING-CAPTURE.md`](output/screenshots/MISSING-CAPTURE.md) and [`/missing-captures.md`](../../missing-captures.md).
+
