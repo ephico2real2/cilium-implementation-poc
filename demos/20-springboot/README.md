@@ -255,3 +255,7 @@ kubectl --context kind-poc1 apply -f demos/20-springboot/40-monitoring.yaml
 The last row is the honest gap: spans are collected, not stored. A Grafana Tempo instance behind the
 collector is the missing piece for a traces view, and on this VM it is another JVM-sized allocation
 — a follow-up, not a default.
+
+> **Closed in demo 21.** Tempo now sits behind the collector and is a Grafana datasource: Explore →
+> Tempo → Search or TraceQL, or click an exemplar dot on the Hubble L7 dashboard (`reporter=server`).
+> The four ways in, with working links: `demos/21-tempo/README.md` Part 4.

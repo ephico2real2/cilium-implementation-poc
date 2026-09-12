@@ -76,6 +76,7 @@ unchanged, with BGP substituted for L2 in production.
 | ⏳ | Wildcard **name** resolution (dnsmasq, `*.poc.local`) | documented in demo 09 Part 3c, not run (needs sudo) |
 | ⏳ | The **Linux-server** path in NETWORKING_DESIGN §5 | its routing-table shape measured on the Docker VM (a Linux host running dockerd); not yet run on a bare Linux server |
 | ⛔ | netkit, bandwidth manager/BBR, BIG TCP | **cannot run** on the 6.6.12-linuxkit kernel — demo 06 Part 4 proves each; needs a different VM kernel |
+| ✅ | **Traces in Grafana** — Tempo behind the demo 10 collector; Explore → Tempo (Search / TraceQL / by id) or an exemplar dot on the Hubble L7 dashboard; the same trace id at every hop | done — demo 21 Part 4 |
 | ⛔ | Application **spans** from Hubble | not a Cilium 1.20 capability — hubble-otel archived, CFP closed; demo 10 exports flow *events* instead |
 
 **Start with [NETWORKING_DESIGN.md](NETWORKING_DESIGN.md).** It is the addressing plan the whole PoC is
