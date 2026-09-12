@@ -1,0 +1,160 @@
+fullnameOverride: hubble-observer
+
+replicaCount: 1 # Currently only 1 replica is supported
+
+image:
+  repository: quay.io/cilium/hubble
+  tag: v1.16.4
+  pullPolicy: IfNotPresent
+
+verdictFilter: DROPPED # Available verdicts: DROPPED, FORWARDED, AUDIT, REDIRECTED, ERROR, TRACED, TRANSLATED, none (to disable filtering)
+excludeUnsupportedL3Protocols: true # Exclude unsupported L3 protocols from the output (Drop reason: UNSUPPORTED_L3_PROTOCOL)
+
+hubbleRelay:
+  serviceName: hubble-relay
+  port: "" # Defaults to 443 when tls.enabled is true, otherwise 80
+  namespace: kube-system
+  clusterDomain: cluster.local
+  # TLS/mTLS configuration for the connection to Hubble Relay.
+  # Requires TLS to be enabled on the relay server in Cilium
+  # (hubble.relay.tls.server.enabled=true).
+  # The referenced secrets and ConfigMaps must exist in the namespace the
+  # hubble-observer is installed into. See the README for details.
+  tls:
+    enabled: false
+    # Server name verified against the relay server certificate.
+    # Cilium issues that certificate for *.hubble-relay.cilium.io.
+    serverName: hubble.hubble-relay.cilium.io
+    # Skip verification of the relay server certificate. Not recommended.
+    insecureSkipVerify: false
+    mountPath: /var/lib/hubble-observer/tls
+    # CA that signed the relay server certificate. Provide it either via a
+    # secret or a ConfigMap, not both.
+    ca:
+      secretName: ""
+      configMapName: ""
+      key: ca.crt
+    # Client certificate presented to Hubble Relay. Required when the relay
+    # enforces mTLS (hubble.relay.tls.server.mtls=true).
+    # secretName may point to the same secret as ca.secretName.
+    client:
+      enabled: false
+      secretName: ""
+      certKey: tls.crt
+      keyKey: tls.key
+
+resources: {}
+#  requests:
+#    cpu: 100m
+#    memory: 128Mi
+#  limits:
+#    cpu: 500m
+#    memory: 256Mi
+
+livenessProbe:
+  enabled: true
+  failureThreshold: 12
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 10
+readinessProbe:
+  enabled: true
+  failureThreshold: 3
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 5
+startupProbe:
+  enabled: true
+  failureThreshold: 20
+  initialDelaySeconds: 10
+  periodSeconds: 3
+  successThreshold: 1
+  timeoutSeconds: 1
+
+securityContext: {}
+#  allowPrivilegeEscalation: false
+#  capabilities:
+#    drop:
+#      - ALL
+#  privileged: false
+#  readOnlyRootFilesystem: true
+#  runAsNonRoot: false
+#  seccompProfile:
+#    type: RuntimeDefault
+
+podSecurityContext: {}
+
+grafanaDashboard:
+  enabled: true
+  folder: "Cilium"
+  labels:
+    app.kubernetes.io/name: cilium-flows-hubble-observer
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/part-of: hubble-observer
+    app.kubernetes.io/managed-by: Helm
+    app: grafana
+  instanceSelector:
+    matchLabels:
+      grafanaInstance: main
+
+# CiliumNetworkPolicy configuration
+ciliumNetworkPolicy:
+  enabled: false
+  cf2cnp:
+    # Port for cf2cnp service
+    port: "8080"
+    # Entities allowed to access cf2cnp via ingress
+    ingressFromEntities:
+      - cluster
+      - world
+
+# Additional manifests to be included
+extraManifests: []
+# Example:
+# extraManifests:
+#   - apiVersion: v1
+#     kind: ConfigMap
+#     metadata:
+#       name: my-config
+#     data:
+#       key: value
+
+# cf2cnp (Cilium Flow to CiliumNetworkPolicy) dependency configuration
+# Additional cf2cnp values can be configured here
+# See https://github.com/onzack/cf2cnp/tree/main/helm/cf2cnp for available values 
+cf2cnp:
+  enabled: false
+  fullnameOverride: hubble-observer-cf2cnp
+  
+  resources: {}
+
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: cf2cnp.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+    #  - secretName: cf2cnp-tls
+    #    hosts:
+    #      - cf2cnp.local
+
+  httpRoute:
+    enabled: false
+    annotations: {}
+    parentRefs: []
+    #  - name: my-gateway
+    #    namespace: gateway-system
+    #    sectionName: https
+    hostnames:
+      - cf2cnp.local
+    paths:
+      - path: /
+        pathType: PathPrefix
+
+  extraManifests: []
+

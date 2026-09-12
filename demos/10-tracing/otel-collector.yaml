@@ -57,6 +57,16 @@ data:
           - type: move
             from: attributes.node_name
             to: attributes["k8s.node.name"]
+      # Added in demo 25: the hubble-observer pod's stdout (one JSON flow per line, demo 25) read from the kubelet's
+      # pod log directory on each node — only that pod's files, so the DaemonSet does not become a general log
+      # shipper. The container operator turns the path into k8s.namespace.name / k8s.container.name / k8s.pod.name.
+      filelog/hubble-observer:
+        include: [/var/log/pods/hubble-observer_hubble-observer-*/hubble-observer/*.log]
+        include_file_path: true
+        start_at: end
+        storage: file_storage
+        operators:
+          - type: container
       # Added in demo 18: OBI (eBPF instrumentation) on both clusters sends its spans here over OTLP.
       # poc2 reaches this collector through the global Service in demos/18-obi/20-collector-service.yaml.
       otlp:
@@ -77,9 +87,22 @@ data:
           - key: service.name
             value: hubble-flow-export
             action: upsert
+      # Added in demo 25: the labels the grafana.com 23862 dashboard selects on — {namespace="…", container="hubble-observer"}
+      # (Promtail's names) — plus the cluster, as resource attributes; Loki's otlp_config indexes exactly these.
+      resource/loki-labels:
+        attributes:
+          - {key: namespace, from_attribute: k8s.namespace.name, action: insert}
+          - {key: container, from_attribute: k8s.container.name, action: insert}
+          - {key: k8s.cluster.name, value: poc1, action: insert}
     exporters:
       debug:
         verbosity: detailed
+      # Added in demo 25: Loki's native OTLP endpoint (send-data/otel: "you must use the otlphttp exporter"), same
+      # persistent queue as Tempo's.
+      otlphttp/loki:
+        endpoint: http://loki.monitoring.svc.cluster.local:3100/otlp
+        sending_queue: {storage: file_storage, queue_size: 5000}
+        retry_on_failure: {max_elapsed_time: 0}
       # Added in demo 21: traces also go to Grafana Tempo (single binary, monitoring namespace), OTLP/gRPC.
       otlp/tempo:
         endpoint: tempo.monitoring.svc.cluster.local:4317
@@ -97,6 +120,10 @@ data:
           receivers: [filelog]
           processors: [resource, batch]
           exporters: [debug]
+        logs/hubble-observer:                 # demo 25: observer stdout → Loki (not the debug exporter: 5,000 lines/min)
+          receivers: [filelog/hubble-observer]
+          processors: [resource/loki-labels, batch]
+          exporters: [otlphttp/loki]
         # Added in demo 18. No `resource` processor here: it would overwrite OBI's service.name
         # (bank/web, bank/api, …) with hubble-flow-export.
         traces:
@@ -136,6 +163,7 @@ spec:
             - {name: config, mountPath: /etc/otelcol, readOnly: true}
             - {name: hubble-export, mountPath: /var/run/cilium/hubble, readOnly: true}
             - {name: checkpoints, mountPath: /var/lib/otelcol}
+            - {name: pod-logs, mountPath: /var/log/pods, readOnly: true}   # demo 25
       volumes:
         - name: config
           configMap: {name: otel-collector}
@@ -145,3 +173,5 @@ spec:
           hostPath: {path: /var/run/cilium/hubble, type: DirectoryOrCreate}
         - name: checkpoints
           hostPath: {path: /var/lib/otelcol, type: DirectoryOrCreate}
+        - name: pod-logs                       # demo 25: the kubelet's pod log directory (symlink targets live here too)
+          hostPath: {path: /var/log/pods, type: Directory}

@@ -1,0 +1,2 @@
+21319b7241624fcc562c0ec533e2fcadf2a8fcb3 2026-08-21 16:07:59 +0200
+https://github.com/onzack/hubble-observer (Apache-2.0), helm/hubble-observer at the commit above, vendored unchanged on 2026-09-12 because the published 2.5.0 chart's probes dial the relay's short name (README Part 2)

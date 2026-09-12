@@ -66,6 +66,8 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [74](#74) | Bank images are distroless: `kubectl exec … sh` fails; use a debug pod in the namespace (`egress-test.sh poc2`) | tooling |
+| [73](#73) | hubble-observer 2.5.0 probes dial the relay's short name → killed every minute outside kube-system; main branch fixes it | Hubble / charts |
 | [72](#72) | A values change that replaces the clustermesh-apiserver pod (here: listing the local cluster) is a 3.5-minute mesh outage in KVStoreMesh mode | ClusterMesh |
 | [71](#71) | Hubble on poc1 shows 5/7 nodes: the clusters have different Cilium CAs, poc2's Hubble certs are untrusted | ClusterMesh / Hubble |
 | [70](#70) | A per-cluster collector Service left global after poc2 got backends — seven backends, wrong cluster stamp; global annotations are for app HA | ClusterMesh / tracing |
@@ -1785,6 +1787,39 @@ touching that Deployment goes in a window. At install time the local entry is ha
 
 ---
 
+## <a name="73"></a>73. hubble-observer 2.5.0: the probes dial the relay's short name — the container is killed every minute outside kube-system
+
+**Symptom.** Demo 25: `hubble-observer` pod `0/1 Running`, restarts climbing, `helm install --wait` failing
+with `context deadline exceeded`; events: `Startup probe failed: failed to connect to 'hubble-relay:80':
+… lookup hubble-relay on 10.11.0.10:53: no such host`. Meanwhile `hubble status --server
+hubble-relay.kube-system.svc.cluster.local:80` from inside the same pod: `Connected Nodes: 7/7`.
+
+**Cause.** The published chart's three exec probes use `$(HUBBLE_RELAY_HOST):$(HUBBLE_RELAY_PORT)` — the
+Service's short name — while the observe command uses the FQDN. A short name resolves only from the
+relay's own namespace. The main branch (2.6.0-alpha) builds one FQDN for both.
+
+**Fix.** Install the main-branch chart (vendored at `demos/25-hubble-observer-loki/chart`, also OCI tag
+`2.6.0-alpha`); `chart-prep.sh` records the versions and default values first, every time.
+
+→ demo 25, Part 2b
+
+---
+
+## <a name="74"></a>74. The bank images are distroless — `kubectl exec … sh` has nothing to run
+
+**Symptom.** Demo 25: `exec: "sh": executable file not found in $PATH` from `kubectl exec` into a
+poc2 `accounts` pod, trying to cause a denied egress.
+
+**Cause.** The bank's Go images ship no shell (by design, demo 15). Every earlier probe in this repo
+used a debug pod (`kubectl run … --image=alpine`) in the namespace, which the demo 19 cell then
+governs like any other pod — `egress-test.sh` takes the cluster as its argument (`egress-test.sh poc2`).
+
+**Fix.** The debug pod; recorded as a second attempt in the demo 25 transcript.
+
+→ demo 25, Part 3b
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1820,6 +1855,8 @@ Most of these share a shape: **something reported success while not working.**
 - the cluster's own gateway had the other cluster's gateway as a backend — the bridge annotation outlived its reason (#70)
 - Hubble saw seven nodes and could talk to five — two CAs, one mesh (#71)
 - a three-line TLS change replaced the mesh's etcd — read what the upgrade renders (#72)
+- the pod worked and the probe killed it — two different names for one Service (#73)
+- the pod had no shell to fail in (#74)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

@@ -1,0 +1,43 @@
+# Demo 25 — our values for grafana/loki 7.3.0 (Loki 3.6.12), written FROM default-values/loki-7.3.0.yaml (chart-prep.sh step 3).
+# Every key below is a deliberate change from that default, with the default in the comment; nothing else is overridden.
+# Loki is the open-source flow STORE (what Isovalent's Timescape is behind the enterprise UI). Namespace monitoring, poc1.
+#   helm install loki grafana/loki --version 7.3.0 -n monitoring --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-loki.yaml
+deploymentMode: SingleBinary             # default SimpleScalable (read/write/backend pools): one process is right for a 24 h PoC store
+loki:
+  auth_enabled: false                    # default true (multi-tenant, X-Scope-OrgID on every request): one tenant here
+  commonConfig: {replication_factor: 1}  # default 3: one replica, one copy
+  storage: {type: filesystem}            # default s3: the pod's PVC, no object store (the chart's MinIO is deprecated, removed 2026-10-31)
+  schemaConfig:                          # not in defaults (the chart requires one): the current schema, tsdb v13 on the filesystem
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index: {prefix: loki_index_, period: 24h}
+  compactor:                             # not in defaults: retention needs the compactor to enforce it on a filesystem store
+    retention_enabled: true
+    delete_request_store: filesystem
+  limits_config:                         # not in defaults:
+    retention_period: 24h                #   a day of flows is the budget on this VM
+    allow_structured_metadata: true      #   required for OTLP ingestion (3.x default true; stated so it is visible)
+    otlp_config:                         #   the dashboard (grafana.com 23862) selects {namespace="…", container="hubble-observer"} —
+      resource_attributes:               #   Promtail's label names. The collector sets resource attributes with exactly these names
+        attributes_config:               #   (demo 10 file, resource/loki-labels); here they become index labels. k8s.cluster.name is
+          - action: index_label          #   stored as k8s_cluster_name (Loki: dots → underscores).
+            attributes: [namespace, container, k8s.cluster.name]
+singleBinary:
+  replicas: 1                            # default 0 (SimpleScalable runs none): the one Loki process
+  persistence: {enabled: true, size: 2Gi}   # enabled: default; size: default 10Gi → 2Gi (24 h of DROPPED flows is megabytes)
+  resources:                             # not in defaults (unbounded): bounded for the VM
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+read: {replicas: 0}                      # default 3 — the SimpleScalable pools, off
+write: {replicas: 0}                     # default 3
+backend: {replicas: 0}                   # default 3
+gateway: {enabled: false}                # default true (an nginx in front): Grafana and the collector talk to the loki Service directly
+minio: {enabled: false}                  # default false (restated: the deprecated subchart stays off)
+chunksCache: {enabled: false}            # default true (a memcached, 1 GiB request): not on this VM
+resultsCache: {enabled: false}           # default true (a memcached): not on this VM
+lokiCanary: {enabled: false}             # default true (a DaemonSet writing canary logs): no
+test: {enabled: false}                   # default true (a helm test pod that needs the canary): no
+monitoring: {selfMonitoring: {enabled: false, grafanaAgent: {installOperator: false}}}   # defaults false (restated)

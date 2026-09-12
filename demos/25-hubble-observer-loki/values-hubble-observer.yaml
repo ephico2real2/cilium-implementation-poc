@@ -1,0 +1,40 @@
+# Demo 25 — our values for onzack/hubble-observer, written FROM default-values/hubble-observer-2.6.0-alpha.yaml (chart-prep.sh).
+# The chart installed is the vendored copy at chart/hubble-observer (git main, commit in chart/UPSTREAM-COMMIT.txt, also
+# published as OCI tag 2.6.0-alpha): the published 2.5.0's three probes dial the relay's SHORT name and kill a working
+# container every minute outside kube-system (README Part 2). Keys equal to the default are restated where a reader
+# would look for them and marked "(default)"; every other key states what it changes and why.
+# The observer is one pod running
+#   hubble observe flows --verdict DROPPED --follow --ip-translation --server hubble-relay.kube-system.svc.cluster.local:80 -o json
+# against poc1's relay, one JSON flow per line on stdout. Installed in poc1 ONLY: since demo 24 poc1's relay streams all 7
+# nodes of the mesh and every flow carries source.cluster_name / destination.cluster_name.
+#   helm install hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer \
+#     -n hubble-observer --create-namespace --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml
+verdictFilter: DROPPED                   # (default) the dashboard's purpose; `none` streams every flow (≈5,000 lines/min here)
+excludeUnsupportedL3Protocols: true      # (default) drops with reason UNSUPPORTED_L3_PROTOCOL are noise
+hubbleRelay:
+  serviceName: hubble-relay              # (default)
+  namespace: kube-system                 # (default)
+  port: "80"                             # default "" (→ 443 with TLS, 80 without): stated, because our relay is plaintext (below)
+  tls:
+    enabled: false                       # (default) our relay runs disable-server-tls: true (measured); the README's TLS/mTLS
+                                         # section applies when hubble.relay.tls.server.enabled=true — README Part 5 shows the
+                                         # cert-manager way to do it on this stack (a client cert from ca-issuer, no secret copying)
+resources:                               # not in defaults (unbounded): bounded for the VM
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {memory: 256Mi}
+grafanaDashboard:
+  enabled: false                         # default true: it is a GrafanaDashboard CR for the Grafana OPERATOR, which this stack does
+                                         # not run; the same JSON is provisioned as a ConfigMap for the demo 16 sidecar (dashboard-from-file.sh)
+ciliumNetworkPolicy:
+  enabled: false                         # (default) the chart's policy allows egress to the relay only — no DNS rule — so with it on
+                                         # the pod cannot resolve hubble-relay.kube-system.svc (README Part 5, exercise)
+cf2cnp:                                  # the README's "Configuration" section: CF2CNP turns observed flows into CiliumNetworkPolicies
+  enabled: true                          # default false: on — the dashboard links to it (POST /generate + a small UI). Subchart 0.4.0,
+                                         # image ghcr.io/onzack/cf2cnp:0.3.1, defaults in default-values/cf2cnp-0.4.0.yaml
+  resources: {requests: {cpu: 20m, memory: 32Mi}, limits: {memory: 128Mi}}   # not in defaults: bounded
+  ingress: {enabled: false}              # (default) no Ingress controller here
+  httpRoute:
+    enabled: false                       # (default) our Gateway (demo 09) admits HTTPRoutes from its OWN namespace only
+                                         # (allowedRoutes: Same), so the route lives in `routes` with a ReferenceGrant here:
+                                         # 20-cf2cnp-route.yaml, hostname cf2cnp.poc.local. The dashboard's CF2CNP URL is set by
+                                         # dashboard-from-file.sh (the chart would have taken it from httpRoute.hostnames[0]).

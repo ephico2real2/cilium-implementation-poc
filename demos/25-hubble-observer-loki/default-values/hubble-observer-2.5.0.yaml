@@ -1,0 +1,133 @@
+fullnameOverride: hubble-observer
+
+replicaCount: 1 # Currently only 1 replica is supported
+
+image:
+  repository: quay.io/cilium/hubble
+  tag: v1.16.4
+  pullPolicy: IfNotPresent
+
+verdictFilter: DROPPED # Available verdicts: DROPPED, FORWARDED, AUDIT, REDIRECTED, ERROR, TRACED, TRANSLATED, none (to disable filtering)
+excludeUnsupportedL3Protocols: true # Exclude unsupported L3 protocols from the output (Drop reason: UNSUPPORTED_L3_PROTOCOL)
+
+hubbleRelay:
+  serviceName: hubble-relay
+  port: "80"
+  namespace: kube-system
+  clusterDomain: cluster.local
+
+resources: {}
+#  requests:
+#    cpu: 100m
+#    memory: 128Mi
+#  limits:
+#    cpu: 500m
+#    memory: 256Mi
+
+livenessProbe:
+  enabled: true
+  failureThreshold: 12
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 10
+readinessProbe:
+  enabled: true
+  failureThreshold: 3
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 5
+startupProbe:
+  enabled: true
+  failureThreshold: 20
+  initialDelaySeconds: 10
+  periodSeconds: 3
+  successThreshold: 1
+  timeoutSeconds: 1
+
+securityContext: {}
+#  allowPrivilegeEscalation: false
+#  capabilities:
+#    drop:
+#      - ALL
+#  privileged: false
+#  readOnlyRootFilesystem: true
+#  runAsNonRoot: false
+#  seccompProfile:
+#    type: RuntimeDefault
+
+podSecurityContext: {}
+
+grafanaDashboard:
+  enabled: true
+  folder: "Cilium"
+  labels:
+    app.kubernetes.io/name: cilium-flows-hubble-observer
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/part-of: hubble-observer
+    app.kubernetes.io/managed-by: Helm
+    app: grafana
+  instanceSelector:
+    matchLabels:
+      grafanaInstance: main
+
+# CiliumNetworkPolicy configuration
+ciliumNetworkPolicy:
+  enabled: false
+  cf2cnp:
+    # Port for cf2cnp service
+    port: "8080"
+    # Entities allowed to access cf2cnp via ingress
+    ingressFromEntities:
+      - cluster
+      - world
+
+# Additional manifests to be included
+extraManifests: []
+# Example:
+# extraManifests:
+#   - apiVersion: v1
+#     kind: ConfigMap
+#     metadata:
+#       name: my-config
+#     data:
+#       key: value
+
+# cf2cnp (Cilium Flow to CiliumNetworkPolicy) dependency configuration
+# Additional cf2cnp values can be configured here
+# See https://github.com/onzack/cf2cnp/tree/main/helm/cf2cnp for available values 
+cf2cnp:
+  enabled: false
+  fullnameOverride: hubble-observer-cf2cnp
+  
+  resources: {}
+
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: cf2cnp.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+    #  - secretName: cf2cnp-tls
+    #    hosts:
+    #      - cf2cnp.local
+
+  httpRoute:
+    enabled: false
+    annotations: {}
+    parentRefs: []
+    #  - name: my-gateway
+    #    namespace: gateway-system
+    #    sectionName: https
+    hostnames:
+      - cf2cnp.local
+    paths:
+      - path: /
+        pathType: PathPrefix
+
+  extraManifests: []
+

@@ -1,0 +1,206 @@
+### Part 1 — Loki, single binary, in monitoring (poc1)
+### 2026-09-12T14:35:15Z
+$ bash -c docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -- sh -c "free -m | awk \"/Mem:/ {print \\\"VM before: available \\\" \\\$7 \\\" MB\\\"}\""; helm install loki grafana/loki --version 7.3.0 -n monitoring --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-loki.yaml --wait --timeout 5m 2>&1 | grep -E "STATUS|REVISION|rror|Error" ; kubectl --context kind-poc1 -n monitoring get pods -l app.kubernetes.io/name=loki -o wide --no-headers | awk "{print \"  \"\$1, \$2, \$3, \$7}"; kubectl --context kind-poc1 -n monitoring get svc -l app.kubernetes.io/name=loki --no-headers | awk "{print \"  svc \"\$1, \$3, \$5}"; echo "ready: $(kubectl --context kind-poc1 get --raw /api/v1/namespaces/monitoring/services/loki:3100/proxy/ready 2>&1 | head -1)"
+VM before: available 1720 MB
+STATUS: deployed
+REVISION: 1
+  loki-0 2/2 Running poc1-worker2
+  svc loki 10.11.104.57 3100/TCP,9095/TCP
+  svc loki-headless None 3100/TCP
+  svc loki-memberlist None 7946/TCP
+ready: ready
+
+### Part 2 — hubble-observer in poc1 (chart 2.5.0), against the relay that sees all 7 nodes
+### 2026-09-12T14:36:21Z
+$ bash -c helm install hubble-observer oci://ghcr.io/onzack/helm-charts/hubble-observer --version 2.5.0 -n hubble-observer --create-namespace --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --wait --timeout 3m 2>&1 | grep -E "STATUS|REVISION|rror|Error|Pulled"; kubectl --context kind-poc1 -n hubble-observer get pods -o wide --no-headers | awk "{print \"  \"\$1, \$2, \$3, \$7}"; echo "the command it runs:"; kubectl --context kind-poc1 -n hubble-observer get deploy hubble-observer -o jsonpath="{.spec.template.spec.containers[0].args[0]}{\"\n\"}" | sed "s/^/  /"; sleep 20; echo "first lines on stdout (one JSON flow per line, DROPPED only):"; kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer --tail=3 2>/dev/null | cut -c1-260 | sed "s/^/  /"; echo "objects the chart made: $(kubectl --context kind-poc1 -n hubble-observer get all,cnp -o name 2>/dev/null | tr "\n" " ")"
+Pulled: ghcr.io/onzack/helm-charts/hubble-observer:2.5.0
+Error: INSTALLATION FAILED: client rate limiter Wait returned an error: context deadline exceeded
+  hubble-observer-796fbb7868-kmmkq 0/1 Running 3m1s
+the command it runs:
+  hubble observe flows --verdict DROPPED --not --drop-reason-desc 'UNSUPPORTED_L3_PROTOCOL' --follow --ip-translation --server $HUBBLE_RELAY_HOST.kube-system.svc.cluster.local:$HUBBLE_RELAY_PORT -o json > /proc/1/fd/1
+first lines on stdout (one JSON flow per line, DROPPED only):
+objects the chart made: pod/hubble-observer-796fbb7868-kmmkq deployment.apps/hubble-observer replicaset.apps/hubble-observer-796fbb7868 
+
+### Part 2b — the published 2.5.0 chart's probes dial the relay's short name (no such host outside kube-system, container killed every 60 s); reinstalled from the vendored main-branch chart, whose probes use the FQDN
+### 2026-09-12T14:42:40Z
+$ bash -c kubectl --context kind-poc1 -n hubble-observer get events --field-selector reason=Unhealthy -o custom-columns="AT:.lastTimestamp,MSG:.message" --no-headers | tail -1 | cut -c1-200; helm uninstall hubble-observer -n hubble-observer --kube-context kind-poc1 2>&1 | tail -1; helm install hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer -n hubble-observer --create-namespace --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --wait --timeout 4m 2>&1 | grep -E "STATUS|REVISION|rror|Error"; kubectl --context kind-poc1 -n hubble-observer get pods -o wide --no-headers | awk "{print \"  \"\$1, \$2, \$3, \$4, \$7}"; echo "probe target now: $(kubectl --context kind-poc1 -n hubble-observer get deploy hubble-observer -o jsonpath="{.spec.template.spec.containers[0].startupProbe.exec.command[3]}")"; kubectl --context kind-poc1 apply -f demos/25-hubble-observer-loki/20-cf2cnp-route.yaml; sleep 5; kubectl --context kind-poc1 -n routes get httproute cf2cnp -o custom-columns="ROUTE:.metadata.name,HOSTS:.spec.hostnames,ACCEPTED:.status.parents[0].conditions[?(@.type==\"Accepted\")].status,RESOLVED:.status.parents[0].conditions[?(@.type==\"ResolvedRefs\")].status" --no-headers | sed "s/^/  /"; demos/25-hubble-observer-loki/hosts-entries.sh
+
+release "hubble-observer" uninstalled
+### Part 0 — chart-prep.sh: sources, versions, default values pulled, our values diffed against them
+### 2026-09-12T14:43:38Z
+$ demos/25-hubble-observer-loki/chart-prep.sh
+== 1. sources ==
+  grafana  https://grafana.github.io/helm-charts (Helm repo: Loki)
+  ghcr.io/onzack/helm-charts (OCI registry: hubble-observer, cf2cnp — pulled by reference, no repo add)
+== 2. versions available ==
+  grafana/loki (newest 5):
+    chart 7.3.0    app 3.6.12
+    chart 7.2.0    app 3.6.11
+    chart 7.1.0    app 3.6.8
+    chart 7.0.0    app 3.6.7
+    chart 6.55.0   app 3.6.7
+  oci://ghcr.io/onzack/helm-charts/hubble-observer tags: 0.6.1 0.6.2 0.6.3 0.7.0 1.1.1 1.1.2 1.1.3 1.1.4 1.2.0 1.2.1 1.2.2 1.2.3 1.2.4 1.3.0 1.3.1 2.0.0 2.1.0 2.1.1 2.1.2 2.2.0 2.2.1 2.3.0 2.4.1 2.4.2 2.5.0 2.6.0-alpha
+  oci://ghcr.io/onzack/helm-charts/cf2cnp tags: 0.1.0 0.3.1 0.4.0
+  chart/hubble-observer (vendored from git main, see chart/UPSTREAM-COMMIT.txt): version 2.6.0-alpha, appVersion "1.16.4"
+== 3. default values of the versions we use ==
+  default-values/loki-7.3.0.yaml (4441 lines)
+  default-values/hubble-observer-2.5.0.yaml (133 lines) — the published chart, NOT used (probe bug, README Part 2)
+  default-values/hubble-observer-2.6.0-alpha.yaml (160 lines) — the vendored chart we install
+  default-values/cf2cnp-0.4.0.yaml (116 lines) — the subchart (values under cf2cnp: in ours)
+  what 2.5.0 and main differ in (values keys): none
+== 4. our values vs the defaults — every top-level key we set, and its default ==
+  values-loki.yaml vs default-values/loki-7.3.0.yaml: 27 keys set
+    ≠ deploymentMode: 'SingleBinary'   (default: 'SimpleScalable')
+    ≠ loki.auth_enabled: False   (default: True)
+    ≠ loki.commonConfig.replication_factor: 1   (default: 3)
+    ≠ loki.storage.type: 'filesystem'   (default: 's3')
+    ≠ loki.schemaConfig.configs: [{'from': '2024-04-01', 'store': 'tsdb', 'object_store': 'filesystem', 'schema': 'v13', 'index': {'prefix': 'loki_index_', 'period': '24h'}}]   (default: '<not in defaults>')
+    ≠ loki.compactor.retention_enabled: True   (default: '<not in defaults>')
+    ≠ loki.compactor.delete_request_store: 'filesystem'   (default: '<not in defaults>')
+    ≠ loki.limits_config.retention_period: '24h'   (default: '<not in defaults>')
+    ≠ loki.limits_config.allow_structured_metadata: True   (default: '<not in defaults>')
+    ≠ loki.limits_config.otlp_config.resource_attributes.attributes_config: [{'action': 'index_label', 'attributes': ['namespace', 'container', 'k8s.cluster.name']}]   (default: '<not in defaults>')
+    ≠ singleBinary.replicas: 1   (default: 0)
+    = singleBinary.persistence.enabled: True   (default: True)
+    ≠ singleBinary.persistence.size: '2Gi'   (default: '10Gi')
+    ≠ singleBinary.resources.requests.cpu: '100m'   (default: '<not in defaults>')
+    ≠ singleBinary.resources.requests.memory: '256Mi'   (default: '<not in defaults>')
+    ≠ singleBinary.resources.limits.memory: '512Mi'   (default: '<not in defaults>')
+    ≠ read.replicas: 0   (default: 3)
+    ≠ write.replicas: 0   (default: 3)
+    ≠ backend.replicas: 0   (default: 3)
+    ≠ gateway.enabled: False   (default: True)
+    = minio.enabled: False   (default: False)
+    ≠ chunksCache.enabled: False   (default: True)
+    ≠ resultsCache.enabled: False   (default: True)
+    ≠ lokiCanary.enabled: False   (default: True)
+    ≠ test.enabled: False   (default: True)
+    = monitoring.selfMonitoring.enabled: False   (default: False)
+    = monitoring.selfMonitoring.grafanaAgent.installOperator: False   (default: False)
+  values-hubble-observer.yaml vs default-values/hubble-observer-2.6.0-alpha.yaml: 17 keys set
+    = verdictFilter: 'DROPPED'   (default: 'DROPPED')
+    = excludeUnsupportedL3Protocols: True   (default: True)
+    = hubbleRelay.serviceName: 'hubble-relay'   (default: 'hubble-relay')
+    = hubbleRelay.namespace: 'kube-system'   (default: 'kube-system')
+    ≠ hubbleRelay.port: '80'   (default: '')
+    = hubbleRelay.tls.enabled: False   (default: False)
+    ≠ resources.requests.cpu: '50m'   (default: '<not in defaults>')
+    ≠ resources.requests.memory: '64Mi'   (default: '<not in defaults>')
+    ≠ resources.limits.memory: '256Mi'   (default: '<not in defaults>')
+    ≠ grafanaDashboard.enabled: False   (default: True)
+    = ciliumNetworkPolicy.enabled: False   (default: False)
+    ≠ cf2cnp.enabled: True   (default: False)
+    ≠ cf2cnp.resources.requests.cpu: '20m'   (default: '<not in defaults>')
+    ≠ cf2cnp.resources.requests.memory: '32Mi'   (default: '<not in defaults>')
+    ≠ cf2cnp.resources.limits.memory: '128Mi'   (default: '<not in defaults>')
+    = cf2cnp.ingress.enabled: False   (default: False)
+    = cf2cnp.httpRoute.enabled: False   (default: False)
+
+### Part 2b — the published 2.5.0 chart's probes dial the relay's short name (no such host outside kube-system, container killed every 60 s); reinstalled from the vendored main-branch chart, whose probes use the FQDN; cf2cnp on, behind the demo 09 Gateway
+### 2026-09-12T14:45:04Z
+$ bash -c kubectl --context kind-poc1 -n hubble-observer get events --field-selector reason=Unhealthy -o custom-columns="AT:.lastTimestamp,MSG:.message" --no-headers | tail -1 | cut -c1-200; helm uninstall hubble-observer -n hubble-observer --kube-context kind-poc1 2>&1 | tail -1; helm install hubble-observer demos/25-hubble-observer-loki/chart/hubble-observer -n hubble-observer --create-namespace --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --wait --timeout 4m 2>&1 | grep -E "STATUS|REVISION|rror|Error"; kubectl --context kind-poc1 -n hubble-observer get pods -o wide --no-headers | awk "{print \"  \"\$1, \$2, \$3, \$4, \$7}"; echo "probe target now: $(kubectl --context kind-poc1 -n hubble-observer get deploy hubble-observer -o jsonpath="{.spec.template.spec.containers[0].startupProbe.exec.command[3]}")"; kubectl --context kind-poc1 apply -f demos/25-hubble-observer-loki/20-cf2cnp-route.yaml; sleep 5; kubectl --context kind-poc1 -n routes get httproute cf2cnp -o custom-columns="ROUTE:.metadata.name,HOSTS:.spec.hostnames,ACCEPTED:.status.parents[0].conditions[?(@.type==\"Accepted\")].status,RESOLVED:.status.parents[0].conditions[?(@.type==\"ResolvedRefs\")].status" --no-headers | sed "s/^/  /"; demos/25-hubble-observer-loki/hosts-entries.sh
+
+release "hubble-observer" uninstalled
+STATUS: deployed
+REVISION: 1
+  hubble-observer-578ffb5c88-6h69c 1/1 Running 0 poc1-worker2
+  hubble-observer-cf2cnp-7d6576479c-jh4n7 1/1 Running 0 poc1-worker2
+probe target now: hubble-relay.kube-system.svc.cluster.local:80
+referencegrant.gateway.networking.k8s.io/allow-routes-to-cf2cnp created
+httproute.gateway.networking.k8s.io/cf2cnp created
+  cf2cnp   [cf2cnp.poc.local]   True   True
+# ---- cilium-kind-poc hubble-observer (generated 2026-09-12T14:45Z by demos/25-hubble-observer-loki/hosts-entries.sh) ----
+172.18.255.240  cf2cnp.poc.local
+# ---- end cilium-kind-poc hubble-observer ----
+
+### Part 3 — the demo 10 collector ships the observer's stdout to Loki; drops generated with the demo 19 cell probe
+### 2026-09-12T14:45:31Z
+$ bash -c kubectl --context kind-poc1 apply -f demos/10-tracing/otel-collector.yaml | grep -v unchanged; kubectl --context kind-poc1 -n otel rollout restart ds/otel-collector >/dev/null; kubectl --context kind-poc1 -n otel rollout status ds/otel-collector --timeout=4m | tail -1; echo "collector log (the observer file found, the Loki exporter started):"; kubectl --context kind-poc1 -n otel logs ds/otel-collector --since=2m 2>/dev/null | grep -i "hubble-observer\|otlphttp/loki\|Started watching\|error" | head -4 | cut -c1-200 | sed "s/^/  /"
+configmap/otel-collector configured
+daemonset.apps/otel-collector configured
+daemon set "otel-collector" successfully rolled out
+collector log (the observer file found, the Loki exporter started):
+  2026-09-12T14:45:39.024Z	warn	builders/builders.go:40	"otlphttp" alias is deprecated; use "otlp_http" instead	{"resource": {"service.instance.id": "25076786-4851-41a4-aee8-055609d9a439", "service.name
+  2026-09-12T14:45:39.029Z	warn	builders/builders.go:40	"filelog" alias is deprecated; use "file_log" instead	{"resource": {"service.instance.id": "25076786-4851-41a4-aee8-055609d9a439", "service.name":
+  2026-09-12T14:45:39.052Z	info	queue/persistent_queue.go:166	New queue metadata key not found, attempting to load legacy format.	{"resource": {"service.instance.id": "25076786-4851-41a4-aee8-055609d9a4
+  2026-09-12T14:45:39.053Z	info	queue/persistent_queue.go:213	Initializing new persistent queue	{"resource": {"service.instance.id": "25076786-4851-41a4-aee8-055609d9a439", "service.name": "otelcol-cont
+
+### 2026-09-12T14:45:59Z
+$ bash -c echo "drops, on purpose (demo 19 egress-test.sh: the cell denies what the developer pod tries):"; demos/19-zero-trust-cell/egress-test.sh 2>&1 | tail -6 | cut -c1-160; sleep 45; echo "observer stdout, last 2 lines:"; kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --tail=2 2>/dev/null | cut -c1-230 | sed "s/^/  /"; echo "Loki: index labels present:"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/labels" | python3 -c "import json,sys; print(\"  \", json.load(sys.stdin).get(\"data\"))"; echo "Loki: streams for the dashboard selector:"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/series?match[]=%7Bnamespace%3D%22hubble-observer%22%2Ccontainer%3D%22hubble-observer%22%7D" | python3 -c "import json,sys; [print(\"  \", s) for s in json.load(sys.stdin).get(\"data\",[])[:3]]"; NOW=$(date +%s); Q=$(python3 -c "import urllib.parse; print(urllib.parse.quote(\"sum by (flow_verdict, flow_source_cluster_name) (count_over_time({namespace=\\\"hubble-observer\\\",container=\\\"hubble-observer\\\"} | json | __error__=\\\"\\\" [10m]))\"))"); echo "Loki: flows in the last 10 min by verdict and source cluster (the dashboard's query shape):"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query?query=$Q&time=$NOW" | python3 -c "import json,sys; [print(\"  \", r[\"metric\"], r[\"value\"][1]) for r in json.load(sys.stdin)[\"data\"][\"result\"]]"
+drops, on purpose (demo 19 egress-test.sh: the cell denies what the developer pod tries):
+  FQDN allowlisted name, port NOT listed: api.stripe.com:80  DENIED (rc=1)
+  world by name, not listed: example.com:443                 DENIED (rc=1)
+  world by IP: 1.1.1.1:443                                   DENIED (rc=1)
+  kube-apiserver (egressDeny): kubernetes.default:443        DENIED (rc=1)
+  another namespace: echo.routes:80                          DENIED (rc=143)
+  a Service IP on a port that is not a Service port: api.bank:8080 DENIED (rc=143)
+observer stdout, last 2 lines:
+  {"flow":{"time":"2026-09-12T14:46:40.217447554Z","uuid":"76654846-ddda-4165-b546-ad5ac6722403","verdict":"DROPPED","drop_reason":133,"ethernet":{"source":"0e:d6:dd:81:15:a8","destination":"32:40:88:d7:ac:fc"},"IP":{"source":"10.10
+  {"flow":{"time":"2026-09-12T14:46:40.217498616Z","uuid":"2dcc22ce-f18d-44ec-a9ea-69efe2094230","verdict":"DROPPED","drop_reason":133,"ethernet":{"source":"0e:d6:dd:81:15:a8","destination":"32:40:88:d7:ac:fc"},"IP":{"source":"10.10
+Loki: index labels present:
+   ['container', 'k8s_cluster_name', 'k8s_container_name', 'k8s_namespace_name', 'k8s_pod_name', 'namespace', 'service_name']
+Loki: streams for the dashboard selector:
+   {'service_name': 'hubble-observer', 'container': 'hubble-observer', 'k8s_cluster_name': 'poc1', 'k8s_container_name': 'hubble-observer', 'k8s_namespace_name': 'hubble-observer', 'k8s_pod_name': 'hubble-observer-578ffb5c88-6h69c', 'namespace': 'hubble-observer'}
+Loki: flows in the last 10 min by verdict and source cluster (the dashboard's query shape):
+   {'flow_source_cluster_name': 'poc1', 'flow_verdict': 'DROPPED'} 68
+
+### Part 3b — one observer, both clusters: a drop caused in poc2 reaches Loki through poc1's relay (demo 24)
+### 2026-09-12T14:47:47Z
+$ bash -c echo "from poc2, a bank pod tries the world (the demo 19 cell denies it):"; P=$(kubectl --context kind-poc2 -n bank get pods -l app=accounts -o name | head -1); for i in 1 2 3; do kubectl --context kind-poc2 -n bank exec $P -- sh -c "wget -qO- --timeout=2 http://1.1.1.1 >/dev/null 2>&1; echo \"  attempt $i rc=\$?\""; done; sleep 40; NOW=$(date +%s); Q=$(python3 -c "import urllib.parse; print(urllib.parse.quote(\"sum by (flow_source_cluster_name, flow_node_name) (count_over_time({namespace=\\\"hubble-observer\\\",container=\\\"hubble-observer\\\"} | json | __error__=\\\"\\\" | flow_verdict=\\\"DROPPED\\\" [3m]))\"))"); echo "Loki, last 3 min, DROPPED by source cluster and reporting node:"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query?query=$Q&time=$NOW" | python3 -c "import json,sys; [print(\"  \", r[\"metric\"], r[\"value\"][1]) for r in json.load(sys.stdin)[\"data\"][\"result\"]]"
+from poc2, a bank pod tries the world (the demo 19 cell denies it):
+error: Internal error occurred: Internal error occurred: error executing command in container: failed to exec in container: failed to start exec "c1f5c10447d1fc8acf01d210cf737169f2a64dac52da902b422ed9d7ca5045a8": OCI runtime exec failed: exec failed: unable to start container process: exec: "sh": executable file not found in $PATH
+error: Internal error occurred: Internal error occurred: error executing command in container: failed to exec in container: failed to start exec "634a2b8b22762de50bd1a8df4e42bcfca1b8bf2d5abbf93af071126181e8800f": OCI runtime exec failed: exec failed: unable to start container process: exec: "sh": executable file not found in $PATH
+error: Internal error occurred: Internal error occurred: error executing command in container: failed to exec in container: failed to start exec "85212df34901857ad63acf600d008d0afee5868cb62ecc47bfd4af5cff3cb316": OCI runtime exec failed: exec failed: unable to start container process: exec: "sh": executable file not found in $PATH
+Loki, last 3 min, DROPPED by source cluster and reporting node:
+   {'flow_node_name': 'poc1/poc1-worker2', 'flow_source_cluster_name': 'poc1'} 68
+
+### Part 4 — Grafana: the Loki data source (stack values, demo 16 file) and the dashboard as a sidecar ConfigMap (grafana.com 23862 rev 5, from the downloaded export)
+### 2026-09-12T14:48:31Z
+$ bash -c helm upgrade monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml 2>&1 | grep -E "STATUS|REVISION|rror"; kubectl --context kind-poc1 -n monitoring rollout status deploy/monitoring-grafana --timeout=4m | tail -1; demos/25-hubble-observer-loki/dashboard-from-file.sh demos/25-hubble-observer-loki/dashboard-23862-rev5.json monitoring grafana-dashboard-hubble-observer hubble-observer-23862 Hubble | kubectl --context kind-poc1 apply -f -; sleep 40; GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); echo "Grafana API — the data source and the dashboard:"; curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana https://grafana.poc.local/api/datasources | python3 -c "import json,sys; [print(\"  ds:\", d[\"name\"], d[\"type\"], d[\"url\"]) for d in json.load(sys.stdin) if d[\"type\"] in (\"loki\",)]"; curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana "https://grafana.poc.local/api/search?query=Hubble%20Observer" | python3 -c "import json,sys; [print(\"  dashboard:\", d[\"title\"], \"| folder:\", d.get(\"folderTitle\"), \"| uid:\", d[\"uid\"]) for d in json.load(sys.stdin)]"; echo "Loki through Grafana (datasource proxy), the dashboard's stat query over 1 h:"; Q=$(python3 -c "import urllib.parse; print(urllib.parse.quote(\"sum(count_over_time({namespace=\\\"hubble-observer\\\",container=\\\"hubble-observer\\\"} | json | __error__=\\\"\\\" | flow_verdict=\\\"DROPPED\\\" [1h]))\"))"); curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana "https://grafana.poc.local/api/datasources/proxy/uid/loki/loki/api/v1/query?query=$Q" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; print(\"  total dropped flows, last hour:\", r[0][\"value\"][1] if r else 0)"
+STATUS: deployed
+REVISION: 8
+deployment "monitoring-grafana" successfully rolled out
+configmap/grafana-dashboard-hubble-observer created
+Grafana API — the data source and the dashboard:
+  ds: Loki loki http://loki.monitoring.svc.cluster.local:3100
+  dashboard: Cilium Flows - Hubble Observer | folder: Hubble | uid: hubble-observer-23862
+Loki through Grafana (datasource proxy), the dashboard's stat query over 1 h:
+  total dropped flows, last hour: 68
+
+### Part 3b (second attempt) — the bank images are distroless (no sh, gotcha above); the demo 19 way: a developer debug pod in poc2's bank namespace, inside the cell
+### 2026-09-12T14:51:12Z
+$ bash -c POD=egress-probe; kubectl --context kind-poc2 -n bank get pod $POD >/dev/null 2>&1 || { kubectl --context kind-poc2 -n bank run $POD --image=alpine:3.20 --restart=Never --labels=app=$POD --command -- sleep 3600 >/dev/null; kubectl --context kind-poc2 -n bank wait --for=condition=Ready pod/$POD --timeout=90s >/dev/null; }; echo "from poc2/bank/$POD, the world by IP (the demo 19 cell denies it):"; for i in 1 2 3; do kubectl --context kind-poc2 -n bank exec $POD -- sh -c "wget -qO- --timeout=2 http://1.1.1.1 >/dev/null 2>&1; echo \"  attempt $i rc=\$?\""; done; sleep 45; NOW=$(date +%s); Q=$(python3 -c "import urllib.parse; print(urllib.parse.quote(\"sum by (flow_source_cluster_name, flow_node_name, flow_source_pod_name) (count_over_time({namespace=\\\"hubble-observer\\\",container=\\\"hubble-observer\\\"} | json | __error__=\\\"\\\" | flow_verdict=\\\"DROPPED\\\" [3m]))\"))"); echo "Loki, last 3 min, DROPPED by source cluster, reporting node and source pod:"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query?query=$Q&time=$NOW" | python3 -c "import json,sys; [print(\"  \", r[\"metric\"], r[\"value\"][1]) for r in json.load(sys.stdin)[\"data\"][\"result\"]]"; kubectl --context kind-poc2 -n bank delete pod $POD --wait=false >/dev/null; echo "(probe pod deleted)"
+from poc2/bank/egress-probe, the world by IP (the demo 19 cell denies it):
+  attempt 1 rc=1
+  attempt 2 rc=1
+  attempt 3 rc=1
+Loki, last 3 min, DROPPED by source cluster, reporting node and source pod:
+   {'flow_node_name': 'poc2/poc2-worker', 'flow_source_cluster_name': 'poc2', 'flow_source_pod_name': 'egress-probe'} 12
+(probe pod deleted)
+
+### Part 5 — check.sh (the whole pipeline) and the captures
+### 2026-09-12T14:57:55Z
+$ demos/25-hubble-observer-loki/check.sh 2
+== observer ==
+hubble-observer-578ffb5c88-6h69c          true   0     poc1-worker2
+hubble-observer-cf2cnp-7d6576479c-jh4n7   true   0     poc1-worker2
+  relay as the observer sees it: Connected Nodes: 7/7
+== collector → Loki (per pod: spans of the Loki exporter's queue) ==
+  otel-collector-5qwgc       loki queue=0 sent_logs=0 failed=0
+  otel-collector-7vbhr       loki queue=0 sent_logs=0 failed=0
+  otel-collector-cfgjr       loki queue=0 sent_logs=0 failed=0
+  otel-collector-lntgk       loki queue=0 sent_logs=80 failed=0
+  otel-collector-xvft4       loki queue=0 sent_logs=0 failed=0
+== Loki ==
+  index labels: container k8s_cluster_name k8s_container_name k8s_namespace_name k8s_pod_name namespace service_name
+  stored flows, last 2 h, by source cluster and verdict:
+    {'flow_source_cluster_name': 'poc1', 'flow_verdict': 'DROPPED'} 68
+    {'flow_source_cluster_name': 'poc2', 'flow_verdict': 'DROPPED'} 12
+== Grafana ==
+  ds: Loki loki http://loki.monitoring.svc.cluster.local:3100
+  dashboard: Cilium Flows - Hubble Observer | folder: Hubble | /d/hubble-observer-23862
+== cf2cnp ==
+cf2cnp   [cf2cnp.poc.local]   True
+  health: OK
+
+### egress-test.sh: what the 68 poc1 drops were (the demo 19 cell probe, run in Part 3) — recorded there

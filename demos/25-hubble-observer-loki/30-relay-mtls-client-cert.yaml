@@ -1,0 +1,20 @@
+# Demo 25, Part 5 — NOT APPLIED. The README's "TLS and mTLS to Hubble Relay" section, done the way this stack does PKI
+# (demo 08/24: one cert-manager root, ClusterIssuer ca-issuer): the observer gets its OWN client certificate from the
+# same issuer that signs the relay's server certificate — no copying of Cilium's secrets between namespaces.
+# Prerequisite (a change to Cilium, in a window — it turns every plaintext relay client in this repo into a TLS client):
+#   helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc1 --reuse-values \
+#     --set hubble.relay.tls.server.enabled=true --set hubble.relay.tls.server.mtls=true
+# Then this Certificate, and in values-hubble-observer.yaml:
+#   hubbleRelay: {port: "443", tls: {enabled: true, ca: {secretName: hubble-observer-relay-certs}, client: {enabled: true, secretName: hubble-observer-relay-certs}}}
+# cert-manager writes ca.crt (the root), tls.crt and tls.key into the one secret the chart mounts for both purposes.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata: {name: hubble-observer-relay-certs, namespace: hubble-observer}
+spec:
+  secretName: hubble-observer-relay-certs
+  commonName: hubble-observer.hubble-relay-client.cilium.io
+  dnsNames: [hubble-observer.hubble-relay-client.cilium.io]
+  duration: 8760h
+  renewBefore: 720h
+  usages: [digital signature, key encipherment, client auth]
+  issuerRef: {group: cert-manager.io, kind: ClusterIssuer, name: ca-issuer}

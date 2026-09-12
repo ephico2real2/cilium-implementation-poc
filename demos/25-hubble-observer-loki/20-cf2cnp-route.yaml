@@ -1,0 +1,19 @@
+# Demo 25 — cf2cnp behind the demo 09 Gateway, the way every other app in this repo is exposed (demo 20 pattern): the
+# HTTPRoute in the Gateway's namespace (its listeners admit routes from `Same` only), a ReferenceGrant in the app's
+# namespace allowing that route to target the Service. https://cf2cnp.poc.local → hubble-observer-cf2cnp:80.
+#   kubectl --context kind-poc1 apply -f demos/25-hubble-observer-loki/20-cf2cnp-route.yaml
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata: {name: allow-routes-to-cf2cnp, namespace: hubble-observer}
+spec:
+  from: [{group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: routes}]
+  to: [{group: "", kind: Service, name: hubble-observer-cf2cnp}]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: cf2cnp, namespace: routes}
+spec:
+  parentRefs: [{name: routes-gw}]
+  hostnames: ["cf2cnp.poc.local"]
+  rules:
+    - backendRefs: [{name: hubble-observer-cf2cnp, namespace: hubble-observer, port: 80}]

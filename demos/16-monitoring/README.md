@@ -804,7 +804,7 @@ Timescape**, the enterprise flow store that keeps flows over time
 [the Isovalent lab](https://isovalent.com/labs/hubble-connectivity-visibility/); the pages are
 JS-rendered and did not fetch for quotation, so the identification rests on the screenshot's own
 controls and on the Part 11 DOM measurement of our UI). Nothing "happened" to our version: it is the
-complete open-source UI. On this stack the chart's information lives in Grafana's Hubble / Network
+complete open-source UI. **Demo 25 builds the store part of that picture from open-source parts** (hubble-observer → Loki → the 23862 dashboard). On this stack the chart's information lives in Grafana's Hubble / Network
 Overview panels (flows by verdict over time, with retention), fed by the Part 6 dynamic metrics.
 
 **Where the histograms are — Grafana, three dashboards, captured the same way:**

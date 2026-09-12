@@ -58,6 +58,12 @@ grafana:
 # kind runs these control-plane components bound to 127.0.0.1 on the control-plane nodes, so the
 # stack's scrapes for them can never reach them and would sit red on the Targets page for the whole
 # demo. Off, with the reason, rather than three permanent "down" targets to explain away.
+    - name: Loki                         # demo 25: Grafana Loki (single binary, chart grafana/loki 7.3.0, namespace monitoring) —
+      type: loki                         # the flow STORE behind the hubble-observer dashboard (grafana.com 23862)
+      uid: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100
+      jsonData: {maxLines: 5000}
 kubeControllerManager: {enabled: false}
 kubeScheduler: {enabled: false}
 kubeEtcd: {enabled: false}
