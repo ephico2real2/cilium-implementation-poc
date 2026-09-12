@@ -1,0 +1,150 @@
+### Part 0 — BEFORE: the mesh is on the enterprise CA (demo 08); Hubble is not
+### 2026-09-12T13:35:55Z
+$ bash -c echo "cert-manager and the issuer, both clusters:"; for c in poc1 poc2; do echo "  $c: $(helm --kube-context kind-$c -n cert-manager list -o json | python3 -c "import json,sys; r=json.load(sys.stdin)[0]; print(r[\"chart\"], r[\"status\"])")  ClusterIssuer ca-issuer ready=$(kubectl --context kind-$c get clusterissuer ca-issuer -o jsonpath="{.status.conditions[?(@.type==\"Ready\")].status}")  root fingerprint $(kubectl --context kind-$c -n cert-manager get secret clustermesh-root-ca -o jsonpath="{.data.tls\.crt}" | base64 -d | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2 | cut -c1-23)…"; done; echo "who signed what (issuer CN, notAfter):"; for c in poc1 poc2; do for s in clustermesh-apiserver-server-cert clustermesh-apiserver-remote-cert hubble-server-certs hubble-relay-client-certs; do kubectl --context kind-$c -n kube-system get secret $s -o jsonpath="{.data.tls\.crt}" | base64 -d | openssl x509 -noout -issuer -enddate | tr "\n" " " | sed "s/^/  $c $s: /"; echo; done; done; echo "cilium-ca differs per cluster: $(for c in poc1 poc2; do kubectl --context kind-$c -n kube-system get secret cilium-ca -o jsonpath="{.data.ca\.crt}" | md5 | cut -c1-8; done | tr "\n" " ")"; echo "Certificate objects in kube-system: poc1=$(kubectl --context kind-poc1 -n kube-system get certificates -o name | wc -l | tr -d " ") poc2=$(kubectl --context kind-poc2 -n kube-system get certificates -o name | wc -l | tr -d " ") (the four mesh certs each; none for Hubble)"
+cert-manager and the issuer, both clusters:
+  poc1: cert-manager-v1.21.1 deployed  ClusterIssuer ca-issuer ready=True  root fingerprint 72:16:61:3E:82:57:59:05…
+  poc2: cert-manager-v1.21.1 deployed  ClusterIssuer ca-issuer ready=True  root fingerprint 72:16:61:3E:82:57:59:05…
+who signed what (issuer CN, notAfter):
+  poc1 clustermesh-apiserver-server-cert: issuer=CN=clustermesh-root-ca notAfter=Sep 12 00:10:11 2027 GMT 
+  poc1 clustermesh-apiserver-remote-cert: issuer=CN=clustermesh-root-ca notAfter=Sep 12 00:10:12 2027 GMT 
+  poc1 hubble-server-certs: issuer=CN=Cilium CA notAfter=Sep 11 21:49:35 2027 GMT 
+  poc1 hubble-relay-client-certs: issuer=CN=Cilium CA notAfter=Sep 11 21:49:35 2027 GMT 
+  poc2 clustermesh-apiserver-server-cert: issuer=CN=clustermesh-root-ca notAfter=Sep 11 15:04:07 2027 GMT 
+  poc2 clustermesh-apiserver-remote-cert: issuer=CN=clustermesh-root-ca notAfter=Sep 11 15:04:07 2027 GMT 
+  poc2 hubble-server-certs: issuer=CN=Cilium CA notAfter=Sep 11 23:56:02 2027 GMT 
+  poc2 hubble-relay-client-certs: issuer=CN=Cilium CA notAfter=Sep 11 23:56:02 2027 GMT 
+cilium-ca differs per cluster: c9e16830 d1dfe277 
+Certificate objects in kube-system: poc1=4 poc2=4 (the four mesh certs each; none for Hubble)
+
+### 2026-09-12T13:36:02Z
+$ bash -c kubectl --context kind-poc1 -n kube-system port-forward svc/hubble-relay 4245:80 >/dev/null 2>&1 & PF=$!; sleep 3; hubble status --server localhost:4245 2>/dev/null | grep -v "^time="; hubble list nodes --server localhost:4245 2>/dev/null | grep -v "^time="; kill $PF; echo "relay log, why:"; kubectl --context kind-poc1 -n kube-system logs deploy/hubble-relay --since=1h 2>/dev/null | grep "handshake failed" | tail -1 | cut -c1-260
+Healthcheck (via localhost:4245): Ok
+Current/Max Flows: 20,475/20,475 (100.00%)
+Flows/s: 93.53
+Connected Nodes: 5/7
+Unavailable Nodes: 2
+  - poc2/poc2-control-plane
+  - poc2/poc2-worker
+NAME                       STATUS        AGE        FLOWS/S   CURRENT/MAX-FLOWS
+poc1/poc1-control-plane    Connected     2h15m6s    9.06      4095/4095 (100.00%)
+poc1/poc1-control-plane2   Connected     2h14m34s   9.81      4095/4095 (100.00%)
+poc1/poc1-control-plane3   Connected     2h15m6s    6.36      4095/4095 (100.00%)
+poc1/poc1-worker           Connected     2h14m49s   37.09     4095/4095 (100.00%)
+poc1/poc1-worker2          Connected     2h14m48s   37.28     4095/4095 (100.00%)
+poc2/poc2-control-plane    Unavailable   N/A        N/A       N/A
+poc2/poc2-worker           Unavailable   N/A        N/A       N/A
+relay log, why:
+time=2026-09-12T13:10:52.809478583Z level=warn msg="Failed to retrieve flows from peer" subsys=hubble-relay error="rpc error: code = Unavailable desc = connection error: desc = \"transport: authentication handshake failed: tls: failed to verify certificate: x5
+
+### Part 1 — the upgrade, the guide's way: clusters.yaml + poc1.yaml on poc1, then clusters.yaml + poc2.yaml on poc2 (a bank call every second in the background measures the disruption)
+### 2026-09-12T13:36:29Z
+$ bash -c for c in poc1 poc2; do echo "--- $c: $(date -u +%H:%M:%S) ---"; helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-$c --reuse-values -f demos/24-clustermesh-enterprise/clusters.yaml -f demos/24-clustermesh-enterprise/$c.yaml 2>&1 | grep -E "STATUS|REVISION|Error|error" ; kubectl --context kind-$c -n kube-system rollout status deploy/clustermesh-apiserver --timeout=3m 2>&1 | tail -1; done; echo "done at $(date -u +%H:%M:%S)"
+--- poc1: 13:36:29 ---
+STATUS: deployed
+REVISION: 40
+deployment "clustermesh-apiserver" successfully rolled out
+--- poc2: 13:36:58 ---
+STATUS: deployed
+REVISION: 13
+deployment "clustermesh-apiserver" successfully rolled out
+done at 13:37:41
+
+### 2026-09-12T13:37:41Z
+$ bash -c echo "cert-manager, both clusters — the Hubble Certificates:"; for c in poc1 poc2; do kubectl --context kind-$c -n kube-system wait certificate hubble-server-certs hubble-relay-client-certs --for=condition=Ready --timeout=120s >/dev/null 2>&1; kubectl --context kind-$c -n kube-system get certificates -o custom-columns="NAME:.metadata.name,READY:.status.conditions[?(@.type==\"Ready\")].status,ISSUER:.spec.issuerRef.name,NOT-AFTER:.status.notAfter,RENEW:.status.renewalTime" --no-headers | grep hubble | sed "s/^/  $c  /"; done; echo "who signs Hubble now:"; for c in poc1 poc2; do for s in hubble-server-certs hubble-relay-client-certs; do kubectl --context kind-$c -n kube-system get secret $s -o jsonpath="{.data.tls\.crt}" | base64 -d | openssl x509 -noout -issuer -subject | tr "\n" " " | sed "s/^/  $c $s: /"; echo; done; echo "  $c ca.crt in hubble-server-certs = root? $(kubectl --context kind-$c -n kube-system get secret hubble-server-certs -o jsonpath="{.data.ca\.crt}" | base64 -d | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2 | cut -c1-23)…"; done; echo "cilium-ca secret still present? poc1=$(kubectl --context kind-poc1 -n kube-system get secret cilium-ca -o name 2>/dev/null || echo gone) poc2=$(kubectl --context kind-poc2 -n kube-system get secret cilium-ca -o name 2>/dev/null || echo gone)"
+cert-manager, both clusters — the Hubble Certificates:
+  poc1  hubble-relay-client-certs           True   ca-issuer   2029-09-11T13:36:48Z   2028-09-11T13:36:48Z
+  poc1  hubble-server-certs                 True   ca-issuer   2029-09-11T13:36:48Z   2028-09-11T13:36:48Z
+  poc2  hubble-relay-client-certs           True   ca-issuer   2029-09-11T13:37:21Z   2028-09-11T13:37:21Z
+  poc2  hubble-server-certs                 True   ca-issuer   2029-09-11T13:37:21Z   2028-09-11T13:37:21Z
+who signs Hubble now:
+  poc1 hubble-server-certs: issuer=CN=clustermesh-root-ca subject=CN=*.poc1.hubble-grpc.cilium.io 
+  poc1 hubble-relay-client-certs: issuer=CN=clustermesh-root-ca subject=CN=*.hubble-relay.cilium.io 
+  poc1 ca.crt in hubble-server-certs = root? 72:16:61:3E:82:57:59:05…
+  poc2 hubble-server-certs: issuer=CN=clustermesh-root-ca subject=CN=*.poc2.hubble-grpc.cilium.io 
+  poc2 hubble-relay-client-certs: issuer=CN=clustermesh-root-ca subject=CN=*.hubble-relay.cilium.io 
+  poc2 ca.crt in hubble-server-certs = root? 72:16:61:3E:82:57:59:05…
+cilium-ca secret still present? poc1=gone poc2=gone
+
+### Part 2 — AFTER: Hubble across the mesh
+### 2026-09-12T13:45:13Z
+$ bash -c kubectl --context kind-poc1 -n kube-system port-forward svc/hubble-relay 4245:80 >/dev/null 2>&1 & PF=$!; sleep 3; hubble status --server localhost:4245 2>/dev/null | grep -v "^time="; hubble list nodes --server localhost:4245 2>/dev/null | grep -v "^time="; echo "flows from poc2, seen from poc1 (hubble observe --cluster poc2):"; hubble observe --server localhost:4245 --cluster poc2 --namespace bank --last 6 -o compact 2>/dev/null | grep -v "^time=" | cut -c1-190; kill $PF; echo "relay: no handshake failures since the upgrade: $(kubectl --context kind-poc1 -n kube-system logs deploy/hubble-relay --since=8m 2>/dev/null | grep -c "handshake failed")"; echo "mesh unchanged:"; cilium clustermesh status --context kind-poc1 2>&1 | grep -E "^  - poc2"; cilium clustermesh status --context kind-poc2 2>&1 | grep -E "^  - poc1"
+Healthcheck (via localhost:4245): Ok
+Current/Max Flows: 28,665/28,665 (100.00%)
+Flows/s: 178.18
+Connected Nodes: 7/7
+NAME                       STATUS      AGE        FLOWS/S   CURRENT/MAX-FLOWS
+poc1/poc1-control-plane    Connected   2h24m17s   9.67      4095/4095 (100.00%)
+poc1/poc1-control-plane2   Connected   2h23m45s   10.45     4095/4095 (100.00%)
+poc1/poc1-control-plane3   Connected   2h24m17s   6.37      4095/4095 (100.00%)
+poc1/poc1-worker           Connected   2h24m0s    40.65     4095/4095 (100.00%)
+poc1/poc1-worker2          Connected   2h23m59s   39.09     4095/4095 (100.00%)
+poc2/poc2-control-plane    Connected   1h9m28s    2.77      4095/4095 (100.00%)
+poc2/poc2-worker           Connected   1h9m28s    45.00     4095/4095 (100.00%)
+flows from poc2, seen from poc1 (hubble observe --cluster poc2):
+Sep 12 13:43:57.228: bank/api-5d6d8cfd55-n4z82:56188 (ID:103600) -> bank/payments-7dbb8cdfdb-5bsf5:8080 (ID:138635) to-overlay FORWARDED (TCP Flags: ACK)
+Sep 12 13:43:57.231: bank/api-5d6d8cfd55-n4z82:56188 (ID:103600) -> bank/payments-7dbb8cdfdb-5bsf5:8080 (ID:138635) to-overlay FORWARDED (TCP Flags: ACK, PSH)
+Sep 12 13:43:57.258: bank/api-5d6d8cfd55-n4z82:56188 (ID:103600) <- bank/payments-7dbb8cdfdb-5bsf5:80 (ID:138635) to-endpoint FORWARDED (TCP Flags: ACK, PSH)
+Sep 12 13:43:57.259: bank/api-5d6d8cfd55-n4z82:56188 (ID:103600) <- bank/payments-7dbb8cdfdb-5bsf5:80 (ID:138635) to-endpoint FORWARDED (TCP Flags: ACK, FIN)
+Sep 12 13:43:57.259: bank/api-5d6d8cfd55-n4z82:56188 (ID:103600) -> bank/payments-7dbb8cdfdb-5bsf5:8080 (ID:138635) to-overlay FORWARDED (TCP Flags: ACK, FIN)
+Sep 12 13:43:57.260: bank/api-5d6d8cfd55-n4z82:56188 (ID:103600) <- bank/payments-7dbb8cdfdb-5bsf5:80 (ID:138635) to-endpoint FORWARDED (TCP Flags: ACK)
+Sep 12 13:44:57.600: bank/payments-7dbb8cdfdb-5bsf5:43028 (ID:138635) -> bank/redis-0:6379 (ID:88608) to-endpoint FORWARDED (TCP Flags: ACK)
+Sep 12 13:44:57.600: bank/payments-7dbb8cdfdb-5bsf5:43028 (ID:138635) <- bank/redis-0:6379 (ID:88608) to-overlay FORWARDED (TCP Flags: ACK)
+Sep 12 13:45:03.879: bank/postgres-standby-0:49150 (ID:83991) -> bank/postgres-0:5432 (ID:162505) to-overlay FORWARDED (TCP Flags: ACK, PSH)
+Sep 12 13:45:03.880: bank/postgres-standby-0:49150 (ID:83991) <- bank/postgres-0:5432 (ID:162505) to-endpoint FORWARDED (TCP Flags: ACK)
+Sep 12 13:45:13.902: bank/postgres-standby-0:49150 (ID:83991) -> bank/postgres-0:5432 (ID:162505) to-overlay FORWARDED (TCP Flags: ACK, PSH)
+Sep 12 13:45:13.904: bank/postgres-standby-0:49150 (ID:83991) <- bank/postgres-0:5432 (ID:162505) to-endpoint FORWARDED (TCP Flags: ACK, PSH)
+Sep 12 13:45:15.823: 10.20.1.24:37108 (host) -> bank/payments-7dbb8cdfdb-5bsf5:8080 (ID:138635) to-endpoint FORWARDED (TCP Flags: ACK, PSH)
+Sep 12 13:45:15.823: 10.20.1.24:37108 (host) <- bank/payments-7dbb8cdfdb-5bsf5:8080 (ID:138635) to-stack FORWARDED (TCP Flags: ACK, PSH)
+Sep 12 13:45:15.824: 10.20.1.24:37108 (host) -> bank/payments-7dbb8cdfdb-5bsf5:8080 (ID:138635) to-endpoint FORWARDED (TCP Flags: ACK, FIN)
+Sep 12 13:45:15.824: 10.20.1.24:37108 (host) <- bank/payments-7dbb8cdfdb-5bsf5:8080 (ID:138635) to-stack FORWARDED (TCP Flags: ACK, FIN)
+Sep 12 13:45:15.824: 10.20.1.24:37108 (host) -> bank/payments-7dbb8cdfdb-5bsf5:8080 (ID:138635) to-endpoint FORWARDED (TCP Flags: ACK)
+Sep 12 13:45:15.824: 10.20.1.24:37108 (host) <- bank/payments-7dbb8cdfdb-5bsf5:8080 (ID:138635) to-stack FORWARDED (TCP Flags: ACK)
+relay: no handshake failures since the upgrade: 0
+mesh unchanged:
+  - poc2: 5/5 configured, 5/5 connected - KVStoreMesh: 1/1 configured, 1/1 connected
+  - poc1: 2/2 configured, 2/2 connected - KVStoreMesh: 1/1 configured, 1/1 connected
+
+### Part 3 — the disruption, measured and explained (probe: one bank call per second, 3 s timeout; output/probe.log)
+### 2026-09-12T13:49:54Z
+$ bash -c awk "{m=substr(\$1,1,5); t[m]++; if(\$2!=\"200\") f[m]++} END{for(k in t) printf \"  %s  calls=%d  failed=%d\\n\", k, t[k], f[k]+0}" demos/24-clustermesh-enterprise/output/probe.log | sort; echo "first/last failure: $(awk "\$2!=\"200\"{print \$1}" demos/24-clustermesh-enterprise/output/probe.log | head -1) / $(awk "\$2!=\"200\"{print \$1}" demos/24-clustermesh-enterprise/output/probe.log | tail -1)"; echo "why — the clustermesh-apiserver Deployment changed (a hostAlias for the local cluster, now listed in clusters.yaml), so its pod was replaced; its etcd is an emptyDir:"; for c in poc1 poc2; do kubectl --context kind-$c -n kube-system get pods -l k8s-app=clustermesh-apiserver -o json | python3 -c "
+import json,sys
+for p in json.load(sys.stdin)[\"items\"]:
+    print(\"  $c\", p[\"metadata\"][\"name\"], \"started\", p[\"status\"][\"startTime\"])
+    for cs in p[\"status\"][\"containerStatuses\"]:
+        t=(cs.get(\"lastState\") or {}).get(\"terminated\") or {}
+        print(\"     \", cs[\"name\"], \"restarts\", cs[\"restartCount\"], (\"last: %s exit %s at %s\" % (t.get(\"reason\"), t.get(\"exitCode\"), t.get(\"finishedAt\"))) if t else \"\")"; done; echo "poc1 agents, the moment the new etcd came up:"; kubectl --context kind-poc1 -n kube-system logs ds/cilium -c cilium-agent --since=30m 2>/dev/null | grep "etcd cluster ID has changed" | head -1 | cut -c1-200 | sed "s/^/  /"; echo "kvstoremesh in the new pod, why it restarted once (exit 255):"; kubectl --context kind-poc1 -n kube-system logs deploy/clustermesh-apiserver -c kvstoremesh --previous --tail=2 2>/dev/null | cut -c1-160 | sed "s/^/  /"; kubectl --context kind-poc1 -n kube-system logs deploy/clustermesh-apiserver -c kvstoremesh --since=30m 2>/dev/null | grep -m1 "Connecting to remote cluster" | cut -c1-160 | sed "s/^/  /"
+  13:36  calls=21  failed=0
+  13:37  calls=28  failed=1
+  13:38  calls=11  failed=10
+  13:39  calls=12  failed=12
+  13:40  calls=25  failed=2
+  13:41  calls=43  failed=0
+  13:42  calls=42  failed=0
+  13:43  calls=22  failed=0
+first/last failure: 13:37:00 / 13:40:33
+why — the clustermesh-apiserver Deployment changed (a hostAlias for the local cluster, now listed in clusters.yaml), so its pod was replaced; its etcd is an emptyDir:
+  poc1 clustermesh-apiserver-844c48bb9b-sngg7 started 2026-09-12T13:36:46Z
+      apiserver restarts 0 
+      etcd restarts 0 
+      kvstoremesh restarts 1 last: Error exit 255 at 2026-09-12T13:39:53Z
+  poc2 clustermesh-apiserver-cd9779c97-p24zd started 2026-09-12T13:37:17Z
+      apiserver restarts 0 
+      etcd restarts 0 
+      kvstoremesh restarts 1 last: Error exit 255 at 2026-09-12T13:39:42Z
+poc1 agents, the moment the new etcd came up:
+  time=2026-09-12T13:36:58.468721075Z level=warn msg="Error observed on etcd connection, reconnecting etcd" module=agent.controlplane.clustermesh clusterName=poc2 error="etcd cluster ID has changed: exp
+kvstoremesh in the new pod, why it restarted once (exit 255):
+  time=2026-09-12T13:39:50.629604387Z level=info msg="Stopped hive" duration=24.550937409s
+  time=2026-09-12T13:39:50.629709032Z level=fatal msg="Leader election lost"
+  time=2026-09-12T13:40:34.769900323Z level=info msg="Connecting to remote cluster" module=kvstoremesh.leader-lifecycle.kvstoremesh clusterName=poc2
+
+### 2026-09-12T13:49:57Z
+$ bash -c echo "Prometheus (demo 16/22), poc1 view of poc2, 13:36-13:42, 30 s steps:"; S=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "2026-09-12T13:36:00Z" +%s); E=$((S+360)); for m in cilium_clustermesh_remote_cluster_readiness_status cilium_clustermesh_remote_cluster_nodes; do Q=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "sum by (cluster,target_cluster) ($m)"); kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query_range?query=$Q&start=$S&end=$E&step=30" 2>/dev/null | python3 -W ignore -c "
+import json,sys,datetime
+for r in json.load(sys.stdin)[\"data\"][\"result\"]:
+    if r[\"metric\"][\"cluster\"]==\"poc1\": print(\"  $m\", \" \".join(f\"{datetime.datetime.utcfromtimestamp(v[0]).strftime(\"%H:%M:%S\")}={v[1]}\" for v in r[\"values\"]))"; done; echo "  (no 13:39 sample: the agents did not answer the scrape during the resync — the gap is itself the outage)"
+Prometheus (demo 16/22), poc1 view of poc2, 13:36-13:42, 30 s steps:
+  cilium_clustermesh_remote_cluster_readiness_status 13:36:00=5 13:36:30=5 13:37:00=5 13:37:30=5 13:38:00=5 13:38:30=1 13:40:00=5 13:40:30=5 13:41:00=5 13:41:30=5 13:42:00=5
+  cilium_clustermesh_remote_cluster_nodes 13:36:00=10 13:36:30=10 13:37:00=10 13:37:30=10 13:38:00=10 13:38:30=2 13:40:00=10 13:40:30=10 13:41:00=10 13:41:30=10 13:42:00=10
+  (no 13:39 sample: the agents did not answer the scrape during the resync — the gap is itself the outage)
+

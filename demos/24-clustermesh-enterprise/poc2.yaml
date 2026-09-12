@@ -1,0 +1,35 @@
+# Demo 24 — per-cluster values for poc2 (the guide's cluster2.yaml). Everything the mesh needs, with BOTH certificate
+# consumers on the enterprise issuer from demo 08 (cert-manager, ClusterIssuer ca-issuer, one root for the mesh):
+#   - clustermesh.apiserver.tls.auto.method: certmanager — already live since demo 08 (restated, no change);
+#   - hubble.tls.auto.method: certmanager — NEW: Hubble's server and relay certificates were still the Helm method,
+#     signed by each cluster's own cilium-ca, which is why poc1's relay saw 7 nodes and could talk to 5 (gotcha #71).
+# The Helm method's caveat, from the guide: "while certificates are automatically generated, they are not
+# automatically renewed. Consequently, running helm upgrade is required when certificates are about to expire."
+cluster:
+  name: poc2
+  id: 2
+clustermesh:
+  useAPIServer: true
+  apiserver:
+    service:
+      type: NodePort
+    tls:
+      auto:
+        enabled: true
+        method: certmanager
+        certValidityDuration: 365
+        certManagerIssuerRef:
+          group: cert-manager.io
+          kind: ClusterIssuer
+          name: ca-issuer
+hubble:
+  tls:
+    enabled: true
+    auto:
+      enabled: true
+      method: certmanager
+      certValidityDuration: 1095
+      certManagerIssuerRef:
+        group: cert-manager.io
+        kind: ClusterIssuer
+        name: ca-issuer

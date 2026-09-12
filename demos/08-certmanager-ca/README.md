@@ -1,5 +1,11 @@
 # Demo 08 — An enterprise CA for ClusterMesh, with cert-manager
 
+> **Continued in [demo 24](../24-clustermesh-enterprise/README.md) (2026-09-12):** this demo moved the
+> mesh API server to the enterprise CA but left Hubble's certificates on the Helm method, signed by
+> each cluster's own `cilium-ca` — the addendum below (gotcha #48) and gotcha #71 (`Connected Nodes:
+> 5/7`) were the cost. Demo 24 puts Hubble on the same issuer, declares the mesh the guide's way, and
+> states the order this should have followed. Nothing here is retracted.
+
 ## Summary context
 
 **The problem with how demo 07 established trust.** It copied Cilium's own self-signed

@@ -1,0 +1,16 @@
+# Demo 24 — the mesh, declared the way the Cilium ClusterMesh setup guide does it (Helm, not the CLI):
+# one file shared by every cluster listing every member. "Cilium ignores the local cluster from the list of
+# remote clusters", so the same file is correct on both sides. On kind the API servers are NodePort 32379 on a
+# control-plane node (the CLI's choice in demo 07); with DNS names you would use `address:` instead of `ips:`.
+#   helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc1 --reuse-values \
+#     -f demos/24-clustermesh-enterprise/clusters.yaml -f demos/24-clustermesh-enterprise/poc1.yaml
+clustermesh:
+  config:
+    enabled: true
+    clusters:
+      poc1:
+        ips: [172.18.0.6]     # poc1-control-plane
+        port: 32379
+      poc2:
+        ips: [172.18.0.10]    # poc2-control-plane
+        port: 32379

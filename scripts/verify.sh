@@ -217,6 +217,10 @@ run "kubectl --context $CTX get --raw '/api/v1/namespaces/monitoring/services/mo
 hdr "20. DEMO 23 — the collector is a per-cluster service (local backends only)"
 run "for C in poc1 poc2; do IP=\$(kubectl --context kind-\$C -n otel get svc otel-collector -o jsonpath='{.spec.clusterIP}'); AG=\$(kubectl --context kind-\$C -n kube-system get pods -l k8s-app=cilium --field-selector spec.nodeName=\$C-worker -o name | head -1); N=\$(kubectl --context kind-\$C -n kube-system exec \$AG -c cilium-agent -- cilium-dbg service list 2>/dev/null | awk -v ip=\"\$IP:4318/TCP\" '\$1 ~ /^[0-9]+\$/ && \$2 ~ /\\/TCP\$/ {p=(\$2==ip)} p && /=>/ {n++} END{print n+0}'); L=\$(kubectl --context kind-\$C -n otel get pods -l app=otel-collector --field-selector status.phase=Running --no-headers | wc -l | tr -d ' '); echo \"\$C: otel-collector backends=\$N local collector pods=\$L global=[\$(kubectl --context kind-\$C -n otel get svc otel-collector -o jsonpath='{.metadata.annotations.service\\.cilium\\.io/global}')]\"; done"
 
+hdr "21. DEMO 24 — one root for the mesh AND Hubble; relay sees every node"
+run "for C in poc1 poc2; do echo \"\$C: hubble-server-certs \$(kubectl --context kind-\$C -n kube-system get secret hubble-server-certs -o jsonpath='{.data.tls\\.crt}' | base64 -d | openssl x509 -noout -issuer | sed 's/issuer=//')  certificates ready \$(kubectl --context kind-\$C -n kube-system get certificates -o jsonpath='{range .items[*]}{.status.conditions[?(@.type==\"Ready\")].status}{\"\\n\"}{end}' | grep -c True)/\$(kubectl --context kind-\$C -n kube-system get certificates -o name | wc -l | tr -d ' ')\"; done"
+run "kubectl --context $CTX -n kube-system port-forward svc/hubble-relay 4245:80 >/dev/null 2>&1 & PF=\$!; sleep 3; hubble status --server localhost:4245 2>/dev/null | grep -E 'Connected Nodes|Unavailable'; kill \$PF"
+
 hdr "12. HOST ROUTING (macOS)"
 run "netstat -rn -f inet | grep '^172.18' || echo 'no route — see SETUP Step 3.5'"
 run "ifconfig -l | tr ' ' '\n' | grep -E '^bridge'"

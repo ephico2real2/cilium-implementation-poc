@@ -1488,6 +1488,11 @@ issuer=CN=clustermesh-root-ca
 issuer=CN=clustermesh-root-ca
 ```
 
+**Demo 24 (2026-09-12) amends step 5:** the same upgrade must also carry `hubble.tls.auto.method=certmanager`
+with the same `certManagerIssuerRef` — otherwise Hubble stays on per-cluster `cilium-ca` and the relay
+cannot reach the other cluster's nodes (gotcha #71). The complete per-cluster values, mesh and Hubble
+together, are `demos/24-clustermesh-enterprise/{clusters,poc1,poc2}.yaml`.
+
 Now continue to Step 9.4. **Skip 9.3b entirely** — the routes are alternatives, not steps.
 
 ### Step 9.3b — ROUTE B: copy Cilium's self-signed CA (quick start)
@@ -1785,5 +1790,13 @@ for c in poc1 poc2; do kubectl --context kind-$c apply -f demos/23-collector-per
 kubectl --context kind-poc2 apply -f demos/23-collector-per-cluster/20-otel-collector-poc2.yaml                           # 2 replicas, PDB, persistent queue
 kubectl --context kind-poc1 apply -f demos/10-tracing/otel-collector.yaml; kubectl --context kind-poc1 -n otel rollout restart ds/otel-collector   # poc1's queue
 demos/23-collector-per-cluster/check.sh                                                                                   # local backends only, queue metrics, Tempo per cluster
+```
+
+## Step 21 — the mesh declared, and Hubble on the enterprise CA (demo 24)
+
+```bash
+for c in poc1 poc2; do helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-$c --reuse-values \
+  -f demos/24-clustermesh-enterprise/clusters.yaml -f demos/24-clustermesh-enterprise/$c.yaml; done   # replaces the clustermesh-apiserver pod once (#72): a window
+demos/24-clustermesh-enterprise/check.sh                                                             # one root, every leaf, Hubble 7/7
 ```
 

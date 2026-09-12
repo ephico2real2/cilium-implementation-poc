@@ -66,6 +66,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [72](#72) | A values change that replaces the clustermesh-apiserver pod (here: listing the local cluster) is a 3.5-minute mesh outage in KVStoreMesh mode | ClusterMesh |
 | [71](#71) | Hubble on poc1 shows 5/7 nodes: the clusters have different Cilium CAs, poc2's Hubble certs are untrusted | ClusterMesh / Hubble |
 | [70](#70) | A per-cluster collector Service left global after poc2 got backends — seven backends, wrong cluster stamp; global annotations are for app HA | ClusterMesh / tracing |
 | [69](#69) | A global Service for a hub service (Prometheus remote write) selected the spoke's same-named Prometheus too — 404s from the spoke itself; distinct release names per cluster, role-named central Services | ClusterMesh / monitoring |
@@ -1757,10 +1758,30 @@ is signed by a CA poc1 does not trust. The ClusterMesh setup guide's rule: "Copy
 cluster2 before enabling Cluster Mesh there, so both clusters generate certificates signed by the
 same CA."
 
-**Fix.** A shared CA for both clusters — demo 24 rebuilds the mesh's certificates with cert-manager
-(the Helm method generates but never renews).
+**Fix (demo 24).** `hubble.tls.auto.method: certmanager` with the demo 08 issuer, in both clusters —
+the same issuer the mesh API server already used. Both Hubble Certificates `Ready` in 35 s, issued by
+`clustermesh-root-ca`, `Connected Nodes: 7/7`, zero handshake failures since. Should have been part
+of demo 08's Part 4 upgrade.
 
 → demo 24
+
+---
+
+## <a name="72"></a>72. A values change that replaces the clustermesh-apiserver pod is a mesh outage of minutes (KVStoreMesh)
+
+**Symptom.** Demo 24: a TLS-only values change; the bank (poc1 `api` → poc2 `accounts`) failed for
+3.5 minutes, 25 timeouts, `cilium_clustermesh_remote_cluster_readiness_status` 5 → 1 → no samples → 5.
+
+**Cause.** Listing the local cluster in `clustermesh.config.clusters` (the guide's shared
+`clusters.yaml`) adds a hostAlias to the `clustermesh-apiserver` Deployment → pod replaced → its
+etcd (emptyDir) is new → every agent logs `etcd cluster ID has changed … reconnecting` and drops its
+remote cache → the new `kvstoremesh` lost its leader election (`fatal "Leader election lost"`, exit
+255) and only reconnected to the remote cluster 3.5 minutes later.
+
+**Fix.** Render first (`helm template` against `helm get values`) and diff the objects; anything
+touching that Deployment goes in a window. At install time the local entry is harmless.
+
+→ demo 24, Part 3
 
 ---
 
@@ -1798,6 +1819,7 @@ Most of these share a shape: **something reported success while not working.**
 - the hub's remote-write Service answered 404 — half the time it was the spoke talking to itself (#69)
 - the cluster's own gateway had the other cluster's gateway as a backend — the bridge annotation outlived its reason (#70)
 - Hubble saw seven nodes and could talk to five — two CAs, one mesh (#71)
+- a three-line TLS change replaced the mesh's etcd — read what the upgrade renders (#72)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the
