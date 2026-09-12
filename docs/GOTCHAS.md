@@ -1496,6 +1496,11 @@ HTTP metrics, make the *destination's* node the reporter with an L7 visibility p
 destination (`http-visibility`, demo 16 Part 7): `reporter=server` rows then carry `web`, `api`,
 `payments` with per-hop p95 latency. The Gateway hop stays `-` — filter by `reporter`.
 
+**On the L7 dashboard this means: `reporter=server` for any named workload.** With `reporter=client`
+the only rows are the Gateway's, whose workload is `-`, so `client` + a workload name is empty
+(measured for `springboot` in demo 21: 386/382/377/373 requests under `server`, 186 under `client`
+with no workload).
+
 → demo 16, Parts 7–9; `demos/16-monitoring/values-cilium-metrics.yaml`, `20-visibility-policies.yaml`
 
 ---

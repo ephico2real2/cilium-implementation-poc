@@ -130,6 +130,28 @@ Explore → Tempo → the exemplar's id: `api-gateway: GET visits-service`, 811 
 panels request exemplars (6 of the dashboard's 17 queries have `exemplar: true`), so the dots appear
 on them as traffic accumulates, and clicking one opens exactly the Tempo view above.
 
+**Opening the L7 dashboard for `springboot`: set `reporter=server`.** A URL with `reporter=client`
+and a named `destination_workload` shows nothing, and the reason is measurable — the last 6 hours:
+
+| reporter | destination_workload | requests |
+|---|---|---|
+| server | api-gateway | 386 |
+| server | customers-service | 382 |
+| server | visits-service | 377 |
+| server | vets-service | 373 |
+| client | `-` (empty) | 186 |
+
+`reporter` says which side's proxy saw the request. The visibility policy above is an *ingress* rule,
+so the L7 proxy is on the destination's own node and reports as `server`, with the workload name
+filled in. The only `client` rows are the Cilium Gateway's Envoy calling `api-gateway`, and those
+carry no `destination_workload` because the Gateway's node is not the pod's node (gotcha #58). So
+`client` + any workload name matches nothing; `server` + the workload is the query. The same split
+was recorded for the bank in demo 16 Part 8. A working URL:
+
+```
+https://grafana.poc.local/d/3g264CZVz/hubble-l7-http-metrics-by-workload?from=now-6h&to=now&var-cluster=poc1&var-destination_namespace=springboot&var-destination_workload=visits-service&var-reporter=server&var-source_namespace=$__all&var-source_workload=$__all
+```
+
 ## Exercises
 
 1. `demos/20-springboot/check.sh 10; sleep 35`, then the `query_exemplars` call from the transcript:
@@ -137,8 +159,9 @@ on them as traffic accumulates, and clicking one opens exactly the Tempo view ab
 2. `kubectl get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/traces/<id>"`:
    *expect* spans from at least two services — the same id.
 3. Open `https://grafana.poc.local/d/3g264CZVz/hubble-l7-http-metrics-by-workload` with
-   `destination_namespace=springboot`, `destination_workload=api-gateway`, `reporter=server`, last
-   30 min. *Expect* the Request Duration panel with dots; click a dot → *Query with Tempo*.
+   `destination_namespace=springboot`, `destination_workload=api-gateway`, **`reporter=server`**
+   (`client` shows nothing for a named workload — the table above), last 30 min. *Expect* the Request
+   Duration panel with dots; click a dot → *Query with Tempo*.
 4. Delete the visibility policy (`kubectl delete -f demos/21-tempo/20-springboot-l7-visibility.yaml`),
    run traffic, repeat 1: *expect* no new exemplars for `springboot` — Hubble reads headers only on the
    proxy. Re-apply it.
