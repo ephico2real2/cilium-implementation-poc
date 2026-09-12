@@ -424,3 +424,37 @@ JVM; the generator from spans).
 Cost: Tempo's registry holds 1,455 series for four services after three minutes of light traffic;
 `span-metrics` in particular grows with every distinct span name (`db.statement` names included).
 On a busy cluster that is the processor to turn off first, or to filter.
+
+## Evidence
+
+Captured 2026-09-12 with `scripts/evidence/capture.js` and `scripts/evidence/collect.sh` (both re-runnable; the pod and Cilium output is the recorded file [`output/evidence.txt`](output/evidence.txt)). Every image is what the browser saw, with traffic running.
+
+**grafana service graph** — the service graph from Tempo’s metrics-generator: user → api → payments → accounts across the mesh, with rates and p90
+
+![grafana-service-graph](output/screenshots/grafana-service-graph.png)
+
+**grafana traces drilldown** — Traces Drilldown by service: rate, errors, duration per service from the stored spans
+
+![grafana-traces-drilldown](output/screenshots/grafana-traces-drilldown.png)
+
+**Running pods** (from `output/evidence.txt`):
+
+```console
+$ kubectl --context kind-poc1 -n monitoring get pods -o wide
+NAME                                                     READY   STATUS    RESTARTS        AGE     IP            NODE                  NOMINATED NODE 
+alertmanager-monitoring-kube-prometheus-alertmanager-0   2/2     Running   0               19h     10.10.3.207   poc1-worker2          <none>         
+loki-0                                                   2/2     Running   0               7h49m   10.10.3.140   poc1-worker2          <none>         
+monitoring-grafana-85f995b8c8-gqnc8                      3/3     Running   0               11h     10.10.4.99    poc1-worker           <none>         
+monitoring-kube-prometheus-operator-57b74d8f5b-zw957     1/1     Running   9 (102s ago)    19h     10.10.3.227   poc1-worker2          <none>         
+monitoring-kube-state-metrics-7f584dc46d-dpxkb           1/1     Running   11 (113s ago)   19h     10.10.4.165   poc1-worker           <none>         
+monitoring-prometheus-node-exporter-d9h5h                1/1     Running   3 (2m1s ago)    19h     172.18.0.7    poc1-control-plane2   <none>         
+monitoring-prometheus-node-exporter-fzxrc                1/1     Running   2 (100s ago)    19h     172.18.0.3    poc1-control-plane3   <none>         
+monitoring-prometheus-node-exporter-jwqp7                1/1     Running   4 (7h31m ago)   19h     172.18.0.5    poc1-worker           <none>         
+monitoring-prometheus-node-exporter-n6jl7                1/1     Running   3 (7h31m ago)   19h     172.18.0.6    poc1-control-plane    <none>         
+monitoring-prometheus-node-exporter-nqvbt                1/1     Running   1 (8h ago)      19h     172.18.0.4    poc1-worker2          <none>         
+prometheus-monitoring-kube-prometheus-prometheus-0       2/2     Running   1 (68s ago)     177m    10.10.3.98    poc1-worker2          <none>         
+tempo-0                                                  1/1     Running   6 (78s ago)     8h      10.10.3.228   poc1-worker2          <none>         
+```
+
+The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
+
