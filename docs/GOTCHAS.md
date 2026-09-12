@@ -66,6 +66,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [56](#56) | A draining pod that stays Ready keeps receiving NEW requests — after a config repoint an old pod still wired to the dead primary answered a 500 behind a green `rollout status` | app + platform |
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
+| [60](#60) | Tetragon crash-loops on Docker Desktop < 4.30 — the VM kernel has no `CONFIG_SECURITY`, the exec sensor's kprobe symbol does not exist, and no helm value fixes a kernel; plus the creation-time `/procHost` mount without which events silently lose their pod | Tetragon / Docker Desktop |
 | [59](#59) | The dynamic Hubble metrics config cannot change a registered metric's context options: helm succeeded, every agent logged a refusal every 10 s and kept the old labels | monitoring |
 
 ---
@@ -1511,6 +1512,26 @@ covers adding/removing metrics and their include/exclude filters — not the con
 
 ---
 
+## <a name="60"></a>60. Tetragon crash-loops on Docker Desktop < 4.30: the kernel has no `CONFIG_SECURITY`, so `security_bprm_committing_creds` does not exist
+
+**Symptom.** `ds/tetragon` never Ready, every agent `CrashLoopBackOff`:
+`attaching 'tg_kp_bprm_committing_creds' failed: … "security_bprm_committing_creds": token __x64_security_bprm_committing_creds: not found`.
+BTF was present, so the FAQ's usual Docker-Desktop answer did not apply.
+
+**Cause.** `zcat /proc/config.gz` in the VM: `# CONFIG_SECURITY is not set`; `kallsyms` has no
+`security_bprm_*` symbol. Tetragon's base exec sensor has no other attach point (`pkg/sensors/base/base.go`).
+Docker Desktop dropped the option from its own kernel config after 4.27 and restored it in **4.30.0**
+(docker/for-mac#7250, closed 2024-05-06). This Mac runs 4.27.2 with `6.6.12-linuxkit`.
+
+**Fix.** Upgrade Docker Desktop (≥ 4.30; the cask offers 4.90.0), verify
+`CONFIG_SECURITY=y` and the symbol in `kallsyms` *before* reinstalling. And create the cluster with the
+docs' `/procHost` extraMount, or Tetragon runs but silently drops `pod`/`binary` on events
+(tetragon#4883) — that mount is creation-time, now in `clusters/poc*.yaml`.
+
+→ demo 17, Part 1
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1537,6 +1558,7 @@ Most of these share a shape: **something reported success while not working.**
 - `pg_promote returned t` while every write failed — the promoted database had just left its own Service (#54)
 - `rollout status` said success while an old pod wired to a dead database still took requests (#56)
 - `helm upgrade` said *Happy Helming* while every agent refused the new metrics config every 10 s (#59)
+- Tetragon without the host `/proc` keeps running and emits events with the pod field empty (#60, tetragon#4883)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

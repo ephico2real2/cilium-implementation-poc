@@ -49,7 +49,7 @@ unchanged, with BGP substituted for L2 in production.
    external-access proof for demo 09.
 8. **[docs/REFERENCES.md](docs/REFERENCES.md)** — every external source the PoC was built against,
    with what each was used for; the place to check a claim's origin.
-9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 59 traps, each with the real error
+9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 60 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -66,6 +66,7 @@ unchanged, with BGP substituted for L2 in production.
 | ✅ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | done — demo 11, with the three-cause forensic on Cilium's default install; poc3 is paused (`scripts/cluster-resume.sh poc3`) |
 | ⛔ | **"Cilium mTLS" (mutual authentication, SPIFFE/SPIRE)** | evaluated, **not enabled and not to be adopted**: deprecated in 1.20, removal planned in 1.21 (cilium#47132), ClusterMesh-incompatible — [docs/summary/MTLS_EVALUATION.md](docs/summary/MTLS_EVALUATION.md) |
 | ✅ | **ztunnel mTLS (demo 13)** — evaluated on a throwaway cluster: real mTLS on the wire, but cannot run on any cluster with a `cluster.id` (so never with ClusterMesh), breaks L4 **and** L7 policy for enrolled traffic, −73 % throughput | **not the standard**; WireGuard + identity policy is — `demos/13-ztunnel/README.md` |
+| ⛔ | **Tetragon (demo 17)** | cannot run on Docker Desktop 4.27.2 (`# CONFIG_SECURITY is not set`; fixed in 4.30.0) and needs the `/procHost` extraMount now in `clusters/poc*.yaml` — [demos/17-tetragon/README.md](demos/17-tetragon/README.md); resumes after the Docker Desktop upgrade on a cluster built with the mount |
 | ⏳ | **BGP with an FRR router (demo 12)** | researched and planned in [docs/summary/BGP_FRR_PLAN.md](docs/summary/BGP_FRR_PLAN.md); parked |
 | ✅ | Hubble UI through the Gateway, including its **data stream** | HTML/JS/CSS at 200, and the relay shows the browser's `POST /api/control-stream` and `/api/service-map-stream` → 200 arriving as identity `ingress` via `https://hubble.poc.local` (demo 09 Part 10) |
 | ⏳ | Wildcard **name** resolution (dnsmasq, `*.poc.local`) | documented in demo 09 Part 3c, not run (needs sudo) |
@@ -136,6 +137,7 @@ an untested combination.
 | 08 | Enterprise CA | cert-manager root in poc1 issuing every cluster's mesh certificates; trust before join |
 | 09 | Wildcard TLS + 3 route types | cert-manager wildcard and exact certs on one Gateway; `HTTPRoute`, `GRPCRoute`, `TCPRoute` from one 14 MB image — and a native Go client (`-mode client`) that tests all three, which is how the missing-ALPN gotcha (#33) was found |
 | 10 | Flow tracing -> OpenTelemetry | Hubble dynamic flow export per node, tailed by an OTel Collector into OTLP; every flow persistent and queryable. **Events, not spans** -- hubble-otel is archived, see gotcha #30 |
+| 17 | **Tetragon — blocked, measured** | Installed on poc1: every agent crash-loops because this Docker Desktop (4.27.2) kernel has no `CONFIG_SECURITY`, restored upstream in 4.30.0; and kind nodes need a creation-time `/procHost` mount or events silently lose their pod (#60). Both fixes written down; Parts 3+ wait for the Docker Desktop upgrade |
 | 16 | **Prometheus + Grafana, then Hubble on dashboards** | kube-prometheus-stack 90.1.1 first (Grafana at `https://grafana.poc.local`, 32/32 targets), then one Cilium helm change: 6 ServiceMonitors, 6 dashboards, 52/52 targets — and what the dashboards needed that the default metric list did not give them: contexts, a `cluster` label, L7 visibility policies, and a context change the "dynamic" config refused (#57–#59) |
 | 15 | **A bank across two clusters** | Five components + Postgres/Redis on PVCs, one image, split half/half across poc1 and poc2 over global Services: the whole call path in one response, idempotent payments across the mesh, **active-active** 23/17, and **zero failed requests** through a scale-to-0 outage and recovery (default and `affinity: local`) |
 | 14 | **TCP_CRR tuning blog, tested** | Bigger maps (at 12 % occupancy), shorter timeouts, socket LB for pods (forced off by Gateway API), client sysctls — none moved the connection rate; this rig's ceiling is Hubble (demo 11), and that is the knob |
@@ -164,7 +166,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 59 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 60 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

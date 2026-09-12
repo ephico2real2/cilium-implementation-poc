@@ -1,0 +1,80 @@
+### 2026-09-12T04:17:29Z
+$ [PART 1 — Tetragon 1.7.1 on poc1 AS IT IS (no /procHost mount): install, then measure what the events look like]
+
+### 2026-09-12T04:17:29Z
+$ sh -c docker exec poc1-worker readlink /proc/self/ns/pid | sed "s/^/kind node pid ns:  /"; docker run --rm --privileged --pid=host alpine readlink /proc/1/ns/pid | sed "s/^/VM root pid ns:    /"; docker exec poc1-worker ls -d /procHost 2>&1 | sed "s/^/\/procHost on node: /"; docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -- sh -c "uname -r; ls /sys/kernel/btf/vmlinux" | tr "\n" " "; echo
+kind node pid ns:  pid:[4026533142]
+VM root pid ns:    pid:[4026531836]
+/procHost on node: ls: cannot access '/procHost': No such file or directory
+6.6.12-linuxkit /sys/kernel/btf/vmlinux 
+
+### 2026-09-12T04:17:33Z
+$ sh -c helm search repo cilium/tetragon --versions | head -2
+NAME           	CHART VERSION	APP VERSION	DESCRIPTION            
+cilium/tetragon	1.7.1        	1.7.1      	Helm chart for Tetragon
+
+### 2026-09-12T04:17:35Z
+$ sh -c helm install tetragon cilium/tetragon --version 1.7.1 -n kube-system --kube-context kind-poc1 -f demos/17-tetragon/values-tetragon.yaml 2>&1 | grep -E "^NAME|^STATUS|Error"; kubectl --context kind-poc1 -n kube-system rollout status ds/tetragon --timeout=5m 2>&1 | tail -1; kubectl --context kind-poc1 -n kube-system rollout status deploy/tetragon-operator --timeout=3m 2>&1 | tail -1
+NAME: tetragon
+NAMESPACE: kube-system
+STATUS: deployed
+error: timed out waiting for the condition
+deployment "tetragon-operator" successfully rolled out
+
+### 2026-09-12T04:22:39Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get pods -l app.kubernetes.io/name=tetragon -o custom-columns="POD:.metadata.name,NODE:.spec.nodeName,READY:.status.containerStatuses[*].ready,CONTAINERS:.spec.containers[*].name"; kubectl --context kind-poc1 -n kube-system get deploy tetragon-operator -o custom-columns="DEPLOY:.metadata.name,READY:.status.readyReplicas"; kubectl --context kind-poc1 get crd -o name | grep -c tetragon | sed "s/^/tetragon CRDs: /"
+POD              NODE                  READY        CONTAINERS
+tetragon-52m8r   poc1-worker2          true,false   export-stdout,tetragon
+tetragon-87slg   poc1-control-plane    true,false   export-stdout,tetragon
+tetragon-hlfkm   poc1-control-plane3   true,false   export-stdout,tetragon
+tetragon-mjrmx   poc1-worker           true,false   export-stdout,tetragon
+tetragon-rm5sm   poc1-control-plane2   true,false   export-stdout,tetragon
+DEPLOY              READY
+tetragon-operator   1
+tetragon CRDs: 0
+
+### 2026-09-12T04:22:40Z
+$ sh -c P=$(kubectl --context kind-poc1 -n kube-system get pod -l app.kubernetes.io/name=tetragon --field-selector spec.nodeName=poc1-worker -o jsonpath="{.items[0].metadata.name}"); echo "-- tetra status (agent on poc1-worker) --"; kubectl --context kind-poc1 -n kube-system exec $P -c tetragon -- tetra status 2>&1 | head -12; echo "-- agent log: warnings/errors, and anything about proc / pid namespace --"; kubectl --context kind-poc1 -n kube-system logs $P -c tetragon 2>/dev/null | grep -iE "level=(warn|error)|procfs|/proc|pid ns|namespace|BTF|Listening" | head -12 | cut -c1-220
+-- tetra status (agent on poc1-worker) --
+error: unable to upgrade connection: container not found ("tetragon")
+-- agent log: warnings/errors, and anything about proc / pid namespace --
+level=info msg="config settings" config="map[bpf-dir:tetragon bpf-lib:/var/lib/tetragon/ btf: cgroup-rate: cluster-name: config-dir:/etc/tetragon/tetragon.conf.d/ cpuprofile: cri-endpoint: data-cache-size:1024 debug:fals
+level=warn msg="inode mismatch: procfs does not appear to be host procfs" path=/procRoot/1/ns/pid inode=4026533142 "expected inode"=4026531836
+level=info msg="BTF discovery: default kernel btf file found" btf-file=/sys/kernel/btf/vmlinux
+level=info msg="failed to stat loginuid" error="stat /proc/self/loginuid: no such file or directory"
+level=info msg="Cgroupv2 supported controllers detected successfully" cgroup.fs=/sys/fs/cgroup cgroup.path=/procRoot/1/root/sys/fs/cgroup cgroup.controllers="[cpuset cpu io memory hugetlb pids rdma]" cgroup.hierarchyID=0
+level=info msg="Waiting for required CRDs" crds="map[tracingpolicies.cilium.io:{} tracingpoliciesnamespaced.cilium.io:{}]"
+level=info msg="Found CRD" crd=tracingpoliciesnamespaced.cilium.io
+level=info msg="BTF file: using metadata file" metadata=/sys/kernel/btf/vmlinux
+level=error msg="Failed to execute tetragon" error="sensor __base__ from collection __base__ failed to load: failed prog /var/lib/tetragon/bpf_execve_bprm_commit_creds.o kern_version 394764 loadInstance: attaching 'tg_kp
+
+### 2026-09-12T04:22:41Z
+$ sh -c timeout 15 kubectl --context kind-poc1 -n kube-system exec tetragon-mjrmx -c tetragon -- tetra getevents -o compact --namespaces bank 2>&1 | head -20
+error: unable to upgrade connection: container not found ("tetragon")
+
+### 2026-09-12T04:23:20Z
+$ sh -c kubectl --context kind-poc1 -n kube-system get pods -l app.kubernetes.io/name=tetragon -o custom-columns='POD:.metadata.name,NODE:.spec.nodeName,RESTARTS:.status.containerStatuses[?(@.name=="tetragon")].restartCount,STATE:.status.containerStatuses[?(@.name=="tetragon")].state.waiting.reason'; echo '-- the full fatal line (agent on poc1-worker) --'; kubectl --context kind-poc1 -n kube-system logs tetragon-mjrmx -c tetragon --previous 2>/dev/null | grep 'Failed to execute tetragon' | tail -1 | sed 's/.*error=//' | fold -w 200
+POD              NODE                  RESTARTS   STATE
+tetragon-52m8r   poc1-worker2          5          <none>
+tetragon-87slg   poc1-control-plane    5          CrashLoopBackOff
+tetragon-hlfkm   poc1-control-plane3   5          CrashLoopBackOff
+tetragon-mjrmx   poc1-worker           5          CrashLoopBackOff
+tetragon-rm5sm   poc1-control-plane2   5          CrashLoopBackOff
+-- the full fatal line (agent on poc1-worker) --
+"sensor __base__ from collection __base__ failed to load: failed prog /var/lib/tetragon/bpf_execve_bprm_commit_creds.o kern_version 394764 loadInstance: attaching 'tg_kp_bprm_committing_creds' failed:
+ creating perf_kprobe PMU (arch-specific fallback for \"security_bprm_committing_creds\"): token __x64_security_bprm_committing_creds: not found: no such file or directory"
+
+### 2026-09-12T04:24:03Z
+$ sh -c echo "VM kernel config, security hooks:"; docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -- sh -c "zcat /proc/config.gz | grep -E \"^(# )?CONFIG_(SECURITY|SECURITY_SELINUX|SECURITY_APPARMOR|SECURITY_YAMA|BPF_LSM|LSM)\b\"; echo \"security_* symbols in kallsyms: \$(grep -c \" security_\" /proc/kallsyms)\"; echo \"bprm symbols: \$(grep \" [a-z_]*bprm[a-z_]*\$\" /proc/kallsyms | awk \"{print \\\$3}\" | tr \"\\n\" \" \")\""
+VM kernel config, security hooks:
+# CONFIG_SECURITY is not set
+CONFIG_LSM="yama,loadpin,safesetid,integrity"
+security_* symbols in kallsyms: 3
+bprm symbols: __pfx_bprm_change_interp bprm_change_interp __pfx_bprm_execve bprm_execve __pfx_free_bprm free_bprm __pfx_alloc_bprm alloc_bprm __pfx_cap_bprm_creds_from_file cap_bprm_creds_from_file 
+
+### 2026-09-12T04:24:07Z
+$ sh -c helm uninstall tetragon -n kube-system --kube-context kind-poc1 2>&1 | tail -1; echo "(uninstalled: five agents in CrashLoopBackOff were re-loading BPF every backoff; nothing works without the exec sensor)"; sleep 5; docker run --rm --privileged --pid=host alpine cat /proc/loadavg
+release "tetragon" uninstalled
+(uninstalled: five agents in CrashLoopBackOff were re-loading BPF every backoff; nothing works without the exec sensor)
+15.22 16.42 15.47 6/4613 720294
+

@@ -1,0 +1,11 @@
+# Tetragon 1.7.1 on poc1 — demo 17. Deviations from chart defaults, each with its reason.
+#   helm install tetragon cilium/tetragon --version 1.7.1 -n kube-system --kube-context kind-poc1 -f demos/17-tetragon/values-tetragon.yaml
+tetragon:
+  # hostProcPath stays at the chart default "/proc" for the FIRST run (Part 1): the kind nodes were created
+  # without the docs' /procHost extraMount (creation-time only) — this run measures what that costs.
+  prometheus:
+    enabled: true                  # :2112 on every agent (chart default) …
+    serviceMonitor:
+      enabled: true                # … and a ServiceMonitor for the demo 16 stack (kube-system, selected since gotcha #57)
+      scrapeInterval: 10s          # chart default 60s; match the Cilium ServiceMonitors
+  resources: {requests: {cpu: 50m, memory: 128Mi}, limits: {memory: 512Mi}}   # 5 nodes on a 16 GB VM with 3.7 GB free
