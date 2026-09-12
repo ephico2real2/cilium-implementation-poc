@@ -1,0 +1,53 @@
+# evidence for demos/01-hubble — recorded 2026-09-12T22:23Z by scripts/evidence/collect.sh
+### 2026-09-12T22:23:59Z
+$ kubectl --context kind-poc1 -n default get pods -o wide
+NAME                          READY   STATUS    RESTARTS      AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+deathstar-d7f446dc5-6wgwz     1/1     Running   2 (24h ago)   41h   10.10.4.244   poc1-worker    <none>           <none>
+deathstar-d7f446dc5-dkgqt     1/1     Running   2 (24h ago)   41h   10.10.3.155   poc1-worker2   <none>           <none>
+inventory-69ccd48cd-bzswq     1/1     Running   2 (24h ago)   31h   10.10.3.167   poc1-worker2   <none>           <none>
+inventory-69ccd48cd-mv2hh     1/1     Running   2 (24h ago)   31h   10.10.4.117   poc1-worker    <none>           <none>
+rebel-base-5bbc557b76-26q6b   1/1     Running   2 (24h ago)   31h   10.10.3.53    poc1-worker2   <none>           <none>
+rebel-base-5bbc557b76-gvk68   1/1     Running   2 (24h ago)   31h   10.10.4.238   poc1-worker    <none>           <none>
+tiefighter                    1/1     Running   2 (24h ago)   41h   10.10.4.191   poc1-worker    <none>           <none>
+xwing                         1/1     Running   2 (24h ago)   41h   10.10.4.57    poc1-worker    <none>           <none>
+
+### 2026-09-12T22:24:01Z
+$ kubectl --context kind-poc1 -n kube-system get pods -o wide
+NAME                                          READY   STATUS    RESTARTS        AGE    IP            NODE                  NOMINATED NODE   READINESS GATES
+cilium-envoy-4ht26                            1/1     Running   2 (24h ago)     2d2h   172.18.0.5    poc1-worker           <none>           <none>
+cilium-envoy-9p6mq                            1/1     Running   2 (24h ago)     2d2h   172.18.0.4    poc1-worker2          <none>           <none>
+cilium-envoy-r5c6d                            1/1     Running   2 (24h ago)     2d2h   172.18.0.7    poc1-control-plane2   <none>           <none>
+cilium-envoy-v9lk2                            1/1     Running   2 (24h ago)     2d2h   172.18.0.3    poc1-control-plane3   <none>           <none>
+cilium-envoy-w7759                            1/1     Running   2 (24h ago)     2d2h   172.18.0.6    poc1-control-plane    <none>           <none>
+cilium-ntbb4                                  1/1     Running   0               11h    172.18.0.7    poc1-control-plane2   <none>           <none>
+cilium-operator-79d6b9ffd7-57lpg              0/1     Running   8 (52s ago)     8h     172.18.0.7    poc1-control-plane2   <none>           <none>
+cilium-pv958                                  1/1     Running   0               11h    172.18.0.3    poc1-control-plane3   <none>           <none>
+cilium-qt6nm                                  1/1     Running   0               11h    172.18.0.5    poc1-worker           <none>           <none>
+cilium-s2wxk                                  1/1     Running   0               11h    172.18.0.4    poc1-worker2          <none>           <none>
+cilium-zdgfx                                  1/1     Running   0               11h    172.18.0.6    poc1-control-plane    <none>           <none>
+clustermesh-apiserver-844c48bb9b-sngg7        3/3     Running   2 (8h ago)      8h     10.10.4.2     poc1-worker           <none>           <none>
+coredns-789c5fbdb4-qhj2d                      1/1     Running   0               17h    10.10.1.35    poc1-control-plane2   <none>           <none>
+coredns-789c5fbdb4-vb8r9                      1/1     Running   0               17h    10.10.0.232   poc1-control-plane    <none>           <none>
+etcd-poc1-control-plane                       1/1     Running   2 (24h ago)     2d2h   172.18.0.6    poc1-control-plane    <none>           <none>
+etcd-poc1-control-plane2                      1/1     Running   2 (24h ago)     2d2h   172.18.0.7    poc1-control-plane2   <none>           <none>
+etcd-poc1-control-plane3                      1/1     Running   2 (24h ago)     2d2h   172.18.0.3    poc1-control-plane3   <none>           <none>
+hubble-relay-556c4dbb98-g4kpv                 1/1     Running   0               6h4m   10.10.3.35    poc1-worker2          <none>           <none>
+hubble-ui-6c4bfdfb4c-vbqjb                    2/2     Running   0               6h4m   10.10.3.59    poc1-worker2          <none>           <none>
+kube-apiserver-poc1-control-plane             1/1     Running   4 (7h28m ago)   2d2h   172.18.0.6    poc1-control-plane    <none>           <none>
+kube-apiserver-poc1-control-plane2            1/1     Running   3 (11h ago)     2d2h   172.18.0.7    poc1-control-plane2   <none>           <none>
+kube-apiserver-poc1-control-plane3            1/1     Running   3 (24h ago)     2d2h   172.18.0.3    poc1-control-plane3   <none>           <none>
+kube-controller-manager-poc1-control-plane    1/1     Running   7 (7h30m ago)   2d2h   172.18.0.6    poc1-control-plane    <none>           <none>
+kube-controller-manager-poc1-control-plane2   0/1     Running   7 (74s ago)     2d2h   172.18.0.7    poc1-control-plane2   <none>           <none>
+kube-controller-manager-poc1-control-plane3   1/1     Running   7 (7h33m ago)   2d2h   172.18.0.3    poc1-control-plane3   <none>           <none>
+kube-scheduler-poc1-control-plane             0/1     Running   8 (77s ago)     2d2h   172.18.0.6    poc1-control-plane    <none>           <none>
+kube-scheduler-poc1-control-plane2            1/1     Running   7 (46m ago)     2d2h   172.18.0.7    poc1-control-plane2   <none>           <none>
+kube-scheduler-poc1-control-plane3            1/1     Running   8 (7h30m ago)   2d2h   172.18.0.3    poc1-control-plane3   <none>           <none>
+
+### 2026-09-12T22:24:01Z
+$ bash -c cilium status --context kind-poc1 --brief; hubble status -P --kube-context kind-poc1 $(scripts/hubble-tls.sh kind-poc1) 2>/dev/null; hubble observe -P --kube-context kind-poc1 $(scripts/hubble-tls.sh kind-poc1) --namespace default --last 8 -o compact 2>/dev/null
+unknown flag: --brief
+Healthcheck (via 127.0.0.1:4245): Ok
+Current/Max Flows: 28,665/28,665 (100.00%)
+Flows/s: 234.47
+Connected Nodes: 7/7
+

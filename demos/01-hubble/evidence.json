@@ -1,0 +1,10 @@
+{
+ "captures": [
+  {
+   "name": "hubble-ui-default",
+   "url": "https://hubble.poc.local/?namespace=default",
+   "wait": "text:deathstar",
+   "look": "the live service map of the default namespace \u2014 deathstar, tiefighter, xwing, rebel-base, inventory \u2014 and the flow table beneath; the header shows the node count the relay reaches (7/7 since demo 24)"
+  }
+ ]
+}
