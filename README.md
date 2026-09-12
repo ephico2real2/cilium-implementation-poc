@@ -18,7 +18,7 @@ is the only datapath — and the lab exercises, in order:
 | LoadBalancer addresses with no cloud | Cilium **LB IPAM** pools carved from the docker subnet + **L2 announcements** (no MetalLB, no kube-vip) | NETWORKING_DESIGN, SETUP 8 |
 | Ingress via Gateway API | Cilium as `GatewayClass` controller; `HTTPRoute`, `GRPCRoute`, `TCPRoute`; TLS by SNI | demos 05, 09 |
 | Enterprise PKI | cert-manager root CA in poc1, `ClusterIssuer` in both clusters, issuing mesh certs and Gateway wildcard/exact certs | demos 08, 09 |
-| Multi-cluster | **ClusterMesh** over a shared root of trust; global Services with cross-cluster failover; a real multi-component app split across both clusters, active-active, zero-loss failover | demos 07, 08, 15 |
+| Multi-cluster | **ClusterMesh** over a shared root of trust; global Services with cross-cluster failover; a real multi-component app split across both clusters, active-active, zero-loss failover; **a database replicated into the other cluster through the mesh**, promotion and failback tested | demos 07, 08, 15 |
 | Node-to-node encryption | WireGuard in the kernel, enabled/verified on the wire, then deliberately left **off** | demo 04 |
 | Observability and export | Hubble flows with identities and verdicts; dynamic flow export per node → OpenTelemetry Collector (events, not spans) | demos 01, 10 |
 | Measured against the stock datapath | the same five measurements on a kindnet + kube-proxy control cluster; the tuning that gets Cilium from half of kube-proxy's throughput to parity, and what Hubble costs at 10 k conn/s | demo 11 |
@@ -61,7 +61,7 @@ unchanged, with BGP substituted for L2 in production.
 | ✅ | Networking design, two reserved pools, host route, hosts block generated from live state | done |
 | ✅ | Enterprise CA from day 1; ClusterMesh on cert-manager certs (`issuer=CN=clustermesh-root-ca`) | done |
 | ✅ | **Bank app across the mesh** (demo 15): 5 components, PVC-backed Postgres and Redis, active-active, zero-loss failover, database-restart drills, **a hot standby in the other cluster streaming through the mesh** with promotion and gated failback tested | done; `https://bank.poc.local` and `https://bankapi.poc.local`; `exercise.sh`, `resilience.sh`, `dbfailover.sh` |
-| ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (663 lines, 13 sections, including the native client) | regenerable |
+| ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (750 lines, 14 sections, including the native client and the bank) | regenerable |
 | ✅ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | done — demo 11, with the three-cause forensic on Cilium's default install; poc3 is paused (`scripts/cluster-resume.sh poc3`) |
 | ⛔ | **"Cilium mTLS" (mutual authentication, SPIFFE/SPIRE)** | evaluated, **not enabled and not to be adopted**: deprecated in 1.20, removal planned in 1.21 (cilium#47132), ClusterMesh-incompatible — [docs/summary/MTLS_EVALUATION.md](docs/summary/MTLS_EVALUATION.md) |
 | ✅ | **ztunnel mTLS (demo 13)** — evaluated on a throwaway cluster: real mTLS on the wire, but cannot run on any cluster with a `cluster.id` (so never with ClusterMesh), breaks L4 **and** L7 policy for enrolled traffic, −73 % throughput | **not the standard**; WireGuard + identity policy is — `demos/13-ztunnel/README.md` |
@@ -151,9 +151,9 @@ scripts/verify.sh                              # to the terminal
 scripts/verify.sh > docs/VERIFICATION_RUN.md   # as a document
 ```
 
-The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 663 lines of
-real console output in 13 sections: versions, cluster state, full Cilium status, every demo
-through 10, and the native route client.
+The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 750 lines of
+real console output in 14 sections: versions, cluster state, full Cilium status, every demo
+through 10, the native route client, and the bank across the mesh.
 
 Two notes on reading it. It is **read-only** apart from HTTP requests to the demo app. And it
 **always exits 0**, deliberately: several checks are *supposed* to fail — a `curl` that times out

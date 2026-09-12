@@ -169,6 +169,18 @@ run "$K -n otel get pods -o wide --no-headers 2>/dev/null | awk '{print \$1, \$2
 echo "Records emitted by one collector in the last 5 minutes:"
 run "$K -n otel logs \$($K -n otel get pod -l app=otel-collector -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) --since=5m 2>/dev/null | grep -c '^LogRecord #'"
 
+hdr "13. DEMO 15 — THE BANK ACROSS THE MESH (global services, replication, one cross-cluster call)"
+run "$K -n bank get pods -o wide --no-headers 2>/dev/null | awk '{print \$1, \$2, \$3, \$7}'"
+run "kubectl --context kind-poc2 -n bank get pods -o wide --no-headers 2>/dev/null | awk '{print \$1, \$2, \$3, \$7}'"
+echo "poc1's service map: accounts has a backend it never scheduled (poc2), payments one from each cluster:"
+BANK_ACC=$($K -n bank get svc accounts -o jsonpath='{.spec.clusterIP}' 2>/dev/null); BANK_PAY=$($K -n bank get svc payments -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
+run "$K -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list 2>/dev/null | grep -E 'Frontend|$BANK_ACC:80|$BANK_PAY:80' -A2 | grep -E 'Frontend|=>|:80/TCP'"
+echo "the database: primary in poc2 with a standby streaming from poc1 through the mesh:"
+run "kubectl --context kind-poc2 -n bank exec postgres-0 -c postgres -- psql -U bank -d bank -Atc \"SELECT 'primary: in_recovery='||pg_is_in_recovery()||'  standby='||client_addr||' '||state||' lag='||coalesce(replay_lag::text,'0') FROM pg_stat_replication\""
+run "$K -n bank exec postgres-standby-0 -c postgres -- psql -U bank -d bank -Atc \"SELECT 'standby: in_recovery='||pg_is_in_recovery()||' '||status||' from '||sender_host FROM pg_stat_wal_receiver\""
+echo "one request through the Gateway, its path in the body — api in poc1, accounts (and the primary) in poc2:"
+run "curl -s --cacert $CA --resolve bankapi.poc.local:443:$GW https://bankapi.poc.local/api/balance/chk-1001 | python3 -c 'import json,sys; d=json.load(sys.stdin); print({\"api\": d[\"served_by\"][\"cluster\"], \"accounts\": d[\"upstream\"][\"served_by\"][\"cluster\"], \"db\": d[\"upstream\"].get(\"db\"), \"balance_cents\": d[\"balance_cents\"]})'"
+
 hdr "12. HOST ROUTING (macOS)"
 run "netstat -rn -f inet | grep '^172.18' || echo 'no route — see SETUP Step 3.5'"
 run "ifconfig -l | tr ' ' '\n' | grep -E '^bridge'"

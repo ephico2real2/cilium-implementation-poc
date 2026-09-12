@@ -1645,3 +1645,29 @@ Two questions a production review will ask, answered with runs rather than opini
 Both exercises restored poc1 from a `helm get values` snapshot and re-ran `scripts/check-routes.sh`
 and `cilium clustermesh status` before being called done — the pattern to copy for any experiment
 on a cluster you intend to keep (gotcha #46: never use the `cilium clustermesh` CLI for that).
+
+## Step 13 — the database survives its cluster (demo 15, Part 8)
+
+Demo 15 ends with the requirement a bank actually has: a database failure in one cluster must not
+take the application down. The mechanism is PostgreSQL's own streaming replication, run **across
+the mesh**: the poc2 primary keeps a replication slot, a Postgres hot standby in poc1 base-backs-up
+from it through the global `postgres-primary` Service and replays its WAL continuously, `accounts`
+falls back to the standby for reads, and promotion is one `pg_promote()` plus one env change.
+
+```bash
+kubectl --context kind-poc2 apply -f demos/15-bank/10-poc2.yaml               # primary: replicator role, slot, pg_hba (initdb script)
+kubectl --context kind-poc1 apply -f demos/15-bank/40-postgres-standby-poc1.yaml   # the standby: pg_basebackup -R --slot, then a stock postgres
+scripts/record.sh demos/15-bank/output/transcript.txt demos/15-bank/dbfailover.sh  # the four test cases
+FROM=3 demos/15-bank/dbfailover.sh                                              # only promotion + failback
+```
+
+| Event | What you do | What the app sees (measured) |
+|---|---|---|
+| primary pod restarts | nothing — StatefulSet + slot | reads 0 failed (served by the standby), writes pause 4 s |
+| primary cluster's database lost | `SELECT pg_promote()` on the standby; `kubectl set env deploy/accounts PG_DSN=<standby>` | reads never stop; writes resume after promotion + one rollout — 20/20 |
+| failback | `pg_dump` → rebuild the old side as standby → verify streaming → promote → verify a write → rebuild the other side | two short write pauses; balances identical afterwards |
+
+Read the three gotchas before running it on anything that matters: a readiness probe must never
+encode a role (#54), a failback must verify before it deletes (#55 — the first run here lost the
+demo ledger), and a draining pod must fail readiness first (#56). The write-up, with every run
+kept: `demos/15-bank/README.md` Part 8.

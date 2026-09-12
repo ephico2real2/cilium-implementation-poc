@@ -309,8 +309,9 @@ second debit after it — idempotency survives the store's own restart.
 
 **What the drills do not prove.** The volumes are kind's `local-path` (`/var/local-path-provisioner/…`
 on one node): data survives the *pod*, not the *node*. Production needs replicated storage or a
-managed database, and a Postgres HA topology; one primary is a deliberate simplification here,
-and the 3-second outage is its honest cost.
+managed database, and a Postgres HA topology. At this point of the demo there was one primary and
+the 3-second outage was its honest cost — **Part 8 removes that single point by replicating the
+database into the other cluster**; the node-local volume caveat stays.
 
 ## Part 7 — the working principles, each with its evidence
 
