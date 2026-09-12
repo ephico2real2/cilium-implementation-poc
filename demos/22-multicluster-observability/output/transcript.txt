@@ -351,3 +351,48 @@ net-poc2-bank: [Data Source=default | Data Source | default | cluster=poc2 | clu
 l7-poc2-accounts: [Prometheus=Prometheus | Prometheus | Prometheus | Cluster=poc2 | Cluster | poc2 | Destination Namespace=bank | Destination Namespace] noData=0
 cilium-poc2: [Prometheus=Prometheus | Prometheus | Prometheus | pod=All | pod | All] noData=0
 cluster dropdown options: All, poc1, poc2
+### Part 4 — the gap closed: poc1's own scrapes get cluster=poc1 (a default scrape class on the hub)
+### 2026-09-12T13:54:53Z
+$ bash -c cd /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/pw && S=/private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad TAG=before node browser-multicluster.js 2>&1 | tail -2; echo 'hub, series with no cluster label, by job:'; kubectl --context kind-poc1 get --raw '/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count%20by%20(job)%20(up%7Bcluster%3D%22%22%7D)' | python3 -c 'import json,sys; [print("  ", r["metric"].get("job"), r["value"][1]) for r in json.load(sys.stdin)["data"]["result"]]'
+before: cluster cells = [] (0 cells)
+hub, series with no cluster label, by job:
+   monitoring-kube-prometheus-alertmanager 2
+   kubelet 15
+   apiserver 3
+   node-exporter 5
+   monitoring-kube-prometheus-prometheus 2
+   coredns 2
+   monitoring-grafana 1
+   kube-state-metrics 1
+   monitoring-kube-prometheus-operator 1
+
+### 2026-09-12T13:55:22Z
+$ bash -c helm upgrade monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml 2>&1 | grep -E "STATUS|REVISION|rror"; kubectl --context kind-poc1 -n monitoring get prometheus monitoring-kube-prometheus-prometheus -o jsonpath="scrapeClasses now: {.spec.scrapeClasses}{\"\n\"}"; sleep 75; echo "hub, 75 s later — up series by cluster:"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count%20by%20(cluster)%20(up)" | python3 -c "import json,sys; [print(\"  cluster=%s %s\" % (r[\"metric\"].get(\"cluster\",\"(none)\"), r[\"value\"][1])) for r in json.load(sys.stdin)[\"data\"][\"result\"]]"; echo "the recording rule the dashboard reads, by cluster (rules run every 30 s):"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=cluster:node_cpu:ratio_rate5m" | python3 -c "import json,sys; [print(\"  cluster=%s %.3f\" % (r[\"metric\"].get(\"cluster\",\"(none)\"), float(r[\"value\"][1]))) for r in json.load(sys.stdin)[\"data\"][\"result\"]]"
+STATUS: deployed
+REVISION: 7
+scrapeClasses now: [{"default":true,"name":"cluster-label","relabelings":[{"action":"replace","replacement":"poc1","targetLabel":"cluster"}]}]
+hub, 75 s later — up series by cluster:
+  cluster=poc1 54
+  cluster=(none) 5
+  cluster=poc2 32
+the recording rule the dashboard reads, by cluster (rules run every 30 s):
+  cluster=(none) 0.360
+  cluster=poc2 0.358
+
+### 2026-09-12T13:58:02Z
+$ bash -c sleep 60; cd /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/pw && S=/private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad TAG=after node browser-multicluster.js 2>&1 | tail -1
+
+
+### 2026-09-12T14:02:52Z
+$ bash -c echo "hub Prometheus: the container was restarted once at 14:00:28 by a failed liveness probe (VM load 146, 1.3 GB free — the gotcha #66 pattern, not the config: the StatefulSet generation did not change); after it:"; kubectl --context kind-poc1 -n monitoring get pods -l app.kubernetes.io/name=prometheus -o custom-columns="  POD:.metadata.name,READY:.status.containerStatuses[*].ready,RESTARTS:.status.containerStatuses[*].restartCount" --no-headers; echo "active targets without a cluster label: $(kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/targets?state=active" | python3 -c "import json,sys; ts=json.load(sys.stdin)[\"data\"][\"activeTargets\"]; print(len([t for t in ts if not t[\"labels\"].get(\"cluster\")]), \"of\", len(ts))")"; echo "up by cluster:"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count%20by%20(cluster)%20(up)" | python3 -c "import json,sys; [print(\"  cluster=%s %s\" % (r[\"metric\"].get(\"cluster\",\"(none)\"), r[\"value\"][1])) for r in json.load(sys.stdin)[\"data\"][\"result\"]]"; echo "the recording rule the multi-cluster dashboard reads, by cluster:"; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=cluster:node_cpu:ratio_rate5m" | python3 -c "import json,sys; [print(\"  cluster=%s %.3f\" % (r[\"metric\"].get(\"cluster\",\"(none)\"), float(r[\"value\"][1]))) for r in json.load(sys.stdin)[\"data\"][\"result\"]]"; echo "(series scraped before the change keep their old label set until they go stale — 5 minutes — which is why (none) can linger briefly)"
+hub Prometheus: the container was restarted once at 14:00:28 by a failed liveness probe (VM load 146, 1.3 GB free — the gotcha #66 pattern, not the config: the StatefulSet generation did not change); after it:
+prometheus-monitoring-kube-prometheus-prometheus-0   true,true   0,1
+active targets without a cluster label: 0 of 54
+up by cluster:
+  cluster=poc1 54
+  cluster=poc2 32
+the recording rule the multi-cluster dashboard reads, by cluster:
+  cluster=poc2 0.417
+  cluster=poc1 0.525
+(series scraped before the change keep their old label set until they go stale — 5 minutes — which is why (none) can linger briefly)
+

@@ -16,7 +16,19 @@ prometheus:
     # Cilium's Hubble httpV2 metrics carry OpenMetrics exemplars (trace links on histogram buckets);
     # Prometheus stores them only with this on. Harmless without a tracing backend.
     enableFeatures: [exemplar-storage]
-    enableRemoteWriteReceiver: true    # demo 21 Part 5: Tempo's metrics-generator remote-writes service-graph and span metrics here
+    enableRemoteWriteReceiver: true
+    # Demo 22 Part 4: the hub's OWN scrapes carry no `cluster` label (external labels are added only on the way
+    # out, never to locally stored series), so the multi-cluster dashboards showed poc1's rows unnamed next to
+    # poc2's. A default scrape class relabels EVERY ServiceMonitor/PodMonitor/Probe/ScrapeConfig target that does
+    # not name a class (prometheus-operator > v0.73; here v0.93.1). The Cilium monitors (Part 9 of demo 16) set the
+    # same value themselves, so nothing collides; poc2's series arrive with cluster=poc2 from its external label.
+    scrapeClasses:
+      - name: cluster-label
+        default: true
+        relabelings:
+          - action: replace
+            targetLabel: cluster
+            replacement: poc1    # demo 21 Part 5: Tempo's metrics-generator remote-writes service-graph and span metrics here
 
 grafana:
   adminPassword: poc-grafana         # a lab; change it the moment this leaves the laptop

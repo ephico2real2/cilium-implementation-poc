@@ -161,6 +161,52 @@ poc2-tagged batches leaving.
 with zero empty panels ([capture](output/screenshots/mc-l7-poc2-accounts.png)); Cilium Metrics for
 `poc2` ([capture](output/screenshots/mc-cilium-poc2.png)). [`browser-check.js`](browser-check.js) retakes them.
 
+## Part 4 — the gap closed: `cluster=poc1` on the hub's own scrapes
+
+**The symptom, on the dashboard the stack ships:** *Kubernetes / Compute Resources / Multi-Cluster*
+listed two clusters — `poc2` by name, and a row with **no name** for poc1 ([before](output/screenshots/mc-multicluster-before.png)).
+Every series poc1's Prometheus scraped itself (kubelet 15, node-exporter 5, apiserver 3, coredns 2,
+kube-state-metrics 1, the stack's own components) had no `cluster` label; poc2's arrived labelled by
+its `externalLabels`. The dashboard's recording rule, `cluster:node_cpu:ratio_rate5m`, therefore had
+`cluster=(none)` and `cluster=poc2`.
+
+**Why `externalLabels` cannot fix it:** they are attached on the way *out* (remote write, alerts,
+federation), never to the local TSDB. Demo 16 Part 9 labelled the Cilium/Hubble monitors one by one
+with `relabelings`; the stack has nine more jobs.
+
+**The fix, one setting for all of them** — a *default scrape class* on the hub's `Prometheus`
+object (prometheus-operator > v0.73; this stack runs v0.93.1): a relabeling "applied to all scrape
+targets" of every ServiceMonitor, PodMonitor, Probe and ScrapeConfig that names no class.
+Added to [`../16-monitoring/values-kube-prometheus-stack.yaml`](../16-monitoring/values-kube-prometheus-stack.yaml):
+
+```yaml
+prometheus:
+  prometheusSpec:
+    scrapeClasses:
+      - name: cluster-label
+        default: true
+        relabelings:
+          - {action: replace, targetLabel: cluster, replacement: poc1}
+```
+
+```bash
+helm upgrade monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml
+```
+
+Recorded (Part 4 of the transcript): `REVISION: 7`, the `Prometheus` object carrying the class;
+75 s later `up` by cluster `poc1 54 · (none) 5 · poc2 32`, the five being pre-change series not yet
+stale; after the 5-minute staleness window `active targets without a cluster label: 0 of 54`, `up`
+by cluster `poc1 54 · poc2 32`, and the recording rule `cluster=poc1 0.525 · cluster=poc2 0.417`.
+The dashboard now names both rows ([after](output/screenshots/mc-multicluster-after.png)); the
+unnamed green line in its graphs is the pre-change history, and leaves the window with time.
+[`browser-multicluster.js`](browser-multicluster.js) takes the captures.
+
+Two things to know: the Cilium monitors of demo 16 set the same value themselves, so the two
+relabelings agree (a scrape class is applied *before* the object's own relabelings, which could
+override it); and the hub's Prometheus container was restarted once during this Part by a failed
+liveness probe — VM load 146 with 1.3 GB free while Playwright and two clusters competed, the
+gotcha #66 pattern, not the configuration (the StatefulSet generation did not change).
+
 ## Exercises
 
 1. Break the join key: remove `externalLabels` from the poc2 values, upgrade, wait a minute. *Expect*
@@ -196,7 +242,7 @@ with zero empty panels ([capture](output/screenshots/mc-l7-poc2-accounts.png)); 
   non-Cilium jobs are unlabelled; only the Cilium/Hubble ServiceMonitors were stamped in demo 16
   Part 9. In production the hub is a receiver only (Thanos/Mimir) and every cluster, the hub's
   included, is a spoke writing through it — which stamps everything. Here it would need a relabel on
-  each of the stack's own jobs.
+  each of the stack's own jobs. **Closed in Part 4** below — one relabel for all of them.
 - **The mesh did the networking.** No ingress, no LoadBalancer, no TLS termination for remote write
   or OTLP: pod-to-pod across clusters over the existing ClusterMesh path (demo 04 encrypts it if wanted).
 

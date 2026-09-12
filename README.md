@@ -62,7 +62,7 @@ unchanged, with BGP substituted for L2 in production.
 | ✅ | Enterprise CA from day 1; ClusterMesh on cert-manager certs (`issuer=CN=clustermesh-root-ca`) | done |
 | ✅ | **Bank app across the mesh** (demo 15): 5 components, PVC-backed Postgres and Redis, active-active, zero-loss failover, database-restart drills, **a hot standby in the other cluster streaming through the mesh** with promotion and gated failback tested, **load balancing across a 3+3 pool measured per pod** with live scaling and a Maglev twin | done; `https://bank.poc.local` and `https://bankapi.poc.local`; `exercise.sh`, `resilience.sh`, `dbfailover.sh`, `scale.sh` |
 | ✅ | **Monitoring (demo 16)**: kube-prometheus-stack on poc1, Grafana on the Gateway, Cilium/Hubble ServiceMonitors + the chart's six dashboards, exemplars proven with a `traceparent`, L7 visibility for the bank namespace | done; `https://grafana.poc.local` (admin / poc-grafana); `demos/16-monitoring/` |
-| ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (916 lines, 22 sections, from the toolchain to the enterprise CA) | regenerable |
+| ✅ | `scripts/verify.sh` → VERIFICATION_RUN.md (928 lines, 22 sections, from the toolchain to the enterprise CA) | regenerable |
 | ✅ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | done — demo 11, with the three-cause forensic on Cilium's default install; poc3 is paused (`scripts/cluster-resume.sh poc3`) |
 | ⛔ | **"Cilium mTLS" (mutual authentication, SPIFFE/SPIRE)** | evaluated, **not enabled and not to be adopted**: deprecated in 1.20, removal planned in 1.21 (cilium#47132), ClusterMesh-incompatible — [docs/summary/MTLS_EVALUATION.md](docs/summary/MTLS_EVALUATION.md) |
 | ✅ | **ztunnel mTLS (demo 13)** — evaluated on a throwaway cluster: real mTLS on the wire, but cannot run on any cluster with a `cluster.id` (so never with ClusterMesh), breaks L4 **and** L7 policy for enrolled traffic, −73 % throughput | **not the standard**; WireGuard + identity policy is — `demos/13-ztunnel/README.md` |
@@ -170,7 +170,7 @@ scripts/verify.sh                              # to the terminal
 scripts/verify.sh > docs/VERIFICATION_RUN.md   # as a document
 ```
 
-The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 916 lines of
+The committed result is **[docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md)** — 928 lines of
 real console output in 14 sections: versions, cluster state, full Cilium status, every demo
 through 10, the native route client, and the bank across the mesh.
 

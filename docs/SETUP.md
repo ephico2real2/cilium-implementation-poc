@@ -1781,6 +1781,11 @@ demos/22-multicluster-observability/apply-poc2.sh                               
 demos/15-bank/exercise.sh 20 ; sleep 60                                                                       # then any dashboard with cluster=poc2
 ```
 
+```bash
+# Part 4 (2026-09-12): the hub's OWN scrapes get cluster=poc1 through a default scrape class — the values file carries it now
+helm upgrade monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml
+```
+
 Proof and the standard: `demos/22-multicluster-observability/README.md`.
 
 ## Step 20 — the collector as a per-cluster gateway (demo 23)
