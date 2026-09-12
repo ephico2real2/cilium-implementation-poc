@@ -791,6 +791,22 @@ returned **nothing**. The UI talks to two backend streams only (`/api/control-st
 `/api/service-map-stream`); there is no metrics endpoint behind it. That is the measurement behind
 this demo's first sentence: Hubble UI has no metrics view. ([screenshot](output/screenshots/hubble-ui-springboot.png))
 
+**Part 11b (2026-09-12) — the flows-per-minute chart in the blog screenshots is not our Hubble UI.**
+The clip in question shows, under the service map, a *flows / minute* time chart ("578 flows, May 29
+2025 3:26 PM") over a **Time range: 1 hour ago → Now**, a **Clusters** dropdown, a **Policies** tab,
+a *Cluster map* breadcrumb and a signed-in Isovalent user. Every one of those is a capability the
+open-source UI we run (`quay.io/cilium/hubble-ui:v0.13.5`, Part 11 above) does not have and cannot
+have: the OSS relay serves each agent's in-memory ring buffer — 4,095 flows per node here, minutes of
+history at 40 flows/s — so there is nothing to draw an hour from, no store to filter by cluster, and
+no policy view. That screen is **Isovalent Enterprise for Cilium's Hubble UI backed by Hubble
+Timescape**, the enterprise flow store that keeps flows over time
+([Timescape](https://isovalent.com/features/hubble-timescape/),
+[the Isovalent lab](https://isovalent.com/labs/hubble-connectivity-visibility/); the pages are
+JS-rendered and did not fetch for quotation, so the identification rests on the screenshot's own
+controls and on the Part 11 DOM measurement of our UI). Nothing "happened" to our version: it is the
+complete open-source UI. On this stack the chart's information lives in Grafana's Hubble / Network
+Overview panels (flows by verdict over time, with retention), fed by the Part 6 dynamic metrics.
+
 **Where the histograms are — Grafana, three dashboards, captured the same way:**
 
 | Dashboard | What the capture shows |
