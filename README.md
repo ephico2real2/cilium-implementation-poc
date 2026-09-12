@@ -41,10 +41,13 @@ unchanged, with BGP substituted for L2 in production.
 4. **SETUP Step 9** — poc2 and ClusterMesh, trust established with cert-manager **before** joining
    (Route A). Then **demos 07 → 08**.
 5. **Demo 09** (wildcard TLS + three route types) and **demo 10** (flow export → OTel); SETUP Step 10.
-6. **`scripts/verify.sh`** — regenerate every piece of evidence on *your* cluster and diff it
+6. **Demos 11, 13, 14** — the forensic set: kube-proxy vs Cilium on a control cluster (SETUP
+   Step 11), the mTLS/ztunnel decision and the tuning-blog test (SETUP Step 12). Each pauses or
+   snapshots and restores the clusters it touches; read them for the *method* as much as the numbers.
+7. **`scripts/verify.sh`** — regenerate every piece of evidence on *your* cluster and diff it
    against [docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md). `scripts/check-routes.sh` is the
    external-access proof for demo 09.
-7. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 49 traps, each with the real error
+8. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 49 traps, each with the real error
    text.
 
 ## What is done, and what is left

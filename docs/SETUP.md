@@ -1595,3 +1595,22 @@ scripts/cluster-resume.sh poc1 poc2
 
 Everything else — the rig, the five measurements, the tuning steps and the restore — is
 `demos/11-kube-proxy-vs-cilium/README.md`.
+
+## Step 12 — the security decisions, measured (demos 13 and 14)
+
+Two questions a production review will ask, answered with runs rather than opinions:
+
+- **"Is mTLS on, and should it be?"** — Cilium's own "mutual authentication" is deprecated in 1.20
+  and removed in 1.21; its successor, **ztunnel**, was run on a throwaway cluster (`clusters/poc4.yaml`,
+  `cilium/values-poc4-ztunnel.yaml`) because it cannot start on any cluster with a `cluster.id`
+  (gotcha #45). It is real mTLS on the wire and it breaks L4 and L7 network policy for enrolled
+  traffic (measured), at −73 % throughput. **Decision: not the standard; identity policy + WireGuard
+  (demo 04) is.** → `demos/13-ztunnel/README.md`, `docs/summary/MTLS_EVALUATION.md`.
+- **"Have you tuned for connection rate?"** — a popular tuning post's knobs tested one by one; none
+  applied here, and the one datapath knob is forced off by Gateway API (gotcha #49). The binding
+  constraint is Hubble's per-flow CPU (demo 11). → `demos/14-tcp-crr-tuning/README.md`,
+  `docs/TUNING.md` §5.
+
+Both exercises restored poc1 from a `helm get values` snapshot and re-ran `scripts/check-routes.sh`
+and `cilium clustermesh status` before being called done — the pattern to copy for any experiment
+on a cluster you intend to keep (gotcha #46: never use the `cilium clustermesh` CLI for that).
