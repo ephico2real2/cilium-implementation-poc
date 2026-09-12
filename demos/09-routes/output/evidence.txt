@@ -1,0 +1,29 @@
+# evidence for demos/09-routes — recorded 2026-09-12T22:24Z by scripts/evidence/collect.sh
+### 2026-09-12T22:24:43Z
+$ kubectl --context kind-poc1 -n routes get pods -o wide
+NAME                    READY   STATUS    RESTARTS   AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+echo-5dd4997b94-4vg4k   1/1     Running   0          9h    10.10.4.207   poc1-worker    <none>           <none>
+echo-5dd4997b94-b2s9s   1/1     Running   0          9h    10.10.3.136   poc1-worker2   <none>           <none>
+grpc-57c4b8cdf5-8fpgv   1/1     Running   0          9h    10.10.3.97    poc1-worker2   <none>           <none>
+grpc-57c4b8cdf5-l9gfj   1/1     Running   0          9h    10.10.4.177   poc1-worker    <none>           <none>
+web-775dfff659-hgw8w    1/1     Running   0          9h    10.10.3.8     poc1-worker2   <none>           <none>
+web-775dfff659-ndjw7    1/1     Running   0          9h    10.10.4.235   poc1-worker    <none>           <none>
+
+### 2026-09-12T22:24:43Z
+$ bash -c kubectl --context kind-poc1 -n routes get httproute,grpcroute,tcproute -o custom-columns='KIND:.kind,NAME:.metadata.name,HOSTS:.spec.hostnames'; kubectl --context kind-poc1 -n routes get certificate
+KIND        NAME        HOSTS
+HTTPRoute   anything    [anything-at-all.poc.local]
+HTTPRoute   bank        [bank.poc.local]
+HTTPRoute   bank-api    [bankapi.poc.local]
+HTTPRoute   cf2cnp      [cf2cnp.poc.local]
+HTTPRoute   exact       [exact.example.test]
+HTTPRoute   grafana     [grafana.poc.local]
+HTTPRoute   hubble      [hubble.poc.local]
+HTTPRoute   petclinic   [petclinic.poc.local]
+HTTPRoute   web         [web.poc.local]
+GRPCRoute   grpc        [grpc.poc.local]
+TCPRoute    echo        <none>
+NAME                     READY   SECRET                   AGE
+exact-example-test-tls   True    exact-example-test-tls   30h
+wildcard-poc-local-tls   True    wildcard-poc-local-tls   30h
+

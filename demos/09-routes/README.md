@@ -865,3 +865,35 @@ servers and the client are one binary.
 ```bash
 kubectl delete -f demos/09-routes/03-routes.yaml -f demos/09-routes/02-apps.yaml -f demos/09-routes/01-gateway.yaml
 ```
+
+## Evidence
+
+Captured 2026-09-12 with `scripts/evidence/capture.js` and `scripts/evidence/collect.sh` (both re-runnable; the pod and Cilium output is the recorded file [`output/evidence.txt`](output/evidence.txt)). Every image is what the browser saw, with traffic running.
+
+**web poc local** — the wildcard HTTPS route
+
+![web-poc-local](output/screenshots/web-poc-local.png)
+
+**exact example test** — the exact-hostname listener with its own certificate, the one host the wildcard does not cover
+
+![exact-example-test](output/screenshots/exact-example-test.png)
+
+**bank api poc local** — a second route to the bank API on its own hostname
+
+![bank-api-poc-local](output/screenshots/bank-api-poc-local.png)
+
+**Running pods** (from `output/evidence.txt`):
+
+```console
+$ kubectl --context kind-poc1 -n routes get pods -o wide
+NAME                    READY   STATUS    RESTARTS   AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+echo-5dd4997b94-4vg4k   1/1     Running   0          9h    10.10.4.207   poc1-worker    <none>           <none>
+echo-5dd4997b94-b2s9s   1/1     Running   0          9h    10.10.3.136   poc1-worker2   <none>           <none>
+grpc-57c4b8cdf5-8fpgv   1/1     Running   0          9h    10.10.3.97    poc1-worker2   <none>           <none>
+grpc-57c4b8cdf5-l9gfj   1/1     Running   0          9h    10.10.4.177   poc1-worker    <none>           <none>
+web-775dfff659-hgw8w    1/1     Running   0          9h    10.10.3.8     poc1-worker2   <none>           <none>
+web-775dfff659-ndjw7    1/1     Running   0          9h    10.10.4.235   poc1-worker    <none>           <none>
+```
+
+The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
+

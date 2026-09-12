@@ -1,0 +1,22 @@
+{
+ "captures": [
+  {
+   "name": "web-poc-local",
+   "url": "https://web.poc.local/",
+   "wait": 6000,
+   "look": "the wildcard HTTPS route"
+  },
+  {
+   "name": "exact-example-test",
+   "url": "https://exact.example.test/",
+   "wait": 6000,
+   "look": "the exact-hostname listener with its own certificate, the one host the wildcard does not cover"
+  },
+  {
+   "name": "bank-api-poc-local",
+   "url": "https://bankapi.poc.local/api/balance/chk-1001",
+   "wait": 6000,
+   "look": "a second route to the bank API on its own hostname"
+  }
+ ]
+}
