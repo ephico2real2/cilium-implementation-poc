@@ -393,7 +393,9 @@ kubectl --context kind-poc1 -n monitoring get cm monitoring-kube-prometheus-graf
 
 **In Grafana:** Explore → Tempo → query type *Service Graph*, last 30 min: the four petclinic
 services as nodes with the database nodes hanging off them, request rate and p90 on the edges, and
-a table with Rate / Error rate / Duration per node ([screenshot](output/screenshots/grafana-service-graph.png)).
+a table with Rate / Error rate / Duration per node ([screenshot](output/screenshots/grafana-service-graph.png);
+the same view over the last hour, captured at 2× with [`browser-service-graph.js`](browser-service-graph.js):
+[grafana-service-graph-1h.png](output/screenshots/grafana-service-graph-1h.png)).
 Clicking a node runs a TraceQL search for that service; the Spring Boot dashboard's *Rate* and
 this graph's *Rate* are the same requests counted by two independent instruments (Micrometer in the
 JVM; the generator from spans).
