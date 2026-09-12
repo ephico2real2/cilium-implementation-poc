@@ -284,6 +284,17 @@ These are measured, each with its gotcha, not assumed. None of them is a Cilium 
 | no second node for the poc2 spoke, one worker | the observer's two replicas land on the same node; the PDB cannot help | anti-affinity that spreads |
 | Hubble UI open source — demo 16 Part 11b | no time range, no flows-per-minute chart, no cluster picker in the UI (enterprise, Timescape) | the same: this lab builds the store with Loki instead (demo 25) |
 
+## Formatting the documents — automatic
+
+`scripts/mdfmt` (`mdfmt` on the PATH) formats and lints every `*.md` with `markdownlint-cli2`; the
+rules are in `.markdownlint-cli2.yaml`. It runs by itself in two places: a Claude Code hook
+(`.claude/settings.json` → `scripts/mdfmt-hook.sh`) fixes each Markdown file the moment the assistant
+writes or edits it and reports anything it cannot fix, and a git pre-commit hook
+(`.githooks/pre-commit`, enable once with `git config core.hooksPath .githooks`) fixes and re-stages
+every staged `*.md` and refuses a commit that still has findings. What it will not fix by itself and
+will name instead: a `|` inside a table cell (escape it `\|`), a wrapped line that begins with `#`, `-`
+or `+` (rejoin it), a second top-level heading (make it a section).
+
 ## Regenerating the evidence
 
 Every README here quotes captured output, and quoted output goes stale. `scripts/verify.sh` re-runs

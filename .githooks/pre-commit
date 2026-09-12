@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# pre-commit — format every staged *.md with mdfmt, re-stage it, and refuse the commit if findings remain.
+# Enable once per clone:  git config core.hooksPath .githooks
+set -uo pipefail; cd "$(git rev-parse --show-toplevel)"
+FILES=$(git diff --cached --name-only --diff-filter=ACMR -- '*.md'); [ -z "$FILES" ] && exit 0
+command -v markdownlint-cli2 >/dev/null || { echo "pre-commit: markdownlint-cli2 not installed (npm i -g markdownlint-cli2)"; exit 1; }
+echo "$FILES" | xargs markdownlint-cli2 --fix >/dev/null 2>&1; echo "$FILES" | xargs git add
+LEFT=$(echo "$FILES" | xargs markdownlint-cli2 2>&1 | grep -E '\.md:[0-9]+' || true)
+if [ -n "$LEFT" ]; then echo "pre-commit: Markdown findings that need a hand (commit refused):"; echo "$LEFT"; exit 1; fi
