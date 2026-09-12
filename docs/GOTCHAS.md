@@ -60,6 +60,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [50](#50) | "Active-active" sent 40/40 requests to one cluster — Go's keep-alive pinned one pooled connection to one backend; Cilium balances connections, not requests | load balancing |
 | [51](#51) | `kubectl exec a -- curl … \| kubectl exec b -- jq` prints nothing — the second exec has no stdin; run the pipeline inside one exec | tooling |
 | [52](#52) | `api.bank.poc.local` failed with curl exit 60 on the `*.poc.local` Gateway — a wildcard matches exactly one DNS label, in the listener and in the certificate | Gateway API / TLS |
+| [53](#53) | One 502 at the exact second of a scale-down — the pod died with a connection open; zero-loss failover needs the app to outlive endpoint withdrawal and drain | app + platform |
 
 ---
 
@@ -1349,6 +1350,31 @@ will issue it the same way it issued `*.poc.local` (demo 09 Part 2).
 
 ---
 
+## <a name="53"></a>53. One 502 at the exact second of a scale-down — zero-loss failover is a contract between the app and the platform
+
+**Symptom.** `exercise.sh 60 … --failover`: 59 payments fine, and call 20 — issued in the same
+second as `kubectl scale deploy/payments --replicas=0` — answered **502**. The earlier
+`check.sh` loops had shown 0 failures twice; they had simply not sent a request in that window.
+
+**Cause.** The Go servers ended with `log.Fatal(http.ListenAndServe(...))`: SIGTERM killed the
+process with a connection open. Kubernetes marks the pod terminating and removes its endpoint
+**asynchronously**; Cilium's service map follows a moment later. A pod that exits on the first
+signal loses whatever arrived in that moment. The mesh did nothing wrong — it had no live
+backend to send to *yet*, and the dying one was still listed.
+
+**Fix.** On SIGTERM: keep serving for a short grace period (4 s here) so the endpoint is
+withdrawn everywhere, then `http.Server.Shutdown` to finish in-flight requests; and
+`terminationGracePeriodSeconds` longer than grace + drain (20 s) so the kubelet does not SIGKILL
+first. Re-run: **60/60**, 0 failures through the scale-down and the restore.
+
+**The lesson.** Load balancers fail over *connections*; only the application can fail over
+*requests*. Every service that claims zero-downtime deploys needs this pair — a SIGTERM handler
+that outlives endpoint removal, and a grace period that outlives the handler.
+
+→ demo 15, Part 5; `demos/15-bank/app/main.go` (`serve`)
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -1371,6 +1397,7 @@ Most of these share a shape: **something reported success while not working.**
 - `cilium status` said `Hubble Relay: OK` on the cluster being looked at while the other cluster's relay had crashed 131 times (#48)
 - `helm upgrade` accepted `socketLB.hostNamespaceOnly=false` and rendered the opposite (#49)
 - a load-balancing test reported one backend forever because the client reused one connection (#50)
+- two failover loops reported 0 failures — they had not sent a request in the one second that fails (#53)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

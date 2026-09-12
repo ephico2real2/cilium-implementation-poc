@@ -206,6 +206,58 @@ stuck there). The demo client now opens a connection per request (`DisableKeepAl
 reason in the source). A real service keeps its pool and gets the same spread across *many*
 clients; a single pooled client is the wrong instrument for measuring a load balancer.
 
+## Part 5 — `exercise.sh`: watch it work, from outside
+
+`demos/15-bank/exercise.sh [count] [account] [--failover]` drives the bank through the Gateway
+(`https://bankapi.poc.local`, pinned with `--resolve`, so no hosts entry is needed) and prints one
+line per payment: merchant, amount, HTTP code, which cluster/pod took the payment, which cluster/pod
+debited the account, the balance after, and the latency. It tops the account up first (via
+`/api/credit`), then a summary, then an idempotency replay. `--failover` scales poc1's `payments` to
+0 at call 20 and back at call 40, so the *payments* column flips before your eyes.
+
+```
+$ demos/15-bank/exercise.sh 60 chk-1002 --failover
+topping up chk-1002 by 255084 cents (balance 916 < 256000 needed for 60 calls): balance now 256000
+#    merchant     cents  http   payments (cluster/pod)   debited by (cluster/pod)    balance      ms
+1    books         3571  201    poc2/payments-c2mzn      poc2/accounts-7sctb          252429     211
+12   books         2121  201    poc1/payments-mmq57      poc2/accounts-7sctb          234023     170
+>>> poc1 payments scaled to 0 (sudden downtime)
+20   coffee        1293  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          221710     172
+…
+>>> poc1 payments restored to 1
+51   fuel          1458  201    poc1/payments-r9nxj      poc2/accounts-7sctb          157315     161
+summary
+  calls: 60  ok: 60  declined (409, insufficient funds): 0  FAILED (infrastructure): 0  in 50 s
+  payments served by : poc2=49 poc1=11
+  debited by accounts: poc2=60   (accounts runs in poc2 only — every debit must say poc2)
+  balance before 256000, after 135861, spent 120139  ->  LEDGER CONSISTENT: before - after == sum of payments
+idempotency: the same key twice must debit once
+  call 1: replay=False served by poc2   call 2: replay=True served by poc1   balance differs by exactly 100
+```
+
+Note the replay: the duplicate was answered by the *other* cluster and still recognised — the
+idempotency key lives in Redis, reached from both.
+
+**Two things the first exercise run found, both fixed and kept in the transcript:**
+
+1. **Call 20 → 502 at the instant of the scale-down.** One request hit the dying pod: the Go
+   servers had no graceful shutdown, so SIGTERM killed an open connection before Cilium had
+   withdrawn the endpoint. Zero-loss failover is a **contract between the app and the platform**:
+   the app now keeps serving for 4 s after SIGTERM (endpoint withdrawal is asynchronous), then
+   drains in-flight requests, and the Deployments carry `terminationGracePeriodSeconds: 20`
+   (gotcha #53). The re-run above: 0 failures.
+2. **Calls 51–60 → 409** were "insufficient funds" — `chk-1002` had 1,016 cents left after the
+   earlier runs. A correct business decline, not an outage; the script now counts declines
+   separately from infrastructure failures and tops the account up first.
+
+**The web page bug.** "The merchant always shows coffee" — measured through the Gateway with
+browser-style POSTs: the merchant *was* stored (`pizza`, `bakery`), but the amount box was read
+as raw cents with `Sscanf("%d")`, so `12.50` charged 12 cents, `1,250` charged 1 cent, and `abc`
+or an empty box silently added nothing — and the form re-rendered its hard-coded
+`value="coffee"`. Now: dollars are parsed (`12.50`, `$7`, `1,250`), invalid input is rejected
+**on the page**, the last payment's result is shown with the clusters that handled it, the
+merchant is remembered, and every POST is logged.
+
 ## What to take away
 
 | Claim | Evidence |
@@ -218,6 +270,8 @@ clients; a single pooled client is the wrong instrument for measuring a load bal
 | The API is reachable from outside through the Gateway, still crossing the mesh | `https://bankapi.poc.local/api/balance/…` → `api: poc1, accounts: poc2` |
 | A wildcard cert/listener matches one label | `api.bank.poc.local` → curl exit 60; `bankapi.poc.local` → 200 |
 | Connection pooling hides load balancing | 40/40 to one cluster until keep-alive was disabled |
+| Zero-loss failover needs the app to drain on SIGTERM | 1 × 502 at the scale-down instant before; 60/60 after graceful shutdown |
+| The ledger stays consistent across clusters | before − after == sum of payments, every run |
 
 ## Clean up
 

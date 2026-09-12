@@ -67,6 +67,7 @@ spec:
   template:
     metadata: {labels: {app: payments}}
     spec:
+      terminationGracePeriodSeconds: 20   # > the app's 4 s endpoint-withdrawal wait + 10 s drain
       containers:
         - name: payments
           image: bankdemo:local
@@ -95,6 +96,7 @@ spec:
   template:
     metadata: {labels: {app: api}}
     spec:
+      terminationGracePeriodSeconds: 20   # > the app's 4 s endpoint-withdrawal wait + 10 s drain
       containers:
         - name: api
           image: bankdemo:local
@@ -123,6 +125,7 @@ spec:
   template:
     metadata: {labels: {app: web}}
     spec:
+      terminationGracePeriodSeconds: 20   # > the app's 4 s endpoint-withdrawal wait + 10 s drain
       containers:
         - name: web
           image: bankdemo:local

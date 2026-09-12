@@ -23,8 +23,11 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -89,6 +92,33 @@ func call(ctx context.Context, method, url string, body any) (map[string]any, in
 	}
 	return out, resp.StatusCode, nil
 }
+
+// serve runs the HTTP server with a GRACEFUL shutdown. On SIGTERM (a scale-down, a rollout) it
+// keeps serving for a short grace period so the cluster can remove this pod's endpoint from the
+// service maps first, then stops accepting and lets in-flight requests finish. Without this, the
+// first failover run answered one request with 502 at the exact second of the scale-down: the
+// pod died with a connection open. Kubernetes removes the endpoint asynchronously; the app has
+// to outlive that removal by a moment. terminationGracePeriodSeconds in the manifests covers it.
+func serve(role, addr string, mux *http.ServeMux) {
+	srv := &http.Server{Addr: addr, Handler: mux}
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
+		<-sig
+		log.Printf("%s: SIGTERM — serving for %s more so the endpoint is withdrawn first, then draining", role, drainDelay)
+		time.Sleep(drainDelay)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+	log.Printf("%s: HTTP on %s", role, addr)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
+	log.Printf("%s: stopped", role)
+}
+
+const drainDelay = 4 * time.Second
 
 func healthz(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintln(w, "ok") })
@@ -160,8 +190,28 @@ INSERT INTO accounts (id, owner, balance_cents) VALUES ('chk-1001','Ada Lovelace
 		}
 		writeJSON(w, 200, map[string]any{"account": r.PathValue("id"), "debited_cents": in.AmountCents, "ref": in.Ref, "balance_cents": bal, "served_by": me("accounts")})
 	})
-	log.Printf("accounts: HTTP on %s, postgres ok", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	mux.HandleFunc("POST /accounts/{id}/credit", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			AmountCents int64  `json:"amount_cents"`
+			Ref         string `json:"ref"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.AmountCents <= 0 {
+			writeJSON(w, 400, map[string]any{"error": "amount_cents must be > 0", "served_by": me("accounts")})
+			return
+		}
+		var bal int64
+		err := db.QueryRowContext(r.Context(), `UPDATE accounts SET balance_cents = balance_cents + $2 WHERE id=$1 RETURNING balance_cents`, r.PathValue("id"), in.AmountCents).Scan(&bal)
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSON(w, 404, map[string]any{"error": "no such account", "served_by": me("accounts")})
+			return
+		}
+		if err != nil {
+			writeJSON(w, 500, map[string]any{"error": err.Error(), "served_by": me("accounts")})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"account": r.PathValue("id"), "credited_cents": in.AmountCents, "ref": in.Ref, "balance_cents": bal, "served_by": me("accounts")})
+	})
+	serve("accounts", addr, mux)
 }
 
 // ---- payments: card payments, idempotent, state in redis -------------------------------------------
@@ -228,8 +278,7 @@ func servePayments(addr string) {
 		}
 		writeJSON(w, 200, map[string]any{"account": r.PathValue("account"), "payments": list, "served_by": me("payments")})
 	})
-	log.Printf("payments: HTTP on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	serve("payments", addr, mux)
 }
 
 // ---- api: the aggregator the page talks to ----------------------------------------------------------
@@ -280,8 +329,21 @@ func serveAPI(addr string) {
 		}
 		writeJSON(w, 200, out)
 	})
-	log.Printf("api: HTTP on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	// A deposit, for the exercise script to top an account up; the demo's only way to add money.
+	mux.HandleFunc("POST /api/credit/{id}", func(w http.ResponseWriter, r *http.Request) {
+		in := map[string]any{}
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		up, code, err := call(r.Context(), "POST", accountsURL+"/accounts/"+r.PathValue("id")+"/credit", map[string]any{"amount_cents": in["amount_cents"], "ref": "deposit"})
+		if err != nil {
+			if code == 0 {
+				code = 502
+			}
+			writeJSON(w, code, map[string]any{"error": err.Error(), "upstream": up, "served_by": me("api")})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"account": r.PathValue("id"), "balance_cents": up["balance_cents"], "served_by": me("api"), "upstream": up})
+	})
+	serve("api", addr, mux)
 }
 
 func errStr(err error) string {
@@ -299,7 +361,8 @@ var page = template.Must(template.New("p").Parse(`<!doctype html><html><head><me
 {{if .Error}}<p style="color:#b00">error: {{.Error}}</p>{{end}}
 <p><b>{{.Owner}}</b> — balance <b>{{.Balance}}</b></p>
 <p class="path">this page: <code>{{.Web.Cluster}}/{{.Web.Pod}}</code> → api: <code>{{.API.Cluster}}/{{.API.Pod}}</code> → accounts: <code>{{.Accounts.Cluster}}/{{.Accounts.Pod}}</code> · payments: <code>{{.Payments.Cluster}}/{{.Payments.Pod}}</code></p>
-<form method="post" action="/pay">amount (cents) <input name="amount_cents" value="1250"> merchant <input name="merchant" value="coffee"> <button>pay by card</button></form>
+{{if .Flash}}<p style="color:{{if .FlashErr}}#b00{{else}}#070{{end}}"><b>{{.Flash}}</b></p>{{end}}
+<form method="post" action="/pay">amount (USD) <input name="amount" value="{{.Amount}}" placeholder="12.50" size="8"> merchant <input name="merchant" value="{{.Merchant}}" placeholder="e.g. grocery" required> <button>pay by card</button></form>
 <h2>recent card payments</h2>
 <table><tr><th>at</th><th>merchant</th><th>cents</th><th>payments pod</th><th>debited by</th></tr>
 {{range .PaymentsList}}<tr><td>{{.at}}</td><td>{{.merchant}}</td><td>{{.amount_cents}}</td><td>{{with .served_by}}{{.cluster}}/{{.pod}}{{end}}</td><td>{{with .upstream}}{{with .served_by}}{{.cluster}}/{{.pod}}{{end}}{{end}}</td></tr>{{end}}
@@ -310,6 +373,38 @@ type pageView struct {
 	Account, Owner, Balance, Error string
 	Web, API, Accounts, Payments   servedBy
 	PaymentsList                   []map[string]any
+	Flash, Amount, Merchant        string // what the last POST /pay did, and the form's last input
+	FlashErr                       bool
+}
+
+// parseUSD turns what a person types into cents: "12.50", "$12.50", "1,250", "12" (dollars).
+// The first version read the box as raw cents with Sscanf("%d"), so "12.50" charged 12 cents,
+// "1,250" charged 1 cent, and "abc" charged nothing and said nothing.
+func parseUSD(in string) (int64, error) {
+	t := strings.NewReplacer("$", "", ",", "", " ", "").Replace(strings.TrimSpace(in))
+	if t == "" {
+		return 0, errors.New("amount is empty")
+	}
+	var dollars, cents int64
+	parts := strings.SplitN(t, ".", 2)
+	if _, err := fmt.Sscanf(parts[0], "%d", &dollars); err != nil && parts[0] != "" {
+		return 0, fmt.Errorf("amount %q is not a number", in)
+	}
+	if len(parts) == 2 {
+		frac := parts[1]
+		if len(frac) > 2 || strings.Trim(frac, "0123456789") != "" {
+			return 0, fmt.Errorf("amount %q: use at most two decimals", in)
+		}
+		for len(frac) < 2 {
+			frac += "0"
+		}
+		fmt.Sscanf(frac, "%d", &cents)
+	}
+	total := dollars*100 + cents
+	if total <= 0 {
+		return 0, fmt.Errorf("amount %q must be more than $0.00", in)
+	}
+	return total, nil
 }
 
 func serveWeb(addr string) {
@@ -318,7 +413,8 @@ func serveWeb(addr string) {
 	mux := http.NewServeMux()
 	healthz(mux)
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		v := pageView{Account: account, Web: me("web")}
+		q := r.URL.Query()
+		v := pageView{Account: account, Web: me("web"), Flash: q.Get("flash"), FlashErr: q.Get("err") == "1", Amount: q.Get("amount"), Merchant: q.Get("merchant")}
 		st, _, err := call(r.Context(), "GET", apiURL+"/api/statement/"+account, nil)
 		if err != nil {
 			v.Error = err.Error()
@@ -348,16 +444,55 @@ func serveWeb(addr string) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = page.Execute(w, v)
 	})
+	// POST /pay always redirects back to the page, carrying the outcome in the query string so the
+	// page can SAY what happened — the first version swallowed every error and redirected silently.
 	mux.HandleFunc("POST /pay", func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
-		var cents int64
-		fmt.Sscanf(strings.TrimSpace(r.Form.Get("amount_cents")), "%d", &cents)
-		_, _, _ = call(r.Context(), "POST", apiURL+"/api/pay", map[string]any{"account": account, "amount_cents": cents, "merchant": r.Form.Get("merchant"), "key": fmt.Sprintf("web-%d", time.Now().UnixNano())})
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+		amount, merchant := strings.TrimSpace(r.Form.Get("amount")), strings.TrimSpace(r.Form.Get("merchant"))
+		back := func(flash string, isErr bool) {
+			u := "/?flash=" + urlQuery(flash) + "&amount=" + urlQuery(amount) + "&merchant=" + urlQuery(merchant)
+			if isErr {
+				u += "&err=1"
+			}
+			http.Redirect(w, r, u, http.StatusSeeOther)
+		}
+		cents, err := parseUSD(amount)
+		if err != nil {
+			log.Printf("web: POST /pay rejected: %v (merchant=%q)", err, merchant)
+			back(err.Error(), true)
+			return
+		}
+		if merchant == "" {
+			back("merchant is required", true)
+			return
+		}
+		key := fmt.Sprintf("web-%d", time.Now().UnixNano())
+		up, code, err := call(r.Context(), "POST", apiURL+"/api/pay", map[string]any{"account": account, "amount_cents": cents, "merchant": merchant, "key": key})
+		if err != nil {
+			msg := fmt.Sprintf("payment failed (%d)", code)
+			if p, ok := up["upstream"].(map[string]any); ok {
+				if e, ok := p["error"].(string); ok {
+					msg += ": " + e
+				}
+			} else if e, ok := up["error"].(string); ok {
+				msg += ": " + e
+			}
+			log.Printf("web: POST /pay %s %d cents -> %s", merchant, cents, msg)
+			back(msg, true)
+			return
+		}
+		pay, _ := up["payment"].(map[string]any)
+		by, _ := pay["served_by"].(map[string]any)
+		upst, _ := pay["upstream"].(map[string]any)
+		dby, _ := upst["served_by"].(map[string]any)
+		flash := fmt.Sprintf("paid $%d.%02d to %s — payments %v/%v, debited by %v/%v, balance now $%.2f", cents/100, cents%100, merchant, by["cluster"], by["pod"], dby["cluster"], dby["pod"], num(upst["balance_cents"])/100)
+		log.Printf("web: POST /pay %s %d cents -> %d via payments %v, accounts %v", merchant, cents, code, by["cluster"], dby["cluster"])
+		back(flash, false)
 	})
-	log.Printf("web: HTTP on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	serve("web", addr, mux)
 }
+
+func urlQuery(v string) string { return url.QueryEscape(v) }
 
 func toServed(m map[string]any) servedBy {
 	s := servedBy{}

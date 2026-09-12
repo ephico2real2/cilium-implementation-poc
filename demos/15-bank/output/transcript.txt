@@ -403,3 +403,210 @@ $ sh -c curl -s --cacert docs/root-ca.crt --resolve bankapi.poc.local:443:172.18
   GET  https://bankapi.poc.local/api/statement/chk-1001 -> 4 payments listed, balance 245251
   GET  https://bank.poc.local/ -> http 200
 
+### 2026-09-12T01:43:13Z
+$ [web bug fixed: amounts were read as raw cents (12.50 -> 12 cents, 1,250 -> 1 cent, abc -> silently nothing) and the form hard-coded merchant=coffee; now dollars are parsed, errors are shown on the page, the merchant is remembered. Then exercise.sh.]
+
+### 2026-09-12T01:43:13Z
+$ demos/15-bank/exercise.sh 20 chk-1001
+poc bank exercise — 20 card payments on chk-1001 through https://bankapi.poc.local (Gateway 172.18.255.240)
+balance before: 102420 cents
+
+#    merchant     cents  http   payments (cluster/pod)   debited by (cluster/pod)    balance      ms
+1    flowers       2060  201    poc1/payments-smqps      poc2/accounts-n7298          100360     171
+2    fuel          3186  201    poc1/payments-smqps      poc2/accounts-vzblp           97174     161
+3    bakery         806  201    poc1/payments-smqps      poc2/accounts-n7298           96368     183
+4    books          534  201    poc2/payments-xqg4k      poc2/accounts-n7298           95834     150
+5    grocery       3126  201    poc1/payments-smqps      poc2/accounts-vzblp           92708     154
+6    fuel          3035  201    poc2/payments-xqg4k      poc2/accounts-vzblp           89673     177
+7    coffee        1337  201    poc2/payments-xqg4k      poc2/accounts-vzblp           88336     189
+8    hardware      1626  201    poc2/payments-xqg4k      poc2/accounts-n7298           86710     379
+9    pharmacy       753  201    poc2/payments-xqg4k      poc2/accounts-vzblp           85957     183
+10   cinema         389  201    poc1/payments-smqps      poc2/accounts-vzblp           85568     263
+11   taxi          1082  201    poc1/payments-smqps      poc2/accounts-vzblp           84486     210
+12   taxi          2266  201    poc2/payments-xqg4k      poc2/accounts-vzblp           82220     181
+13   taxi           329  201    poc1/payments-smqps      poc2/accounts-vzblp           81891     237
+14   taxi           439  201    poc2/payments-xqg4k      poc2/accounts-n7298           81452     153
+15   fuel           829  201    poc1/payments-smqps      poc2/accounts-vzblp           80623     188
+16   flowers       2334  201    poc1/payments-smqps      poc2/accounts-n7298           78289     213
+17   fuel          1939  201    poc2/payments-xqg4k      poc2/accounts-vzblp           76350     212
+18   cinema        2772  201    poc1/payments-smqps      poc2/accounts-n7298           73578     244
+19   coffee        1509  201    poc1/payments-smqps      poc2/accounts-vzblp           72069     235
+20   pharmacy      1938  201    poc1/payments-smqps      poc2/accounts-vzblp           70131     210
+
+summary
+  calls: 20  ok: 20  failed: 0  in 17 s
+  payments served by : poc2=8 poc1=12 
+  debited by accounts: poc2=20   (accounts runs in poc2 only — every debit must say poc2)
+  balance before 102420, after 70131, spent 32289  ->  LEDGER CONSISTENT: before - after == sum of payments
+
+idempotency: the same key twice must debit once
+  call 1: replay=False served by poc2
+  call 2: replay=True served by poc2
+  balance 70131 -> 70031 (must differ by exactly 100)
+
+### 2026-09-12T01:43:31Z
+$ demos/15-bank/exercise.sh 60 chk-1002 --failover
+poc bank exercise — 60 card payments on chk-1002 through https://bankapi.poc.local (Gateway 172.18.255.240)
+balance before: 107149 cents
+failover mode: poc1 payments -> 0 replicas at call 20, back to 1 at call 40 — watch the 'payments' column
+
+#    merchant     cents  http   payments (cluster/pod)   debited by (cluster/pod)    balance      ms
+1    fuel           181  201    poc1/payments-smqps      poc2/accounts-vzblp          106968     177
+2    hardware      4063  201    poc1/payments-smqps      poc2/accounts-vzblp          102905     185
+3    hardware      2805  201    poc1/payments-smqps      poc2/accounts-n7298          100100     157
+4    books          808  201    poc2/payments-xqg4k      poc2/accounts-vzblp           99292     153
+5    taxi          2071  201    poc2/payments-xqg4k      poc2/accounts-vzblp           97221     157
+6    flowers        473  201    poc2/payments-xqg4k      poc2/accounts-vzblp           96748     141
+7    cinema        2205  201    poc2/payments-xqg4k      poc2/accounts-n7298           94543     206
+8    books         1550  201    poc2/payments-xqg4k      poc2/accounts-n7298           92993     181
+9    cinema        3608  201    poc2/payments-xqg4k      poc2/accounts-vzblp           89385     178
+10   hardware      1488  201    poc1/payments-smqps      poc2/accounts-vzblp           87897     167
+11   flowers       3034  201    poc1/payments-smqps      poc2/accounts-n7298           84863     167
+12   books          937  201    poc2/payments-xqg4k      poc2/accounts-n7298           83926     188
+13   taxi          2875  201    poc2/payments-xqg4k      poc2/accounts-vzblp           81051     170
+14   coffee        3454  201    poc1/payments-smqps      poc2/accounts-n7298           77597     187
+15   taxi           707  201    poc2/payments-xqg4k      poc2/accounts-vzblp           76890     234
+16   bakery         224  201    poc2/payments-xqg4k      poc2/accounts-vzblp           76666     186
+17   pharmacy      1811  201    poc1/payments-smqps      poc2/accounts-vzblp           74855     163
+18   flowers       4092  201    poc2/payments-xqg4k      poc2/accounts-n7298           70763     169
+19   cinema        3273  201    poc2/payments-xqg4k      poc2/accounts-vzblp           67490     187
+>>> poc1 payments scaled to 0 (sudden downtime)
+20   books         3815  502    -/-                      -/-                               -     166
+21   bakery        3976  201    poc2/payments-xqg4k      poc2/accounts-vzblp           63514     164
+22   grocery       3808  201    poc2/payments-xqg4k      poc2/accounts-n7298           59706     177
+23   bakery        3644  201    poc2/payments-xqg4k      poc2/accounts-vzblp           56062     181
+24   cinema        4069  201    poc2/payments-xqg4k      poc2/accounts-vzblp           51993     147
+25   taxi          3801  201    poc2/payments-xqg4k      poc2/accounts-n7298           48192     164
+26   coffee        2856  201    poc2/payments-xqg4k      poc2/accounts-vzblp           45336     157
+27   fuel           927  201    poc2/payments-xqg4k      poc2/accounts-n7298           44409     178
+28   hardware       726  201    poc2/payments-xqg4k      poc2/accounts-vzblp           43683     168
+29   hardware      1805  201    poc2/payments-xqg4k      poc2/accounts-n7298           41878     197
+30   hardware      2491  201    poc2/payments-xqg4k      poc2/accounts-vzblp           39387     433
+31   taxi          1484  201    poc2/payments-xqg4k      poc2/accounts-n7298           37903     242
+32   pharmacy      3009  201    poc2/payments-xqg4k      poc2/accounts-vzblp           34894     187
+33   books         1547  201    poc2/payments-xqg4k      poc2/accounts-n7298           33347     153
+34   books         2062  201    poc2/payments-xqg4k      poc2/accounts-n7298           31285     184
+35   grocery        690  201    poc2/payments-xqg4k      poc2/accounts-n7298           30595     158
+36   bakery        1050  201    poc2/payments-xqg4k      poc2/accounts-vzblp           29545     148
+37   grocery       1235  201    poc2/payments-xqg4k      poc2/accounts-n7298           28310     170
+38   coffee         986  201    poc2/payments-xqg4k      poc2/accounts-vzblp           27324     153
+39   taxi          3378  201    poc2/payments-xqg4k      poc2/accounts-vzblp           23946     144
+>>> poc1 payments restored to 1
+40   fuel          2655  201    poc2/payments-xqg4k      poc2/accounts-n7298           21291     162
+41   taxi          1876  201    poc2/payments-xqg4k      poc2/accounts-n7298           19415     148
+42   fuel          3263  201    poc2/payments-xqg4k      poc2/accounts-n7298           16152     177
+43   taxi           147  201    poc2/payments-xqg4k      poc2/accounts-vzblp           16005     162
+44   grocery       1333  201    poc1/payments-t6lnb      poc2/accounts-vzblp           14672     228
+45   flowers        566  201    poc2/payments-xqg4k      poc2/accounts-n7298           14106     338
+46   flowers        944  201    poc2/payments-xqg4k      poc2/accounts-vzblp           13162     153
+47   coffee        3710  201    poc1/payments-t6lnb      poc2/accounts-n7298            9452     164
+48   flowers       1952  201    poc2/payments-xqg4k      poc2/accounts-vzblp            7500     158
+49   bakery        3771  201    poc2/payments-xqg4k      poc2/accounts-vzblp            3729     152
+50   grocery       1050  201    poc1/payments-t6lnb      poc2/accounts-vzblp            2679     163
+51   bakery        3666  409    -/-                      -/-                               -     175
+52   fuel          3977  409    -/-                      -/-                               -     152
+53   pharmacy      2727  409    -/-                      -/-                               -     158
+54   hardware      1131  201    poc2/payments-xqg4k      poc2/accounts-vzblp            1548     163
+55   cinema        3543  409    -/-                      -/-                               -     176
+56   cinema        1984  409    -/-                      -/-                               -     249
+57   coffee         532  201    poc1/payments-t6lnb      poc2/accounts-vzblp            1016     265
+58   books         1233  409    -/-                      -/-                               -     182
+59   hardware      3693  409    -/-                      -/-                               -     150
+60   books         2620  409    -/-                      -/-                               -     188
+
+summary
+  calls: 60  ok: 51  failed: 9  in 46 s
+  payments served by : poc2=40 poc1=11 
+  debited by accounts: poc2=51   (accounts runs in poc2 only — every debit must say poc2)
+  balance before 107149, after 1016, spent 106133  ->  LEDGER CONSISTENT: before - after == sum of payments
+
+idempotency: the same key twice must debit once
+  call 1: replay=False served by poc2
+  call 2: replay=True served by poc1
+  balance 1016 -> 916 (must differ by exactly 100)
+
+### 2026-09-12T01:47:19Z
+$ [graceful shutdown added (SIGTERM -> keep serving 4 s while the endpoint is withdrawn -> drain), terminationGracePeriodSeconds 20, /api/credit for top-ups; exercise.sh separates 409 declines from failures and tops up first. Failover run again.]
+
+### 2026-09-12T01:47:19Z
+$ demos/15-bank/exercise.sh 60 chk-1002 --failover
+poc bank exercise — 60 card payments on chk-1002 through https://bankapi.poc.local (Gateway 172.18.255.240)
+topping up chk-1002 by 255084 cents (balance 916 < 256000 needed for 60 calls): balance now 256000
+balance before: 256000 cents
+failover mode: poc1 payments -> 0 replicas at call 20, back to 1 at call 40 — watch the 'payments' column
+
+#    merchant     cents  http   payments (cluster/pod)   debited by (cluster/pod)    balance      ms
+1    books         3571  201    poc2/payments-c2mzn      poc2/accounts-7sctb          252429     211
+2    coffee        3011  201    poc1/payments-mmq57      poc2/accounts-7sctb          249418     197
+3    coffee        3463  201    poc1/payments-mmq57      poc2/accounts-7sctb          245955     257
+4    bakery         548  201    poc1/payments-mmq57      poc2/accounts-7sctb          245407     175
+5    bakery        2988  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          242419     211
+6    taxi          2208  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          240211     177
+7    grocery       1208  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          239003     178
+8    coffee        1522  201    poc2/payments-c2mzn      poc2/accounts-7sctb          237481     173
+9    cinema         283  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          237198     177
+10   books          372  201    poc1/payments-mmq57      poc2/accounts-7sctb          236826     164
+11   hardware       682  201    poc2/payments-c2mzn      poc2/accounts-7sctb          236144     184
+12   books         2121  201    poc1/payments-mmq57      poc2/accounts-7sctb          234023     170
+13   bakery        3936  201    poc2/payments-c2mzn      poc2/accounts-7sctb          230087     174
+14   bakery        1209  201    poc2/payments-c2mzn      poc2/accounts-7sctb          228878     176
+15   fuel          3517  201    poc2/payments-c2mzn      poc2/accounts-7sctb          225361     230
+16   hardware       487  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          224874     233
+17   fuel           135  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          224739     155
+18   taxi           143  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          224596     151
+19   fuel          1593  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          223003     158
+>>> poc1 payments scaled to 0 (sudden downtime)
+20   coffee        1293  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          221710     172
+21   flowers       3236  201    poc2/payments-c2mzn      poc2/accounts-7sctb          218474     157
+22   hardware       734  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          217740     166
+23   taxi          1241  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          216499     389
+24   coffee        2283  201    poc2/payments-c2mzn      poc2/accounts-7sctb          214216     190
+25   coffee         597  201    poc2/payments-c2mzn      poc2/accounts-7sctb          213619     149
+26   coffee        2576  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          211043     208
+27   hardware      3117  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          207926     165
+28   cinema        3480  201    poc2/payments-c2mzn      poc2/accounts-7sctb          204446     218
+29   grocery       1732  201    poc2/payments-c2mzn      poc2/accounts-7sctb          202714     212
+30   cinema        3609  201    poc2/payments-c2mzn      poc2/accounts-7sctb          199105     169
+31   grocery       2486  201    poc2/payments-c2mzn      poc2/accounts-7sctb          196619     160
+32   cinema        1341  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          195278     215
+33   cinema        2437  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          192841     195
+34   pharmacy       864  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          191977     172
+35   books          563  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          191414     168
+36   cinema        2032  201    poc2/payments-c2mzn      poc2/accounts-7sctb          189382     233
+37   cinema         578  201    poc2/payments-c2mzn      poc2/accounts-7sctb          188804     169
+38   fuel          3307  201    poc2/payments-c2mzn      poc2/accounts-7sctb          185497     175
+39   books         3670  201    poc2/payments-c2mzn      poc2/accounts-7sctb          181827     159
+>>> poc1 payments restored to 1
+40   grocery       3119  201    poc2/payments-c2mzn      poc2/accounts-7sctb          178708     155
+41   coffee        2280  201    poc2/payments-c2mzn      poc2/accounts-7sctb          176428     178
+42   flowers       2308  201    poc2/payments-c2mzn      poc2/accounts-7sctb          174120     196
+43   pharmacy       256  201    poc2/payments-c2mzn      poc2/accounts-7sctb          173864     184
+44   grocery       1131  201    poc1/payments-r9nxj      poc2/accounts-7sctb          172733     196
+45   cinema        2280  201    poc2/payments-c2mzn      poc2/accounts-7sctb          170453     185
+46   coffee        3035  201    poc1/payments-r9nxj      poc2/accounts-6pzxz          167418     171
+47   grocery       1733  201    poc1/payments-r9nxj      poc2/accounts-7sctb          165685     162
+48   bakery        1462  201    poc2/payments-c2mzn      poc2/accounts-7sctb          164223     157
+49   taxi          3259  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          160964     168
+50   grocery       2191  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          158773     179
+51   fuel          1458  201    poc1/payments-r9nxj      poc2/accounts-7sctb          157315     161
+52   flowers       1654  201    poc2/payments-c2mzn      poc2/accounts-7sctb          155661     158
+53   pharmacy      4063  201    poc2/payments-c2mzn      poc2/accounts-7sctb          151598     170
+54   flowers       2338  201    poc1/payments-r9nxj      poc2/accounts-6pzxz          149260     172
+55   hardware      3925  201    poc2/payments-c2mzn      poc2/accounts-7sctb          145335     161
+56   taxi           875  201    poc1/payments-r9nxj      poc2/accounts-7sctb          144460     168
+57   flowers        594  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          143866     173
+58   books          433  201    poc2/payments-c2mzn      poc2/accounts-7sctb          143433     178
+59   taxi          3832  201    poc2/payments-c2mzn      poc2/accounts-7sctb          139601     163
+60   pharmacy      3740  201    poc2/payments-c2mzn      poc2/accounts-6pzxz          135861     193
+
+summary
+  calls: 60  ok: 60  declined (409, insufficient funds): 0  FAILED (infrastructure): 0  in 50 s
+  payments served by : poc2=49 poc1=11 
+  debited by accounts: poc2=60   (accounts runs in poc2 only — every debit must say poc2)
+  balance before 256000, after 135861, spent 120139  ->  LEDGER CONSISTENT: before - after == sum of payments
+
+idempotency: the same key twice must debit once
+  call 1: replay=False served by poc1
+  call 2: replay=True served by poc2
+  balance 135861 -> 135761 (must differ by exactly 100)
+
