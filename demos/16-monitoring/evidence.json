@@ -1,0 +1,46 @@
+{
+ "captures": [
+  {
+   "name": "grafana-hubble-network-overview",
+   "url": "https://grafana.poc.local/d/nlsO8tYVz/hubble-network-overview-namespace?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-source_namespace=bank&var-destination_namespace=All",
+   "wait": "text:Flows",
+   "look": "Section C dashboards in the Hubble folder: Network Overview for bank/poc1"
+  },
+  {
+   "name": "grafana-hubble-l7-http",
+   "url": "https://grafana.poc.local/d/3g264CZVz/hubble-l7-http-metrics-by-workload?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-destination_namespace=bank&var-destination_workload=api&var-reporter=server&var-source_namespace=All&var-source_workload=All",
+   "wait": "text:Request",
+   "look": "L7 HTTP by workload, api, reporter=server (gotcha #58)"
+  },
+  {
+   "name": "grafana-hubble-dns-overview",
+   "url": "https://grafana.poc.local/d/_f0DUpY4k/hubble-dns-overview-namespace?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-source_namespace=bank&var-destination_namespace=All",
+   "wait": 20000,
+   "look": "DNS queries and responses of the bank namespace (the dynamic DNS metric with query context)"
+  },
+  {
+   "name": "grafana-hubble-metrics-monitoring",
+   "url": "https://grafana.poc.local/d/5HftnJAWz/hubble-metrics-and-monitoring?orgId=1&from=now-30m&to=now",
+   "wait": 20000,
+   "look": "Hubble\u2019s own health: flows processed, drops, the metrics pipeline"
+  },
+  {
+   "name": "grafana-cilium-metrics-poc1",
+   "url": "https://grafana.poc.local/d/vtuWtdumz/cilium-metrics?orgId=1&from=now-30m&to=now&var-cluster=poc1",
+   "wait": "text:Endpoints",
+   "look": "Cilium agent metrics for poc1: endpoints, policy, BPF map pressure, API latency"
+  },
+  {
+   "name": "grafana-cilium-operator",
+   "url": "https://grafana.poc.local/d/1GC0TT4Wz/cilium-operator?orgId=1&from=now-30m&to=now",
+   "wait": 20000,
+   "look": "the operator: identity GC, IPAM, leader election"
+  },
+  {
+   "name": "grafana-k8s-networking-bank",
+   "url": "https://grafana.poc.local/d/8b7a8b326d7a6f1f04244066368c67af/kubernetes-networking-namespace-pods?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-namespace=bank",
+   "wait": 20000,
+   "look": "the stack\u2019s own Kubernetes networking view of the bank pods, from kubelet/cAdvisor \u2014 not Hubble"
+  }
+ ]
+}

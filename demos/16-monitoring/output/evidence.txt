@@ -1,0 +1,73 @@
+# evidence for demos/16-monitoring — recorded 2026-09-12T22:24Z by scripts/evidence/collect.sh
+### 2026-09-12T22:24:47Z
+$ kubectl --context kind-poc1 -n monitoring get pods -o wide
+NAME                                                     READY   STATUS    RESTARTS        AGE     IP            NODE                  NOMINATED NODE   READINESS GATES
+alertmanager-monitoring-kube-prometheus-alertmanager-0   2/2     Running   0               19h     10.10.3.207   poc1-worker2          <none>           <none>
+loki-0                                                   2/2     Running   0               7h49m   10.10.3.140   poc1-worker2          <none>           <none>
+monitoring-grafana-85f995b8c8-gqnc8                      3/3     Running   0               11h     10.10.4.99    poc1-worker           <none>           <none>
+monitoring-kube-prometheus-operator-57b74d8f5b-zw957     1/1     Running   9 (95s ago)     19h     10.10.3.227   poc1-worker2          <none>           <none>
+monitoring-kube-state-metrics-7f584dc46d-dpxkb           1/1     Running   11 (106s ago)   19h     10.10.4.165   poc1-worker           <none>           <none>
+monitoring-prometheus-node-exporter-d9h5h                1/1     Running   3 (114s ago)    19h     172.18.0.7    poc1-control-plane2   <none>           <none>
+monitoring-prometheus-node-exporter-fzxrc                1/1     Running   2 (93s ago)     19h     172.18.0.3    poc1-control-plane3   <none>           <none>
+monitoring-prometheus-node-exporter-jwqp7                1/1     Running   4 (7h31m ago)   19h     172.18.0.5    poc1-worker           <none>           <none>
+monitoring-prometheus-node-exporter-n6jl7                1/1     Running   3 (7h31m ago)   19h     172.18.0.6    poc1-control-plane    <none>           <none>
+monitoring-prometheus-node-exporter-nqvbt                1/1     Running   1 (8h ago)      19h     172.18.0.4    poc1-worker2          <none>           <none>
+prometheus-monitoring-kube-prometheus-prometheus-0       2/2     Running   1 (61s ago)     177m    10.10.3.98    poc1-worker2          <none>           <none>
+tempo-0                                                  1/1     Running   6 (71s ago)     8h      10.10.3.228   poc1-worker2          <none>           <none>
+
+### 2026-09-12T22:24:47Z
+$ bash -c kubectl --context kind-poc1 get servicemonitors,podmonitors -A; kubectl --context kind-poc1 -n monitoring get cm -l grafana_dashboard=1 -o custom-columns='NAME:.metadata.name,FOLDER:.metadata.annotations.grafana_folder'
+NAMESPACE     NAME                                                                           AGE
+kube-system   servicemonitor.monitoring.coreos.com/cilium-agent                              19h
+kube-system   servicemonitor.monitoring.coreos.com/cilium-envoy                              19h
+kube-system   servicemonitor.monitoring.coreos.com/cilium-operator                           19h
+kube-system   servicemonitor.monitoring.coreos.com/clustermesh-apiserver                     19h
+kube-system   servicemonitor.monitoring.coreos.com/hubble                                    19h
+kube-system   servicemonitor.monitoring.coreos.com/hubble-relay                              19h
+monitoring    servicemonitor.monitoring.coreos.com/monitoring-grafana                        19h
+monitoring    servicemonitor.monitoring.coreos.com/monitoring-kube-prometheus-alertmanager   19h
+monitoring    servicemonitor.monitoring.coreos.com/monitoring-kube-prometheus-apiserver      19h
+monitoring    servicemonitor.monitoring.coreos.com/monitoring-kube-prometheus-coredns        19h
+monitoring    servicemonitor.monitoring.coreos.com/monitoring-kube-prometheus-kubelet        19h
+monitoring    servicemonitor.monitoring.coreos.com/monitoring-kube-prometheus-operator       19h
+monitoring    servicemonitor.monitoring.coreos.com/monitoring-kube-prometheus-prometheus     19h
+monitoring    servicemonitor.monitoring.coreos.com/monitoring-kube-state-metrics             19h
+monitoring    servicemonitor.monitoring.coreos.com/monitoring-prometheus-node-exporter       19h
+
+NAMESPACE    NAME                                         AGE
+obi          podmonitor.monitoring.coreos.com/obi         17h
+springboot   podmonitor.monitoring.coreos.com/petclinic   12h
+NAME                                                           FOLDER
+cilium-dashboard                                               Cilium
+cilium-operator-dashboard                                      Cilium
+grafana-dashboard-hubble-observer                              Hubble
+hubble-dashboard                                               Hubble
+hubble-dns-namespace                                           Hubble
+hubble-l7-http-metrics-by-workload                             Hubble
+hubble-network-overview-namespace                              Hubble
+monitoring-kube-prometheus-alertmanager-overview               <none>
+monitoring-kube-prometheus-apiserver                           <none>
+monitoring-kube-prometheus-cluster-total                       <none>
+monitoring-kube-prometheus-grafana-overview                    <none>
+monitoring-kube-prometheus-k8s-coredns                         <none>
+monitoring-kube-prometheus-k8s-resources-cluster               <none>
+monitoring-kube-prometheus-k8s-resources-multicluster          <none>
+monitoring-kube-prometheus-k8s-resources-namespace             <none>
+monitoring-kube-prometheus-k8s-resources-node                  <none>
+monitoring-kube-prometheus-k8s-resources-nodes-overview        <none>
+monitoring-kube-prometheus-k8s-resources-pod                   <none>
+monitoring-kube-prometheus-k8s-resources-workload              <none>
+monitoring-kube-prometheus-k8s-resources-workloads-namespace   <none>
+monitoring-kube-prometheus-kubelet                             <none>
+monitoring-kube-prometheus-namespace-by-pod                    <none>
+monitoring-kube-prometheus-namespace-by-workload               <none>
+monitoring-kube-prometheus-node-cluster-rsrc-use               <none>
+monitoring-kube-prometheus-node-rsrc-use                       <none>
+monitoring-kube-prometheus-nodes                               <none>
+monitoring-kube-prometheus-nodes-aix                           <none>
+monitoring-kube-prometheus-nodes-darwin                        <none>
+monitoring-kube-prometheus-persistentvolumesusage              <none>
+monitoring-kube-prometheus-pod-total                           <none>
+monitoring-kube-prometheus-prometheus                          <none>
+monitoring-kube-prometheus-workload-total                      <none>
+
