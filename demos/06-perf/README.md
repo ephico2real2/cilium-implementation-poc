@@ -209,3 +209,8 @@ and ≥10 samples per configuration. Cilium publishes such benchmarks; this demo
 ```bash
 kubectl delete -f demos/06-perf/iperf3.yaml
 ```
+
+## Evidence
+
+**Captures not taken yet** — netkit, the bandwidth manager with BBR and BIG TCP cannot run on the Docker Desktop VM kernel (6.6.12-linuxkit; demo 06 Part 4 proves each); the iperf3 throughput runs themselves are recorded in the transcript. Captures to add on a real kernel: `cilium status` showing netkit/BBR/BIG TCP enabled, the before/after iperf3 numbers. See [`output/screenshots/MISSING-CAPTURE.md`](output/screenshots/MISSING-CAPTURE.md) and [`/missing-captures.md`](../../missing-captures.md).
+
