@@ -67,7 +67,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [57](#57) | kube-prometheus-stack selects only its own release's ServiceMonitors by default; Cilium's carry no `release` label and would never be scraped — and the Cilium chart refuses ServiceMonitors without the CRDs, so the stack goes first | monitoring |
 | [58](#58) | Hubble fills `workloads` only for endpoints local to the reporting agent: Gateway traffic and every cross-node peer showed `destination_workload=""` / `destination=-` — use the `app` context (identity labels) and report L7 from the destination's node | monitoring |
 | [61](#61) | OBI prints its first span ~40 s after Ready and exports spans 10–20 s after the request — the page's log check run straight after `rollout status` is empty, and nothing is wrong | OBI |
-| [60](#60) | Tetragon crash-loops on Docker Desktop < 4.30 — the VM kernel has no `CONFIG_SECURITY`, the exec sensor's kprobe symbol does not exist, and no helm value fixes a kernel; plus the creation-time `/procHost` mount without which events silently lose their pod | Tetragon / Docker Desktop |
+| [60](#60) | Tetragon crash-loops on Docker Desktop < 4.30 — the VM kernel has no `CONFIG_SECURITY`, the exec sensor's kprobe symbol does not exist, and no helm value fixes a kernel; plus the creation-time `/procHost` mount without which events silently lose their pod. The same missing LSM hooks stop OBI's non-Go tracer (Postgres, Redis) | Tetragon / OBI / Docker Desktop |
 | [59](#59) | The dynamic Hubble metrics config cannot change a registered metric's context options: helm succeeded, every agent logged a refusal every 10 s and kept the old labels | monitoring |
 
 ---
@@ -1529,7 +1529,12 @@ Docker Desktop dropped the option from its own kernel config after 4.27 and rest
 docs' `/procHost` extraMount, or Tetragon runs but silently drops `pod`/`binary` on events
 (tetragon#4883) — that mount is creation-time, now in `clusters/poc*.yaml`.
 
-→ demo 17, Part 1
+**Also hit by OBI (demo 18, Part 3).** OBI's *generic* tracer — everything that is not Go — attaches
+kprobes to `security_socket_accept` and friends; on this kernel it logs `couldn't trace process.
+Stopping process tracer` for Postgres and Redis while the Go services keep tracing (uprobes). Same
+cause, same fix.
+
+→ demo 17, Part 1; demo 18, Part 3
 
 ---
 

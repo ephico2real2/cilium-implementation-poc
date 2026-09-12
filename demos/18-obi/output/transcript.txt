@@ -389,3 +389,136 @@ $ sh -c echo "== RED metrics from OBI in the demo 16 Prometheus, grouped by the 
           9.31  k8s_deployment_name=api server_address=payments.bank.svc.cluster.local http_response_status_code=201
          6.207  k8s_deployment_name=payments server_address=accounts.bank.svc.cluster.local http_response_status_code=200
 
+
+### 2026-09-12T05:03:18Z
+$ [PART 3 — the vendor processes: Postgres (primary poc2, standby poc1) and Redis (poc1) added to discovery, server side]
+
+### 2026-09-12T05:03:18Z
+$ sh -c demos/18-obi/deploy.sh poc1 2>&1 | tail -2; demos/18-obi/deploy.sh poc2 2>&1 | tail -2
+daemon set "obi" successfully rolled out
+podmonitor.monitoring.coreos.com/obi unchanged
+daemon set "obi" successfully rolled out
+(no monitoring.coreos.com CRDs in poc2: PodMonitor skipped — OBI metrics stay unscraped here)
+
+### 2026-09-12T05:04:41Z
+$ sh -c echo "== what OBI now instruments per node (Part 1 had only /bankdemo) =="; for c in poc1 poc2; do for p in $(kubectl --context kind-$c -n obi get pods -o name | cut -d/ -f2); do echo "-- $c/$p --"; kubectl --context kind-$c -n obi logs $p 2>/dev/null | grep "instrumenting process" | sed -E "s/.*cmd=([^ ]+) pid=([0-9]+).*type=([a-z]+).*/  \\1 (\\3)/" | sort | uniq -c | sed "s/^/  /"; done; done
+== what OBI now instruments per node (Part 1 had only /bankdemo) ==
+-- poc1/obi-g9b9l --
+     3   /usr/local/bin/postgres (cpp)
+     1   /usr/local/bin/redis-server (generic)
+-- poc1/obi-vsxnb --
+     3   /bankdemo (go)
+-- poc2/obi-4crm7 --
+     1   /bankdemo (go)
+     2   /usr/local/bin/postgres (cpp)
+
+### 2026-09-12T05:05:19Z
+$ sh -c echo "== spans printed for the vendor processes (svc=[bank/postgres…] / [bank/redis…]) =="; for c in poc1 poc2; do for p in $(kubectl --context kind-$c -n obi get pods -o name | cut -d/ -f2); do kubectl --context kind-$c -n obi logs $p --since=2m 2>/dev/null; done; done | grep -E "svc=\[bank/(postgres|redis)" | sed -E "s/ contentLen:[^ ]+ responseLen:[^ ]+//; s/traceparent=\[00-([0-9a-f]{8})[^]]*\]/trace=\1…/" | cut -c1-200 | sort | uniq -c | sort -rn | head -14
+== spans printed for the vendor processes (svc=[bank/postgres…] / [bank/redis…]) ==
+
+### 2026-09-12T05:05:20Z
+$ sh -c echo "== in the collector: spans by service.name and by kind, last 2 min =="; for p in $(kubectl --context kind-poc1 -n otel get pods -o name | cut -d/ -f2); do kubectl --context kind-poc1 -n otel logs $p --since=2m 2>/dev/null; done > .tmp/otel-traces3.log; grep "service.name:" .tmp/otel-traces3.log | sort | uniq -c | grep -v hubble | sed "s/^/  /"; echo "  Kind × service (spans):"; python3 - <<PY
+import re
+res=None; rows={}
+for l in open(".tmp/otel-traces3.log"):
+    m=re.match(r"\s+-> service.name: Str\((.*)\)", l)
+    if m: res=m.group(1)
+    m=re.match(r"\s+Kind\s*: (\w+)", l)
+    if m and res: rows[(res,m.group(1))]=rows.get((res,m.group(1)),0)+1
+for k,v in sorted(rows.items()): print("   %-12s %-9s %d" % (k[0],k[1],v))
+PY
+echo "  a Postgres-side span, raw:"; grep -B3 -A16 "service.name: Str(postgres)" .tmp/otel-traces3.log | grep -A16 "^Span #" | grep -E "Name  |Kind|db\.|server\.|client\.|network\.peer" | head -10 | sed "s/^ *//; s/^/    /"
+== in the collector: spans by service.name and by kind, last 2 min ==
+     4      -> service.name: Str(accounts)
+     4      -> service.name: Str(api)
+     3      -> service.name: Str(payments)
+  Kind × service (spans):
+   accounts     Client    5
+   accounts     Internal  10
+   accounts     Server    5
+   api          Client    9
+   api          Internal  18
+   api          Server    9
+   payments     Client    22
+   payments     Internal  10
+   payments     Server    5
+  a Postgres-side span, raw:
+
+### 2026-09-12T05:06:08Z
+$ sh -c echo "== OBI warnings/errors since the Part 3 restart (vendor processes) =="; for c in poc1 poc2; do for p in $(kubectl --context kind-$c -n obi get pods -o name | cut -d/ -f2); do kubectl --context kind-$c -n obi logs $p 2>/dev/null | grep -E "level=(WARN|ERROR)" | grep -v "Cloud metadata\|bpffs\|process-internal maps\|Cluster Name" | sed "s/^/  $c  /" | cut -c1-200 | head -4; done; done; echo "  (nothing above = none)"
+== OBI warnings/errors since the Part 3 restart (vendor processes) ==
+  poc1  time=2026-09-12T05:03:39.526Z level=WARN msg="invalid Prometheus' exemplar_filter value. Defaulting to always_off" component=prom.MetricsReporter filter=""
+  poc1  time=2026-09-12T05:03:58.788Z level=WARN msg="couldn't load tracer" component=ebpf.ProcessTracer error="instrumenting function \"security_socket_accept\": setting kprobe: creating perf_kprobe 
+  poc1  time=2026-09-12T05:03:58.788Z level=ERROR msg="couldn't trace process. Stopping process tracer" component=discover.traceAttacher error="instrumenting function \"security_socket_accept\": setti
+  poc1  time=2026-09-12T05:04:18.652Z level=WARN msg="couldn't load tracer" component=ebpf.ProcessTracer error="instrumenting function \"security_socket_accept\": setting kprobe: creating perf_kprobe 
+  poc1  time=2026-09-12T05:03:32.974Z level=WARN msg="invalid Prometheus' exemplar_filter value. Defaulting to always_off" component=prom.MetricsReporter filter=""
+  poc2  time=2026-09-12T05:03:53.417Z level=WARN msg="invalid Prometheus' exemplar_filter value. Defaulting to always_off" component=prom.MetricsReporter filter=""
+  poc2  time=2026-09-12T05:04:14.124Z level=WARN msg="couldn't load tracer" component=ebpf.ProcessTracer error="instrumenting function \"security_socket_accept\": setting kprobe: creating perf_kprobe 
+  poc2  time=2026-09-12T05:04:14.124Z level=ERROR msg="couldn't trace process. Stopping process tracer" component=discover.traceAttacher error="instrumenting function \"security_socket_accept\": setti
+  poc2  time=2026-09-12T05:05:04.815Z level=WARN msg="couldn't load tracer" component=ebpf.ProcessTracer error="instrumenting function \"security_socket_accept\": setting kprobe: creating perf_kprobe 
+  (nothing above = none)
+
+### 2026-09-12T05:06:26Z
+$ sh -c obilogs () 
+{ 
+    for c in poc1 poc2;
+    do
+        for p in $(kubectl --context kind-$c -n obi get pods -o name | cut -d/ -f2);
+        do
+            kubectl --context kind-$c -n obi logs $p --since="$1" 2> /dev/null | sed "s/^/$c  /";
+        done;
+    done
+}; echo '== printer lines for the vendor services after NEW TCP connections =='; obilogs 90s | grep -E 'svc=\[bank/(postgres|redis)' | sed -E 's/ contentLen:[^ ]+ responseLen:[^ ]+//; s/traceparent=\[00-([0-9a-f]{8})[^]]*\]/trace=\1…/' | cut -c1-210 | head -8; echo; echo '  count:' $(obilogs 90s | grep -cE 'svc=\[bank/(postgres|redis)')
+== printer lines for the vendor services after NEW TCP connections ==
+
+  count: 0
+
+### 2026-09-12T05:06:28Z
+$ sh -c echo "== metric families with StatefulSet labels in Prometheus (poc1: standby + redis) =="; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=count%20by%20(__name__,%20k8s_statefulset_name)%20(%7Bk8s_statefulset_name%3D~%22postgres.*%7Credis%22%7D)" | python3 -c "import json,sys; r=json.load(sys.stdin)[\"data\"][\"result\"]; [print(\"  %-55s %-18s %s\" % (x[\"metric\"][\"__name__\"], x[\"metric\"][\"k8s_statefulset_name\"], x[\"value\"][1])) for x in r] or print(\"  (no series yet)\")"
+== metric families with StatefulSet labels in Prometheus (poc1: standby + redis) ==
+  (no series yet)
+
+### 2026-09-12T05:06:56Z
+$ sh -c P=$(kubectl --context kind-poc1 -n obi get pods -o name --field-selector spec.nodeName=poc1-worker | cut -d/ -f2 | head -1); [ -z "$P" ] && P=$(kubectl --context kind-poc1 -n obi get pods -o name | cut -d/ -f2 | head -1); echo "== the full tracer error (poc1, node with postgres-standby + redis) =="; kubectl --context kind-poc1 -n obi logs $P 2>/dev/null | grep "Stopping process tracer" | tail -1 | sed "s/.*error=//" | fold -w 180; echo; echo "== which processes the error was for, and which kept tracing =="; kubectl --context kind-poc1 -n obi logs $P 2>/dev/null | grep -E "instrumenting process|Stopping process tracer" | sed -E "s/.*(instrumenting process).*cmd=([^ ]+) pid=([0-9]+).*type=([a-z]+).*/  attach  \\2 pid=\\3 (\\4)/; s/.*(Stopping process tracer).*/  STOP    (the non-Go tracer for the process attached just above)/" | head -12
+== the full tracer error (poc1, node with postgres-standby + redis) ==
+"instrumenting function \"security_socket_accept\": setting kprobe: creating perf_kprobe PMU (arch-specific fallback for \"security_socket_accept\"): token __x64_security_socket_ac
+cept: not found: no such file or directory"
+
+== which processes the error was for, and which kept tracing ==
+  attach  /usr/local/bin/postgres pid=50980 (cpp)
+  STOP    (the non-Go tracer for the process attached just above)
+  attach  /usr/local/bin/postgres pid=51036 (cpp)
+  STOP    (the non-Go tracer for the process attached just above)
+  attach  /usr/local/bin/redis-server pid=38095 (generic)
+  STOP    (the non-Go tracer for the process attached just above)
+  attach  /usr/local/bin/postgres pid=51037 (cpp)
+  STOP    (the non-Go tracer for the process attached just above)
+  attach  /bankdemo pid=49368 (go)
+  attach  /usr/local/bin/postgres pid=50980 (cpp)
+  STOP    (the non-Go tracer for the process attached just above)
+  attach  /bankdemo pid=64899 (go)
+
+### 2026-09-12T05:06:57Z
+$ sh -c echo "== the VM kernel: the LSM socket hooks OBI's generic tracer needs =="; docker run --rm --privileged --pid=host alpine nsenter -t 1 -m -u -- sh -c "for s in security_socket_accept security_socket_connect security_socket_sendmsg security_socket_recvmsg tcp_connect tcp_sendmsg inet_csk_accept; do printf \"  %-28s %s\n\" \$s \$(grep -c \" \$s\$\" /proc/kallsyms); done; zcat /proc/config.gz | grep -E \"^(# )?CONFIG_SECURITY( is|=)\""; echo "  (gotcha #60: Docker Desktop 4.27.2 dropped CONFIG_SECURITY; restored in 4.30.0)"
+== the VM kernel: the LSM socket hooks OBI's generic tracer needs ==
+  security_socket_accept       0
+  security_socket_connect      0
+  security_socket_sendmsg      0
+  security_socket_recvmsg      0
+  tcp_connect                  1
+  tcp_sendmsg                  1
+  inet_csk_accept              1
+# CONFIG_SECURITY is not set
+  (gotcha #60: Docker Desktop 4.27.2 dropped CONFIG_SECURITY; restored in 4.30.0)
+
+### 2026-09-12T05:07:03Z
+$ sh -c echo "== the Go services are unaffected (collector, last 3 min, spans by service) =="; for p in $(kubectl --context kind-poc1 -n otel get pods -o name | cut -d/ -f2); do kubectl --context kind-poc1 -n otel logs $p --since=3m 2>/dev/null; done | grep "service.name:" | grep -v hubble | sort | uniq -c | sed "s/^/  /"
+== the Go services are unaffected (collector, last 3 min, spans by service) ==
+
+### 2026-09-12T05:08:23Z
+$ sh -c echo "== the Go services are unaffected by Part 3 (6 payments, then the collector: spans by service, last 90 s) =="; for p in $(kubectl --context kind-poc1 -n otel get pods -o name | cut -d/ -f2); do kubectl --context kind-poc1 -n otel logs $p --since=90s 2>/dev/null; done | grep "service.name:" | grep -v hubble | sort | uniq -c | sed "s/^/  /"
+== the Go services are unaffected by Part 3 (6 payments, then the collector: spans by service, last 90 s) ==
+    11      -> service.name: Str(accounts)
+    18      -> service.name: Str(api)
+     6      -> service.name: Str(payments)
+

@@ -49,7 +49,13 @@ data:
         - {k8s_namespace: bank, k8s_deployment_name: web}        # web/api/payments live in poc1,
         - {k8s_namespace: bank, k8s_deployment_name: api}        # payments/accounts in poc2 — the same file
         - {k8s_namespace: bank, k8s_deployment_name: payments}   # instruments whatever runs locally.
-        - {k8s_namespace: bank, k8s_deployment_name: accounts}   # (postgres / redis are not ours: not listed)
+        - {k8s_namespace: bank, k8s_deployment_name: accounts}
+        # Part 3 — the VENDOR processes too. OBI does not need source or a language runtime it knows: it
+        # reads the wire protocol at the socket. So the Postgres primary/standby and Redis servers get spans
+        # and metrics of their own, from the server side, with nothing installed in their images.
+        - {k8s_namespace: bank, k8s_statefulset_name: postgres}
+        - {k8s_namespace: bank, k8s_statefulset_name: postgres-standby}
+        - {k8s_namespace: bank, k8s_statefulset_name: redis}
     trace_printer: text              # Part 1: spans on the DaemonSet's stdout — the page's `grep "GET "` check
     ebpf:
       context_propagation: all       # inject/read W3C traceparent at the network layer so one trace id spans

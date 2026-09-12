@@ -35,7 +35,7 @@ Everything below was run and recorded in [`output/transcript.txt`](output/transc
 | Page | Here | Why |
 |---|---|---|
 | `image: otel/ebpf-instrument:main` | `v0.13.0` (2026-09-04) | pinned, like everything else in this repo (gotcha #43) |
-| `discovery.instrument: k8s_deployment_name: nodejs-service, …` | `{k8s_namespace: bank, k8s_deployment_name: web \| api \| payments \| accounts}` | our services; AND within an entry, OR across entries. The same file instruments whatever runs locally: web/api/payments in poc1, payments/accounts in poc2. Postgres and Redis are not ours: not listed |
+| `discovery.instrument: k8s_deployment_name: nodejs-service, …` | `{k8s_namespace: bank, k8s_deployment_name: web \| api \| payments \| accounts}` + (Part 3) the three StatefulSets | our services; AND within an entry, OR across entries. The same file instruments whatever runs locally: web/api/payments in poc1, payments/accounts in poc2. Postgres and Redis were added in Part 3 as the "vendor software" case |
 | — | `OTEL_RESOURCE_ATTRIBUTES=k8s.cluster.name=<cluster>` and (Part 2) `attributes.kubernetes.cluster_name` | kind has no node label OBI can read a cluster name from; the Part 1 log said so |
 | tolerations: none (unchanged) | none, on purpose | kind taints control planes `NoSchedule`; the bank runs on workers; OBI lands only there (poc1 ×2, poc2 ×1) |
 | `traffic_control_backend: tcx` (unchanged) | `tcx` | see below |
@@ -198,6 +198,58 @@ by hand to get one. Now every request through the bank carries OBI's:
   exemplar traceID 3d4dee671b9c5e51547d9982a4b59c3d: 8 OBI span line(s) carry it     ← the same trace, seen by Cilium's proxy AND by OBI
 ```
 
+## Part 3 — the vendor processes: Postgres and Redis (blocked by this kernel, measured)
+
+OBI's strongest argument is that it instruments software you did not write. The docs list
+PostgreSQL and Redis as supported **client and server side**, so the three StatefulSets went into
+discovery — `postgres` (poc2), `postgres-standby` and `redis` (poc1) — with no change to their images:
+
+```yaml
+        - {k8s_namespace: bank, k8s_statefulset_name: postgres}
+        - {k8s_namespace: bank, k8s_statefulset_name: postgres-standby}
+        - {k8s_namespace: bank, k8s_statefulset_name: redis}
+```
+
+OBI found and classified them — and stopped their tracer on every node:
+
+```
+-- poc1/obi-g9b9l --      3  /usr/local/bin/postgres (cpp)     1  /usr/local/bin/redis-server (generic)
+-- poc2/obi-4crm7 --      2  /usr/local/bin/postgres (cpp)     1  /bankdemo (go)
+
+  attach  /usr/local/bin/postgres pid=50980 (cpp)
+  STOP    (the non-Go tracer for the process attached just above)
+  attach  /usr/local/bin/redis-server pid=38095 (generic)
+  STOP
+  attach  /bankdemo pid=49368 (go)                                    ← the Go tracer: no STOP
+
+level=ERROR msg="couldn't trace process. Stopping process tracer" error="instrumenting function
+  \"security_socket_accept\": setting kprobe: creating perf_kprobe PMU (arch-specific fallback for
+  \"security_socket_accept\"): token __x64_security_socket_accept: not found: no such file or directory"
+```
+
+**The same wall as demo 17.** Go is traced with uprobes on the runtime; everything else goes through
+OBI's *generic tracer* (`bpf/generictracer/k_tracer.c`), which attaches kprobes to the kernel's LSM
+socket hooks — and this Docker Desktop kernel was built without `CONFIG_SECURITY`, so those
+functions do not exist (gotcha #60):
+
+```
+  security_socket_accept       0        ← what the generic tracer needs
+  security_socket_connect      0
+  security_socket_sendmsg      0
+  security_socket_recvmsg      0
+  tcp_connect                  1        ← the plain networking symbols are there; the LSM layer is not
+  inet_csk_accept              1
+# CONFIG_SECURITY is not set
+```
+
+Fresh TCP connections were tried too (psql over TCP from the standby to the primary across the mesh,
+`redis-cli` over TCP): still no vendor spans, no StatefulSet-labelled series — as the error predicts.
+The Go services were unaffected throughout (spans kept arriving for api, payments, accounts).
+
+The three entries stay in `10-obi.yaml`: they are correct, and on Docker Desktop ≥ 4.30 (the same
+upgrade demo 17 waits for) the Postgres and Redis **server** spans and metrics should appear with
+no other change. That is the follow-up to run first after the upgrade, before Tetragon.
+
 ## What to take away
 
 - **Zero-code tracing across a ClusterMesh works**, and the mesh is what made the collector a
@@ -208,6 +260,9 @@ by hand to get one. Now every request through the bank carries OBI's:
   page's check, run right after `rollout status`, shows nothing — that is not a failure.
 - **OBI's metric labels are Kubernetes labels.** `service.name` is a resource attribute (in
   `target_info`); group by `k8s_deployment_name` and `http_route`.
+- **Vendor software is instrumentable too — on a kernel with the LSM hooks.** Postgres and Redis were
+  found and classified; their tracer needs `security_socket_accept`, which this Docker Desktop kernel
+  lacks (Part 3, gotcha #60). Go was unaffected because Go is traced with uprobes.
 - **The three observability layers now line up:** Hubble (L4/L7 flows and drops per identity),
   OBI (application spans and RED metrics per route), and Grafana/Prometheus (both, with retention),
   joined by trace ids in Hubble's exemplars.
