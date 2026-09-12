@@ -1,0 +1,47 @@
+# evidence for demos/19-zero-trust-cell — recorded 2026-09-12T22:24Z by scripts/evidence/collect.sh
+### 2026-09-12T22:24:51Z
+$ kubectl --context kind-poc1 -n bank get pods -o wide
+NAME                        READY   STATUS    RESTARTS   AGE    IP            NODE           NOMINATED NODE   READINESS GATES
+api-5d6d8cfd55-n4z82        1/1     Running   0          9h     10.10.3.254   poc1-worker2   <none>           <none>
+api-5d6d8cfd55-sj27m        1/1     Running   0          9h     10.10.4.135   poc1-worker    <none>           <none>
+egress-test                 1/1     Running   0          7m1s   10.10.3.107   poc1-worker2   <none>           <none>
+payments-778c6c78f6-j7szh   1/1     Running   0          9h     10.10.4.172   poc1-worker    <none>           <none>
+postgres-standby-0          1/1     Running   0          20h    10.10.4.188   poc1-worker    <none>           <none>
+redis-0                     1/1     Running   0          20h    10.10.4.114   poc1-worker    <none>           <none>
+web-794494d985-5jrv4        1/1     Running   0          9h     10.10.3.219   poc1-worker2   <none>           <none>
+web-794494d985-q2hd6        1/1     Running   0          9h     10.10.4.194   poc1-worker    <none>           <none>
+
+### 2026-09-12T22:24:51Z
+$ kubectl --context kind-poc2 -n bank get pods -o wide
+NAME                        READY   STATUS    RESTARTS   AGE   IP            NODE          NOMINATED NODE   READINESS GATES
+accounts-6544fcc9b8-5qt5k   1/1     Running   0          9h    10.20.1.221   poc2-worker   <none>           <none>
+accounts-6544fcc9b8-jkxgc   1/1     Running   0          9h    10.20.1.128   poc2-worker   <none>           <none>
+egress-test                 1/1     Running   0          12m   10.20.1.9     poc2-worker   <none>           <none>
+payments-7dbb8cdfdb-5bsf5   1/1     Running   0          9h    10.20.1.17    poc2-worker   <none>           <none>
+postgres-0                  1/1     Running   0          20h   10.20.1.217   poc2-worker   <none>           <none>
+
+### 2026-09-12T22:24:52Z
+$ bash -c for c in poc1 poc2; do echo "== $c =="; kubectl --context kind-$c get ccnp; kubectl --context kind-$c -n bank get cnp; done
+== poc1 ==
+NAME                 VALID
+bank-cell-baseline   True
+NAME                    AGE   VALID
+cell-accounts           17h   True
+cell-api                17h   True
+cell-payments           17h   True
+cell-postgres           17h   True
+cell-postgres-standby   17h   True
+cell-redis              17h   True
+cell-web                17h   True
+== poc2 ==
+NAME                 VALID
+bank-cell-baseline   True
+NAME                    AGE   VALID
+cell-accounts           17h   True
+cell-api                17h   True
+cell-payments           17h   True
+cell-postgres           17h   True
+cell-postgres-standby   17h   True
+cell-redis              17h   True
+cell-web                17h   True
+

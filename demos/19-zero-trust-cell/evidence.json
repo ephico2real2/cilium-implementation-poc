@@ -1,0 +1,16 @@
+{
+ "captures": [
+  {
+   "name": "hubble-ui-bank-drops",
+   "url": "https://hubble.poc.local/?namespace=bank",
+   "wait": 20000,
+   "look": "the bank map after the cell probe: the flow table lists the denied egress (world, kube-apiserver, another namespace) as dropped"
+  },
+  {
+   "name": "grafana-hubble-observer-drops",
+   "url": "https://grafana.poc.local/d/hubble-observer-23862?orgId=1&from=now-1h&to=now",
+   "wait": "text:Total Flows",
+   "look": "every DROPPED flow of the last hour by drop reason and by the policy that denied it \u2014 the cell\u2019s decisions, named"
+  }
+ ]
+}

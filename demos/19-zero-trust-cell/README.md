@@ -218,3 +218,43 @@ Remove it all:
 for c in poc1 poc2; do kubectl --context kind-$c delete -f demos/19-zero-trust-cell/rendered/cell-policies.yaml --ignore-not-found; kubectl --context kind-$c delete -f demos/19-zero-trust-cell/10-platform-baseline.yaml --ignore-not-found; done
 kubectl --context kind-poc1 delete -f demos/19-zero-trust-cell/20-rbac.yaml --ignore-not-found
 ```
+
+## Evidence
+
+Captured 2026-09-12 with `scripts/evidence/capture.js` and `scripts/evidence/collect.sh` (both re-runnable; the pod and Cilium output is the recorded file [`output/evidence.txt`](output/evidence.txt)). Every image is what the browser saw, with traffic running.
+
+**hubble ui bank drops** — the bank map after the cell probe: the flow table lists the denied egress (world, kube-apiserver, another namespace) as dropped
+
+![hubble-ui-bank-drops](output/screenshots/hubble-ui-bank-drops.png)
+
+**grafana hubble observer drops** — every DROPPED flow of the last hour by drop reason and by the policy that denied it — the cell’s decisions, named
+
+![grafana-hubble-observer-drops](output/screenshots/grafana-hubble-observer-drops.png)
+
+**Running pods** (from `output/evidence.txt`):
+
+```console
+$ kubectl --context kind-poc1 -n bank get pods -o wide
+NAME                        READY   STATUS    RESTARTS   AGE    IP            NODE           NOMINATED NODE   READINESS GATES
+api-5d6d8cfd55-n4z82        1/1     Running   0          9h     10.10.3.254   poc1-worker2   <none>           <none>
+api-5d6d8cfd55-sj27m        1/1     Running   0          9h     10.10.4.135   poc1-worker    <none>           <none>
+egress-test                 1/1     Running   0          7m1s   10.10.3.107   poc1-worker2   <none>           <none>
+payments-778c6c78f6-j7szh   1/1     Running   0          9h     10.10.4.172   poc1-worker    <none>           <none>
+postgres-standby-0          1/1     Running   0          20h    10.10.4.188   poc1-worker    <none>           <none>
+redis-0                     1/1     Running   0          20h    10.10.4.114   poc1-worker    <none>           <none>
+web-794494d985-5jrv4        1/1     Running   0          9h     10.10.3.219   poc1-worker2   <none>           <none>
+web-794494d985-q2hd6        1/1     Running   0          9h     10.10.4.194   poc1-worker    <none>           <none>
+```
+
+```console
+$ kubectl --context kind-poc2 -n bank get pods -o wide
+NAME                        READY   STATUS    RESTARTS   AGE   IP            NODE          NOMINATED NODE   READINESS GATES
+accounts-6544fcc9b8-5qt5k   1/1     Running   0          9h    10.20.1.221   poc2-worker   <none>           <none>
+accounts-6544fcc9b8-jkxgc   1/1     Running   0          9h    10.20.1.128   poc2-worker   <none>           <none>
+egress-test                 1/1     Running   0          12m   10.20.1.9     poc2-worker   <none>           <none>
+payments-7dbb8cdfdb-5bsf5   1/1     Running   0          9h    10.20.1.17    poc2-worker   <none>           <none>
+postgres-0                  1/1     Running   0          20h   10.20.1.217   poc2-worker   <none>           <none>
+```
+
+The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
+
