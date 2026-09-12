@@ -1,0 +1,16 @@
+{
+ "captures": [
+  {
+   "name": "hubble-ui-default-after-policy",
+   "url": "https://hubble.poc.local/?namespace=default",
+   "wait": "text:deathstar",
+   "look": "the same namespace after the Star Wars L7 policy: the flow table shows the denied PUT /v1/exhaust-port beside the allowed POST /v1/request-landing"
+  },
+  {
+   "name": "grafana-network-overview-default",
+   "url": "https://grafana.poc.local/d/nlsO8tYVz/hubble-network-overview-namespace?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-source_namespace=default&var-destination_namespace=All",
+   "wait": "text:Flows",
+   "look": "Hubble's Network Overview for default: flows by verdict, the drop panels counting the policy denials"
+  }
+ ]
+}

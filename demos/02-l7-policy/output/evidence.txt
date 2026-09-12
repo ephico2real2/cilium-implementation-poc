@@ -1,0 +1,19 @@
+# evidence for demos/02-l7-policy — recorded 2026-09-12T22:24Z by scripts/evidence/collect.sh
+### 2026-09-12T22:24:10Z
+$ kubectl --context kind-poc1 -n default get pods -o wide
+NAME                          READY   STATUS    RESTARTS      AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+deathstar-d7f446dc5-6wgwz     1/1     Running   2 (24h ago)   41h   10.10.4.244   poc1-worker    <none>           <none>
+deathstar-d7f446dc5-dkgqt     1/1     Running   2 (24h ago)   41h   10.10.3.155   poc1-worker2   <none>           <none>
+inventory-69ccd48cd-bzswq     1/1     Running   2 (24h ago)   31h   10.10.3.167   poc1-worker2   <none>           <none>
+inventory-69ccd48cd-mv2hh     1/1     Running   2 (24h ago)   31h   10.10.4.117   poc1-worker    <none>           <none>
+rebel-base-5bbc557b76-26q6b   1/1     Running   2 (24h ago)   31h   10.10.3.53    poc1-worker2   <none>           <none>
+rebel-base-5bbc557b76-gvk68   1/1     Running   2 (24h ago)   31h   10.10.4.238   poc1-worker    <none>           <none>
+tiefighter                    1/1     Running   2 (24h ago)   41h   10.10.4.191   poc1-worker    <none>           <none>
+xwing                         1/1     Running   2 (24h ago)   41h   10.10.4.57    poc1-worker    <none>           <none>
+
+### 2026-09-12T22:24:11Z
+$ bash -c kubectl --context kind-poc1 -n default get cnp -o wide; hubble observe -P --kube-context kind-poc1 $(scripts/hubble-tls.sh kind-poc1) --namespace default --verdict DROPPED --last 5 -o compact 2>/dev/null
+NAME                         AGE   VALID
+allow-gateway-to-deathstar   41h   True
+rule1                        41h   True
+

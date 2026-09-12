@@ -147,3 +147,33 @@ half of the argument, and it comes from the same dataplane doing the enforcement
 kubectl delete -f demos/02-l7-policy/02-l7-policy.yaml
 kubectl delete -f demos/02-l7-policy/http-sw-app.yaml
 ```
+
+## Evidence
+
+Captured 2026-09-12 with `scripts/evidence/capture.js` and `scripts/evidence/collect.sh` (both re-runnable; the pod and Cilium output is the recorded file [`output/evidence.txt`](output/evidence.txt)). Every image is what the browser saw, with traffic running.
+
+**hubble ui default after policy** — the same namespace after the Star Wars L7 policy: the **red dashed edge** from tiefighter to deathstar is the L7 denial (PUT /v1/exhaust-port) beside the allowed POST /v1/request-landing; the table streams the forwarded flows
+
+![hubble-ui-default-after-policy](output/screenshots/hubble-ui-default-after-policy.png)
+
+**grafana network overview default** — Hubble's Network Overview for default: flows by verdict, the drop panels counting the policy denials
+
+![grafana-network-overview-default](output/screenshots/grafana-network-overview-default.png)
+
+**Running pods** (from `output/evidence.txt`):
+
+```console
+$ kubectl --context kind-poc1 -n default get pods -o wide
+NAME                          READY   STATUS    RESTARTS      AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+deathstar-d7f446dc5-6wgwz     1/1     Running   2 (24h ago)   41h   10.10.4.244   poc1-worker    <none>           <none>
+deathstar-d7f446dc5-dkgqt     1/1     Running   2 (24h ago)   41h   10.10.3.155   poc1-worker2   <none>           <none>
+inventory-69ccd48cd-bzswq     1/1     Running   2 (24h ago)   31h   10.10.3.167   poc1-worker2   <none>           <none>
+inventory-69ccd48cd-mv2hh     1/1     Running   2 (24h ago)   31h   10.10.4.117   poc1-worker    <none>           <none>
+rebel-base-5bbc557b76-26q6b   1/1     Running   2 (24h ago)   31h   10.10.3.53    poc1-worker2   <none>           <none>
+rebel-base-5bbc557b76-gvk68   1/1     Running   2 (24h ago)   31h   10.10.4.238   poc1-worker    <none>           <none>
+tiefighter                    1/1     Running   2 (24h ago)   41h   10.10.4.191   poc1-worker    <none>           <none>
+xwing                         1/1     Running   2 (24h ago)   41h   10.10.4.57    poc1-worker    <none>           <none>
+```
+
+The Cilium/kubectl commands that prove this demo's claim, with their output, follow the pod listings in [`output/evidence.txt`](output/evidence.txt).
+
