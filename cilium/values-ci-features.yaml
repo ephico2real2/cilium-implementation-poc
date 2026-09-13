@@ -6,8 +6,11 @@
 bpf:
   datapathMode: netkit         # netkit devices instead of veth pairs — Cilium says kernel >= 6.8; the laptop has 6.6
 bandwidthManager:
-  enabled: true                # needs net.core.default_qdisc — absent on the linuxkit kernel (seven sysctls in net/core)
-  bbr: true                    # needs BBR compiled in — the linuxkit kernel offers reno and cubic only
+  enabled: true                # MEASURED OFF IN KIND ON ANY KERNEL (run 34785181164, kernel 6.17, tcp_bbr loaded): the agent
+  bbr: true                    # says "BPF bandwidth manager could not read procfs … /host/proc/sys/net/core/default_qdisc".
+                               # That sysctl lives in the host's network namespace only; a kind node is a container with its
+                               # own, so the file is not there — the laptop's "seven sysctls in net/core" was this, not only the
+                               # linuxkit kernel. Kept on so the status line keeps saying so; a VM-based node would show it on.
 # BIG TCP is NOT here: the first spike run measured it — the agent refuses to start with "BIG TCP in tunneling mode
 # requires pending kernel support" (run 34784194103, kernel 6.17.0-1022-azure). The lab runs VXLAN; BIG TCP needs
 # native routing, and is a matrix entry of its own (native routing + autoDirectNodeRoutes) when the lab wants it.

@@ -89,7 +89,8 @@ jobs:
           [ -n "$a" ] || { echo "::error::the Gateway got no address from the pool"; exit 1; }
           kubectl --context kind-poc1 apply -f demos/07-clustermesh/global-service.yaml; kubectl --context kind-poc2 apply -f demos/07-clustermesh/global-service.yaml
           kubectl --context kind-poc1 apply -f demos/07-clustermesh/backend-poc1.yaml; kubectl --context kind-poc2 apply -f demos/07-clustermesh/backend-poc2.yaml
-          kubectl --context kind-poc1 rollout status deploy --all --timeout=5m; kubectl --context kind-poc2 rollout status deploy --all --timeout=5m
+          kubectl --context kind-poc1 rollout status deploy/rebel-base --timeout=5m; kubectl --context kind-poc2 rollout status deploy/rebel-base --timeout=5m
+          kubectl --context kind-poc1 get svc rebel-base -o wide; kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -B1 -A4 rebel | head -12
           kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -i -A3 'rebel\|global' | head -20 || true
 
       - name: Connectivity test, multi-cluster (Cilium's own)
