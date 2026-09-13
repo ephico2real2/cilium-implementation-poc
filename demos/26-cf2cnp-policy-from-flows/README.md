@@ -54,7 +54,7 @@ A Hubble flow is one observed packet or L7 event with **identity** attached: who
 namespace, pod), who received it, the L4 tuple, the verdict, the policy that decided it, and *which
 endpoint reported it*. The CLI's `-o json` prints the envelope `{"flow": {...}, "node_name": ..., "time": ...}`
 — exactly the input cf2cnp expects (its README's [input format](https://github.com/onzack/cf2cnp#input-format)).
-Of a ~1.5 KB flow, cf2cnp reads five things:
+Of a flow of about 1.6 KB (the two saved ones are 1592 and 1607 bytes), cf2cnp reads five things:
 
 | Field | Used for |
 |---|---|
@@ -73,7 +73,7 @@ the policy must allow the original request. `get-flow.sh` takes the first non-re
 
 | Source | Command | History | Scope |
 |---|---|---|---|
-| the relay, live | `get-flow.sh cli <hubble observe filters>` | the ring buffer: **seconds** at this lab's ~150 flows/s (gotcha #79's cousin: fetch right after the traffic) | every node of both clusters (demo 24) |
+| the relay, live | `get-flow.sh cli <hubble observe filters>` | the **per-agent** ring (`hubble-event-buffer-capacity`, chart default **4095** — `cilium-dbg status` shows `4095/4095`): about **100 s** on a poc1 worker at the measured **40 flows/s** (transcript Part 13). The Hubble UI's ~155 flows/s is 7 nodes summed — do not divide the ring by it. Fetch right after the traffic | every node of both clusters (demo 24) |
 | Loki, the store | `get-flow.sh loki '{namespace="hubble-observer",container="hubble-observer"} \| json \| flow_verdict="DROPPED" …' 30` | **hours** (24 h retention, demo 25) | what the observer exported: DROPPED flows by default |
 | the observer pod's stdout | `get-flow.sh observer '<grep>'` | the pod's log (30 min window in the script) | the same DROPPED stream, before Loki |
 | the node's export file | `get-flow.sh export poc1-worker2 '<grep>'` | the file's rotation (demo 10) | that node's flows, every verdict |
@@ -151,7 +151,7 @@ without a single dropped packet.
 
 ### Part 4a — the policy-verdict metric, switched on
 
-Hubble's `policy` metric (`hubble_policy_verdicts_total{action=audit|forwarded|dropped, match=none|l3-l4|…}`)
+Hubble's `policy` metric (`hubble_policy_verdicts_total{action=audit|forwarded|dropped|redirected, match=none|l3-l4|…}` — `redirected` is the L7-proxy verdict the bank's demo 19 rules produce)
 was not in demo 16's list. It is added to
 [`demos/16-monitoring/values-cilium-metrics.yaml`](../16-monitoring/values-cilium-metrics.yaml) with the
 same contexts as the others, and applied with `--reuse-values`; the render diff was **one key of one
@@ -243,14 +243,14 @@ GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath='{.
 GW=$GW NODE_PATH=<dir with playwright> node demos/26-cf2cnp-policy-from-flows/ui-generate.js demos/26-cf2cnp-policy-from-flows/policies/flow-stranger-to-shop.json
 ```
 
-![the page, the flow pasted](output/screenshots/ui-2-pasted.png)
+![the page as shipped (0.3.1), the flow pasted](output/screenshots/ui-2-pasted-upstream-0.3.1.png)
 
-![the policy, generated](output/screenshots/ui-3-generated.png)
+![the policy, generated (0.3.1)](output/screenshots/ui-3-generated-upstream-0.3.1.png)
 
 The page prints the same YAML as the API (transcript Part 7) — it *is* the API: the button POSTs the
-textarea to `/generate`. The page offers no download link for the YAML on this version; copy it from the
-result box. The page's header documents the three endpoints (`POST /generate`, `GET /download/{id}`,
-`GET /health`).
+textarea to `/generate`. As shipped (0.3.1) the page has the textarea and the button, starts a download
+on generate and offers nothing else; the page's header documents the three endpoints (`POST /generate`,
+`GET /download/{id}`, `GET /health`). Part 14 replaces it with the fork's page.
 
 ## Part 8 — method 3 of 3: the Grafana action
 
@@ -277,14 +277,17 @@ POST https://cf2cnp.poc.local/generate  headers={"accept":"application/json, tex
 ```
 
 The action posts the row's raw line; cf2cnp sees `X-Grafana-Action` (or `Accept: application/json`) and
-answers JSON instead of YAML, caching the policy for **10 minutes under the flow's UUID**. The *Download*
+answers JSON instead of YAML, caching the policy **under the flow's UUID** — for at least 10 minutes: cf2cnp's
+`cleanupCache` removes entries older than ten minutes on a five-minute ticker (`internal/server/server.go`), so an
+entry lives between 10 and 15 minutes. The *Download*
 link is `${hubbleobservercf2cnpurl}/download/<uuid>` — it works only after Generate, else `404 expired`. The
 browser receives it as an attachment (`content-disposition: attachment; filename="cf2cnp-lab-shop.yaml"`), so
 the tutorial also fetches it with curl and diffs it against the API's file: **identical**
-([`cnp-from-grafana.yaml`](policies/cnp-from-grafana.yaml)). One observation for upstream: the JSON's
-`download_url` says `http://` behind an https-only Gateway that forwards `X-Forwarded-Proto: https`; the
-dashboard's own link ignores `download_url`, so nothing breaks, but a client that trusted the field would
-be sent to a port that is closed.
+([`cnp-from-grafana.yaml`](policies/cnp-from-grafana.yaml)). One observation, taken upstream in Part 14: the JSON's
+`download_url` said `http://` behind an https-only Gateway that forwards `X-Forwarded-Proto: https`
+(cf2cnp built it from `r.TLS`, which a TLS-terminating proxy never sets); the dashboard's own link ignores
+`download_url`, so nothing broke, but a client that trusted the field would have been sent to a closed port
+(gotcha #83).
 
 ## Part 9 — the policy, seen everywhere it shows
 
@@ -305,9 +308,10 @@ DROPPED — and the *Network Policy drops* row names `stranger: POLICY_DENIED` b
 
 ![Top 10 Source Pods with Denied Packets](output/screenshots/grafana-hubble-metrics-denied-sources.png)
 
-**Cilium Flows - Hubble Observer** (demo 25, Loki), destination namespace `cf2cnp-lab`: 94 dropped flows in
-30 minutes, all `POLICY_DENIED`, the histogram starting at enforcement — and *Flows per Denying Policy* at
-**No data**. That is correct, and gotcha #82: a default-deny drop is decided by the *absence* of an allow
+**Cilium Flows - Hubble Observer** (demo 25, Loki), destination namespace `cf2cnp-lab`: the *Total Flows* stat read
+94 at the moment of the capture below (a Loki count over the last 30 minutes; the recorded numbers are `verify.sh`'s
+24 drops in 60 s and the metric's 81 at evidence time), all `POLICY_DENIED`, the histogram starting at enforcement —
+and *Flows per Denying Policy* at **No data**. That is correct, and gotcha #82: a default-deny drop is decided by the *absence* of an allow
 rule, so `ingress_denied_by` is empty (`[]` in every one of these flows); the panel fills only when an
 explicit `ingressDeny`/`egressDeny` rule drops. The allowed side does name its rule (`ingress_allowed_by`,
 the `by shop` in `verify.sh`).
@@ -366,6 +370,31 @@ assumed:
   behind the same Gateway. If one page is wanted, the measured facts say it is a page that frames Hubble
   UI and Grafana-with-`allow_embedding` — not an extension of Hubble UI.
 
+## Part 14 — the tool improved: the fork, tested, deployed here, and sent upstream
+
+Three things this demo measured about cf2cnp became one change set on the fork
+[ephico2real2/cf2cnp](https://github.com/ephico2real2/cf2cnp), branch `feat/external-url-multi-flow`,
+built as an image, `kind load`-ed into poc1, deployed through the observer chart
+(`values-hubble-observer.yaml`, `cf2cnp.image`), and sent upstream as an issue and a pull request
+(transcript Parts 14, 14b, 14c):
+
+| Measured here | Change | Proof |
+|---|---|---|
+| `download_url` said `http://` behind the https-only Gateway (Part 8; the code used `r.TLS`, nil behind a TLS-terminating proxy) | `baseURL()`: `--external-url` (env `CF2CNP_EXTERNAL_URL`) > RFC 7239 `Forwarded` > `X-Forwarded-Proto`/`-Host` > `r.TLS`/`r.Host`; chart 0.5.0 `externalURL`, `extraArgs`, `extraEnv`, and the container `args` rendered so a flag can be given | seven scheme cases in `server_test.go`; live: the Grafana action's answer now `https://cf2cnp.poc.local/download/1895c9ab-…` (Part 14c) |
+| one policy per flow, all named after the workload — two peers, two objects, the second apply replaces the first (gotcha #81; in file mode the second file overwrote the first) | `/generate` accepts one flow, a JSON array or one flow per line (`hubble observe -o json`); policies selecting the same workload are **merged** into one object with one rule per peer; `?name=` names a single resulting policy; the JSON answer carries `flows`, `policies`, `yaml` | `TestGeneratePolicies_OneFilePerWorkload` fails on upstream main; live: three flows → two documents, `shop` with both peers, accepted by `kubectl apply --dry-run=server` (Part 14) |
+| the page: textarea and button, auto-download, nothing to read before generating | a summary of the pasted flows (direction, verdict, peer → workload:port, replies flagged), a policy-name field, *Copy YAML* / *Download YAML* / *Load example* / *Clear*, the `kubectl apply -f <file>` hint | [`ui-generate.js`](ui-generate.js) on two flows: `2 flow(s) parsed: INGRESS AUDIT pos → shop:80 \| INGRESS AUDIT stranger → shop:80` → `2 flow(s) → 1 policy` (Part 14b) |
+
+![the fork's page: two flows pasted, the summary, the merged policy](output/screenshots/ui-3-generated.png)
+
+Tests were written first against real flows from this lab (`internal/testdata/`): the parser (single,
+NDJSON, array, a bad line named by position, a directory with many flows per file), the generator (merge,
+dedupe of identical rules, distinct workloads kept apart, name override and its refusal, one file per
+workload, the multi-document stream), the server (every scheme case, the Grafana path keeping the flow's
+UUID as cache id, many flows, `?name=`, bad inputs, YOLO). `go test ./...` green, `helm lint` clean, the
+chart rendered with and without the new values. The upstream chart for hubble-observer pins the cf2cnp
+subchart at 0.4.0, so `cf2cnp.externalURL` becomes settable from there only after a dependency bump — the
+proxy-header path needs no value at all, which is why this lab runs the new image under the old chart.
+
 ## Exercises
 
 See [`GUIDE.md`](GUIDE.md) — from "get one flow" to "enforce, then reverse it", each with the expected
@@ -422,7 +451,7 @@ Part 7 and Part 8 images are taken by the two Playwright scripts of this demo.
 
 ![grafana-policy-verdicts](output/screenshots/grafana-policy-verdicts.png)
 
-**cf2cnp ui, three steps** — [`ui-1-empty.png`](output/screenshots/ui-1-empty.png), [`ui-2-pasted.png`](output/screenshots/ui-2-pasted.png), [`ui-3-generated.png`](output/screenshots/ui-3-generated.png)
+**cf2cnp ui, three steps** — as shipped (0.3.1): [`ui-1-empty-upstream-0.3.1.png`](output/screenshots/ui-1-empty-upstream-0.3.1.png), [`ui-2-pasted-upstream-0.3.1.png`](output/screenshots/ui-2-pasted-upstream-0.3.1.png), [`ui-3-generated-upstream-0.3.1.png`](output/screenshots/ui-3-generated-upstream-0.3.1.png); the fork (Part 14): [`ui-1-empty.png`](output/screenshots/ui-1-empty.png), [`ui-2-pasted.png`](output/screenshots/ui-2-pasted.png), [`ui-3-generated.png`](output/screenshots/ui-3-generated.png)
 
 **grafana action, four steps** — [`grafana-1-dashboard-filtered.png`](output/screenshots/grafana-1-dashboard-filtered.png), [`grafana-2-uuid-menu.png`](output/screenshots/grafana-2-uuid-menu.png), [`grafana-3-confirm.png`](output/screenshots/grafana-3-confirm.png), [`grafana-4-generated.png`](output/screenshots/grafana-4-generated.png)
 

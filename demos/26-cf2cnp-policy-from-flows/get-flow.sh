@@ -11,21 +11,29 @@
 # side reported the flow — cf2cnp writes an INGRESS policy for the destination from an ingress flow and an EGRESS policy
 # for the source from an egress flow.
 set -uo pipefail; cd "$(dirname "$0")/../.."; SRC="${1:?source}"; shift
-case "$SRC" in
-  cli)      hubble observe -P --kube-context kind-poc1 "$@" --last 30 -o json 2>/dev/null | python3 -c '
+# first_request: read every line (draining the producer, so `hubble` never gets SIGPIPE and pipefail never turns a
+# found flow into exit 141 — measured), keep the first JSON object whose flow.is_reply is not true, exit 1 with a message
+# when there is none. Every arm goes through it: a reply-shaped line from Loki, the observer log or the export file
+# would otherwise be posted to cf2cnp and refused.
+first_request() { python3 -c '
 import json,sys
+found=None
 for l in sys.stdin:
     l=l.strip()
-    if not l: continue
+    if not l or found is not None: continue
     try: d=json.loads(l)
     except Exception: continue
     if d.get("flow",{}).get("is_reply"): continue
-    print(l); sys.exit(0)
-sys.stderr.write("get-flow.sh cli: no request flow matched (replies are skipped; the ring buffer holds seconds — generate the traffic, then fetch)\n"); sys.exit(1)' ;;
-  observer) kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --since=30m 2>/dev/null | grep -- "${1:-.}" | tail -1 ;;
+    found=l
+if found is None:
+    sys.stderr.write("get-flow.sh: no request flow matched (replies are skipped; the per-agent ring buffer holds ~100 s at this lab'"'"'s rate — generate the traffic, then fetch)\n"); sys.exit(1)
+print(found)'; }
+case "$SRC" in
+  cli)      hubble observe -P --kube-context kind-poc1 "$@" --last 30 -o json 2>/dev/null | first_request ;;
+  observer) kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --since=30m 2>/dev/null | grep -- "${1:-.}" | tail -30 | first_request ;;
   loki)     SEL="${1:?LogQL selector}"; MIN="${2:-60}"; NOW=$(date +%s); Q=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$SEL")
-            kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query_range?query=$Q&start=$((NOW-MIN*60))000000000&end=${NOW}000000000&limit=1&direction=backward" \
-              | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(r[0]["values"][0][1] if r and r[0]["values"] else "")' ;;
-  export)   NODE="${1:?node}"; docker exec "$NODE" sh -c "grep -- '${2:-.}' /var/run/cilium/hubble/events.log 2>/dev/null | tail -1" ;;
+            kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query_range?query=$Q&start=$((NOW-MIN*60))000000000&end=${NOW}000000000&limit=30&direction=backward" \
+              | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; [print(v[1]) for s in r for v in s["values"]]' | first_request ;;
+  export)   NODE="${1:?node}"; docker exec "$NODE" sh -c "grep -- '${2:-.}' /var/run/cilium/hubble/events.log 2>/dev/null | tail -30" | first_request ;;
   *) echo "usage: get-flow.sh cli|observer|loki|export …" >&2; exit 2 ;;
 esac

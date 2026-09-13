@@ -70,6 +70,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [80](#80) | `ingress: []` is not a default-deny — Cilium rejects it, nothing changes | policy from flows |
 | [81](#81) | cf2cnp names every policy after its destination — two files, one object | policy from flows |
 | [82](#82) | a default-deny drop names no policy — the Denying Policy panel stays empty | policy from flows |
+| [83](#83) | a URL built from `r.TLS` behind a TLS-terminating proxy is always `http://` | policy from flows |
 | [78](#78) | The hubble-observer default image (quay.io/cilium/hubble:v1.16.4) is unmaintained — 2024 push, EOL Go, 5 CRITICAL; run the CLI from the agent image at the agents' digest | supply chain |
 | [77](#77) | The hub Prometheus kept the single-cluster 1Gi limit — 51 OOM kills once poc2 wrote in; 2Gi + an out-of-order window | monitoring |
 | [76](#76) | A policy's egress `toPorts` must be the backend pod's port (relay 4245), not the Service port (443) — Cilium enforces after service translation | Cilium policy |
@@ -1977,6 +1978,25 @@ dashboard shows it). The panel fills only where an explicit deny rule does the d
 
 ---
 
+## <a name="83"></a>83. A URL built from `r.TLS` behind a TLS-terminating proxy is always `http://`
+
+**Symptom.** Demo 26 Part 8: cf2cnp behind the https-only Gateway answered
+`"download_url":"http://cf2cnp.poc.local/download/…"` — a port that is closed — while Envoy was forwarding
+`X-Forwarded-Proto: https` on every request.
+
+**Cause.** The server chose the scheme from `r.TLS != nil`. The Gateway terminates TLS; the pod's listener
+is plain HTTP, so `r.TLS` is nil for every request it will ever see. Any service that builds absolute
+URLs for its clients has this problem the day it goes behind an ingress or Gateway.
+
+**Fix.** Read the proxy's word for it — RFC 7239 `Forwarded: proto=…;host=…`, or `X-Forwarded-Proto` /
+`X-Forwarded-Host` — and let the operator state the public base outright (`--external-url`) when the
+proxy strips them. Done on the fork and sent upstream (demo 26 Part 14). The dashboard never broke
+because its link ignored the field; the bug waited for the first client that trusted it.
+
+→ demo 26, Parts 8 and 14
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -2022,6 +2042,7 @@ Most of these share a shape: **something reported success while not working.**
 - an empty list is not an empty rule (#80)
 - two files, one name, the second wins (#81)
 - a rule that does not exist cannot be named (#82)
+- the pod never sees TLS, so it never says https (#83)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

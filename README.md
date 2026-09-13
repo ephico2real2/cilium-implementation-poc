@@ -121,7 +121,7 @@ unchanged, with BGP substituted for L2 in production.
    stack across the mesh — what runs in the hub, what every spoke runs, and why (demos 10, 16, 18, 21–25).
 8d. **Demo 26** is the foundational policy skill: a Hubble flow JSON → a CiliumNetworkPolicy, three ways,
    with audit mode first. Read it before writing any policy by hand; demo 19 is where the intent lives.
-9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 82 traps, each with the real error
+9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 83 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -322,7 +322,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 82 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 83 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

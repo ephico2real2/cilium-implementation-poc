@@ -777,3 +777,107 @@ iframe #h: url=https://hubble.poc.local/?namespace=cf2cnp-lab :: cf2cnp-lab | An
 iframe #g: url= :: 
 console messages about framing: ["Refused to display 'https://grafana.poc.local/' in a frame because it set 'X-Frame-Options' to 'deny'."]
 
+### Part 13 — the review's re-checks, measured (docs/REVIEW_26.md): endpoint identifier keys, the per-agent ring and rate, the exit code under pipefail
+### 2026-09-13T00:19:05Z
+$ bash -c echo "== every key external-identifiers carries on poc1-worker2's agent (cilium-s2wxk) =="; kubectl --context kind-poc1 -n kube-system exec pod/cilium-s2wxk -c cilium-agent -- cilium-dbg endpoint list -o json 2>/dev/null | python3 -c "
+import json,sys,collections; c=collections.Counter()
+for e in json.load(sys.stdin): c[tuple(sorted(((e.get(\"status\") or {}).get(\"external-identifiers\") or {}).keys()))]+=1
+[print(\"  \", n, \"endpoints with keys\", list(k) or \"(none: reserved endpoints)\") for k,n in c.items()]"; echo "== hostNetwork pods on that node share the node IP =="; kubectl --context kind-poc1 get pods -A --field-selector spec.nodeName=poc1-worker2 -o json | python3 -c "import json,sys; [print(\"  \", p[\"metadata\"][\"namespace\"], p[\"metadata\"][\"name\"], p[\"status\"].get(\"podIP\")) for p in json.load(sys.stdin)[\"items\"] if p[\"spec\"].get(\"hostNetwork\")]"; echo "== the ring: capacity is the chart default (key absent from cilium-config), 4095 per agent; the rate per agent =="; kubectl --context kind-poc1 -n kube-system get cm cilium-config -o jsonpath="hubble-event-buffer-capacity=<{.data.hubble-event-buffer-capacity}>{\"\n\"}"; for n in poc1-worker poc1-worker2 poc1-control-plane; do AG=$(kubectl --context kind-poc1 -n kube-system get pods -l k8s-app=cilium --field-selector spec.nodeName=$n -o jsonpath="{.items[0].metadata.name}"); printf "  %-19s " $n; kubectl --context kind-poc1 -n kube-system exec $AG -c cilium-agent -- cilium-dbg status --verbose 2>/dev/null | grep "^Hubble:" | tr -s " "; done; python3 -c "print(\"  window on a worker: 4095 / 40.5 flows/s = %.0f s; the UI's 155.7 flows/s is 7 nodes summed\" % (4095/40.5))"
+== every key external-identifiers carries on poc1-worker2's agent (cilium-s2wxk) ==
+   22 endpoints with keys ['cni-attachment-id']
+   3 endpoints with keys (none: reserved endpoints)
+== hostNetwork pods on that node share the node IP ==
+   kube-system cilium-envoy-9p6mq 172.18.0.4
+   kube-system cilium-s2wxk 172.18.0.4
+   monitoring monitoring-prometheus-node-exporter-nqvbt 172.18.0.4
+   obi obi-smtrp 172.18.0.4
+== the ring: capacity is the chart default (key absent from cilium-config), 4095 per agent; the rate per agent ==
+hubble-event-buffer-capacity=<>
+  poc1-worker         Hubble: Ok Current/Max Flows: 4095/4095 (100.00%), Flows/s: 40.21 Metrics: Ok
+  poc1-worker2        Hubble: Ok Current/Max Flows: 4095/4095 (100.00%), Flows/s: 40.49 Metrics: Ok
+  poc1-control-plane  Hubble: Ok Current/Max Flows: 4095/4095 (100.00%), Flows/s: 10.56 Metrics: Ok
+  window on a worker: 4095 / 40.5 flows/s = 101 s; the UI's 155.7 flows/s is 7 nodes summed
+
+### Part 14 — the cf2cnp fork deployed (image built from ephico2real2/cf2cnp feat/external-url-multi-flow, kind-loaded), then the same three doors again
+### 2026-09-13T00:21:55Z
+$ bash -c docker exec poc1-worker2 crictl images 2>/dev/null | grep ephico2real2/cf2cnp | tr -s " "; demos/25-hubble-observer-loki/chart-from-fork.sh develop 2>&1 | tail -3; kubectl --context kind-poc1 -n hubble-observer rollout status deploy/hubble-observer-cf2cnp --timeout=120s; kubectl --context kind-poc1 -n hubble-observer get deploy hubble-observer-cf2cnp -o jsonpath="image={.spec.template.spec.containers[0].image} args={.spec.template.spec.containers[0].args}{\"\n\"}"; kubectl --context kind-poc1 -n hubble-observer get pods -l app.kubernetes.io/name=cf2cnp -o wide | tr -s " "
+ghcr.io/ephico2real2/cf2cnp develop 553ce646e90fc 9.88MB
+dependencies: cf2cnp-0.4.0.tgz
+STATUS: deployed
+REVISION: 19
+deployment "hubble-observer-cf2cnp" successfully rolled out
+image=ghcr.io/ephico2real2/cf2cnp:develop args=
+NAME READY STATUS RESTARTS AGE IP NODE NOMINATED NODE READINESS GATES
+hubble-observer-cf2cnp-7ff6cf46db-wn8xd 1/1 Running 0 20s 10.10.3.30 poc1-worker2 <none> <none>
+
+### 2026-09-13T00:22:53Z
+$ bash -c P=demos/26-cf2cnp-policy-from-flows; echo "== the JSON answer through the Gateway (Envoy sets X-Forwarded-Proto: https): download_url scheme =="; JSON=1 $P/generate.sh $P/policies/flow-stranger-to-shop.json | python3 -c "import json,sys; d=json.load(sys.stdin); print(\"  download_url:\", d[\"download_url\"]); print(\"  filename:\", d[\"filename\"], \"| flows:\", d[\"flows\"], \"| policies:\", d[\"policies\"], \"| yaml in the answer:\", \"kind: CiliumNetworkPolicy\" in d[\"yaml\"])"; echo "== many flows in one request: pos→shop, stranger→shop, pos→world → policies per workload =="; GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); cat $P/policies/flow-pos-to-shop.json $P/policies/flow-stranger-to-shop.json $P/policies/flow-pos-to-world.json | curl -s --cacert docs/root-ca.crt --resolve cf2cnp.poc.local:443:$GW -X POST https://cf2cnp.poc.local/generate --data-binary @- -o $P/policies/cnp-merged-from-three-flows.yaml -D - | grep -i "content-disposition"; grep -n "^  name:\|^  namespace:\|fromEndpoints\|toCIDR\|description" $P/policies/cnp-merged-from-three-flows.yaml | sed "s/^/  /"; echo "== the same, named: ?name=shop-from-pos on the single pos flow =="; curl -s --cacert docs/root-ca.crt --resolve cf2cnp.poc.local:443:$GW -X POST "https://cf2cnp.poc.local/generate?name=shop-from-pos" --data-binary @$P/policies/flow-pos-to-shop.json | grep "^  name:"; echo "== kubectl dry-run of the merged file against the API server (server-side validation) =="; kubectl --context kind-poc1 apply --dry-run=server -f $P/policies/cnp-merged-from-three-flows.yaml
+== the JSON answer through the Gateway (Envoy sets X-Forwarded-Proto: https): download_url scheme ==
+  download_url: https://cf2cnp.poc.local/download/034db8e8-0240-4582-b94d-47a3411ab5d5
+  filename: cf2cnp-lab-shop.yaml | flows: 1 | policies: 1 | yaml in the answer: True
+== many flows in one request: pos→shop, stranger→shop, pos→world → policies per workload ==
+access-control-expose-headers: Content-Disposition
+content-disposition: attachment; filename="ciliumnetworkpolicies-2.yaml"
+  4:  name: pos
+  5:  namespace: cf2cnp-lab
+  7:  description: Allow egress traffic from cf2cnp-lab to 104.20.23.154 for the pos
+  12:    - toCIDR:
+  14:    # To allow all traffic to world instead of specific IPs, replace toCIDR with:
+  25:  name: shop
+  26:  namespace: cf2cnp-lab
+  28:  description: Allow ingress traffic for the shop in cf2cnp-lab (2 rules merged from 2 observed flows)
+  33:    - fromEndpoints:
+  40:    - fromEndpoints:
+== the same, named: ?name=shop-from-pos on the single pos flow ==
+  name: shop-from-pos
+== kubectl dry-run of the merged file against the API server (server-side validation) ==
+ciliumnetworkpolicy.cilium.io/pos created (server dry run)
+ciliumnetworkpolicy.cilium.io/shop configured (server dry run)
+
+### Part 14b — the fork's Web UI: two flows pasted at once (pos → shop, stranger → shop), the page's own summary, one merged policy, Copy / Download enabled
+### 2026-09-13T00:23:10Z
+$ node demos/26-cf2cnp-policy-from-flows/ui-generate.js /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/two-flows.json
+page summary: 2 flow(s) parsed: INGRESS AUDIT pos → shop:80 | INGRESS AUDIT stranger → shop:80
+apply hint: 2 flow(s) → 1 policy. Review it, then: kubectl apply -f cf2cnp-lab-shop.yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop
+  namespace: cf2cnp-lab
+spec:
+  description: Allow ingress traffic for the shop in cf2cnp-lab (2 rules merged from 2 observed flows)
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: pos
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: stranger
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+Copy YAML enabled: true | Download YAML enabled: true
+
+### Part 14c — the Grafana action against the fork: the answer's download_url is https now
+### 2026-09-13T00:23:19Z
+$ node demos/26-cf2cnp-policy-from-flows/grafana-generate.js cf2cnp-lab
+first flow in the table, uuid: 1895c9ab-e72e-4b81-ab9f-cab0dd802b8c
+menu offers: Generate CiliumNetworkPolicy from Flow | Download CiliumNetworkPolicy | Open this Flow UUID
+confirmed the action
+download tab: 
+
+saved → policies/cnp-from-grafana.yaml
+cf2cnp requests made by the browser:
+  GET https://grafana.poc.local/d/hubble-observer-23862?orgId=1&from=now-30m&to=now&var-destinationnamespace=cf2cnp-lab headers={} body=
+    ← 200 <!DOCTYPE html> <html lang="en-US">   <head>          <meta charset="utf-8" />     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />     <meta na
+  POST https://cf2cnp.poc.local/generate headers={"x-grafana-device-id":"f50de6c461bbe25e56e0a0abfc529c9b","accept":"application/json, text/plain, */*","x-grafana-action":"1"} body={"flow":{"time":"2026-09-13T00:23:29.312604426Z","uuid":"1895c9ab-e72e-4b81-ab9f…
+    ← 200 {"download_url":"https://cf2cnp.poc.local/download/1895c9ab-e72e-4b81-ab9f-cab0dd802b8c","filename":"cf2cnp-lab-shop.yaml","flows":1,"message":"Policy generated
+

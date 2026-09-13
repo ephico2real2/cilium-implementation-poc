@@ -7,6 +7,7 @@ Run from the repo root; poc1 with demos 16, 24 and 25 applied and the CLI config
 
 ```bash
 GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}')
+mkdir -p .tmp     # scratch files below go here; the directory is git-ignored and does not exist in a fresh clone
 ```
 
 ## Exercise 0 — the lab, and a baseline
