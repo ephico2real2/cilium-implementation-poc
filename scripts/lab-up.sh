@@ -96,8 +96,11 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "O
   say "SETUP Step $( [ "$c" = "$first" ] && echo 5 || echo 9.2 ) — Cilium $CILIUM_VERSION core on $c (cilium/values-$c.yaml + values-ci.yaml)"
   helm upgrade --install cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" \
     -f "cilium/values-$c.yaml" -f cilium/values-ci.yaml ${LAB_FEATURES:+-f cilium/values-ci-features.yaml} \
-    --set k8sServiceHost="$host" --set k8sServicePort=6443 --set gatewayAPI.enabled=true --set gatewayAPI.enableAlpn=true --set hubble.enabled=false >/dev/null \
+    --set k8sServiceHost="$host" --set k8sServicePort=6443 --set gatewayAPI.enabled=true --set gatewayAPI.enableAlpn=true \
+    --set hubble.enabled=false --set hubble.relay.enabled=false --set hubble.ui.enabled=false >/dev/null \
     || die "Helm refused the Cilium install on $c (SETUP Step 5)"
+  # (the chart's validate.yaml refuses a relay or a UI without hubble.enabled — run 34790879335 — so all three are off
+  #  here; the Hubble step below re-applies the lab's values file, which carries them as the lab wants them)
 
   # ---------------------------------------------------------------- SETUP Step 6 — verify the core before anything is built on it
   say "SETUP Step 6 — verify $c: Cilium's own status, the nodes Ready, kube-proxy replaced"
@@ -147,7 +150,7 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "k
   say "Hubble on $c$( [ "$mesh" = 1 ] && echo ' and the mesh apiserver' ) — one upgrade; certificates from $( [ "$certmanager" = 1 ] && echo 'ClusterIssuer/ca-issuer' || echo 'Helm')"
   # shellcheck disable=SC2046
   helm upgrade cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" --reuse-values \
-    --set hubble.enabled=true $( [ "$certmanager" = 1 ] && echo "-f cilium/values-ci-certmanager.yaml" ) \
+    -f "cilium/values-$c.yaml" --set hubble.enabled=true $( [ "$certmanager" = 1 ] && echo "-f cilium/values-ci-certmanager.yaml" ) \
     $( [ "$mesh" = 1 ] && echo "--set clustermesh.useAPIServer=true --set clustermesh.apiserver.service.type=NodePort" ) \
     $( [ "$mesh" = 1 ] && [ "$certmanager" != 1 ] && echo "--set clustermesh.apiserver.tls.auto.method=helm" ) --wait --timeout 10m >/dev/null \
     || { evidence "$ctx"; die "Helm could not enable Hubble$( [ "$mesh" = 1 ] && echo ' and the mesh apiserver' ) on $c"; }
