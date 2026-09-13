@@ -99,8 +99,8 @@ whole or in part (C1's, C3's ×2, C10's aggregate paragraph, C14's deletion, C5'
 replaced by measured versions. Two unasked findings from Codex accepted, the generate.sh one being the
 most consequential defect of the review. Re-validated after the edits: every `get-flow.sh` arm against the
 live relay, Loki, the observer log and the export file; `audit-mode.sh` on the real pod and a missing one;
-`generate.sh` on an empty body and a real flow; the guide's manifest dry-run; `mdfmt` clean. A second pass
-on the fixed head follows.
+`generate.sh` on an empty body and a real flow; the guide's manifest dry-run; `mdfmt` clean. The second pass
+on the fixed head is below.
 
 ## What each reviewer got right and wrong
 
@@ -113,3 +113,36 @@ on the fixed head follows.
   its CONFIRMED on C11 was the surface read of my own sentence.
 - Both reviewers' 4095 arithmetic used different per-agent rates (45.00 from demo 24, 40.5 measured now);
   both land at ~100 s. The lesson is the one the empirical rule already states: a rate has a scope.
+
+## Second pass — the fixed head `3d11809` and the cf2cnp fork `a329000`
+
+Twelve claims: five on the applied fixes, seven on the fork (the upstream PR). Cursor again had no shell;
+Codex's turn was cut off by its provider's content filter after C1 ("flagged for possible cybersecurity
+risk" — the brief asks for header-injection and body-limit attacks, which is what tripped it), having
+measured only that every `get-flow.sh` arm passed the crafted streams (0 after a large post-request
+drain, 1 on replies only, malformed text skipped). Its column is therefore C1 only.
+
+| Claim | Cursor | Codex | Decision |
+|---|---|---|---|
+| C1 `first_request()` on every arm | PLAUSIBLE | CONFIRMED (streams run) | — |
+| C2 `cep-name:` lookup | PLAUSIBLE | — | — (noted: the hostNetwork refusal is by 404, exercised only for a missing name; a hostNetwork pod in the lab namespace would be the direct test) |
+| C3 `generate.sh` | REFUTED (missing dir, no trap) | — | **Accepted** — directory check, `trap` on exit, JSON=1 errors to stderr; measured (Part 13b) |
+| C4 Part 3 / Exercise 1 wording | PLAUSIBLE | — | — |
+| C5 the review record's "measured" claims | REFUTED (141 never recorded) | — | **Accepted** — Part 13b records the old script's 141 against the new script's 0 |
+| C6 `baseURL()` precedence and host | REFUTED | — | **Accepted** — `Forwarded` first as documented; a forwarded host must be a bare host[:port]; eight new test cases |
+| C7 parser accepts `{}` | REFUTED | — | **Accepted** — a zero flow is refused with the reason; measured live (`http=400`) |
+| C8 merge semantics | PLAUSIBLE | — | — (its collapse cases do not collapse: different selectors never merge) |
+| C9 single-flow YAML identical to upstream | PLAUSIBLE | — | **Measured**: three fixtures, same md5 against a build of `main` |
+| C10 chart 0.5.0 vs 0.4.0 | PLAUSIBLE | — | **Measured**: the diff is the version label and the `args` block; `helm lint` clean; a value with quotes renders valid YAML |
+| C11 the page's script | PLAUSIBLE | — | — (no backtick, `textContent` only) |
+| C12 500 flows in one request | PLAUSIBLE (no body limit — a risk) | — | **Measured**: 20 policies, 140 rules, 45 KB, 0.09 s; **N3 accepted**: 8 MiB cap (413 measured) and server timeouts |
+
+Not asked: **N1** (README Part 4 still described the IP lookup) — accepted, fixed; **N2** (two workloads
+sharing `app.kubernetes.io/name` and differing by `component` still yield two objects named alike) —
+true, deliberately not changed: folding the component into the name would rename every generated
+policy that carries the label, a maintainers' decision, stated as a known limitation in the PR.
+
+**Outcome.** Four refuted, all accepted and measured; the fork's reviewed head `2eb0f6b` is pushed to the
+PR and rolled out on poc1 (Part 14d: https `download_url`, `{}` refused, a forwarded host with a path
+ignored). Codex's aborted pass is a process note for the memory: a brief that asks for injection
+attacks trips the provider's filter; phrase such claims as robustness tests.
