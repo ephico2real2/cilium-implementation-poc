@@ -899,3 +899,20 @@ curl: (22) The requested URL returned error: 400
 generate.sh: cf2cnp answered http=400: Request body is empty. Please provide Hubble flow JSON.
   exit=22 out.yaml=keep-me
 
+### Part 13b — the exit-141 measurement the review record cited but the transcript lacked: the script as it was (commit b5219a2) against the script as it is
+### 2026-09-13T01:04:34Z
+$ bash -c P=demos/26-cf2cnp-policy-from-flows; git show b5219a2:$P/get-flow.sh > .tmp/get-flow-b5219a2.sh; chmod +x .tmp/get-flow-b5219a2.sh; echo "== b5219a2 (sys.exit(0) on the first request, hubble still writing) =="; .tmp/get-flow-b5219a2.sh cli --from-pod cf2cnp-lab/pos --to-pod cf2cnp-lab/shop | wc -c; echo "  exit=${PIPESTATUS[0]}"; echo "== HEAD (stdin drained) =="; $P/get-flow.sh cli --from-pod cf2cnp-lab/pos --to-pod cf2cnp-lab/shop | wc -c; echo "  exit=${PIPESTATUS[0]}"; echo "== generate.sh: a missing output directory =="; $P/generate.sh $P/policies/flow-pos-to-shop.json .tmp/no-such-dir/out.yaml; echo "  exit=$? leftovers: $(ls .tmp/no-such-dir* 2>/dev/null | wc -l | tr -d " ")"; echo "== JSON=1 on an empty body =="; : > .tmp/empty.json; JSON=1 $P/generate.sh .tmp/empty.json >/dev/null; echo "  exit=$?"
+== b5219a2 (sys.exit(0) on the first request, hubble still writing) ==
+    1686
+  exit=141
+== HEAD (stdin drained) ==
+    1686
+  exit=0
+== generate.sh: a missing output directory ==
+generate.sh: directory .tmp/no-such-dir does not exist
+  exit=1 leftovers: 0
+== JSON=1 on an empty body ==
+curl: (22) The requested URL returned error: 400
+
+  exit=22
+

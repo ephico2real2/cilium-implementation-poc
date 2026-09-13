@@ -6,8 +6,9 @@
 set -uo pipefail; cd "$(dirname "$0")/../.."; F="${1:?flow.json}"; OUT="${2:-}"
 GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}')
 POST=(curl --silent --show-error --fail-with-body --cacert docs/root-ca.crt --resolve "cf2cnp.poc.local:443:$GW" -X POST https://cf2cnp.poc.local/generate -H 'Content-Type: application/json' --data-binary "@$F")
-if [ "${JSON:-0}" = 1 ]; then "${POST[@]}" -H 'Accept: application/json'; RC=$?; echo; exit $RC; fi
+if [ "${JSON:-0}" = 1 ]; then "${POST[@]}" -H 'Accept: application/json' || { RC=$?; echo >&2; exit $RC; }; echo; exit 0; fi
 [ -n "$OUT" ] || { "${POST[@]}"; exit $?; }
-TMP=$(mktemp "${OUT}.XXXXXX")
-if CODE=$("${POST[@]}" -o "$TMP" -w '%{http_code}'); then mv "$TMP" "$OUT"; echo "http=$CODE → $OUT"
-else RC=$?; echo "generate.sh: cf2cnp answered http=$CODE: $(cat "$TMP")" >&2; rm -f "$TMP"; exit $RC; fi
+[ -d "$(dirname -- "$OUT")" ] || { echo "generate.sh: directory $(dirname -- "$OUT") does not exist" >&2; exit 1; }
+TMP=$(mktemp "${OUT}.XXXXXX") || exit 1; trap 'rm -f "$TMP"' EXIT
+if CODE=$("${POST[@]}" -o "$TMP" -w '%{http_code}'); then mv "$TMP" "$OUT"; trap - EXIT; echo "http=$CODE → $OUT"
+else RC=$?; echo "generate.sh: cf2cnp answered http=$CODE: $(cat "$TMP")" >&2; exit $RC; fi

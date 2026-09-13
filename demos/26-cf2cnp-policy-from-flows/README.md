@@ -118,7 +118,9 @@ Cilium's per-endpoint **policy audit mode** evaluates policy and *reports* the v
 ([docs: Enable policy audit mode for a specific endpoint](https://docs.cilium.io/en/stable/security/policy-creation/#enable-policy-audit-mode-specific-endpoint)).
 It is endpoint-local, set on the agent of the node the pod runs on, and does not survive the pod. On
 1.20 the endpoint JSON carries no pod name (`external-identifiers` holds only the CNI attachment id —
-measured), so [`audit-mode.sh`](audit-mode.sh) finds the endpoint by the pod's IP.
+measured), so [`audit-mode.sh`](audit-mode.sh) resolves it by its CiliumEndpoint name,
+`cep-name:cf2cnp-lab/<pod>` (a prefix `cilium-dbg endpoint get` accepts on 1.20.1; a hostNetwork pod has
+no CiliumEndpoint and is refused by the 404) and configures that numeric id.
 
 Then a default-deny ingress policy on `shop`. **`ingress: []` is not one** — Cilium 1.20.1 rejects it,
 `Valid=False: rule must have at least one of Ingress, IngressDeny, Egress, EgressDeny`, and the endpoint stays
