@@ -95,9 +95,13 @@ jobs:
 
       - name: Connectivity test, multi-cluster (Cilium's own)
         if: ${{ inputs.connectivity_test }}
+        timeout-minutes: 30      # the step cannot hang the job: the fourth run sat here 23 minutes with no output
         run: |
           start=$(date +%s)
-          cilium connectivity test --context kind-poc1 --multi-cluster kind-poc2 --test '!no-unexpected-packet-drops' --collect-sysdump-on-failure --sysdump-output-filename 'cilium-sysdump-<ts>' 2>&1 | tail -40
+          kubectl --context kind-poc1 get nodes -o custom-columns='NODE:.metadata.name,TAINTS:.spec.taints[*].key' --no-headers
+          # streamed, not piped through tail: a hang must be visible in the log while it happens
+          cilium connectivity test --context kind-poc1 --multi-cluster kind-poc2 --test '!no-unexpected-packet-drops' \
+            --collect-sysdump-on-failure --sysdump-output-filename 'cilium-sysdump-<ts>' 2>&1 | grep -v -E '^\s*$' | sed -u 's/^/  /'
           echo "connectivity test took $(( $(date +%s) - start )) s"
 
       - name: Sysdumps on failure

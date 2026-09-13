@@ -13,6 +13,22 @@ networking:
   serviceSubnet: "10.11.0.0/16"
 nodes:
   - role: control-plane
+    # No taint on the control plane (cilium/cilium's own kind template does the same, "otherwise additional worker
+    # node might be required for conformance testing"): `cilium connectivity test` schedules echo-other-node on a
+    # SECOND schedulable node, and with one worker it waited for it forever — the fourth spike run sat 23 minutes in
+    # that step (cilium/cilium-cli#2186). kind picks the kubeadm apiVersion by Kubernetes version (v1beta4 from
+    # v1.36); a patch whose apiVersion does not match is silently ignored, so both are listed.
+    kubeadmConfigPatches:
+      - |
+        apiVersion: kubeadm.k8s.io/v1beta3
+        kind: InitConfiguration
+        nodeRegistration:
+          taints: []
+      - |
+        apiVersion: kubeadm.k8s.io/v1beta4
+        kind: InitConfiguration
+        nodeRegistration:
+          taints: []
     image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
   - role: worker
     image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
