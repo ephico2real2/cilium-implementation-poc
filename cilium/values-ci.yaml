@@ -1,12 +1,18 @@
 # cilium/values-ci.yaml — applied on top of cilium/values-poc1.yaml / values-poc2.yaml by scripts/lab-up.sh in CI
 # (enhancement 004). The lab's values stay the source of truth; this overlay only trims what a 4 vCPU / 16 GB runner
-# cannot afford or does not need: one operator replica, no Hubble UI (the captures use Grafana), and the agents' own
+# cannot afford or does not need: one operator replica, and the agents' own
 # resource requests low enough that two clusters and a monitoring stack schedule on two-node clusters.
 operator:
   replicas: 1
-hubble:
-  ui:
-    enabled: false
+# the lab's Hubble UI stays on: the sysdump collects it and demo 01 uses it; it is two small containers
+# CRDs the sysdump collects and enhancement 002 needs: the egress gateway (per-namespace egress IPs, R8), local
+# redirect policies (NodeLocal DNS, demo 31's resolver derivation), endpoint slices. Each registers its CRD, so the
+# collectors stop saying "the server could not find the requested resource".
+egressGateway:
+  enabled: true
+localRedirectPolicy: true
+ciliumEndpointSlice:
+  enabled: true
 resources:
   requests:
     cpu: 100m

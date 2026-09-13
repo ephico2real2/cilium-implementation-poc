@@ -86,6 +86,20 @@ questions, on the same runner, the way Cilium's own CI does. So the position, pe
   Gateway and an L2-announced LoadBalancer from a pool inside each profile's subnet. Each step's output captured;
   the result recorded in this document either way.
 
+### Phase 0, what the runs taught (the fifth cut of `lab-up.sh`, from the sysdump warnings of run 34787222878)
+
+The sysdump is the lab's evidence file, and every "the server could not find the requested resource" in it was a
+piece of the laptop lab missing from the CI lab. The bring-up now carries: the ten Gateway API v1.6.1 CRDs
+vendored under `crds/` (TLSRoute, GRPCRoute, TCPRoute, UDPRoute, ListenerSet were absent); the egress gateway,
+local redirect policy and endpoint-slice CRDs on (enhancement 002 needs the first two); metrics-server (the lab
+never had one — HPA in 002 needs it); Tetragon 1.7.1 with the `/procHost` mount and the kernel-symbol check that
+was demo 17's blocker on the MacBook; cert-manager v1.21.1 with demo 08's root and demo 24's order — Cilium on
+Helm certificates first, then the root, then one upgrade that puts the mesh apiserver and Hubble on
+`ClusterIssuer/ca-issuer`, then `connect` (no `clustermesh enable`, no certgen Job, no "Trying to get secret … by
+deprecated name" poll); cilium-cli 0.20.0 (0.19.7 did not know 1.20's `CiliumCIDRGroup` v2). Warnings that stay,
+by design: no `hubble-generate-certs` CronJob (the method is cert-manager, not cronjob), no `cilium-node-init`
+(a cloud-provider DaemonSet), no `cilium-etcd-secrets` (no external kvstore).
+
 ### Phase 1 — the bring-up as scripts (what the MacBook will reuse)
 
 - `scripts/lab-up.sh <kind|minikube> [poc1] [poc2]`: creates the clusters from `clusters/ci/*.yaml`, installs

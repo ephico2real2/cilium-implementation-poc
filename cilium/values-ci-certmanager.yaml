@@ -1,0 +1,34 @@
+# cilium/values-ci-certmanager.yaml — demos 08 and 24 for the CI lab: every certificate consumer on the enterprise root.
+# cert-manager issues the ClusterMesh API server's certificates and Hubble's (the relay's server side and the clients'
+# — the UI, the CLI, hubble-observer) from ClusterIssuer/ca-issuer, whose root is created once in the first cluster
+# (demos/08-certmanager-ca/01-root-ca-poc1.yaml) and copied to the others (02-issuer-poc2.yaml). Applied by
+# scripts/lab-up.sh as a second Helm upgrade after cert-manager exists (its pods need a CNI, so it cannot be the
+# first install — demo 24's order). demo 24's per-cluster files carry the same blocks plus the lab's node IPs, which
+# the CI clusters do not have; `cilium clustermesh connect` does that wiring here.
+clustermesh:
+  apiserver:
+    tls:
+      auto:
+        enabled: true
+        method: certmanager
+        certValidityDuration: 365
+        certManagerIssuerRef:
+          group: cert-manager.io
+          kind: ClusterIssuer
+          name: ca-issuer
+hubble:
+  relay:
+    tls:
+      server:
+        enabled: true
+        mtls: true
+  tls:
+    enabled: true
+    auto:
+      enabled: true
+      method: certmanager
+      certValidityDuration: 1095
+      certManagerIssuerRef:
+        group: cert-manager.io
+        kind: ClusterIssuer
+        name: ca-issuer
