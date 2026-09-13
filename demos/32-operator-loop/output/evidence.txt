@@ -1,0 +1,28 @@
+# evidence for demos/32-operator-loop — recorded 2026-09-13T11:44Z by scripts/evidence/collect.sh
+### 2026-09-13T11:44:06Z
+$ kubectl --context kind-poc1 -n cf2cnp-lab27 get pods -o wide
+NAME                             READY   STATUS    RESTARTS   AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+kiosk                            1/1     Running   0          17m   10.10.3.67    poc1-worker2   <none>           <none>
+pos                              1/1     Running   0          8h    10.10.3.60    poc1-worker2   <none>           <none>
+shop-backend-5d6f5c9759-mdtg2    1/1     Running   0          8h    10.10.3.151   poc1-worker2   <none>           <none>
+shop-frontend-7c78889d59-dgl9d   2/2     Running   0          8h    10.10.3.20    poc1-worker2   <none>           <none>
+stranger                         1/1     Running   0          8h    10.10.3.238   poc1-worker2   <none>           <none>
+
+### 2026-09-13T11:44:07Z
+$ bash -c kubectl --context kind-poc1 -n cf2cnp-lab27 get cnp shop-frontend -o jsonpath='{range .spec.ingress[*]}{.fromEndpoints[0].matchLabels}{" "}{end}'
+{"app.kubernetes.io/name":"pos"} {"app.kubernetes.io/name":"kiosk"} 
+### 2026-09-13T11:44:07Z
+$ bash -c gh pr list -R ephico2real2/cilium-policies-lab --state all
+1	policy: policies/cf2cnp-lab27/shop-frontend.yaml from flows/cf2cnp-lab27-shop-frontend-kiosk.ndjson	policy/34755108868	OPEN	2026-09-13T11:43:08Z
+
+### 2026-09-13T11:44:07Z
+$ bash -c gh release view v0.6.1 -R ephico2real2/cf2cnp --json tagName,assets --jq '.tagName + " " + ([.assets[].name] 
+bash: -c: line 1: unexpected EOF while looking for matching `''
+[exit code: 2]
+
+### 2026-09-13T11:44:07Z
+$ bash -c  join(" "))'
+bash: -c: line 1: syntax error near unexpected token `" "'
+bash: -c: line 1: ` join(" "))''
+[exit code: 2]
+

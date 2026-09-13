@@ -3,6 +3,11 @@
 # against the policy file for that workload (or generates it the first time), validates the result against the
 # CiliumNetworkPolicy CRD offline, and opens a pull request with the diff. Nothing reaches a cluster until the PR
 # merges and the reconciler picks it up. cf2cnp stays git-agnostic; this file is the integration.
+#
+# Prerequisite (first-run finding, demo 32): the repository's Actions setting "Allow GitHub Actions to create and
+# approve pull requests" must be on, or the last step fails with "GitHub Actions is not permitted to create or approve
+# pull requests" — the `permissions:` block below is necessary but not sufficient. Organisations that keep the setting
+# off give the step a token of its own (a GitHub App or a PAT via `token:`) instead.
 name: Policy from flows → pull request
 
 on:
@@ -24,7 +29,7 @@ permissions:
   pull-requests: write
 
 env:
-  CF2CNP_VERSION: "0.6.0"          # the first fork release that carries `merge` and the binaries
+  CF2CNP_VERSION: "0.6.1"          # 0.6.0 brought `merge` and the binaries; 0.6.1 keeps the merged file as it was (one rule per PR diff)
   CILIUM_VERSION: "v1.20.1"        # the CRD the policy is validated against — your cluster's Cilium version
 
 jobs:
@@ -40,10 +45,11 @@ jobs:
           set -eu
           base="https://github.com/ephico2real2/cf2cnp/releases/download/v${VERSION}"
           tmp=$(mktemp -d)                                              # never inside the checkout (review finding)
-          curl -sSL -o "$tmp/cf2cnp.tgz"      "$base/cf2cnp_${VERSION}_linux_amd64.tar.gz"
+          archive="cf2cnp_${VERSION}_linux_amd64.tar.gz"                 # the asset's own name: the checksum line names it (first run finding)
+          curl -sSL -o "$tmp/$archive"        "$base/$archive"
           curl -sSL -o "$tmp/checksums.txt"   "$base/cf2cnp_${VERSION}_checksums.txt"
-          (cd "$tmp" && grep " cf2cnp_${VERSION}_linux_amd64.tar.gz$" checksums.txt | sha256sum -c -)
-          tar -xzf "$tmp/cf2cnp.tgz" -C "$tmp" && sudo install "$tmp/cf2cnp" /usr/local/bin/cf2cnp && rm -rf "$tmp"
+          (cd "$tmp" && grep " $archive$" checksums.txt | sha256sum -c -)
+          tar -xzf "$tmp/$archive" -C "$tmp" && sudo install "$tmp/cf2cnp" /usr/local/bin/cf2cnp && rm -rf "$tmp"
           cf2cnp --help | head -3
 
       - name: Merge the flows into the policy (or generate it the first time)

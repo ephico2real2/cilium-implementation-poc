@@ -17,6 +17,7 @@ const { chromium } = require('playwright'); const fs = require('fs'); const path
   if (process.env.NAME) await p.fill('#policyName', process.env.NAME);
   if (process.env.L7) await p.check('#l7');                              // demo 30: the 0.6.0 page's Layer-7 box (?l7=true)
   if (process.env.DNS_VISIBILITY) await p.check('#dnsVisibility');      // demo 31: the DNS-visibility box (?dnsVisibility=true)
+  if (process.env.EXCLUDE) await p.uncheck(`#peers input[data-peer="${process.env.EXCLUDE}"]`);   // demo 32: untick a peer in the checklist (E4)
   await p.screenshot({ path: path.join(out, 'ui-2-pasted.png') });
   await p.locator('button', { hasText: /generate policy/i }).first().click(); await p.waitForTimeout(3000);
   await p.screenshot({ path: path.join(out, 'ui-3-generated.png') });

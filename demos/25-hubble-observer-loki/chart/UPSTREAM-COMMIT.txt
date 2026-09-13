@@ -9,3 +9,6 @@ re-vendored 2026-09-13 (demo 28): cf2cnp 0.5.1 and the hubble-policy-verdicts 0.
 
 e5077ddf25ee617b8ba6eed38f9b7057c8828402 Sun Sep 13 05:48:48 2026 -0500
 re-vendored 2026-09-13 (demo 29): cf2cnp 0.6.0 and hubble-policy-verdicts 0.2.0 (the Loki row) as dependencies from the forks' Helm repositories; examples/values-policy-verdicts.yaml (E8) is at the fork's repository root
+
+a00dd7e947cf2499bc6f0b9528eb47a3d1400de8 Sun Sep 13 06:37:18 2026 -0500
+re-vendored 2026-09-13 (demo 32): cf2cnp 0.6.1 (merge keeps the document as it was; one kube-dns rule)

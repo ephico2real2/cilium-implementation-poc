@@ -21,10 +21,11 @@ dependencies:
   # cf2cnp from the fork's Helm repository (GitHub Pages) while onzack/cf2cnp#3 is pending: 0.5.x builds download_url from
   # the proxy headers (or externalURL), accepts many flows per request merged per workload, names policies after the whole
   # selector, carries the selector's labels; 0.6.0 adds cluster-aware selectors (ClusterMesh), L7 rules, the DNS-visibility
-  # rule, exclude=, `cf2cnp merge`, allowed origins + a token + a CiliumNetworkPolicy for the pod, and release binaries.
+  # rule, exclude=, `cf2cnp merge`, allowed origins + a token + a CiliumNetworkPolicy for the pod, and release binaries;
+  # 0.6.1 keeps a merged policy file as it was (one rule in a pull request diff) and writes one kube-dns rule.
   # Upstream: oci://ghcr.io/onzack/helm-charts, version "*".
   - name: cf2cnp
-    version: "0.6.0"
+    version: "0.6.1"
     repository: https://ephico2real2.github.io/cf2cnp
     condition: cf2cnp.enabled
   # The Hubble / Policy Verdicts (Namespace) dashboard — audited / forwarded / dropped per namespace from Hubble's `policy`

@@ -1,0 +1,257 @@
+### Part 0 — E10: the release binary on the operator's machine, checksum verified
+### 2026-09-13T11:25:34Z
+$ bash -c cd .tmp/cf2cnp-0.6.0 && gh release download v0.6.0 -R ephico2real2/cf2cnp -p "cf2cnp_0.6.0_darwin_amd64.tar.gz" -p "cf2cnp_0.6.0_checksums.txt" --clobber && cat cf2cnp_0.6.0_checksums.txt && shasum -a 256 -c --ignore-missing cf2cnp_0.6.0_checksums.txt && tar -xzf cf2cnp_0.6.0_darwin_amd64.tar.gz && ./cf2cnp --help | grep -A6 "^Available Commands"
+6bf9dd96f46f498ed2dccce503b4fdb1c36e8cb7a3b192a0d3f6d83230e2db7a  cf2cnp_0.6.0_darwin_amd64.tar.gz
+87a6293d814788b9ce88da54627bc882a94ec4ab366108697bbc2209a2a3c2ce  cf2cnp_0.6.0_darwin_arm64.tar.gz
+5201d6ab4911f8054bcb622163166dfe78e2497b49833b9a7909a3370cb0a480  cf2cnp_0.6.0_linux_amd64.tar.gz
+a9000f56ebeb4e362e054b78b409b5804b4b96a6a7f6185eda598f67f7229d3f  cf2cnp_0.6.0_linux_arm64.tar.gz
+cf2cnp_0.6.0_darwin_amd64.tar.gz: OK
+Available Commands:
+  completion  Generate the autocompletion script for the specified shell
+  generate    Generate policies from flow files in a directory
+  help        Help about any command
+  merge       Merge rules generated from flows into an existing CiliumNetworkPolicy file
+  serve       Start HTTP server for policy generation
+  yolo        YOLO mode - generate permissive policies
+
+
+### Part 1 — E4: every caller of shop-frontend today, the policy with and without the stranger (exclude=)
+### 2026-09-13T11:26:00Z
+$ demos/32-operator-loop/callers.sh cf2cnp-lab27/shop-frontend demos/32-operator-loop/policies/flows-frontend.ndjson 300
+kept 32 INGRESS request flows -> demos/32-operator-loop/policies/flows-frontend.ndjson
+   12 pos -> :80 FORWARDED shop-frontend
+   20 stranger -> :80 DROPPED -
+
+### 2026-09-13T11:26:02Z
+$ demos/26-cf2cnp-policy-from-flows/generate.sh demos/32-operator-loop/policies/flows-frontend.ndjson demos/32-operator-loop/policies/cnp-frontend-all.yaml
+http=200 → demos/32-operator-loop/policies/cnp-frontend-all.yaml
+
+### 2026-09-13T11:26:02Z
+$ bash -c QUERY="exclude=app.kubernetes.io%2Fname%3Dstranger" demos/26-cf2cnp-policy-from-flows/generate.sh demos/32-operator-loop/policies/flows-frontend.ndjson demos/32-operator-loop/policies/cnp-frontend-intent.yaml
+http=200 → demos/32-operator-loop/policies/cnp-frontend-intent.yaml
+
+### 2026-09-13T11:26:02Z
+$ diff demos/32-operator-loop/policies/cnp-frontend-all.yaml demos/32-operator-loop/policies/cnp-frontend-intent.yaml
+11c11
+<   description: Allow ingress traffic for the shop-frontend in cf2cnp-lab27 (2 rules merged from 2 observed flows)
+---
+>   description: Allow ingress traffic from cf2cnp-lab27 to cf2cnp-lab27 for the shop
+24,30d23
+<     - fromEndpoints:
+<         - matchLabels:
+<             app.kubernetes.io/name: stranger
+<       toPorts:
+<         - ports:
+<             - port: "80"
+<               protocol: TCP
+[exit code: 1]
+
+### 2026-09-13T11:26:02Z
+$ bash -c QUERY="exclude=app.kubernetes.io%2Fname%3Dstranger&exclude=app.kubernetes.io%2Fname%3Dpos" demos/26-cf2cnp-policy-from-flows/generate.sh demos/32-operator-loop/policies/flows-frontend.ndjson
+curl: (22) The requested URL returned error: 400
+No valid flows found in request (every flow excluded, or none parsed)
+[exit code: 22]
+
+### 2026-09-13T11:26:51Z
+$ bash -c SHOTS_DIR=demos/32-operator-loop/output/screenshots EXCLUDE=app.kubernetes.io/name=stranger GW=172.18.255.240 NODE_PATH=/private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/pw/node_modules node demos/26-cf2cnp-policy-from-flows/ui-generate.js demos/32-operator-loop/policies/flows-frontend.ndjson
+page summary: 32 flow(s) parsed: INGRESS FORWARDED pos → shop/frontend:80 | INGRESS DROPPED stranger → shop/frontend:80 | INGRESS DROPPED stranger → shop/frontend:80 | INGRESS FORWARDED pos → shop/frontend:80 | INGRESS DROPPED stranger → shop/frontend:80 | INGRESS DROPPED stranger → shop/frontend:80 | INGRESS FORWARDED pos → shop/frontend:80 | INGRESS FORWARDED pos → shop/frontend:80 | …
+apply hint: 12 flow(s) → 1 policy. Review it, then: kubectl apply -f cf2cnp-lab27-shop-frontend.yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop-frontend
+  namespace: cf2cnp-lab27
+  labels:
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/managed-by: cf2cnp
+    app.kubernetes.io/name: shop
+spec:
+  description: Allow ingress traffic from cf2cnp-lab27 to cf2cnp-lab27 for the shop
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: pos
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+Copy YAML enabled: true | Download YAML enabled: true
+
+
+### Part 2 — E5: a new client (kiosk) arrives after the policy was enforced; cf2cnp merge adds its rule to the existing file, idempotently
+### 2026-09-13T11:26:59Z
+$ kubectl --context kind-poc1 apply -f demos/32-operator-loop/10-kiosk.yaml
+pod/kiosk created
+
+### 2026-09-13T11:27:16Z
+$ bash -c kubectl --context kind-poc1 -n cf2cnp-lab27 exec kiosk -- sh -c "wget -S -qO- --timeout=3 http://shop-frontend.cf2cnp-lab27/ 2>&1 | grep -m1 HTTP/; echo rc=\$?"
+rc=1
+
+### 2026-09-13T11:27:20Z
+$ bash -c hubble observe -P --kube-context kind-poc1 --from-pod cf2cnp-lab27/kiosk --to-pod cf2cnp-lab27/shop-frontend --last 40 -o json 2>/dev/null > demos/32-operator-loop/policies/flows-kiosk.ndjson; python3 -c "
+import json,collections; c=collections.Counter()
+for l in open(\"demos/32-operator-loop/policies/flows-kiosk.ndjson\"):
+    f=json.loads(l)[\"flow\"]
+    if f.get(\"is_reply\"): continue
+    c[(f[\"traffic_direction\"], f[\"verdict\"], (f.get(\"ingress_denied_by\") or [{}])[0].get(\"name\",\"-\"))]+=1
+print(\"kiosk -> shop-frontend request flows:\", dict(c))"
+kiosk -> shop-frontend request flows: {('INGRESS', 'DROPPED', '-'): 18}
+
+### 2026-09-13T11:27:21Z
+$ .tmp/cf2cnp-0.6.0/cf2cnp merge --existing demos/32-operator-loop/policies/shop-frontend.yaml --input demos/32-operator-loop/policies/flows-kiosk.ndjson --output demos/32-operator-loop/policies/shop-frontend-merged.yaml
+1 rule(s) added → demos/32-operator-loop/policies/shop-frontend-merged.yaml
+
+### 2026-09-13T11:27:21Z
+$ diff demos/32-operator-loop/policies/shop-frontend.yaml demos/32-operator-loop/policies/shop-frontend-merged.yaml
+4,9c4,9
+<   name: shop-frontend
+<   namespace: cf2cnp-lab27
+<   labels:
+<     app.kubernetes.io/component: frontend
+<     app.kubernetes.io/managed-by: cf2cnp
+<     app.kubernetes.io/name: shop
+---
+>     labels:
+>         app.kubernetes.io/component: frontend
+>         app.kubernetes.io/managed-by: cf2cnp
+>         app.kubernetes.io/name: shop
+>     name: shop-frontend
+>     namespace: cf2cnp-lab27
+11,23c11,30
+<   description: Allow ingress traffic from cf2cnp-lab27 to cf2cnp-lab27 for the shop
+<   endpointSelector:
+<     matchLabels:
+<       app.kubernetes.io/component: frontend
+<       app.kubernetes.io/name: shop
+<   ingress:
+<     - fromEndpoints:
+<         - matchLabels:
+<             app.kubernetes.io/name: pos
+<       toPorts:
+<         - ports:
+<             - port: "80"
+<               protocol: TCP
+---
+>     description: Allow ingress traffic from cf2cnp-lab27 to cf2cnp-lab27 for the shop
+>     endpointSelector:
+>         matchLabels:
+>             app.kubernetes.io/component: frontend
+>             app.kubernetes.io/name: shop
+>     ingress:
+>         - fromEndpoints:
+>             - matchLabels:
+>                 app.kubernetes.io/name: pos
+>           toPorts:
+>             - ports:
+>                 - port: "80"
+>                   protocol: TCP
+>         - fromEndpoints:
+>             - matchLabels:
+>                 app.kubernetes.io/name: kiosk
+>           toPorts:
+>             - ports:
+>                 - port: "80"
+>                   protocol: TCP
+[exit code: 1]
+
+### 2026-09-13T11:27:21Z
+$ .tmp/cf2cnp-0.6.0/cf2cnp merge --existing demos/32-operator-loop/policies/shop-frontend-merged.yaml --input demos/32-operator-loop/policies/flows-kiosk.ndjson --output demos/32-operator-loop/policies/shop-frontend-merged-again.yaml
+0 rule(s) added → demos/32-operator-loop/policies/shop-frontend-merged-again.yaml
+
+### 2026-09-13T11:27:21Z
+$ bash -c cmp demos/32-operator-loop/policies/shop-frontend-merged.yaml demos/32-operator-loop/policies/shop-frontend-merged-again.yaml && echo "second merge: byte-identical"
+second merge: byte-identical
+
+### 2026-09-13T11:27:21Z
+$ kubectl --context kind-poc1 apply -f demos/32-operator-loop/policies/shop-frontend-merged.yaml
+ciliumnetworkpolicy.cilium.io/shop-frontend configured
+
+### 2026-09-13T11:27:26Z
+$ bash -c for p in kiosk pos stranger; do printf "%-9s %s\n" $p "$(kubectl --context kind-poc1 -n cf2cnp-lab27 exec $p -- sh -c "wget -S -qO- --timeout=3 http://shop-frontend.cf2cnp-lab27/ 2>&1 | grep -m1 HTTP/; echo rc=\${PIPESTATUS:-\$?}" 2>&1 | tr "\n" " ")"; done
+kiosk       HTTP/1.1 200 OK rc=0 
+pos         HTTP/1.1 200 OK rc=0 
+stranger  rc=1 
+
+
+### Part 2b — the two findings fixed as cf2cnp 0.6.1 (released, deployed), and the merge again
+### 2026-09-13T11:37:51Z
+$ bash -c gh release view v0.6.1 -R ephico2real2/cf2cnp --json tagName,assets --jq ".tagName + \" \" + ([.assets[].name] | join(\" \"))"; demos/25-hubble-observer-loki/chart-from-fork.sh develop a00dd7e; kubectl --context kind-poc1 -n hubble-observer get pods -o custom-columns="POD:.metadata.name,IMAGE:.spec.containers[0].image,READY:.status.containerStatuses[0].ready" | grep cf2cnp
+v0.6.1 cf2cnp_0.6.1_checksums.txt cf2cnp_0.6.1_darwin_amd64.tar.gz cf2cnp_0.6.1_darwin_arm64.tar.gz cf2cnp_0.6.1_linux_amd64.tar.gz cf2cnp_0.6.1_linux_arm64.tar.gz
+fork: https://github.com/ephico2real2/hubble-observer.git  branch: develop  commit: a00dd7e chart: cf2cnp 0.6.1 (merge keeps the document; one kube-dns 
+dependencies: cf2cnp-0.6.1.tgz
+hubble-policy-verdicts-0.2.0.tgz
+STATUS: deployed
+REVISION: 24
+hubble-observer-cf2cnp-6c5f5f6f46-dcb9h   ghcr.io/ephico2real2/cf2cnp:0.6.0                                                                       true
+hubble-observer-cf2cnp-bd6c55647-hwz24    ghcr.io/ephico2real2/cf2cnp:0.6.1                                                                       true
+
+### 2026-09-13T11:38:27Z
+$ bash -c mkdir -p .tmp/cf2cnp-0.6.1 && cd .tmp/cf2cnp-0.6.1 && gh release download v0.6.1 -R ephico2real2/cf2cnp -p "cf2cnp_0.6.1_darwin_amd64.tar.gz" -p "cf2cnp_0.6.1_checksums.txt" --clobber && shasum -a 256 -c --ignore-missing cf2cnp_0.6.1_checksums.txt && tar -xzf cf2cnp_0.6.1_darwin_amd64.tar.gz && ls -la cf2cnp | awk "{print \$5, \$9}"
+cf2cnp_0.6.1_darwin_amd64.tar.gz: OK
+7078128 cf2cnp
+
+### 2026-09-13T11:38:28Z
+$ .tmp/cf2cnp-0.6.1/cf2cnp merge --existing demos/32-operator-loop/policies/shop-frontend.yaml --input demos/32-operator-loop/policies/flows-kiosk.ndjson --output demos/32-operator-loop/policies/shop-frontend-merged-0.6.1.yaml
+1 rule(s) added → demos/32-operator-loop/policies/shop-frontend-merged-0.6.1.yaml
+
+### 2026-09-13T11:38:29Z
+$ diff demos/32-operator-loop/policies/shop-frontend.yaml demos/32-operator-loop/policies/shop-frontend-merged-0.6.1.yaml
+23a24,30
+>     - fromEndpoints:
+>         - matchLabels:
+>             app.kubernetes.io/name: kiosk
+>       toPorts:
+>         - ports:
+>             - port: "80"
+>               protocol: TCP
+[exit code: 1]
+
+### 2026-09-13T11:38:29Z
+$ bash -c .tmp/cf2cnp-0.6.1/cf2cnp merge --existing demos/32-operator-loop/policies/shop-frontend-merged-0.6.1.yaml --input demos/32-operator-loop/policies/flows-kiosk.ndjson --output /tmp/again.yaml && cmp /tmp/again.yaml demos/32-operator-loop/policies/shop-frontend-merged-0.6.1.yaml && echo "second merge: byte-identical"
+0 rule(s) added → /tmp/again.yaml
+second merge: byte-identical
+
+
+### Part 3 — E10: the workflow template on a policies repository — three runs, two findings, one pull request
+### 2026-09-13T11:43:59Z
+$ bash -c for id in 34754970357 34755008479 34755108868; do gh run view $id -R ephico2real2/cilium-policies-lab --json conclusion,jobs --jq "\"run $id: \" + .conclusion + \" | \" + ([.jobs[].steps[] | select(.conclusion!=\"skipped\" and (.name|startswith(\"Post \")|not) and .name!=\"Set up job\" and .name!=\"Complete job\") | .name + \"=\" + .conclusion] | join(\", \"))"; done
+run 34754970357: failure | Run actions/checkout@v4=success, Install cf2cnp (release archive, checksum verified)=failure
+run 34755008479: failure | Run actions/checkout@v4=success, Install cf2cnp (release archive, checksum verified)=success, Merge the flows into the policy (or generate it the first time)=success, Run actions/setup-go@v5=success, Validate against the CiliumNetworkPolicy CRD (offline)=success, Open the pull request=failure
+run 34755108868: success | Run actions/checkout@v4=success, Install cf2cnp (release archive, checksum verified)=success, Merge the flows into the policy (or generate it the first time)=success, Run actions/setup-go@v5=success, Validate against the CiliumNetworkPolicy CRD (offline)=success, Open the pull request=success
+
+### 2026-09-13T11:44:02Z
+$ bash -c gh run view 34754970357 -R ephico2real2/cilium-policies-lab --log-failed 2>&1 | grep -o "sha256sum: .*\|cf2cnp_0.6.1_linux_amd64.tar.gz: FAILED.*" | head -2; gh run view 34755008479 -R ephico2real2/cilium-policies-lab --log-failed 2>&1 | grep -o "GitHub Actions is not permitted[^\"]*" | head -1
+sha256sum: cf2cnp_0.6.1_linux_amd64.tar.gz: No such file or directory
+cf2cnp_0.6.1_linux_amd64.tar.gz: FAILED open or read
+GitHub Actions is not permitted to create or approve pull requests. - https://docs.github.com/rest/pulls/pulls#create-a-pull-request
+
+### 2026-09-13T11:44:04Z
+$ gh pr view 1 -R ephico2real2/cilium-policies-lab --json number,title,headRefName,additions,deletions,changedFiles,body --jq "PR #\(.number) \(.title)\nbranch \(.headRefName)  +\(.additions) -\(.deletions) in \(.changedFiles) file\n\(.body)"
+PR #1 policy: policies/cf2cnp-lab27/shop-frontend.yaml from flows/cf2cnp-lab27-shop-frontend-kiosk.ndjson
+branch policy/34755108868  +7 -0 in 1 file
+Generated by `cf2cnp merge` from `flows/cf2cnp-lab27-shop-frontend-kiosk.ndjson`.
+Review the rules against the intent: every rule is a transcript of an observed flow, not a decision.
+Nothing is applied until this merges and the reconciler picks it up.
+
+### 2026-09-13T11:44:05Z
+$ gh pr diff 1 -R ephico2real2/cilium-policies-lab
+diff --git a/policies/cf2cnp-lab27/shop-frontend.yaml b/policies/cf2cnp-lab27/shop-frontend.yaml
+index be82807..8e21e9f 100644
+--- a/policies/cf2cnp-lab27/shop-frontend.yaml
++++ b/policies/cf2cnp-lab27/shop-frontend.yaml
+@@ -21,3 +21,10 @@ spec:
+         - ports:
+             - port: "80"
+               protocol: TCP
++    - fromEndpoints:
++        - matchLabels:
++            app.kubernetes.io/name: kiosk
++      toPorts:
++        - ports:
++            - port: "80"
++              protocol: TCP
+

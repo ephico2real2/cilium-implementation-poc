@@ -74,6 +74,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [84](#84) | the audit flag went to the pod being replaced — a rollout lists the old pod first | policy from flows |
 | [85](#85) | inside an aliased dependency `.Chart.Name` is the alias — a camelCase alias became an object name | policy from flows |
 | [86](#86) | "by namespace" is the destination's: an egress drop that leaves the namespace is not on the dashboard | policy from flows |
+| [87](#87) | `permissions: pull-requests: write` does not let a workflow open a pull request — a repository setting does | policy from flows |
 | [78](#78) | The hubble-observer default image (quay.io/cilium/hubble:v1.16.4) is unmaintained — 2024 push, EOL Go, 5 CRITICAL; run the CLI from the agent image at the agents' digest | supply chain |
 | [77](#77) | The hub Prometheus kept the single-cluster 1Gi limit — 51 OOM kills once poc2 wrote in; 2Gi + an out-of-order window | monitoring |
 | [76](#76) | A policy's egress `toPorts` must be the backend pod's port (relay 4245), not the Service port (443) — Cilium enforces after service translation | Cilium policy |
@@ -2061,6 +2062,26 @@ poc2    dropped   mesh-lab          bank                   5      ← demos/29-c
 hubble_policy_verdicts_total{source_namespace="…"}`) — or add a source-or-destination variable to the chart, which is
 noted as a follow-up in `enhancements/README.md`.
 
+## <a name="87"></a>87. `permissions: pull-requests: write` is not enough to open a pull request from a workflow
+
+**Where:** demo 32 Part 3, the E10 template's second run on the throwaway policies repository. Install, merge and
+the CRD validation were green; the last step failed:
+
+```text
+GitHub Actions is not permitted to create or approve pull requests. - https://docs.github.com/rest/pulls/pulls#create-a-pull-request
+```
+
+**What happened:** the workflow declares `permissions: {contents: write, pull-requests: write}`, and both review
+passes read that as sufficient. It is necessary. Creating (or approving) a pull request with the workflow's own
+`GITHUB_TOKEN` is additionally gated by a **repository setting** — *Settings → Actions → General → Allow GitHub
+Actions to create and approve pull requests* — which is off on a new repository
+(`actions/permissions/workflow: can_approve_pull_request_reviews=false`, measured). With it on, the third run
+opened the PR.
+
+**The lesson:** a template can be reviewed twice and still fail on the first real run, on something outside the
+file. Run the workflow once on a throwaway repository before offering it; and in an organisation that keeps the
+setting off, give the PR step its own token (a GitHub App or a PAT) rather than asking for the setting.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -2110,6 +2131,7 @@ Most of these share a shape: **something reported success while not working.**
 - the flag went to the pod on its way out (#84)
 - the chart's name was the alias (#85)
 - the namespace dashboard filtered on the destination, and the egress drops had left the namespace (#86)
+- the workflow had the permissions and still could not open the pull request: a repository setting (#87)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

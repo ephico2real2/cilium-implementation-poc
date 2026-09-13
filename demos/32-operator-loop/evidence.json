@@ -1,0 +1,11 @@
+{
+ "captures": [
+  {
+   "name": "github-pr-1-files",
+   "url": "https://github.com/ephico2real2/cilium-policies-lab/pull/1/files",
+   "wait": "text:kiosk",
+   "height": 1300,
+   "look": "the pull request the workflow opened: one file, the seven added lines of the kiosk rule and nothing else (cf2cnp 0.6.1)"
+  }
+ ]
+}

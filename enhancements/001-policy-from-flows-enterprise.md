@@ -872,7 +872,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install cf2cnp
+      - name: Install cf2cnp     # the draft — the template verifies the checksum and keeps the archive's own name (first-run notes below)
         run: |
           curl -sSL -o cf2cnp.tgz https://github.com/ephico2real2/cf2cnp/releases/download/v0.6.0/cf2cnp_linux_amd64.tar.gz
           tar -xzf cf2cnp.tgz && sudo install cf2cnp /usr/local/bin/cf2cnp
@@ -909,6 +909,26 @@ release workflow that `go build`s for linux/amd64 and linux/arm64 and attaches t
 being exactly the new rule, merged, applied by `kubectl apply` in the demo (the reconciler's job elsewhere).
 
 ---
+
+### E10 — first-run notes (demo 32, 2026-09-13)
+
+The template, not the snippet above, is the reference (`enhancements/templates/policy-pr.yml`). Its first real run,
+on a throwaway repository ([cilium-policies-lab](https://github.com/ephico2real2/cilium-policies-lab)), found three
+things neither review pass could — none of them visible in a template read:
+
+1. **The archive's name.** The reviewed install step saved the asset as `cf2cnp.tgz` and then ran `sha256sum -c`
+   on a checksum line naming `cf2cnp_<version>_linux_amd64.tar.gz` — "No such file or directory". The template now
+   keeps the asset's own name.
+2. **The repository setting.** With `permissions: {contents: write, pull-requests: write}` the last step still failed:
+   "GitHub Actions is not permitted to create or approve pull requests". The repository's Actions setting *Allow
+   GitHub Actions to create and approve pull requests* must be on (or the step gets its own token). Noted in the
+   template's header.
+3. **The merge's layout.** cf2cnp 0.6.0's `merge` re-serialised the whole policy file (alphabetical keys, 4-space
+   indentation), so the PR's diff was the whole file; 0.6.1 edits the YAML node tree and the diff is the added rule
+   — the template pins 0.6.1.
+
+The third run opened [PR #1](https://github.com/ephico2real2/cilium-policies-lab/pull/1): one rule added, validated
+against the 1.20.1 CRD offline, nothing applied.
 
 ## The branches (one per issue, each with the code above applied and its tests green)
 
