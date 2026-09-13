@@ -1,0 +1,11 @@
+{
+ "captures": [
+  {
+   "name": "grafana-hubble-dns-cf2cnp-lab",
+   "url": "https://grafana.poc.local/d/_f0DUpY4k/hubble-dns-overview-namespace?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-source_namespace=cf2cnp-lab&var-destination_namespace=All",
+   "wait": 25000,
+   "height": 1400,
+   "look": "Hubble's DNS overview for cf2cnp-lab: empty until the generated DNS rule put pos's lookups through the proxy, then example.com and its search-list expansions per query type"
+  }
+ ]
+}

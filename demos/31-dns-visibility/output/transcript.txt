@@ -1,0 +1,171 @@
+### Part 1 — pos today: every egress request it makes (demo 26 lab), the world by IP only; the same flows without and with dnsVisibility
+### 2026-09-13T11:19:17Z
+$ demos/31-dns-visibility/egress-flows.sh cf2cnp-lab/pos demos/31-dns-visibility/policies/flows-pos-egress.ndjson 300
+kept 4 request flows -> demos/31-dns-visibility/policies/flows-pos-egress.ndjson
+  coredns-789c5fbdb4-qhj2d:53/UDP  ip=10.10.1.35       names=-  FORWARDED
+  coredns-789c5fbdb4-vb8r9:53/UDP  ip=10.10.0.232      names=-  FORWARDED
+  shop-6d7d797759-4ddlt:80/TCP  ip=10.10.3.7        names=-  FORWARDED
+  reserved:world:443/TCP  ip=104.20.23.154    names=-  FORWARDED
+
+### 2026-09-13T11:19:20Z
+$ demos/26-cf2cnp-policy-from-flows/generate.sh demos/31-dns-visibility/policies/flows-pos-egress.ndjson demos/31-dns-visibility/policies/cnp-pos-egress.yaml
+http=200 → demos/31-dns-visibility/policies/cnp-pos-egress.yaml
+
+### 2026-09-13T11:19:21Z
+$ bash -c QUERY=dnsVisibility=true demos/26-cf2cnp-policy-from-flows/generate.sh demos/31-dns-visibility/policies/flows-pos-egress.ndjson demos/31-dns-visibility/policies/cnp-pos-dns-visibility.yaml
+http=200 → demos/31-dns-visibility/policies/cnp-pos-dns-visibility.yaml
+
+### 2026-09-13T11:19:21Z
+$ diff demos/31-dns-visibility/policies/cnp-pos-egress.yaml demos/31-dns-visibility/policies/cnp-pos-dns-visibility.yaml
+10c10
+<   description: Allow egress traffic for the pos in cf2cnp-lab (3 rules merged from 3 observed flows)
+---
+>   description: Allow egress traffic for the pos in cf2cnp-lab (4 rules merged from 3 observed flows)
+40a41,51
+>     - toEndpoints:
+>         - matchLabels:
+>             io.kubernetes.pod.namespace: kube-system
+>             k8s-app: kube-dns
+>       toPorts:
+>         - ports:
+>             - port: "53"
+>               protocol: UDP
+>           rules:
+>             dns:
+>               - matchPattern: '*'
+[exit code: 1]
+
+### 2026-09-13T11:19:22Z
+$ cat demos/31-dns-visibility/policies/cnp-pos-dns-visibility.yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: pos
+  namespace: cf2cnp-lab
+  labels:
+    app.kubernetes.io/managed-by: cf2cnp
+    app.kubernetes.io/name: pos
+spec:
+  description: Allow egress traffic for the pos in cf2cnp-lab (4 rules merged from 3 observed flows)
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: pos
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: shop
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+    - toCIDR:
+        - 104.20.23.154/32
+    # To allow all traffic to world instead of specific IPs, replace toCIDR with:
+    # - toEntities:
+    #     - world
+    # The DNS rule below turns the DNS proxy on for these endpoints: once flows carry destination_names,
+    # regenerate to get a toFQDNs rule instead of this CIDR.
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+          rules:
+            dns:
+              - matchPattern: '*'
+
+
+### Part 2 — apply the policy with the DNS rule; the next flows carry names; regenerate → toFQDNs
+### 2026-09-13T11:19:42Z
+$ kubectl --context kind-poc1 apply -f demos/31-dns-visibility/policies/cnp-pos-dns-visibility.yaml
+ciliumnetworkpolicy.cilium.io/pos created
+
+### 2026-09-13T11:19:57Z
+$ hubble observe -P --kube-context kind-poc1 --from-pod cf2cnp-lab/pos --protocol dns --last 6
+time=2026-09-13T06:19:58.194-05:00 level=WARN msg="Hubble CLI version is lower than Hubble Relay, API compatibility is not guaranteed, updating to a matching or higher version is recommended" hubble-cli-version=1.19.4 hubble-relay-version=1.20.1+g7d68cfb3
+Sep 13 11:19:56.434: cf2cnp-lab/pos:55170 (ID:82359) -> kube-system/coredns-789c5fbdb4-qhj2d:53 (ID:80806) dns-request proxy FORWARDED (DNS Query example.com.svc.cluster.local. A)
+Sep 13 11:19:56.442: cf2cnp-lab/pos:55170 (ID:82359) -> kube-system/coredns-789c5fbdb4-qhj2d:53 (ID:80806) dns-request proxy FORWARDED (DNS Query example.com.svc.cluster.local. AAAA)
+Sep 13 11:19:56.449: cf2cnp-lab/pos:48219 (ID:82359) -> kube-system/coredns-789c5fbdb4-qhj2d:53 (ID:80806) dns-request proxy FORWARDED (DNS Query example.com.cluster.local. A)
+Sep 13 11:19:56.453: cf2cnp-lab/pos:48219 (ID:82359) -> kube-system/coredns-789c5fbdb4-qhj2d:53 (ID:80806) dns-request proxy FORWARDED (DNS Query example.com.cluster.local. AAAA)
+Sep 13 11:19:56.458: cf2cnp-lab/pos:33261 (ID:82359) -> kube-system/coredns-789c5fbdb4-qhj2d:53 (ID:80806) dns-request proxy FORWARDED (DNS Query example.com. A)
+Sep 13 11:19:56.462: cf2cnp-lab/pos:33261 (ID:82359) -> kube-system/coredns-789c5fbdb4-qhj2d:53 (ID:80806) dns-request proxy FORWARDED (DNS Query example.com. AAAA)
+
+### 2026-09-13T11:20:17Z
+$ demos/31-dns-visibility/egress-flows.sh cf2cnp-lab/pos demos/31-dns-visibility/policies/flows-pos-egress-named.ndjson 120
+kept 4 request flows -> demos/31-dns-visibility/policies/flows-pos-egress-named.ndjson
+  coredns-789c5fbdb4-vb8r9:53/UDP  ip=10.10.0.232      names=-  FORWARDED
+  coredns-789c5fbdb4-qhj2d:53/UDP  ip=10.10.1.35       names=-  FORWARDED
+  reserved:world:443/TCP  ip=104.20.23.154    names=['example.com']  FORWARDED
+  shop-6d7d797759-4ddlt:80/TCP  ip=10.10.3.7        names=-  FORWARDED
+
+### 2026-09-13T11:20:19Z
+$ demos/26-cf2cnp-policy-from-flows/generate.sh demos/31-dns-visibility/policies/flows-pos-egress-named.ndjson demos/31-dns-visibility/policies/cnp-pos-fqdn.yaml
+http=200 → demos/31-dns-visibility/policies/cnp-pos-fqdn.yaml
+
+### 2026-09-13T11:20:19Z
+$ diff demos/31-dns-visibility/policies/cnp-pos-dns-visibility.yaml demos/31-dns-visibility/policies/cnp-pos-fqdn.yaml
+30,36c30,31
+<     - toCIDR:
+<         - 104.20.23.154/32
+<     # To allow all traffic to world instead of specific IPs, replace toCIDR with:
+<     # - toEntities:
+<     #     - world
+<     # The DNS rule below turns the DNS proxy on for these endpoints: once flows carry destination_names,
+<     # regenerate to get a toFQDNs rule instead of this CIDR.
+---
+>     - toFQDNs:
+>         - matchName: example.com
+[exit code: 1]
+
+
+### Part 3 — enforce the FQDN policy: the listed name works, an unlisted one resolves but does not connect
+### 2026-09-13T11:20:50Z
+$ kubectl --context kind-poc1 apply -f demos/31-dns-visibility/policies/cnp-pos-fqdn.yaml
+ciliumnetworkpolicy.cilium.io/pos configured
+
+### 2026-09-13T11:20:55Z
+$ bash -c for u in https://example.com/ https://cilium.io/ http://shop.cf2cnp-lab/; do printf "%-28s %s\n" "$u" "$(kubectl --context kind-poc1 -n cf2cnp-lab exec pos -- sh -c "wget -S -qO- --timeout=5 $u 2>&1 | grep -m1 HTTP/; echo rc=\${PIPESTATUS:-\$?}; nslookup -type=a ${u#*//} 2>/dev/null | grep -m1 Address: | sed s/^/resolved:/" 2>&1 | tr "\n" " ")"; done
+https://example.com/           HTTP/1.1 200 OK rc=0 resolved:Address:	10.11.0.10:53 
+https://cilium.io/           rc=1 resolved:Address:	10.11.0.10:53 
+http://shop.cf2cnp-lab/        HTTP/1.1 200 OK rc=0 resolved:Address:	10.11.0.10:53 
+
+### 2026-09-13T11:21:05Z
+$ hubble observe -P --kube-context kind-poc1 --from-pod cf2cnp-lab/pos --verdict DROPPED --last 3
+time=2026-09-13T06:21:05.750-05:00 level=WARN msg="Hubble CLI version is lower than Hubble Relay, API compatibility is not guaranteed, updating to a matching or higher version is recommended" hubble-cli-version=1.19.4 hubble-relay-version=1.20.1+g7d68cfb3
+Sep 13 11:21:00.558: cf2cnp-lab/pos:58178 (ID:82359) <> 104.198.14.52:443 (world) Policy denied DROPPED (TCP Flags: SYN)
+Sep 13 11:21:01.581: cf2cnp-lab/pos:58178 (ID:82359) <> 104.198.14.52:443 (world) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
+Sep 13 11:21:01.582: cf2cnp-lab/pos:58178 (ID:82359) <> 104.198.14.52:443 (world) Policy denied DROPPED (TCP Flags: SYN)
+
+### 2026-09-13T11:21:05Z
+$ bash -c hubble observe -P --kube-context kind-poc1 --from-pod cf2cnp-lab/pos --to-identity 2 --last 40 -o json 2>/dev/null | python3 -c "
+import json,sys,collections; c=collections.Counter()
+for l in sys.stdin:
+    f=json.loads(l)[\"flow\"]
+    if f.get(\"is_reply\"): continue
+    by=(f.get(\"egress_allowed_by\") or f.get(\"egress_denied_by\") or [{}])
+    c[(f[\"IP\"][\"destination\"], tuple(f.get(\"destination_names\") or []), f[\"verdict\"], by[0].get(\"name\",\"-\"))]+=1
+for k,v in c.items(): print(v, *k)"
+10 104.198.14.52 ('cilium.io',) DROPPED -
+
+### 2026-09-13T11:21:06Z
+$ kubectl --context kind-poc1 -n cf2cnp-lab get cnp -L app.kubernetes.io/managed-by
+NAME                        AGE   VALID   MANAGED-BY
+pos                         83s   True    cf2cnp
+shop                        11h   True    
+shop-default-deny-ingress   11h   True    
+

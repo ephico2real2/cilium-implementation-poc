@@ -1,28 +1,26 @@
-# evidence for demos/29-cross-cluster-policy — recorded 2026-09-13T11:01Z by scripts/evidence/collect.sh
-### 2026-09-13T11:01:39Z
+# evidence for demos/29-cross-cluster-policy — recorded 2026-09-13T11:23Z by scripts/evidence/collect.sh
+### 2026-09-13T11:23:18Z
 $ kubectl --context kind-poc1 -n mesh-lab get pods -o wide
-NAME                     READY   STATUS    RESTARTS   AGE     IP            NODE           NOMINATED NODE   READINESS GATES
-cache-6d88ffb646-4nbtg   1/1     Running   0          6m34s   10.10.3.235   poc1-worker2   <none>           <none>
-worker                   1/1     Running   0          6m34s   10.10.3.208   poc1-worker2   <none>           <none>
+NAME                     READY   STATUS    RESTARTS   AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+cache-6d88ffb646-4nbtg   1/1     Running   0          28m   10.10.3.235   poc1-worker2   <none>           <none>
+worker                   1/1     Running   0          28m   10.10.3.208   poc1-worker2   <none>           <none>
 
-### 2026-09-13T11:01:39Z
+### 2026-09-13T11:23:18Z
 $ kubectl --context kind-poc2 -n mesh-lab get pods -o wide
-NAME     READY   STATUS    RESTARTS   AGE     IP            NODE          NOMINATED NODE   READINESS GATES
-worker   1/1     Running   0          6m33s   10.20.1.153   poc2-worker   <none>           <none>
+NAME     READY   STATUS    RESTARTS   AGE   IP            NODE          NOMINATED NODE   READINESS GATES
+worker   1/1     Running   0          28m   10.20.1.153   poc2-worker   <none>           <none>
 
-### 2026-09-13T11:01:39Z
+### 2026-09-13T11:23:19Z
 $ bash -c kubectl --context kind-poc1 -n mesh-lab get cnp -o custom-columns='NAME:.metadata.name,MANAGED-BY:.metadata.labels.app\.kubernetes\.io/managed-by,CLUSTER-IN-RULE:.spec.ingress[0].fromEndpoints[0].matchLabels.io\.cilium\.k8s\.policy\.cluster'
 NAME                         MANAGED-BY   CLUSTER-IN-RULE
 cache-default-deny-ingress   <none>       <none>
 cache-server                 cf2cnp       poc2
 
-### 2026-09-13T11:01:39Z
+### 2026-09-13T11:23:19Z
 $ bash -c kubectl --context kind-poc2 -n mesh-lab get cnp -o custom-columns='NAME:.metadata.name,MANAGED-BY:.metadata.labels.app\.kubernetes\.io/managed-by,CLUSTER-IN-RULE:.spec.egress[1].toEndpoints[0].matchLabels.io\.cilium\.k8s\.policy\.cluster'
 NAME           MANAGED-BY   CLUSTER-IN-RULE
 worker-batch   cf2cnp       poc1
 
-### 2026-09-13T11:01:40Z
-$ bash -c kubectl --context kind-poc1 -n mesh-lab get svc cache -o jsonpath='{.metadata.annotations.service\.cilium\.io/global}{"
-bash: -c: line 1: unexpected EOF while looking for matching `''
-[exit code: 2]
-
+### 2026-09-13T11:23:19Z
+$ bash -c kubectl --context kind-poc1 -n mesh-lab get svc cache -o jsonpath='global={.metadata.annotations.service\.cilium\.io/global}'
+global=true

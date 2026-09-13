@@ -1,0 +1,18 @@
+# evidence for demos/31-dns-visibility — recorded 2026-09-13T11:22Z by scripts/evidence/collect.sh
+### 2026-09-13T11:22:59Z
+$ kubectl --context kind-poc1 -n cf2cnp-lab get pods -o wide
+NAME                    READY   STATUS    RESTARTS   AGE   IP           NODE           NOMINATED NODE   READINESS GATES
+pos                     1/1     Running   0          12h   10.10.4.93   poc1-worker    <none>           <none>
+shop-6d7d797759-4ddlt   1/1     Running   0          12h   10.10.3.7    poc1-worker2   <none>           <none>
+stranger                1/1     Running   0          12h   10.10.4.3    poc1-worker    <none>           <none>
+
+### 2026-09-13T11:23:00Z
+$ bash -c kubectl --context kind-poc1 -n cf2cnp-lab get cnp pos -o jsonpath='{.spec.egress[*].toFQDNs} {.spec.egress[*].toCIDR} kube-dns-rules={.spec.egress[*].toPorts[*].rules.dns}'
+[{"matchName":"example.com"}]  kube-dns-rules=[{"matchPattern":"*"}]
+### 2026-09-13T11:23:00Z
+$ bash -c kubectl --context kind-poc1 -n cf2cnp-lab get cnp -L app.kubernetes.io/managed-by
+NAME                        AGE     VALID   MANAGED-BY
+pos                         3m17s   True    cf2cnp
+shop                        11h     True    
+shop-default-deny-ingress   11h     True    
+
