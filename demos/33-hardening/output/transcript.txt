@@ -1,0 +1,161 @@
+### Part 1 — today: who can reach /generate, and what the CORS answer says
+### 2026-09-13T11:48:17Z
+$ bash -c echo "from a lab pod, straight to the Service (no Gateway):"; kubectl --context kind-poc1 -n cf2cnp-lab27 exec pos -- sh -c "wget -S -qO- --timeout=3 --post-data=\"{}\" --header=\"Content-Type: application/json\" http://hubble-observer-cf2cnp.hubble-observer/generate 2>&1 | grep -m1 HTTP/; echo rc=\$?"; echo; echo "through the Gateway, with a foreign Origin:"; curl -s -o /dev/null -D - --cacert docs/root-ca.crt --resolve cf2cnp.poc.local:443:172.18.255.240 -X POST https://cf2cnp.poc.local/generate -H "Origin: https://evil.example" -H "Content-Type: application/json" -d "{}" | grep -i "^HTTP\|access-control\|vary"
+from a lab pod, straight to the Service (no Gateway):
+  HTTP/1.1 400 Bad Request
+rc=0
+
+through the Gateway, with a foreign Origin:
+HTTP/2 400 
+access-control-allow-headers: Content-Type, Authorization, X-Requested-With, Accept, X-Grafana-Action, X-Grafana-Device-Id, X-Grafana-Org-Id
+access-control-allow-methods: GET, POST, OPTIONS
+access-control-allow-origin: *
+access-control-expose-headers: Content-Disposition
+access-control-max-age: 86400
+
+### 2026-09-13T11:48:19Z
+$ bash -c hubble observe -P --kube-context kind-poc1 --to-pod hubble-observer/hubble-observer-cf2cnp --port 8080 --type policy-verdict --last 30 -o json 2>/dev/null | python3 -c "
+import json,sys,collections; c=collections.Counter()
+for l in sys.stdin:
+    f=json.loads(l)[\"flow\"]; s=f[\"source\"]
+    who=s.get(\"pod_name\") or \",\".join(x for x in s.get(\"labels\",[]) if x.startswith(\"reserved:\"))
+    by=(f.get(\"ingress_allowed_by\") or f.get(\"ingress_denied_by\") or [{}])[0].get(\"name\",\"-\")
+    c[(who, f[\"verdict\"], by)]+=1
+for k,v in c.items(): print(v, *k)"
+13 reserved:host FORWARDED allow-hubble-observer-cf2cnp-ingress
+1 pos FORWARDED allow-hubble-observer-cf2cnp-ingress
+1 reserved:ingress FORWARDED allow-hubble-observer-cf2cnp-ingress
+
+
+### Part 2 — E6 on: first the subchart policy and the allowed origin alone, then the parent chart's entities narrowed
+### 2026-09-13T11:49:29Z
+$ bash -c echo "step 2: the parent chart entities narrowed to [ingress, host]"; demos/25-hubble-observer-loki/chart-from-fork.sh develop a00dd7e
+step 2: the parent chart entities narrowed to [ingress, host]
+fork: https://github.com/ephico2real2/hubble-observer.git  branch: develop  commit: a00dd7e chart: cf2cnp 0.6.1 (merge keeps the document; one kube-dns 
+dependencies: cf2cnp-0.6.1.tgz
+hubble-policy-verdicts-0.2.0.tgz
+STATUS: deployed
+REVISION: 25
+
+### 2026-09-13T11:50:08Z
+$ bash -c kubectl --context kind-poc1 -n hubble-observer get cnp -o custom-columns="NAME:.metadata.name,ENTITIES:.spec.ingress[0].fromEntities"; echo; echo "from the lab pod, straight to the Service:"; kubectl --context kind-poc1 -n cf2cnp-lab27 exec pos -- sh -c "wget -S -qO- --timeout=3 --post-data=\"{}\" --header=\"Content-Type: application/json\" http://hubble-observer-cf2cnp.hubble-observer/generate 2>&1 | grep -m1 HTTP/; echo rc=\$?"; echo; echo "through the Gateway, Origin https://evil.example:"; curl -s -o /dev/null -D - --cacert docs/root-ca.crt --resolve cf2cnp.poc.local:443:172.18.255.240 -X POST https://cf2cnp.poc.local/generate -H "Origin: https://evil.example" -H "Content-Type: application/json" -d "{}" | grep -i "^HTTP\|access-control-allow-origin\|vary"; echo; echo "through the Gateway, Origin https://grafana.poc.local:"; curl -s -o /dev/null -D - --cacert docs/root-ca.crt --resolve cf2cnp.poc.local:443:172.18.255.240 -X POST https://cf2cnp.poc.local/generate -H "Origin: https://grafana.poc.local" -H "Content-Type: application/json" -d "{}" | grep -i "^HTTP\|access-control-allow-origin\|vary"; echo; echo "preflight from Grafana:"; curl -s -o /dev/null -D - --cacert docs/root-ca.crt --resolve cf2cnp.poc.local:443:172.18.255.240 -X OPTIONS https://cf2cnp.poc.local/generate -H "Origin: https://grafana.poc.local" -H "Access-Control-Request-Method: POST" | grep -i "^HTTP\|access-control-allow"
+NAME                                    ENTITIES
+allow-hubble-observer-cf2cnp-ingress    [ingress host]
+allow-hubble-observer-to-cf2cnp         <none>
+allow-hubble-observer-to-hubble-relay   <none>
+hubble-observer-cf2cnp                  [ingress host]
+
+from the lab pod, straight to the Service:
+rc=1
+
+through the Gateway, Origin https://evil.example:
+HTTP/2 400 
+
+through the Gateway, Origin https://grafana.poc.local:
+HTTP/2 400 
+access-control-allow-origin: https://grafana.poc.local
+vary: Origin
+
+preflight from Grafana:
+HTTP/2 200 
+access-control-allow-headers: Content-Type, Authorization, X-Requested-With, Accept, X-Grafana-Action, X-Grafana-Device-Id, X-Grafana-Org-Id
+access-control-allow-methods: GET, POST, OPTIONS
+access-control-allow-origin: https://grafana.poc.local
+
+
+### Part 2a — measured properly: the subchart policy alone, with the parent chart still at [cluster, world]
+### 2026-09-13T11:50:47Z
+$ bash -c helm upgrade --install hubble-observer .tmp/hubble-observer-fork/helm/hubble-observer -n hubble-observer --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --set ciliumNetworkPolicy.enabled=true --set "ciliumNetworkPolicy.cf2cnp.ingressFromEntities={cluster,world}" --wait --timeout 3m | grep -E "REVISION|STATUS"; kubectl --context kind-poc1 -n hubble-observer get cnp -o custom-columns="NAME:.metadata.name,INGRESS-FROM:.spec.ingress[0].fromEntities"
+STATUS: deployed
+REVISION: 26
+NAME                                    INGRESS-FROM
+allow-hubble-observer-cf2cnp-ingress    [cluster world]
+allow-hubble-observer-to-cf2cnp         <none>
+allow-hubble-observer-to-hubble-relay   <none>
+hubble-observer-cf2cnp                  [ingress host]
+
+### 2026-09-13T11:50:56Z
+$ bash -c echo "from the lab pod, straight to the Service:"; kubectl --context kind-poc1 -n cf2cnp-lab27 exec pos -- sh -c "wget -S -qO- --timeout=3 --post-data=\"{}\" --header=\"Content-Type: application/json\" http://hubble-observer-cf2cnp.hubble-observer/generate 2>&1 | grep -m1 HTTP/; echo rc=\$?"; sleep 2; hubble observe -P --kube-context kind-poc1 --to-pod hubble-observer/hubble-observer-cf2cnp --port 8080 --type policy-verdict --from-pod cf2cnp-lab27/pos --last 3 -o json 2>/dev/null | python3 -c "
+import json,sys
+for l in sys.stdin:
+    f=json.loads(l)[\"flow\"]; by=(f.get(\"ingress_allowed_by\") or f.get(\"ingress_denied_by\") or [])
+    print(\"pos ->\", f[\"destination\"][\"pod_name\"], f[\"verdict\"], \"allowed_by=\" + \",\".join(x[\"name\"] for x in by))" | sort | uniq -c
+from the lab pod, straight to the Service:
+  HTTP/1.1 400 Bad Request
+rc=0
+   2 pos -> hubble-observer-cf2cnp-69dc46c99-df4lj DROPPED allowed_by=
+   1 pos -> hubble-observer-cf2cnp-69dc46c99-df4lj FORWARDED allowed_by=allow-hubble-observer-cf2cnp-ingress
+
+
+### Part 2b — the parent chart narrowed to [ingress, host] (the committed values): the lab pod is out, the Gateway and the kubelet stay
+### 2026-09-13T11:51:01Z
+$ demos/25-hubble-observer-loki/chart-from-fork.sh develop a00dd7e
+fork: https://github.com/ephico2real2/hubble-observer.git  branch: develop  commit: a00dd7e chart: cf2cnp 0.6.1 (merge keeps the document; one kube-dns 
+dependencies: cf2cnp-0.6.1.tgz
+hubble-policy-verdicts-0.2.0.tgz
+STATUS: deployed
+REVISION: 27
+
+### 2026-09-13T11:51:24Z
+$ bash -c kubectl --context kind-poc1 -n hubble-observer get cnp -o custom-columns="NAME:.metadata.name,INGRESS-FROM:.spec.ingress[0].fromEntities"; echo; echo "from the lab pod, straight to the Service:"; kubectl --context kind-poc1 -n cf2cnp-lab27 exec pos -- sh -c "wget -S -qO- --timeout=3 --post-data=\"{}\" --header=\"Content-Type: application/json\" http://hubble-observer-cf2cnp.hubble-observer/generate 2>&1 | grep -m1 HTTP/; echo rc=\$?"; curl -s -o /dev/null -w "through the Gateway: HTTP %{http_code}\n" --cacert docs/root-ca.crt --resolve cf2cnp.poc.local:443:172.18.255.240 https://cf2cnp.poc.local/health; sleep 2; hubble observe -P --kube-context kind-poc1 --to-pod hubble-observer/hubble-observer-cf2cnp --port 8080 --type policy-verdict --last 40 -o json 2>/dev/null | python3 -c "
+import json,sys,collections; c=collections.Counter()
+for l in sys.stdin:
+    f=json.loads(l)[\"flow\"]; s=f[\"source\"]
+    who=s.get(\"pod_name\") or \",\".join(x for x in s.get(\"labels\",[]) if x.startswith(\"reserved:\"))
+    by=(f.get(\"ingress_allowed_by\") or f.get(\"ingress_denied_by\") or [])
+    c[(who, f[\"verdict\"], \",\".join(x[\"name\"] for x in by) or \"(no policy named)\")]+=1
+for k,v in c.items(): print(v, *k)"
+NAME                                    INGRESS-FROM
+allow-hubble-observer-cf2cnp-ingress    [ingress host]
+allow-hubble-observer-to-cf2cnp         <none>
+allow-hubble-observer-to-hubble-relay   <none>
+hubble-observer-cf2cnp                  [ingress host]
+
+from the lab pod, straight to the Service:
+rc=1
+through the Gateway: HTTP 200
+13 reserved:host FORWARDED allow-hubble-observer-cf2cnp-ingress,hubble-observer-cf2cnp
+1 pos FORWARDED allow-hubble-observer-cf2cnp-ingress
+3 pos DROPPED (no policy named)
+1 reserved:ingress FORWARDED allow-hubble-observer-cf2cnp-ingress,hubble-observer-cf2cnp
+
+
+### Part 3 — the token, on for one revision: machine clients must present it, the page has a field for it, and the Grafana action cannot
+### 2026-09-13T11:52:14Z
+$ bash -c helm upgrade --install hubble-observer .tmp/hubble-observer-fork/helm/hubble-observer -n hubble-observer --kube-context kind-poc1 -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --set ciliumNetworkPolicy.enabled=true --set cf2cnp.auth.token=demo-33-secret --wait --timeout 3m | grep -E "REVISION"; kubectl --context kind-poc1 -n hubble-observer get secret -l app.kubernetes.io/name=cf2cnp -o custom-columns="SECRET:.metadata.name,KEYS:.data" | sed "s/map\[token:[^]]*\]/map[token:<redacted>]/"
+REVISION: 28
+SECRET                        KEYS
+hubble-observer-cf2cnp-auth   map[token:<redacted>]
+
+### 2026-09-13T11:52:45Z
+$ bash -c C="curl -s -o /dev/null --cacert docs/root-ca.crt --resolve cf2cnp.poc.local:443:172.18.255.240"; F=demos/32-operator-loop/policies/flows-frontend.ndjson; echo "no token:            $($C -D - -X POST https://cf2cnp.poc.local/generate -H "Content-Type: application/json" --data-binary @$F | grep -i "^HTTP\|www-authenticate" | tr "\n" " ")"; echo "wrong token:         $($C -w "HTTP %{http_code}" -X POST https://cf2cnp.poc.local/generate -H "Authorization: Bearer nope" -H "Content-Type: application/json" --data-binary @$F)"; echo "right token:         $($C -w "HTTP %{http_code}" -X POST https://cf2cnp.poc.local/generate -H "Authorization: Bearer demo-33-secret" -H "Content-Type: application/json" --data-binary @$F)"; echo "preflight, no token: $($C -w "HTTP %{http_code}" -X OPTIONS https://cf2cnp.poc.local/generate -H "Origin: https://grafana.poc.local" -H "Access-Control-Request-Method: POST")"; echo "/health, no token:   $($C -w "HTTP %{http_code}" https://cf2cnp.poc.local/health)"; echo "the page, no token:  $($C -w "HTTP %{http_code}" https://cf2cnp.poc.local/)"; echo "as the Grafana action sends it (X-Grafana-Action, no Authorization): $($C -w "HTTP %{http_code}" -X POST https://cf2cnp.poc.local/generate -H "Origin: https://grafana.poc.local" -H "X-Grafana-Action: 1" -H "Content-Type: application/json" --data-binary @$F)"
+no token:            HTTP/2 401  www-authenticate: Bearer realm="cf2cnp" 
+wrong token:         HTTP 401
+right token:         HTTP 200
+preflight, no token: HTTP 200
+/health, no token:   HTTP 200
+the page, no token:  HTTP 200
+as the Grafana action sends it (X-Grafana-Action, no Authorization): HTTP 401
+
+### 2026-09-13T11:52:46Z
+$ bash -c echo "the token stays OFF on this shared instance — the dashboard action has no place for a secret (a token in a dashboard JSON is a token in every viewer's browser); the Gateway + the policy + the allowed origin are the controls here, the token is for a cf2cnp reached by machines"; demos/25-hubble-observer-loki/chart-from-fork.sh develop a00dd7e | grep REVISION; kubectl --context kind-poc1 -n hubble-observer get secret -l app.kubernetes.io/name=cf2cnp -o name | wc -l | sed "s/^/cf2cnp secrets left: /"
+the token stays OFF on this shared instance — the dashboard action has no place for a secret (a token in a dashboard JSON is a token in every viewer's browser); the Gateway + the policy + the allowed origin are the controls here, the token is for a cf2cnp reached by machines
+REVISION: 29
+cf2cnp secrets left:        0
+
+
+### Part 4 — the Grafana action, end to end, under the policy and the allowed origin (demo 26 script)
+### 2026-09-13T11:53:29Z
+$ bash -c SHOTS_DIR=demos/33-hardening/output/screenshots GW=172.18.255.240 NODE_PATH=/private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/pw/node_modules node demos/26-cf2cnp-policy-from-flows/grafana-generate.js cf2cnp-lab27
+first flow in the table, uuid: 6b3f14d8-ae6d-4b14-89b1-ffd83cd083f7
+menu offers: Generate CiliumNetworkPolicy from Flow | Download CiliumNetworkPolicy | Open this Flow UUID
+confirmed the action
+download tab: 
+
+saved → policies/cnp-from-grafana.yaml
+cf2cnp requests made by the browser:
+  GET https://grafana.poc.local/d/hubble-observer-23862?orgId=1&from=now-30m&to=now&var-destinationnamespace=cf2cnp-lab27 headers={} body=
+    ← 200 <!DOCTYPE html> <html lang="en-US">   <head>          <meta charset="utf-8" />     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />     <meta na
+  POST https://cf2cnp.poc.local/generate headers={"x-grafana-device-id":"f50de6c461bbe25e56e0a0abfc529c9b","accept":"application/json, text/plain, */*","x-grafana-action":"1"} body={"flow":{"time":"2026-09-13T11:53:32.386643609Z","uuid":"6b3f14d8-ae6d-4b14-89b1…
+    ← 200 {"download_url":"https://cf2cnp.poc.local/download/6b3f14d8-ae6d-4b14-89b1-ffd83cd083f7","filename":"cf2cnp-lab27-shop-backend.yaml","flows":1,"message":"Policy
+

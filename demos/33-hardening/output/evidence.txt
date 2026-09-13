@@ -1,0 +1,24 @@
+# evidence for demos/33-hardening — recorded 2026-09-13T11:54Z by scripts/evidence/collect.sh
+### 2026-09-13T11:54:10Z
+$ kubectl --context kind-poc1 -n hubble-observer get pods -o wide
+NAME                                     READY   STATUS    RESTARTS   AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+hubble-observer-6f865f8f94-4vvzb         1/1     Running   0          14h   10.10.4.185   poc1-worker    <none>           <none>
+hubble-observer-cf2cnp-69dc46c99-7qjcm   1/1     Running   0          67s   10.10.3.247   poc1-worker2   <none>           <none>
+
+### 2026-09-13T11:54:11Z
+$ bash -c kubectl --context kind-poc1 -n hubble-observer get cnp -o custom-columns='NAME:.metadata.name,INGRESS-FROM:.spec.ingress[0].fromEntities,EGRESS-TO:.spec.egress[0].toEndpoints[0].matchLabels.k8s-app'
+NAME                                    INGRESS-FROM     EGRESS-TO
+allow-hubble-observer-cf2cnp-ingress    [ingress host]   <none>
+allow-hubble-observer-to-cf2cnp         <none>           <none>
+allow-hubble-observer-to-hubble-relay   <none>           <none>
+hubble-observer-cf2cnp                  [ingress host]   kube-dns
+
+### 2026-09-13T11:54:11Z
+$ bash -c kubectl --context kind-poc1 -n hubble-observer get deploy hubble-observer-cf2cnp -o jsonpath='{.spec.template.spec.containers[0].args}'
+["serve","--port","8080","--allowed-origins","https://grafana.poc.local"]
+### 2026-09-13T11:54:12Z
+$ bash -c helm --kube-context kind-poc1 -n hubble-observer get values hubble-observer -o json 
+{"cf2cnp":{"cors":{"allowedOrigins":["https://grafana.poc.local"]},"enabled":true,"httpRoute":{"enabled":false},"image":{"pullPolicy":"IfNotPresent","repository":"ghcr.io/ephico2real2/cf2cnp","tag":"0.6.1"},"ingress":{"enabled":false},"networkPolicy":{"enabled":true},"resources":{"limits":{"memory":"128Mi"},"requests":{"cpu":"20m","memory":"32Mi"}}},"ciliumNetworkPolicy":{"cf2cnp":{"ingressFromEntities":["ingress","host"]},"enabled":true},"excludeUnsupportedL3Protocols":true,"fieldMask":["time","uuid","verdict","drop_reason","drop_reason_desc","traffic_direction","node_name","Type","Summary","IP","l4","l7","source.namespace","source.pod_name","source.labels","source.identity","source.cluster_name","destination.namespace","destination.pod_name","destination.labels","destination.identity","destination.cluster_name","destination_names","egress_denied_by","ingress_denied_by"],"grafanaDashboard":{"enabled":false},"hubbleRelay":{"namespace":"kube-system","port":"443","serviceName":"hubble-relay","tls":{"ca":{"secretName":"hubble-observer-relay-certs"},"client":{"enabled":true,"secretName":"hubble-observer-relay-certs"},"enabled":true,"serverName":"hubble.hubble-relay.cilium.io"}},"image":{"repository":"quay.io/cilium/cilium","tag":"v1.20.1@sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b"},"policyVerdictsDashboard":{"dashboard":{"folder":"Hubble"},"enabled":true,"lokiRow":{"cf2cnpURL":"https://cf2cnp.poc.local","enabled":true,"observerNamespace":"hubble-observer"},"sidecar":{"namespace":"monitoring"}},"resources":{"limits":{"memory":"256Mi"},"requests":{"cpu":"50m","memory":"64Mi"}},"verdictFilter":"DROPPED"}
+
+### 2026-09-13T11:54:12Z
+$ bash -c  python3 -c 'import json,sys; v=json.load(sys.stdin); print("cors", v["cf2cnp"]["cors"], "networkPolicy", v["cf2cnp"]["networkPolicy"], "auth", v["cf2cnp"].get("auth"), "parent entities", v["ciliumNetworkPolicy"]["cf2cnp"])'

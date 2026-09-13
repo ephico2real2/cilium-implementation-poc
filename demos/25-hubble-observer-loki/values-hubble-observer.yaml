@@ -65,6 +65,9 @@ ciliumNetworkPolicy:
                                          # and the Service port where Cilium enforces the pod port — issue #8); the vendored chart
                                          # carries PR #9, whose defaults (dns.enabled: true, kube-dns in kube-system, relayPort 4245)
                                          # are validated live in Part 8: policy on, 0 drops from the observer, 7/7 nodes.
+  cf2cnp:                                # demo 33, E6 — the chart's default [cluster, world] admits every pod in the cluster (and the world) to
+    ingressFromEntities: [ingress, host] # cf2cnp: narrowed to the Gateway and the kubelet, the same peers the subchart's policy names. Measured:
+                                         # a lab pod reached /generate directly until this changed (gotcha #88).
 cf2cnp:                                  # the README's "Configuration" section: CF2CNP turns observed flows into CiliumNetworkPolicies
   enabled: true                          # default false: on — the dashboard links to it (POST /generate + a small UI). Subchart 0.4.0,
                                          # image ghcr.io/onzack/cf2cnp:0.3.1, defaults in default-values/cf2cnp-0.4.0.yaml
@@ -79,6 +82,14 @@ cf2cnp:                                  # the README's "Configuration" section:
                                          # page's summary/copy/download. The chart itself comes from https://ephico2real2.github.io/cf2cnp
                                          # (the hubble-observer fork's dependency). Loaded into poc1 with `kind load` as well, so the
                                          # nodes need no ghcr pull (a personal ghcr package starts private).
+  cors:                                  # demo 33 (2026-09-13), E6 — default []: any Origin was echoed as `*`. Only the Grafana origin may
+    allowedOrigins: [https://grafana.poc.local]   # call /generate from a browser (the dashboard action); a curl with another Origin gets no
+                                         # Access-Control-Allow-Origin at all (measured, Part 2). Non-browser clients are unaffected.
+  networkPolicy:                         # demo 33, E6 — default false: the subchart's own CiliumNetworkPolicy for the cf2cnp pod: ingress from
+    enabled: true                        # the Gateway (reserved:ingress) and the kubelet's probes (reserved:host) on 8080, egress to kube-dns.
+                                         # fromEndpoints stays [] — the Grafana action arrives through the Gateway. NOTE: this policy alone
+                                         # changed nothing while the parent chart's ciliumNetworkPolicy.cf2cnp.ingressFromEntities was
+                                         # [cluster, world] (measured, Part 2): policies add, they never narrow — see the parent's value below.
   ingress: {enabled: false}              # (default) no Ingress controller here
   httpRoute:
     enabled: false                       # (default) our Gateway (demo 09) admits HTTPRoutes from its OWN namespace only

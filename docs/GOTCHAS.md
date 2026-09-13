@@ -75,6 +75,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [85](#85) | inside an aliased dependency `.Chart.Name` is the alias — a camelCase alias became an object name | policy from flows |
 | [86](#86) | "by namespace" is the destination's: an egress drop that leaves the namespace is not on the dashboard | policy from flows |
 | [87](#87) | `permissions: pull-requests: write` does not let a workflow open a pull request — a repository setting does | policy from flows |
+| [88](#88) | a stricter policy beside a wider one changes nothing — policies add allows, they never narrow | policy from flows |
 | [78](#78) | The hubble-observer default image (quay.io/cilium/hubble:v1.16.4) is unmaintained — 2024 push, EOL Go, 5 CRITICAL; run the CLI from the agent image at the agents' digest | supply chain |
 | [77](#77) | The hub Prometheus kept the single-cluster 1Gi limit — 51 OOM kills once poc2 wrote in; 2Gi + an out-of-order window | monitoring |
 | [76](#76) | A policy's egress `toPorts` must be the backend pod's port (relay 4245), not the Service port (443) — Cilium enforces after service translation | Cilium policy |
@@ -2082,6 +2083,28 @@ opened the PR.
 file. Run the workflow once on a throwaway repository before offering it; and in an organisation that keeps the
 setting off, give the PR step its own token (a GitHub App or a PAT) rather than asking for the setting.
 
+## <a name="88"></a>88. A stricter policy beside a wider one changes nothing — policies add, they never narrow
+
+**Where:** demo 33 Part 2a. The cf2cnp subchart's new CiliumNetworkPolicy (`fromEntities: [ingress, host]` on 8080)
+was applied and valid, and a lab pod still reached `/generate` by the Service name:
+
+```text
+allow-hubble-observer-cf2cnp-ingress    [cluster world]      ← the observer chart's own policy for the same pod
+hubble-observer-cf2cnp                  [ingress host]       ← the new one
+   1 pos -> hubble-observer-cf2cnp-69dc46c99-df4lj FORWARDED allowed_by=allow-hubble-observer-cf2cnp-ingress
+```
+
+**What happened:** every CiliumNetworkPolicy that selects an endpoint contributes allow rules, and the endpoint's
+effective policy is their union. The observer chart's `ciliumNetworkPolicy.cf2cnp.ingressFromEntities` defaults to
+`[cluster, world]` — every pod in the cluster — so the subchart's narrower rule added nothing that was not already
+allowed. Hubble said so: the verdict names the policy that admitted the flow, and it was the wider one. Narrowing
+the parent's value to `[ingress, host]` dropped the lab pod (Part 2b); after that the verdicts name **both**
+policies.
+
+**The lesson:** to restrict, find every policy that selects the endpoint (`kubectl get cnp` and the verdict's
+`ingress_allowed_by`) and narrow the widest; a new policy can only widen. Deny needs `ingressDeny`/`egressDeny`
+or a default-deny plus allows — and a chart that ships its own policy for a subchart's pod must expose its entities.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -2132,6 +2155,7 @@ Most of these share a shape: **something reported success while not working.**
 - the chart's name was the alias (#85)
 - the namespace dashboard filtered on the destination, and the egress drops had left the namespace (#86)
 - the workflow had the permissions and still could not open the pull request: a repository setting (#87)
+- the stricter policy was valid and idle beside the chart's wider one (#88)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

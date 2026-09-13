@@ -1,0 +1,11 @@
+{
+ "captures": [
+  {
+   "name": "grafana-policy-verdicts-hubble-observer",
+   "url": "https://grafana.poc.local/d/hubble-policy-verdicts?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-namespace=hubble-observer",
+   "wait": "text:Who talked to whom",
+   "height": 1500,
+   "look": "the Policy Verdicts dashboard on the observer namespace: the kubelet (host) and the Gateway (ingress) forwarded into cf2cnp, the lab pod dropped once the parent chart's entities were narrowed"
+  }
+ ]
+}
