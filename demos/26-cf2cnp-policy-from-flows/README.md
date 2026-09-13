@@ -445,6 +445,9 @@ repository instead of `oci://ghcr.io/onzack/helm-charts` `"*"`; `chart-from-fork
 and demo 25's vendored copy is refreshed from that commit. The lab ends as the tutorial left it: pos
 forwarded by the generated rule, stranger dropped.
 
+**Continued as demo 27** — [`../27-cf2cnp-release/README.md`](../27-cf2cnp-release/README.md): the 0.5.0 release deployed and
+tested on a two-component lab; `audit-mode.sh`, `verify.sh` and the two Playwright scripts take `NS=` / `SHOTS_DIR=` for it.
+
 ## Exercises
 
 See [`GUIDE.md`](GUIDE.md) — from "get one flow" to "enforce, then reverse it", each with the expected

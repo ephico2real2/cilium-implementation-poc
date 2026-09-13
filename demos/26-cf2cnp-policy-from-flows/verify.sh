@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # verify.sh — what the lab's traffic looks like right now, as Hubble sees it: verdict per (source → destination:port),
 # with the policy that allowed or denied it (policy correlation is on: ingress_allowed_by / egress_denied_by …).
-set -uo pipefail; cd "$(dirname "$0")/../.."
-echo "policies in cf2cnp-lab: $(kubectl --context kind-poc1 -n cf2cnp-lab get cnp -o name 2>/dev/null | tr '\n' ' ')"
-hubble observe -P --kube-context kind-poc1 $(scripts/hubble-tls.sh kind-poc1) --namespace cf2cnp-lab --since "${1:-2m}" -o json 2>/dev/null | python3 -c '
+set -uo pipefail; cd "$(dirname "$0")/../.."; NS="${NS:-cf2cnp-lab}"   # NS=<namespace> for another lab (demo 27)
+echo "policies in $NS: $(kubectl --context kind-poc1 -n "$NS" get cnp -o name 2>/dev/null | tr '\n' ' ')"
+hubble observe -P --kube-context kind-poc1 $(scripts/hubble-tls.sh kind-poc1) --namespace "$NS" --since "${1:-2m}" -o json 2>/dev/null | python3 -c '
 import json,sys,collections; c=collections.Counter()
 for l in sys.stdin:
     try: f=json.loads(l)["flow"]

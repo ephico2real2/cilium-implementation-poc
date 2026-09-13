@@ -1,0 +1,10 @@
+# Demo 27 — one default-deny for BOTH shop components: the selector is the application name, which both carry.
+# Applied while both endpoints are in policy audit mode (demos/26-cf2cnp-policy-from-flows/audit-mode.sh, NS=cf2cnp-lab27).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: shop-default-deny-ingress, namespace: cf2cnp-lab27}
+spec:
+  description: default-deny ingress on every shop component; audited first, enforced once the generated rules are in place
+  endpointSelector: {matchLabels: {app.kubernetes.io/name: shop}}
+  ingress:
+    - {}

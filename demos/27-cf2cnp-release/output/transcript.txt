@@ -1,0 +1,307 @@
+### Part 0 — the release this demo runs: the fork's Helm repository, the image, the chart the cluster holds
+### 2026-09-13T02:45:48Z
+$ bash -c helm repo add cf2cnp-fork https://ephico2real2.github.io/cf2cnp >/dev/null 2>&1 || true; helm repo update cf2cnp-fork >/dev/null 2>&1; helm search repo cf2cnp-fork --versions; echo "--- the image, pulled without credentials ---"; docker pull ghcr.io/ephico2real2/cf2cnp:0.5.0 2>&1 | grep -i "status\|digest"; echo "--- what runs on poc1 (hubble-observer release, cf2cnp subchart) ---"; helm --kube-context kind-poc1 -n hubble-observer get metadata hubble-observer -o json | python3 -c "import json,sys; d=json.load(sys.stdin); print(\"  release\", d[\"name\"], d[\"chart\"], d[\"version\"], \"revision\", d[\"revision\"])"; kubectl --context kind-poc1 -n hubble-observer get deploy hubble-observer-cf2cnp -o jsonpath="  image={.spec.template.spec.containers[0].image}{\"\n\"}"; kubectl --context kind-poc1 -n hubble-observer get pods -l app.kubernetes.io/name=cf2cnp -o wide | tr -s " "
+NAME              	CHART VERSION	APP VERSION	DESCRIPTION                                       
+cf2cnp-fork/cf2cnp	0.5.0        	0.5.0      	A Helm chart for CF2CNP - Cilium Flow to Cilium...
+--- the image, pulled without credentials ---
+Digest: sha256:4e20bbc6176285b3733753def924e3445d035d4c7fac63814c1e26d2718a09c6
+Status: Image is up to date for ghcr.io/ephico2real2/cf2cnp:0.5.0
+--- what runs on poc1 (hubble-observer release, cf2cnp subchart) ---
+  release hubble-observer hubble-observer 2.6.0-alpha revision 20
+  image=ghcr.io/ephico2real2/cf2cnp:0.5.0
+NAME READY STATUS RESTARTS AGE IP NODE NOMINATED NODE READINESS GATES
+hubble-observer-cf2cnp-6456959bd9-w9627 1/1 Running 0 7m39s 10.10.3.81 poc1-worker2 <none> <none>
+
+### Part 1 — the lab: two shop components (frontend, backend), pos, stranger; no policy
+### 2026-09-13T02:46:11Z
+$ bash -c kubectl --context kind-poc1 apply -f demos/27-cf2cnp-release/10-lab.yaml; kubectl --context kind-poc1 -n cf2cnp-lab27 wait --for=condition=Ready pod --all --timeout=180s | tail -4; kubectl --context kind-poc1 -n cf2cnp-lab27 get pods -o wide | tr -s ' '; sleep 30; NS=cf2cnp-lab27 demos/26-cf2cnp-policy-from-flows/verify.sh 30s
+namespace/cf2cnp-lab27 created
+deployment.apps/shop-frontend created
+service/shop-frontend created
+deployment.apps/shop-backend created
+service/shop-backend created
+pod/pos created
+pod/stranger created
+pod/pos condition met
+pod/shop-backend-5d6f5c9759-mdtg2 condition met
+pod/shop-frontend-75c6b69b5b-4j8bh condition met
+pod/stranger condition met
+NAME READY STATUS RESTARTS AGE IP NODE NOMINATED NODE READINESS GATES
+pos 1/1 Running 0 10s 10.10.3.60 poc1-worker2 <none> <none>
+shop-backend-5d6f5c9759-mdtg2 1/1 Running 0 10s 10.10.3.151 poc1-worker2 <none> <none>
+shop-frontend-75c6b69b5b-4j8bh 1/1 Running 0 10s 10.10.3.179 poc1-worker2 <none> <none>
+stranger 1/1 Running 0 10s 10.10.3.238 poc1-worker2 <none> <none>
+policies in cf2cnp-lab27: 
+    22  stranger   → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+    16  pos        → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+    14  stranger   → shop-backend-5d6f5c9759-mdtg2    :80    FORWARDED                
+     6  stranger   → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+     4  pos        → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+
+### Part 2 — observe first: both shop endpoints in audit mode, one default-deny selecting app.kubernetes.io/name=shop
+### 2026-09-13T02:46:55Z
+$ bash -c NS=cf2cnp-lab27 demos/26-cf2cnp-policy-from-flows/audit-mode.sh shop-frontend Enabled; NS=cf2cnp-lab27 demos/26-cf2cnp-policy-from-flows/audit-mode.sh shop-backend Enabled; kubectl --context kind-poc1 apply -f demos/27-cf2cnp-release/20-shop-default-deny-ingress.yaml; sleep 3; kubectl --context kind-poc1 -n cf2cnp-lab27 get cnp -o custom-columns='NAME:.metadata.name,VALID:.status.conditions[0].status'; sleep 45; NS=cf2cnp-lab27 demos/26-cf2cnp-policy-from-flows/verify.sh 45s; for c in pos stranger; do echo "  $c → shop-frontend: $(kubectl --context kind-poc1 -n cf2cnp-lab27 exec $c -- wget -qO- -S --timeout=3 http://shop-frontend.cf2cnp-lab27/ 2>&1 | grep -m1 'HTTP/' | tr -s ' ')"; done
+endpoint 3489 (cep-name:cf2cnp-lab27/shop-frontend-75c6b69b5b-4j8bh on poc1-worker2): PolicyAuditMode=Enabled
+  PolicyAuditMode                   : Enabled
+endpoint 564 (cep-name:cf2cnp-lab27/shop-backend-5d6f5c9759-mdtg2 on poc1-worker2): PolicyAuditMode=Enabled
+  PolicyAuditMode                   : Enabled
+ciliumnetworkpolicy.cilium.io/shop-default-deny-ingress created
+NAME                        VALID
+shop-default-deny-ingress   True
+policies in cf2cnp-lab27: ciliumnetworkpolicy.cilium.io/shop-default-deny-ingress 
+    29  stranger   → shop-backend-5d6f5c9759-mdtg2    :80    FORWARDED                
+    28  stranger   → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+    20  stranger   → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+    18  pos        → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+    14  pos        → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+     6  stranger   → shop-backend-5d6f5c9759-mdtg2    :80    AUDIT                    
+  pos → shop-frontend: 
+  stranger → shop-frontend: 
+
+### Part 1b — the first frontend crash-looped: alpine's busybox has no httpd applet (sh: httpd: not found). The pod is nginx plus a caller sidecar now; audit mode is endpoint-local, so the NEW frontend endpoint gets it again
+### 2026-09-13T02:48:36Z
+$ bash -c kubectl --context kind-poc1 apply -f demos/27-cf2cnp-release/10-lab.yaml | grep -v unchanged; kubectl --context kind-poc1 -n cf2cnp-lab27 rollout status deploy/shop-frontend --timeout=120s; kubectl --context kind-poc1 -n cf2cnp-lab27 get pods -o wide | tr -s ' '; NS=cf2cnp-lab27 demos/26-cf2cnp-policy-from-flows/audit-mode.sh shop-frontend Enabled; sleep 45; NS=cf2cnp-lab27 demos/26-cf2cnp-policy-from-flows/verify.sh 45s; for c in pos stranger; do echo "  $c → shop-frontend: $(kubectl --context kind-poc1 -n cf2cnp-lab27 exec $c -- wget -qO- -S --timeout=3 http://shop-frontend.cf2cnp-lab27/ 2>&1 | grep -m1 'HTTP/' | tr -s ' ')"; done
+deployment.apps/shop-frontend configured
+Waiting for deployment "shop-frontend" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "shop-frontend" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "shop-frontend" rollout to finish: 1 old replicas are pending termination...
+deployment "shop-frontend" successfully rolled out
+NAME READY STATUS RESTARTS AGE IP NODE NOMINATED NODE READINESS GATES
+pos 1/1 Running 0 2m32s 10.10.3.60 poc1-worker2 <none> <none>
+shop-backend-5d6f5c9759-mdtg2 1/1 Running 0 2m32s 10.10.3.151 poc1-worker2 <none> <none>
+shop-frontend-75c6b69b5b-4j8bh 0/1 Terminating 4 (102s ago) 2m32s 10.10.3.179 poc1-worker2 <none> <none>
+shop-frontend-7c78889d59-dgl9d 2/2 Running 0 7s 10.10.3.20 poc1-worker2 <none> <none>
+stranger 1/1 Running 0 2m32s 10.10.3.238 poc1-worker2 <none> <none>
+audit-mode.sh: no Cilium endpoint cep-name:cf2cnp-lab27/shop-frontend-75c6b69b5b-4j8bh on pod/cilium-s2wxk (a hostNetwork pod has none)
+policies in cf2cnp-lab27: 
+    38  shop-frontend-7c78889d59-dgl9d → shop-backend-5d6f5c9759-mdtg2    :80    FORWARDED                
+    24  stranger   → shop-backend-5d6f5c9759-mdtg2    :80    FORWARDED                
+    24  pos        → shop-frontend-7c78889d59-dgl9d   :80    DROPPED   POLICY_DENIED  
+    22  shop-frontend-7c78889d59-dgl9d → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+    22  stranger   → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+    20  pos        → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+    20  stranger   → shop-frontend-7c78889d59-dgl9d   :80    DROPPED   POLICY_DENIED  
+    18  stranger   → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+    10  shop-frontend-7c78889d59-dgl9d → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+     8  shop-frontend-7c78889d59-dgl9d → shop-backend-5d6f5c9759-mdtg2    :80    AUDIT                    
+     5  stranger   → shop-backend-5d6f5c9759-mdtg2    :80    AUDIT                    
+     4  pos        → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+  pos → shop-frontend: 
+  stranger → shop-frontend: 
+
+### Part 1c — the audit flag had gone to the old, terminating frontend pod (the rollout leaves it listed first); audit-mode.sh now picks Running pods only, and the live endpoint gets the flag
+### 2026-09-13T02:50:56Z
+$ bash -c kubectl --context kind-poc1 -n cf2cnp-lab27 get pods -l app=shop-frontend -o custom-columns='NAME:.metadata.name,PHASE:.status.phase,DELETING:.metadata.deletionTimestamp'; NS=cf2cnp-lab27 demos/26-cf2cnp-policy-from-flows/audit-mode.sh shop-frontend Enabled; sleep 40; NS=cf2cnp-lab27 demos/26-cf2cnp-policy-from-flows/verify.sh 40s | grep 'shop-\|policies'; for c in pos stranger; do echo "  $c → shop-frontend: $(kubectl --context kind-poc1 -n cf2cnp-lab27 exec $c -- wget -qO- -S --timeout=3 http://shop-frontend.cf2cnp-lab27/ 2>&1 | grep -m1 'HTTP/' | tr -s ' ')"; done
+NAME                             PHASE     DELETING
+shop-frontend-7c78889d59-dgl9d   Running   <none>
+endpoint 1531 (cep-name:cf2cnp-lab27/shop-frontend-7c78889d59-dgl9d on poc1-worker2): PolicyAuditMode=Enabled
+  PolicyAuditMode                   : Enabled
+policies in cf2cnp-lab27: ciliumnetworkpolicy.cilium.io/shop-default-deny-ingress 
+    40  pos        → shop-frontend-7c78889d59-dgl9d   :80    FORWARDED                
+    36  shop-frontend-7c78889d59-dgl9d → shop-backend-5d6f5c9759-mdtg2    :80    FORWARDED                
+    29  stranger   → shop-frontend-7c78889d59-dgl9d   :80    FORWARDED                
+    28  stranger   → shop-backend-5d6f5c9759-mdtg2    :80    FORWARDED                
+    22  shop-frontend-7c78889d59-dgl9d → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+    10  shop-frontend-7c78889d59-dgl9d → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+     9  pos        → shop-frontend-7c78889d59-dgl9d   :80    AUDIT                    
+     8  shop-frontend-7c78889d59-dgl9d → shop-backend-5d6f5c9759-mdtg2    :80    AUDIT                    
+     6  stranger   → shop-frontend-7c78889d59-dgl9d   :80    AUDIT                    
+     6  stranger   → shop-backend-5d6f5c9759-mdtg2    :80    AUDIT                    
+  pos → shop-frontend:  HTTP/1.1 200 OK
+  stranger → shop-frontend:  HTTP/1.1 200 OK
+
+### Part 3 — the flows, many at once: every AUDIT verdict into the namespace except stranger's (the intent), as hubble observe prints them
+### 2026-09-13T02:52:13Z
+$ bash -c hubble observe -P --kube-context kind-poc1 --verdict AUDIT --to-namespace cf2cnp-lab27 --not --from-pod cf2cnp-lab27/stranger --last 100 -o json 2>/dev/null > demos/27-cf2cnp-release/policies/flows-audit.ndjson; echo "flows-audit.ndjson: $(wc -l < demos/27-cf2cnp-release/policies/flows-audit.ndjson | tr -d ' ') lines, $(wc -c < demos/27-cf2cnp-release/policies/flows-audit.ndjson | tr -d ' ') bytes"; python3 -c "
+import json,collections; c=collections.Counter()
+for l in open('demos/27-cf2cnp-release/policies/flows-audit.ndjson'):
+    f=json.loads(l)['flow']; c[(f['source']['pod_name'].split('-')[0], f['destination']['pod_name'].rsplit('-',2)[0], f['traffic_direction'], f['verdict'])]+=1
+[print('  %3d  %s' % (n,k)) for k,n in c.most_common()]"
+flows-audit.ndjson: 30 lines, 52605 bytes
+   15  ('shop', 'shop-backend', 'INGRESS', 'AUDIT')
+   15  ('pos', 'shop-frontend', 'INGRESS', 'AUDIT')
+
+### Part 4 — one POST, every flow: one policy per workload, named after the whole selector, labelled
+### 2026-09-13T02:52:16Z
+$ bash -c GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}'); curl -s --cacert docs/root-ca.crt --resolve cf2cnp.poc.local:443:$GW -X POST https://cf2cnp.poc.local/generate --data-binary @demos/27-cf2cnp-release/policies/flows-audit.ndjson -D - -o demos/27-cf2cnp-release/policies/cnp-shop.yaml | grep -i 'HTTP/\|content-disposition'; cat demos/27-cf2cnp-release/policies/cnp-shop.yaml; echo '--- server-side dry run ---'; kubectl --context kind-poc1 apply --dry-run=server -f demos/27-cf2cnp-release/policies/cnp-shop.yaml
+HTTP/2 200 
+access-control-expose-headers: Content-Disposition
+content-disposition: attachment; filename="ciliumnetworkpolicies-2.yaml"
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop-backend
+  namespace: cf2cnp-lab27
+  labels:
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/managed-by: cf2cnp
+    app.kubernetes.io/name: shop
+spec:
+  description: Allow ingress traffic from cf2cnp-lab27 to cf2cnp-lab27 for the shop
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: frontend
+            app.kubernetes.io/name: shop
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop-frontend
+  namespace: cf2cnp-lab27
+  labels:
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/managed-by: cf2cnp
+    app.kubernetes.io/name: shop
+spec:
+  description: Allow ingress traffic from cf2cnp-lab27 to cf2cnp-lab27 for the shop
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: pos
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+--- server-side dry run ---
+ciliumnetworkpolicy.cilium.io/shop-backend created (server dry run)
+ciliumnetworkpolicy.cilium.io/shop-frontend created (server dry run)
+
+### Part 5 — apply under audit, then enforce; the policies listed by label
+### 2026-09-13T02:52:18Z
+$ bash -c kubectl --context kind-poc1 apply -f demos/27-cf2cnp-release/policies/cnp-shop.yaml; sleep 35; echo '--- phase A: rules in place, still auditing ---'; NS=cf2cnp-lab27 demos/26-cf2cnp-policy-from-flows/verify.sh 35s | grep 'shop-\|policies'; NS=cf2cnp-lab27 demos/26-cf2cnp-policy-from-flows/audit-mode.sh shop-frontend Disabled | head -1; NS=cf2cnp-lab27 demos/26-cf2cnp-policy-from-flows/audit-mode.sh shop-backend Disabled | head -1; sleep 45; echo '--- phase B: enforced ---'; NS=cf2cnp-lab27 demos/26-cf2cnp-policy-from-flows/verify.sh 45s | grep 'shop-\|policies'; for c in pos stranger; do echo "  $c → shop-frontend: $(kubectl --context kind-poc1 -n cf2cnp-lab27 exec $c -- wget -qO- -S --timeout=3 http://shop-frontend.cf2cnp-lab27/ 2>&1 | grep -m1 'HTTP/\|timed out' | tr -s ' ')"; done; echo '--- the policies, by the labels cf2cnp stamped ---'; kubectl --context kind-poc1 -n cf2cnp-lab27 get cnp -l app.kubernetes.io/name=shop -o custom-columns='NAME:.metadata.name,COMPONENT:.metadata.labels.app\.kubernetes\.io/component,MANAGED-BY:.metadata.labels.app\.kubernetes\.io/managed-by,SELECTOR:.spec.endpointSelector.matchLabels'; demos/26-cf2cnp-policy-from-flows/policy-metric.sh cf2cnp-lab27
+ciliumnetworkpolicy.cilium.io/shop-backend created
+ciliumnetworkpolicy.cilium.io/shop-frontend created
+--- phase A: rules in place, still auditing ---
+policies in cf2cnp-lab27: ciliumnetworkpolicy.cilium.io/shop-backend ciliumnetworkpolicy.cilium.io/shop-default-deny-ingress ciliumnetworkpolicy.cilium.io/shop-frontend 
+    36  pos        → shop-frontend-7c78889d59-dgl9d   :80    FORWARDED                
+    31  shop-frontend-7c78889d59-dgl9d → shop-backend-5d6f5c9759-mdtg2    :80    FORWARDED                
+    24  stranger   → shop-backend-5d6f5c9759-mdtg2    :80    FORWARDED                
+    23  stranger   → shop-frontend-7c78889d59-dgl9d   :80    FORWARDED                
+    18  shop-frontend-7c78889d59-dgl9d → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+    10  shop-frontend-7c78889d59-dgl9d → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+     8  pos        → shop-frontend-7c78889d59-dgl9d   :80    FORWARDED                by shop-frontend
+     7  shop-frontend-7c78889d59-dgl9d → shop-backend-5d6f5c9759-mdtg2    :80    FORWARDED                by shop-backend
+     5  stranger   → shop-frontend-7c78889d59-dgl9d   :80    AUDIT                    
+     5  stranger   → shop-backend-5d6f5c9759-mdtg2    :80    AUDIT                    
+endpoint 1531 (cep-name:cf2cnp-lab27/shop-frontend-7c78889d59-dgl9d on poc1-worker2): PolicyAuditMode=Disabled
+endpoint 564 (cep-name:cf2cnp-lab27/shop-backend-5d6f5c9759-mdtg2 on poc1-worker2): PolicyAuditMode=Disabled
+--- phase B: enforced ---
+policies in cf2cnp-lab27: ciliumnetworkpolicy.cilium.io/shop-backend ciliumnetworkpolicy.cilium.io/shop-default-deny-ingress ciliumnetworkpolicy.cilium.io/shop-frontend 
+    43  pos        → shop-frontend-7c78889d59-dgl9d   :80    FORWARDED                
+    40  shop-frontend-7c78889d59-dgl9d → shop-backend-5d6f5c9759-mdtg2    :80    FORWARDED                
+    24  shop-frontend-7c78889d59-dgl9d → coredns-789c5fbdb4-qhj2d         :53    FORWARDED                
+    18  stranger   → shop-frontend-7c78889d59-dgl9d   :80    DROPPED   POLICY_DENIED  
+    18  stranger   → shop-backend-5d6f5c9759-mdtg2    :80    DROPPED   POLICY_DENIED  
+    12  shop-frontend-7c78889d59-dgl9d → coredns-789c5fbdb4-vb8r9         :53    FORWARDED                
+     9  shop-frontend-7c78889d59-dgl9d → shop-backend-5d6f5c9759-mdtg2    :80    FORWARDED                by shop-backend
+     9  pos        → shop-frontend-7c78889d59-dgl9d   :80    FORWARDED                by shop-frontend
+  pos → shop-frontend:  HTTP/1.1 200 OK
+  stranger → shop-frontend: wget: download timed out
+--- the policies, by the labels cf2cnp stamped ---
+NAME            COMPONENT   MANAGED-BY   SELECTOR
+shop-backend    backend     cf2cnp       map[app.kubernetes.io/component:backend app.kubernetes.io/name:shop]
+shop-frontend   frontend    cf2cnp       map[app.kubernetes.io/component:frontend app.kubernetes.io/name:shop]
+  cluster  dir      source     destination  action     match  count
+  poc1     ingress  pos        shop         audit      none   16
+  poc1     ingress  pos        shop         dropped    none   41
+  poc1     ingress  pos        shop         forwarded  l3-l4  23
+  poc1     ingress  shop       shop         audit      none   42
+  poc1     ingress  shop       shop         forwarded  l3-l4  22
+  poc1     ingress  stranger   shop         audit      none   63
+  poc1     ingress  stranger   shop         dropped    none   58
+
+### Part 6 (retry — the first attempt hit an API-server TLS handshake timeout while three browsers ran at once)
+### 2026-09-13T03:02:43Z
+$ node demos/26-cf2cnp-policy-from-flows/ui-generate.js demos/27-cf2cnp-release/policies/flows-audit.ndjson
+ERR flow is not defined
+[exit code: 1]
+
+### Part 6 (second retry — the script's screenshot-directory edit had truncated a line: 'flow is not defined')
+### 2026-09-13T03:03:42Z
+$ node demos/26-cf2cnp-policy-from-flows/ui-generate.js demos/27-cf2cnp-release/policies/flows-audit.ndjson
+ERR flow is not defined
+[exit code: 1]
+
+### Part 7 — the Grafana action on a dropped stranger flow: the policy it downloads is named after the component
+### 2026-09-13T03:03:48Z
+$ node demos/26-cf2cnp-policy-from-flows/grafana-generate.js cf2cnp-lab27
+first flow in the table, uuid: a01ebea4-e453-4468-872f-5f3300c6853f
+menu offers: Generate CiliumNetworkPolicy from Flow | Download CiliumNetworkPolicy | Open this Flow UUID
+confirmed the action
+download tab: 
+
+saved → policies/cnp-from-grafana.yaml
+cf2cnp requests made by the browser:
+  GET https://grafana.poc.local/d/hubble-observer-23862?orgId=1&from=now-30m&to=now&var-destinationnamespace=cf2cnp-lab27 headers={} body=
+    ← 200 <!DOCTYPE html> <html lang="en-US">   <head>          <meta charset="utf-8" />     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />     <meta na
+  POST https://cf2cnp.poc.local/generate headers={"x-grafana-device-id":"f50de6c461bbe25e56e0a0abfc529c9b","accept":"application/json, text/plain, */*","x-grafana-action":"1"} body={"flow":{"time":"2026-09-13T03:03:55.269561910Z","uuid":"a01ebea4-e453-4468-872f…
+    ← 200 {"download_url":"https://cf2cnp.poc.local/download/a01ebea4-e453-4468-872f-5f3300c6853f","filename":"cf2cnp-lab27-shop-frontend.yaml","flows":1,"message":"Polic
+
+### Part 6 (third try — the restored code had landed inside the line's comment)
+### 2026-09-13T03:04:45Z
+$ node demos/26-cf2cnp-policy-from-flows/ui-generate.js demos/27-cf2cnp-release/policies/flows-audit.ndjson
+page summary: 30 flow(s) parsed: INGRESS AUDIT shop → shop:80 | INGRESS AUDIT pos → shop:80 | INGRESS AUDIT shop → shop:80 | INGRESS AUDIT pos → shop:80 | INGRESS AUDIT shop → shop:80 | INGRESS AUDIT pos → shop:80 | INGRESS AUDIT shop → shop:80 | INGRESS AUDIT pos → shop:80 | …
+apply hint: 30 flow(s) → 2 policies. Review it, then: kubectl apply -f ciliumnetworkpolicies-2.yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop-backend
+  namespace: cf2cnp-lab27
+  labels:
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/managed-by: cf2cnp
+    app.kubernetes.io/name: shop
+spec:
+  description: Allow ingress traffic from cf2cnp-lab27 to cf2cnp-lab27 for the shop
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: frontend
+            app.kubernetes.io/name: shop
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop-frontend
+  namespace: cf2cnp-lab27
+  labels:
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/managed-by: cf2cnp
+    app.kubernetes.io/name: shop
+spec:
+  description: Allow ingress traffic from cf2cnp-lab27 to cf2cnp-lab27 for the shop
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: pos
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+Copy YAML enabled: true | Download YAML enabled: true
+

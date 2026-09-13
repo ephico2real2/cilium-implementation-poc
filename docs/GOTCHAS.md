@@ -71,6 +71,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [81](#81) | cf2cnp names every policy after its destination — two files, one object | policy from flows |
 | [82](#82) | a default-deny drop names no policy — the Denying Policy panel stays empty | policy from flows |
 | [83](#83) | a URL built from `r.TLS` behind a TLS-terminating proxy is always `http://` | policy from flows |
+| [84](#84) | the audit flag went to the pod being replaced — a rollout lists the old pod first | policy from flows |
 | [78](#78) | The hubble-observer default image (quay.io/cilium/hubble:v1.16.4) is unmaintained — 2024 push, EOL Go, 5 CRITICAL; run the CLI from the agent image at the agents' digest | supply chain |
 | [77](#77) | The hub Prometheus kept the single-cluster 1Gi limit — 51 OOM kills once poc2 wrote in; 2Gi + an out-of-order window | monitoring |
 | [76](#76) | A policy's egress `toPorts` must be the backend pod's port (relay 4245), not the Service port (443) — Cilium enforces after service translation | Cilium policy |
@@ -2001,6 +2002,24 @@ because its link ignored the field; the bug waited for the first client that tru
 
 ---
 
+## <a name="84"></a>84. The audit flag went to the pod that was being replaced
+
+**Symptom.** Demo 27 Part 1c: `audit-mode.sh shop-frontend Enabled` printed success, yet the next
+`verify.sh` showed `pos → shop-frontend DROPPED POLICY_DENIED` instead of `AUDIT`, and the client timed
+out — under a policy that was supposed to be observing only.
+
+**Cause.** The script had just rolled the Deployment. `kubectl get pods -o name | grep /shop-frontend | head -1`
+returned the **old pod, still Terminating**, listed first; its endpoint got `PolicyAuditMode=Enabled` and died
+seconds later. Audit mode is endpoint-local and never survives the pod, so the new endpoint enforced.
+
+**Fix.** Select Running pods without a `deletionTimestamp` (`--field-selector status.phase=Running`, then
+check the metadata) and read back which endpoint the script flagged — it prints
+`endpoint <id> (cep-name:<ns>/<pod> …)`. After any rollout, flag again.
+
+→ demo 27, Part 1c
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -2047,6 +2066,7 @@ Most of these share a shape: **something reported success while not working.**
 - two files, one name, the second wins (#81)
 - a rule that does not exist cannot be named (#82)
 - the pod never sees TLS, so it never says https (#83)
+- the flag went to the pod on its way out (#84)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

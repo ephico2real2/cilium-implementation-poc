@@ -8,7 +8,7 @@
 const { chromium } = require('playwright'); const fs = require('fs'); const path = require('path');
 (async () => {
   const GW = process.env.GW, ns = process.argv[2] || 'cf2cnp-lab'; if (!GW) { console.error('usage: GW=<addr> node grafana-generate.js [namespace]'); process.exit(2); }
-  const out = path.join(__dirname, 'output', 'screenshots'); fs.mkdirSync(out, { recursive: true });
+  const out = process.env.SHOTS_DIR || path.join(__dirname, 'output', 'screenshots'); fs.mkdirSync(out, { recursive: true });   // SHOTS_DIR: another demo's folder
   const b = await chromium.launch({ args: [`--host-resolver-rules=MAP *.poc.local ${GW}`] });
   const ctx = await b.newContext({ ignoreHTTPSErrors: true, viewport: { width: 2400, height: 1400 } }); const p = await ctx.newPage();
   const net = [];

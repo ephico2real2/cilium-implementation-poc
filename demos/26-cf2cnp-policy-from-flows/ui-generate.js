@@ -7,7 +7,7 @@
 const { chromium } = require('playwright'); const fs = require('fs'); const path = require('path');
 (async () => {
   const GW = process.env.GW, file = process.argv[2]; if (!GW || !file) { console.error('usage: GW=<addr> node ui-generate.js <flow.json>'); process.exit(2); }
-  const out = path.join(__dirname, 'output', 'screenshots'); fs.mkdirSync(out, { recursive: true }); const flow = fs.readFileSync(file, 'utf8');
+  const out = process.env.SHOTS_DIR || path.join(__dirname, 'output', 'screenshots'); fs.mkdirSync(out, { recursive: true }); const flow = fs.readFileSync(file, 'utf8');   // SHOTS_DIR: another demo's folder
   const b = await chromium.launch({ args: [`--host-resolver-rules=MAP cf2cnp.poc.local ${GW}`] });
   const ctx = await b.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1400, height: 2300 } }); const p = await ctx.newPage();
   await p.goto('https://cf2cnp.poc.local/', { waitUntil: 'load' }); await p.waitForTimeout(1500);
