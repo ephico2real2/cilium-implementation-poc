@@ -20,7 +20,8 @@ for l in sys.stdin:
     try: d=json.loads(l)
     except Exception: continue
     if d.get("flow",{}).get("is_reply"): continue
-    print(l); break' ;;
+    print(l); sys.exit(0)
+sys.stderr.write("get-flow.sh cli: no request flow matched (replies are skipped; the ring buffer holds seconds — generate the traffic, then fetch)\n"); sys.exit(1)' ;;
   observer) kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --since=30m 2>/dev/null | grep -- "${1:-.}" | tail -1 ;;
   loki)     SEL="${1:?LogQL selector}"; MIN="${2:-60}"; NOW=$(date +%s); Q=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$SEL")
             kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query_range?query=$Q&start=$((NOW-MIN*60))000000000&end=${NOW}000000000&limit=1&direction=backward" \

@@ -5,10 +5,10 @@
 # into ingress enforcement). `ingress: []` is NOT the same: Cilium rejects it with status Valid=False, "rule must have at
 # least one of Ingress, IngressDeny, Egress, EgressDeny" (measured on 1.20.1 — see docs/GOTCHAS.md). With audit mode on,
 # nothing is blocked yet.
-#   AG=$(kubectl -n kube-system get pods -l k8s-app=cilium --field-selector spec.nodeName=<shop's node> -o name)
-#   ID=$(kubectl -n kube-system exec $AG -c cilium-agent -- cilium-dbg endpoint list -o json | jq '.[] | select(.status.external-identifiers."pod-name"=="cf2cnp-lab/shop-…") | .id')
-#   kubectl -n kube-system exec $AG -c cilium-agent -- cilium-dbg endpoint config $ID PolicyAuditMode=Enabled
+#   demos/26-cf2cnp-policy-from-flows/audit-mode.sh shop Enabled      # finds shop's endpoint on its node BY POD IP (1.20's
+#                                                                    # endpoint JSON carries no pod name) and sets PolicyAuditMode
 #   kubectl apply -f demos/26-cf2cnp-policy-from-flows/20-shop-default-deny-ingress.yaml
+#   kubectl -n cf2cnp-lab get cnp shop-default-deny-ingress -o jsonpath='{.status.conditions[0].status}'   # must be True
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata: {name: shop-default-deny-ingress, namespace: cf2cnp-lab}

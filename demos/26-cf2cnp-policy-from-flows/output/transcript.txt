@@ -732,3 +732,48 @@ waiting for the sidecar to load it (its log says where it placed the file)…
   sidecar: {"time": "2026-09-12T23:54:43.493532+00:00", "level": "INFO", "msg": "Writing /tmp/dashboards/Hubble/hubble-policy-verdicts.json (ascii)"}
 loaded in folder Hubble → https://grafana.poc.local/d/policy-verdicts-26
 
+### Part 12 — where the Policy Verdicts dashboard's data comes from, hop by hop
+### 2026-09-13T00:04:03Z
+$ bash -c echo "== 1. the agents: Hubble dynamic metrics config (the ConfigMap demo 26 Part 4a added the policy metric to) =="; kubectl --context kind-poc1 -n kube-system get cm cilium-dynamic-metrics-config -o jsonpath="{.data.dynamic-metrics\.yaml}" | python3 -c "import sys,yaml; d=yaml.safe_load(sys.stdin); [print(\"  \", m[\"name\"], \"contextOptions=\", m.get(\"contextOptions\")) for m in d[\"metrics\"]]" 2>/dev/null || kubectl --context kind-poc1 -n kube-system get cm cilium-dynamic-metrics-config -o jsonpath="{.data.dynamic-metrics\.yaml}" | grep -n "name:"; echo "== 2. the agent exposes it: hubble metrics port on the agent that hosts shop (poc1-worker2), scraped from inside the node =="; kubectl --context kind-poc1 -n kube-system get ds cilium -o jsonpath="{range .spec.template.spec.containers[0].ports[*]}{.name}={.containerPort} {end}{\"\n\"}"; NODEIP=$(kubectl --context kind-poc1 get node poc1-worker2 -o jsonpath="{.status.addresses[?(@.type==\"InternalIP\")].address}"); docker exec poc1-worker2 sh -c "curl -s http://$NODEIP:9965/metrics" | grep "^hubble_policy_verdicts_total" | grep cf2cnp-lab | head -4 | sed "s/^/  /"; echo "== 3. Prometheus scrapes it: the ServiceMonitor (demo 16) and the target =="; kubectl --context kind-poc1 -n monitoring get servicemonitor -o custom-columns="NAME:.metadata.name,PORT:.spec.endpoints[*].port,SELECTOR:.spec.selector.matchLabels" | grep -i hubble; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/targets?state=active" | python3 -c "import json,sys; [print(\"  \", t[\"labels\"].get(\"job\"), t[\"labels\"].get(\"node\") or t[\"labels\"].get(\"instance\"), t[\"health\"], \"cluster=\"+t[\"labels\"].get(\"cluster\",\"\")) for t in json.load(sys.stdin)[\"data\"][\"activeTargets\"] if \"hubble\" in t[\"labels\"].get(\"job\",\"\")]"; echo "== 4. the series in Prometheus (one per agent pod, the cluster label from the scrape class) =="; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/series?match[]=hubble_policy_verdicts_total%7Bdestination_namespace%3D%22cf2cnp-lab%22%7D" | python3 -c "import json,sys; d=json.load(sys.stdin)[\"data\"]; print(\"  \", len(d), \"series; job/pod/cluster:\", sorted(set((s[\"job\"], s[\"pod\"], s[\"cluster\"]) for s in d)))"; echo "== 5. Grafana: the dashboard's datasource variable resolves to =="; GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana https://grafana.poc.local/api/datasources | python3 -c "import json,sys; [print(\"  \", d[\"name\"], d[\"type\"], d[\"url\"], \"default\" if d[\"isDefault\"] else \"\") for d in json.load(sys.stdin) if d[\"type\"]==\"prometheus\"]"
+== 1. the agents: Hubble dynamic metrics config (the ConfigMap demo 26 Part 4a added the policy metric to) ==
+   dns contextOptions= [{'name': 'query'}, {'name': 'ignoreAAAA'}, {'name': 'sourceContext', 'values': ['app', 'workload-name', 'reserved-identity']}, {'name': 'destinationContext', 'values': ['app', 'workload-name', 'reserved-identity']}, {'name': 'labelsContext', 'values': ['source_namespace', 'destination_namespace']}]
+   drop contextOptions= [{'name': 'sourceContext', 'values': ['app', 'workload-name', 'reserved-identity']}, {'name': 'destinationContext', 'values': ['app', 'workload-name', 'reserved-identity']}, {'name': 'labelsContext', 'values': ['source_namespace', 'destination_namespace']}]
+   policy contextOptions= [{'name': 'sourceContext', 'values': ['app', 'workload-name', 'reserved-identity']}, {'name': 'destinationContext', 'values': ['app', 'workload-name', 'reserved-identity']}, {'name': 'labelsContext', 'values': ['source_namespace', 'destination_namespace']}]
+   tcp contextOptions= [{'name': 'sourceContext', 'values': ['app', 'workload-name', 'reserved-identity']}, {'name': 'destinationContext', 'values': ['app', 'workload-name', 'reserved-identity']}, {'name': 'labelsContext', 'values': ['source_namespace', 'destination_namespace']}]
+   icmp contextOptions= [{'name': 'sourceContext', 'values': ['app', 'workload-name', 'reserved-identity']}, {'name': 'destinationContext', 'values': ['app', 'workload-name', 'reserved-identity']}, {'name': 'labelsContext', 'values': ['source_namespace', 'destination_namespace']}]
+   flow contextOptions= [{'name': 'sourceContext', 'values': ['app', 'workload-name', 'reserved-identity']}, {'name': 'destinationContext', 'values': ['app', 'workload-name', 'reserved-identity']}, {'name': 'labelsContext', 'values': ['source_namespace', 'destination_namespace']}]
+   port-distribution contextOptions= None
+   httpV2 contextOptions= [{'name': 'exemplars', 'values': [True]}, {'name': 'labelsContext', 'values': ['source_ip', 'source_namespace', 'source_workload', 'destination_ip', 'destination_namespace', 'destination_workload', 'traffic_direction']}, {'name': 'sourceContext', 'values': ['app', 'workload-name', 'reserved-identity']}, {'name': 'destinationContext', 'values': ['app', 'workload-name', 'reserved-identity']}]
+== 2. the agent exposes it: hubble metrics port on the agent that hosts shop (poc1-worker2), scraped from inside the node ==
+health=9879 peer-service=4244 prometheus=9962 hubble-metrics=9965 
+  hubble_policy_verdicts_total{action="audit",destination="shop",destination_namespace="cf2cnp-lab",direction="ingress",match="none",source="pos",source_namespace="cf2cnp-lab"} 22
+  hubble_policy_verdicts_total{action="audit",destination="shop",destination_namespace="cf2cnp-lab",direction="ingress",match="none",source="stranger",source_namespace="cf2cnp-lab"} 23
+  hubble_policy_verdicts_total{action="dropped",destination="shop",destination_namespace="cf2cnp-lab",direction="ingress",match="none",source="stranger",source_namespace="cf2cnp-lab"} 345
+  hubble_policy_verdicts_total{action="forwarded",destination="shop",destination_namespace="cf2cnp-lab",direction="ingress",match="l3-l4",source="pos",source_namespace="cf2cnp-lab"} 297
+== 3. Prometheus scrapes it: the ServiceMonitor (demo 16) and the target ==
+   hubble-relay-metrics poc1-worker2 up cluster=poc1
+   hubble-metrics poc1-control-plane3 up cluster=poc1
+   hubble-metrics poc1-worker2 up cluster=poc1
+   hubble-metrics poc1-worker up cluster=poc1
+   hubble-metrics poc1-control-plane up cluster=poc1
+   hubble-metrics poc1-control-plane2 up cluster=poc1
+== 4. the series in Prometheus (one per agent pod, the cluster label from the scrape class) ==
+   4 series; job/pod/cluster: [('hubble-metrics', 'cilium-s2wxk', 'poc1')]
+== 5. Grafana: the dashboard's datasource variable resolves to ==
+   Prometheus prometheus http://monitoring-kube-prometheus-prometheus.monitoring:9090/ default
+
+### Part 9b — the framing claims tested, not inferred: a local page with two iframes (Hubble UI, Grafana)
+### 2026-09-13T00:04:44Z
+$ node /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/frame/test.js
+iframe #h: url=https://hubble.poc.local/?namespace=cf2cnp-lab :: cf2cnp-lab | Any verdict | Visual | 155.6 flows/s•7/7 nodes | cf2cnp-lab | stranger | shop | 80 | TCP | pos | world | 443 | TCP | Columns | Source Identity | Destination Identity | Destination Port | L7 info | Verdict | Timestamp | pos cf2c
+iframe #g: url= :: 
+console messages about framing: ["Refused to display 'https://grafana.poc.local/' in a frame because it set 'X-Frame-Options' to 'deny'."]
+ERR ENOTDIR: not a directory, open 'demos/26-cf2cnp-policy-from-flows/output/transcript.txt/portal-frames.png'
+[exit code: 1]
+
+### 2026-09-13T00:05:59Z
+$ node /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/frame/test.js
+iframe #h: url=https://hubble.poc.local/?namespace=cf2cnp-lab :: cf2cnp-lab | Any verdict | Visual | 155.7 flows/s•7/7 nodes | cf2cnp-lab | pos | shop | 80 | TCP | stranger | world | 443 | TCP | Columns | Source Identity | Destination Identity | Destination Port | L7 info | Verdict | Timestamp | pos cf2c
+iframe #g: url= :: 
+console messages about framing: ["Refused to display 'https://grafana.poc.local/' in a frame because it set 'X-Frame-Options' to 'deny'."]
+

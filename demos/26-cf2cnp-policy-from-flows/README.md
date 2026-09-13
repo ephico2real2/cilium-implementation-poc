@@ -108,7 +108,7 @@ The way to *get* ingress flows for a workload is the enterprise "observe first" 
 
 Cilium's per-endpoint **policy audit mode** evaluates policy and *reports* the verdict — `AUDIT` in Hubble,
 `action="audit"` in the metric — **without dropping anything**
-([docs: Enable policy audit mode for an endpoint](https://docs.cilium.io/en/stable/security/policy-creation/#enable-policy-audit-mode-for-an-endpoint)).
+([docs: Enable policy audit mode for a specific endpoint](https://docs.cilium.io/en/stable/security/policy-creation/#enable-policy-audit-mode-specific-endpoint)).
 It is endpoint-local, set on the agent of the node the pod runs on, and does not survive the pod. On
 1.20 the endpoint JSON carries no pod name (`external-identifiers` holds only the CNI attachment id —
 measured), so [`audit-mode.sh`](audit-mode.sh) finds the endpoint by the pod's IP.
@@ -346,14 +346,20 @@ assumed:
   is a fixed React front end plus a Go backend that speaks to the relay; there is no documented hook for
   a third-party panel. Isovalent's enterprise UI (the timeline, Timescape, RBAC) is a different product,
   not a plugin layer on this one — demo 16 Part 11b.
-- **Hubble UI can be framed by another page.** `https://hubble.poc.local/` answers with **no
-  `X-Frame-Options` and no `Content-Security-Policy`** (only `server: envoy` from the Gateway), so a portal
-  of our own could embed the service map in an iframe today. The relationship the question assumed is
-  reversed: nothing goes *into* Hubble UI, but Hubble UI can go into something.
-- **Grafana refuses to be framed by default.** The running instance reports `security.allow_embedding =
-  false` and answers `x-frame-options: deny`. Embedding Grafana panels in a portal is a supported,
-  documented switch (`grafana.ini` `[security] allow_embedding = true`, with the cookie SameSite
-  implications Grafana documents) — a decision to record, not a default to flip here.
+- **Hubble UI can be framed by another page — tested.** `https://hubble.poc.local/` answers with **no
+  `X-Frame-Options` and no `Content-Security-Policy`** (only `server: envoy` from the Gateway), and a local
+  page with two iframes (transcript Part 9b) rendered the service map inside its frame, live flow rate and
+  all. The relationship the question assumed is reversed: nothing goes *into* Hubble UI, but Hubble UI can
+  go into something.
+- **Grafana refuses to be framed by default — tested.** The running instance reports
+  `security.allow_embedding = false` and answers `x-frame-options: deny`; in the same test page the browser
+  logged `Refused to display 'https://grafana.poc.local/' in a frame because it set 'X-Frame-Options' to
+  'deny'` and the frame stayed blank. Embedding Grafana panels in a portal is a supported, documented
+  switch (`grafana.ini` `[security] allow_embedding = true`, with the cookie SameSite implications Grafana
+  documents) — a decision to record, not a default to flip here.
+
+![a local portal page framing Hubble UI (rendered) and Grafana (refused)](output/screenshots/portal-frames.png)
+
 - **What the cloud providers do** was not measured here and is not claimed. The pattern that *is*
   measurable is the one this repo already runs: **Grafana is the portal** (demo 16's dashboards, demo 25's
   observer dashboard with its cf2cnp actions, this demo's verdict dashboard), and Hubble UI sits beside it

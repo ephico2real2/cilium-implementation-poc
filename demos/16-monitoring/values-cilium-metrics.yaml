@@ -75,7 +75,7 @@ hubble:
               - {name: destinationContext, values: [app, workload-name, reserved-identity]}
               - {name: labelsContext,      values: [source_namespace, destination_namespace]}
           - name: policy                                          # demo 26: policy verdicts as a metric (hubble_policy_verdicts_total,
-            contextOptions:                                       # labels action=allowed|denied|audit, match=…, direction) — the
+            contextOptions:                                       # labels action=forwarded|dropped|audit, match=none|l3-l4|…) — the
               - {name: sourceContext,      values: [app, workload-name, reserved-identity]}   # "Network Policy" panels of the Hubble
               - {name: destinationContext, values: [app, workload-name, reserved-identity]}   # dashboards read it; same contexts
               - {name: labelsContext,      values: [source_namespace, destination_namespace]} # as every other metric (gotcha #59)
