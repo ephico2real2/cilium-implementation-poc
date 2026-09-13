@@ -100,6 +100,16 @@ deprecated name" poll); cilium-cli 0.20.0 (0.19.7 did not know 1.20's `CiliumCID
 by design: no `hubble-generate-certs` CronJob (the method is cert-manager, not cronjob), no `cilium-node-init`
 (a cloud-provider DaemonSet), no `cilium-etcd-secrets` (no external kvstore).
 
+### The order is a dependency order (operator, 2026-09-13)
+
+The demos were built in stages on purpose, to teach; a lab built for testing does the right thing. `scripts/lab-up.sh`
+makes **each cluster fully functional on its own** — the Gateway API CRDs, Cilium's core verified (status, nodes,
+kube-proxy replaced), CoreDNS upstreams, the pools, metrics-server, cert-manager with the root (created once, copied
+to every other cluster), then Hubble and the mesh apiserver in one upgrade on the issuer, then Tetragon — and only
+then connects the mesh. The table of what must exist before what is at the top of the script. What that removed,
+each measured in a run: Helm waiting on a Hubble UI LoadBalancer that had no pool yet; Helm certificates issued only
+to be replaced by cert-manager's; a certgen Job whose secret the CLI polled for; Tetragon before its host was ready.
+
 ### Phase 1 — the bring-up as scripts (what the MacBook will reuse)
 
 - `scripts/lab-up.sh <kind|minikube> [poc1] [poc2]`: creates the clusters from `clusters/ci/*.yaml`, installs
