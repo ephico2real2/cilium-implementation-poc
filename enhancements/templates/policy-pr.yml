@@ -53,9 +53,13 @@ jobs:
           git diff --stat -- "${{ inputs.policy }}" || true
 
       - name: Validate against the CiliumNetworkPolicy CRD (offline)
+        # kubectl-validate's --local-crds takes a DIRECTORY of CRD files (measured: `--local-crds=./path/to/crds/dir`),
+        # so the CRD goes into its own directory, not next to the policies
         run: |
-          curl -sSL -o cnp-crd.yaml "https://raw.githubusercontent.com/cilium/cilium/${CILIUM_VERSION}/pkg/k8s/apis/cilium.io/client/crds/v2/ciliumnetworkpolicies.yaml"
-          go run sigs.k8s.io/kubectl-validate@v0.0.4 --local-crds . "${{ inputs.policy }}"
+          mkdir -p .cilium-crds
+          curl -sSL -o .cilium-crds/ciliumnetworkpolicies.yaml "https://raw.githubusercontent.com/cilium/cilium/${CILIUM_VERSION}/pkg/k8s/apis/cilium.io/client/crds/v2/ciliumnetworkpolicies.yaml"
+          go run sigs.k8s.io/kubectl-validate@v0.0.4 --local-crds .cilium-crds --version 1.36 "${{ inputs.policy }}"
+          rm -rf .cilium-crds
 
       - name: Open the pull request
         uses: peter-evans/create-pull-request@v7
