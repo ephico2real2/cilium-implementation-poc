@@ -916,3 +916,19 @@ curl: (22) The requested URL returned error: 400
 
   exit=22
 
+### Part 14d — the fork's reviewed head (2eb0f6b) built, loaded and rolled out; the three checks again
+### 2026-09-13T01:06:48Z
+$ bash -c cd /private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/cf2cnp/fork && docker build -q -t ghcr.io/ephico2real2/cf2cnp:develop -t ghcr.io/ephico2real2/cf2cnp:2eb0f6b . | tail -1 && cd - >/dev/null && kind load docker-image ghcr.io/ephico2real2/cf2cnp:develop --name poc1 2>&1 | grep -c 'loading' | sed 's/^/  nodes loaded: /' && kubectl --context kind-poc1 -n hubble-observer rollout restart deploy/hubble-observer-cf2cnp >/dev/null && kubectl --context kind-poc1 -n hubble-observer rollout status deploy/hubble-observer-cf2cnp --timeout=120s && docker exec poc1-worker2 crictl images 2>/dev/null | grep ephico2real2/cf2cnp | tr -s ' ' && P=demos/26-cf2cnp-policy-from-flows && JSON=1 $P/generate.sh $P/policies/flow-stranger-to-shop.json | python3 -c "import json,sys; d=json.load(sys.stdin); print('  download_url:', d['download_url'], '| policies', d['policies'])" && GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}') && echo '  {} as a flow →' $(curl -s --cacert docs/root-ca.crt --resolve cf2cnp.poc.local:443:$GW -X POST https://cf2cnp.poc.local/generate -d '{}' -w ' http=%{http_code}') && echo '  a forwarded host with a path is ignored →' $(curl -s --cacert docs/root-ca.crt --resolve cf2cnp.poc.local:443:$GW -X POST https://cf2cnp.poc.local/generate -H 'Accept: application/json' -H 'X-Forwarded-Host: evil.example/steal' --data-binary @$P/policies/flow-pos-to-shop.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["download_url"])')
+sha256:f910f00758561cbccd83bfe3de23a8ffcedd80ef2926a120f320a6b4bc93ff6e
+  nodes loaded: 5
+Waiting for deployment spec update to be observed...
+Waiting for deployment spec update to be observed...
+Waiting for deployment "hubble-observer-cf2cnp" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "hubble-observer-cf2cnp" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "hubble-observer-cf2cnp" rollout to finish: 1 old replicas are pending termination...
+deployment "hubble-observer-cf2cnp" successfully rolled out
+ghcr.io/ephico2real2/cf2cnp develop f910f00758561 9.89MB
+  download_url: https://cf2cnp.poc.local/download/034db8e8-0240-4582-b94d-47a3411ab5d5 | policies 1
+  {} as a flow → Failed to parse flow JSON: flow #1: not a Hubble flow (no flow.source/destination labels, no traffic_direction, no uuid) http=400
+  a forwarded host with a path is ignored → https://cf2cnp.poc.local/download/e8bd1ea8-7f6d-419b-97d0-8e8e05e867a2
+
