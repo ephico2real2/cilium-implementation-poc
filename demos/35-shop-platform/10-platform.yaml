@@ -1,0 +1,278 @@
+# Demo 35 — a shop platform across FIVE namespaces, the shape a real estate has: shared services that several teams
+# call, an API gateway in its own namespace in front of them, and a client namespace that must only ever go through
+# the gateway. Every image is one already on the nodes (nginx:1.27-alpine, alpine:3.20); every service answers real
+# paths from a ConfigMap (the demo 30 strategy), so a 200 is the service and anything else is the policy.
+#
+#   shop-clients   shopper  ──▶  api-gateway (shop-edge)  ──▶  catalog, orders (shop-core), reviews (shop-reviews), payment-gateway (shop-payments)
+#                  stranger ──▶  catalog directly (not intended: the only path in is the gateway)
+#   shop-core      orders   ──▶  catalog (same namespace), payment-gateway (shop-payments)
+#   shop-payments  payment-gateway ──▶ merchant (shop-merchant)
+#   shop-merchant  merchant ──▶  catalog (shop-core)            ← a second namespace calling the shared service
+#   shop-reviews   reviews  ──▶  catalog (shop-core)            ← a third; ratings ──▶ reviews (same namespace)
+#
+#   kubectl --context kind-poc1 apply -f demos/35-shop-platform/10-platform.yaml
+apiVersion: v1
+kind: Namespace
+metadata: {name: shop-edge, labels: {app.kubernetes.io/part-of: shop}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: shop-core, labels: {app.kubernetes.io/part-of: shop}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: shop-payments, labels: {app.kubernetes.io/part-of: shop}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: shop-merchant, labels: {app.kubernetes.io/part-of: shop}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: shop-reviews, labels: {app.kubernetes.io/part-of: shop}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: shop-clients}
+---
+# ---- the gateway: nginx as a reverse proxy, one location per backend namespace ------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: api-gateway-nginx, namespace: shop-edge}
+data:
+  default.conf: |
+    server {
+      listen 80;
+      resolver kube-dns.kube-system.svc.cluster.local valid=10s;
+      location = /            { return 200 "api-gateway\n"; }
+      location /catalog/      { proxy_pass http://catalog.shop-core.svc.cluster.local/; }
+      location /orders/       { proxy_pass http://orders.shop-core.svc.cluster.local/; }
+      location /reviews/      { proxy_pass http://reviews.shop-reviews.svc.cluster.local/; }
+      location /pay/          { proxy_pass http://payment-gateway.shop-payments.svc.cluster.local/; }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: api-gateway, namespace: shop-edge, labels: {app.kubernetes.io/name: api-gateway, app.kubernetes.io/part-of: shop}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: api-gateway}}
+  template:
+    metadata: {labels: {app: api-gateway, app.kubernetes.io/name: api-gateway, app.kubernetes.io/part-of: shop}}
+    spec:
+      volumes: [{name: conf, configMap: {name: api-gateway-nginx}}]
+      containers:
+        - name: gateway
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          volumeMounts: [{name: conf, mountPath: /etc/nginx/conf.d}]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: api-gateway, namespace: shop-edge}
+spec: {selector: {app: api-gateway}, ports: [{port: 80, targetPort: 80}]}
+---
+# ---- the services: one ConfigMap shape, each namespace's copy names its paths ---------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: service-nginx, namespace: shop-core}
+data:
+  default.conf: |
+    server {
+      listen 80;
+      location = /            { return 200 "$hostname\n"; }
+      location /items         { return 200 "items\n"; }
+      location /place         { return 200 "placed\n"; }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: catalog, namespace: shop-core, labels: {app.kubernetes.io/name: catalog, app.kubernetes.io/part-of: shop}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: catalog}}
+  template:
+    metadata: {labels: {app: catalog, app.kubernetes.io/name: catalog, app.kubernetes.io/part-of: shop}}
+    spec:
+      volumes: [{name: conf, configMap: {name: service-nginx}}]
+      containers:
+        - name: catalog
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          volumeMounts: [{name: conf, mountPath: /etc/nginx/conf.d}]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: catalog, namespace: shop-core}
+spec: {selector: {app: catalog}, ports: [{port: 80, targetPort: 80}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: orders, namespace: shop-core, labels: {app.kubernetes.io/name: orders, app.kubernetes.io/part-of: shop}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: orders}}
+  template:
+    metadata: {labels: {app: orders, app.kubernetes.io/name: orders, app.kubernetes.io/part-of: shop}}
+    spec:
+      volumes: [{name: conf, configMap: {name: service-nginx}}]
+      containers:
+        - name: orders
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          volumeMounts: [{name: conf, mountPath: /etc/nginx/conf.d}]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+        - name: caller                         # orders reads the catalog (same namespace) and charges through payments (another)
+          image: alpine:3.20
+          command: ["sh", "-c", "while true; do wget -qO- --timeout=2 http://catalog.shop-core/items >/dev/null 2>&1; wget -qO- --timeout=2 http://payment-gateway.shop-payments/charge >/dev/null 2>&1; sleep 5; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: orders, namespace: shop-core}
+spec: {selector: {app: orders}, ports: [{port: 80, targetPort: 80}]}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: service-nginx, namespace: shop-payments}
+data:
+  default.conf: |
+    server {
+      listen 80;
+      location = /            { return 200 "$hostname\n"; }
+      location /charge        { return 200 "charged\n"; }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: payment-gateway, namespace: shop-payments, labels: {app.kubernetes.io/name: payment-gateway, app.kubernetes.io/part-of: shop}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: payment-gateway}}
+  template:
+    metadata: {labels: {app: payment-gateway, app.kubernetes.io/name: payment-gateway, app.kubernetes.io/part-of: shop}}
+    spec:
+      volumes: [{name: conf, configMap: {name: service-nginx}}]
+      containers:
+        - name: payment-gateway
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          volumeMounts: [{name: conf, mountPath: /etc/nginx/conf.d}]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+        - name: caller                         # a charge settles with the merchant (another namespace)
+          image: alpine:3.20
+          command: ["sh", "-c", "while true; do wget -qO- --timeout=2 http://merchant.shop-merchant/settle >/dev/null 2>&1; sleep 6; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: payment-gateway, namespace: shop-payments}
+spec: {selector: {app: payment-gateway}, ports: [{port: 80, targetPort: 80}]}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: service-nginx, namespace: shop-merchant}
+data:
+  default.conf: |
+    server {
+      listen 80;
+      location = /            { return 200 "$hostname\n"; }
+      location /settle        { return 200 "settled\n"; }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: merchant, namespace: shop-merchant, labels: {app.kubernetes.io/name: merchant, app.kubernetes.io/part-of: shop}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: merchant}}
+  template:
+    metadata: {labels: {app: merchant, app.kubernetes.io/name: merchant, app.kubernetes.io/part-of: shop}}
+    spec:
+      volumes: [{name: conf, configMap: {name: service-nginx}}]
+      containers:
+        - name: merchant
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          volumeMounts: [{name: conf, mountPath: /etc/nginx/conf.d}]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+        - name: caller                         # the merchant portal reads the shared catalog (a second namespace calling it)
+          image: alpine:3.20
+          command: ["sh", "-c", "while true; do wget -qO- --timeout=2 http://catalog.shop-core/items >/dev/null 2>&1; sleep 7; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: merchant, namespace: shop-merchant}
+spec: {selector: {app: merchant}, ports: [{port: 80, targetPort: 80}]}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: service-nginx, namespace: shop-reviews}
+data:
+  default.conf: |
+    server {
+      listen 80;
+      location = /            { return 200 "$hostname\n"; }
+      location /latest        { return 200 "latest reviews\n"; }
+      location /stars         { return 200 "4.7\n"; }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: reviews, namespace: shop-reviews, labels: {app.kubernetes.io/name: reviews, app.kubernetes.io/part-of: shop}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: reviews}}
+  template:
+    metadata: {labels: {app: reviews, app.kubernetes.io/name: reviews, app.kubernetes.io/part-of: shop}}
+    spec:
+      volumes: [{name: conf, configMap: {name: service-nginx}}]
+      containers:
+        - name: reviews
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          volumeMounts: [{name: conf, mountPath: /etc/nginx/conf.d}]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+        - name: caller                         # reviews are about catalog items (a third namespace calling the catalog)
+          image: alpine:3.20
+          command: ["sh", "-c", "while true; do wget -qO- --timeout=2 http://catalog.shop-core/items >/dev/null 2>&1; sleep 8; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: reviews, namespace: shop-reviews}
+spec: {selector: {app: reviews}, ports: [{port: 80, targetPort: 80}]}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: ratings, namespace: shop-reviews, labels: {app: ratings, app.kubernetes.io/name: ratings, app.kubernetes.io/part-of: shop}}
+spec:
+  containers:
+    - name: client                             # ratings aggregates reviews (same namespace)
+      image: alpine:3.20
+      command: ["sh", "-c", "while true; do wget -qO- --timeout=2 http://reviews.shop-reviews/stars >/dev/null 2>&1; sleep 6; done"]
+      resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+# ---- the clients: the shopper goes through the gateway; the stranger goes straight to the catalog ------------------
+apiVersion: v1
+kind: Pod
+metadata: {name: shopper, namespace: shop-clients, labels: {app: shopper, app.kubernetes.io/name: shopper}}
+spec:
+  containers:
+    - name: client
+      image: alpine:3.20
+      command: ["sh", "-c", "while true; do for p in catalog/items orders/place reviews/latest pay/charge; do wget -qO- --timeout=2 http://api-gateway.shop-edge/$p >/dev/null 2>&1; done; sleep 5; done"]
+      resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: stranger, namespace: shop-clients, labels: {app: stranger, app.kubernetes.io/name: stranger}}
+spec:
+  containers:
+    - name: client
+      image: alpine:3.20
+      command: ["sh", "-c", "while true; do wget -qO- --timeout=2 http://catalog.shop-core/items >/dev/null 2>&1; wget -qO- --timeout=2 http://payment-gateway.shop-payments/charge >/dev/null 2>&1; sleep 7; done"]
+      resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}

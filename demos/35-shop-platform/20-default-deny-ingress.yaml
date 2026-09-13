@@ -1,0 +1,50 @@
+# Demo 35 — one default-deny ingress per service namespace, applied while every service endpoint is in policy audit
+# mode (audit-all.sh): every caller is reported as AUDIT, nobody is cut off, and the AUDIT flows — from four namespaces
+# into the shared catalog, through the gateway, between the teams — are what cf2cnp turns into the allow rules.
+# The gateway's own namespace (shop-edge) is included: the shopper is its only intended caller. shop-clients gets no
+# policy: it is a client namespace, its pods are selected by nothing.
+#   kubectl --context kind-poc1 apply -f demos/35-shop-platform/20-default-deny-ingress.yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: default-deny-ingress, namespace: shop-edge}
+spec:
+  description: default-deny ingress on every shop workload in shop-edge; audited first, enforced once the generated rules are in place
+  endpointSelector: {matchLabels: {app.kubernetes.io/part-of: shop}}
+  ingress:
+    - {}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: default-deny-ingress, namespace: shop-core}
+spec:
+  description: default-deny ingress on every shop workload in shop-core; audited first, enforced once the generated rules are in place
+  endpointSelector: {matchLabels: {app.kubernetes.io/part-of: shop}}
+  ingress:
+    - {}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: default-deny-ingress, namespace: shop-payments}
+spec:
+  description: default-deny ingress on every shop workload in shop-payments; audited first, enforced once the generated rules are in place
+  endpointSelector: {matchLabels: {app.kubernetes.io/part-of: shop}}
+  ingress:
+    - {}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: default-deny-ingress, namespace: shop-merchant}
+spec:
+  description: default-deny ingress on every shop workload in shop-merchant; audited first, enforced once the generated rules are in place
+  endpointSelector: {matchLabels: {app.kubernetes.io/part-of: shop}}
+  ingress:
+    - {}
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: default-deny-ingress, namespace: shop-reviews}
+spec:
+  description: default-deny ingress on every shop workload in shop-reviews; audited first, enforced once the generated rules are in place
+  endpointSelector: {matchLabels: {app.kubernetes.io/part-of: shop}}
+  ingress:
+    - {}

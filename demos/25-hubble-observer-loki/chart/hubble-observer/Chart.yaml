@@ -22,19 +22,20 @@ dependencies:
   # the proxy headers (or externalURL), accepts many flows per request merged per workload, names policies after the whole
   # selector, carries the selector's labels; 0.6.0 adds cluster-aware selectors (ClusterMesh), L7 rules, the DNS-visibility
   # rule, exclude=, `cf2cnp merge`, allowed origins + a token + a CiliumNetworkPolicy for the pod, and release binaries;
-  # 0.6.1 keeps a merged policy file as it was (one rule in a pull request diff) and writes one kube-dns rule.
-  # Upstream: oci://ghcr.io/onzack/helm-charts, version "*".
+  # 0.6.1 keeps a merged policy file as it was (one rule in a pull request diff) and writes one kube-dns rule; 0.6.3 writes
+  # every policy's description from its rules. Upstream: oci://ghcr.io/onzack/helm-charts, version "*".
   - name: cf2cnp
-    version: "0.6.1"
+    version: "0.6.3"
     repository: https://ephico2real2.github.io/cf2cnp
     condition: cf2cnp.enabled
   # The Hubble / Policy Verdicts (Namespace) dashboard — audited / forwarded / dropped per namespace from Hubble's `policy`
   # metric — as an optional companion to the Cilium Flows dashboard this chart ships. Off by default; needs the policy
   # metric enabled on the agents (see https://github.com/ephico2real2/hubble-policy-verdicts). 0.2.0 adds the optional Loki
   # flow row (lokiRow.enabled) with the cf2cnp Generate action, so a verdict becomes a policy on one dashboard; 0.2.1 lets
-  # the namespace filter choose its side (destination or source), so egress drops leaving the namespace are on the page.
+  # the namespace filter choose its side (destination or source), so egress drops leaving the namespace are on the page;
+  # 0.2.2 drops the PoC wording from the panels and counts audited source → destination pairs.
   - name: hubble-policy-verdicts
     alias: policyVerdictsDashboard
-    version: "0.2.1"
+    version: "0.2.2"
     repository: https://ephico2real2.github.io/hubble-policy-verdicts
     condition: policyVerdictsDashboard.enabled

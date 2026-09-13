@@ -1,0 +1,221 @@
+### Part 1 — the platform: five service namespaces, a gateway, two clients
+### 2026-09-13T14:38:19Z
+$ kubectl --context kind-poc1 apply -f demos/35-shop-platform/10-platform.yaml
+namespace/shop-edge created
+namespace/shop-core created
+namespace/shop-payments created
+namespace/shop-merchant created
+namespace/shop-reviews created
+namespace/shop-clients created
+configmap/api-gateway-nginx created
+deployment.apps/api-gateway created
+service/api-gateway created
+configmap/service-nginx created
+deployment.apps/catalog created
+service/catalog created
+deployment.apps/orders created
+service/orders created
+configmap/service-nginx created
+deployment.apps/payment-gateway created
+service/payment-gateway created
+configmap/service-nginx created
+deployment.apps/merchant created
+service/merchant created
+configmap/service-nginx created
+deployment.apps/reviews created
+service/reviews created
+pod/ratings created
+pod/shopper created
+pod/stranger created
+
+### 2026-09-13T14:38:36Z
+$ bash -c for ns in shop-edge shop-core shop-payments shop-merchant shop-reviews shop-clients; do kubectl --context kind-poc1 -n $ns get pods -o wide --no-headers | awk -v ns=$ns "{printf \"%-14s %-34s %-8s %s\n\", ns, \$1, \$3, \$6}"; done
+shop-edge      api-gateway-7d77448bf5-g59cc       Running  10.10.4.192
+shop-core      catalog-c8fcd8bb-pcnwq             Running  10.10.4.245
+shop-core      orders-6ccc94b59d-kwn5q            Running  10.10.4.215
+shop-payments  payment-gateway-6c6846d6b5-85ccg   Running  10.10.4.23
+shop-merchant  merchant-5c5cc7d9b6-zwn4s          Running  10.10.4.47
+shop-reviews   ratings                            Running  10.10.4.22
+shop-reviews   reviews-768b7bd9b6-pvj42           Running  10.10.4.154
+shop-clients   shopper                            Running  10.10.4.12
+shop-clients   stranger                           Running  10.10.4.153
+
+### 2026-09-13T14:38:52Z
+$ demos/35-shop-platform/probe.sh
+shop-clients shopper   api-gateway.shop-edge/catalog/items              HTTP/1.1 200 OK rc=0 
+shop-clients shopper   api-gateway.shop-edge/orders/place               HTTP/1.1 200 OK rc=0 
+shop-clients shopper   api-gateway.shop-edge/reviews/latest             HTTP/1.1 200 OK rc=0 
+shop-clients shopper   api-gateway.shop-edge/pay/charge                 HTTP/1.1 200 OK rc=0 
+shop-merchant merchant-5c5cc7d9b6-zwn4s catalog.shop-core/items                          HTTP/1.1 200 OK rc=0 
+shop-reviews ratings   reviews.shop-reviews/stars                       HTTP/1.1 200 OK rc=0 
+shop-clients stranger  catalog.shop-core/items                          HTTP/1.1 200 OK rc=0 
+shop-clients stranger  payment-gateway.shop-payments/charge             HTTP/1.1 200 OK rc=0 
+shop-clients shopper   catalog.shop-core/items                          HTTP/1.1 200 OK rc=0 
+
+
+### Part 2 — observe first: default-deny ingress in the five service namespaces under audit, and the AUDIT flows from everywhere
+### 2026-09-13T14:43:11Z
+$ demos/35-shop-platform/audit-all.sh Enabled
+endpoint 89 (cep-name:shop-edge/api-gateway-7d77448bf5-g59cc on poc1-worker): PolicyAuditMode=Enabled
+endpoint 538 (cep-name:shop-core/catalog-c8fcd8bb-pcnwq on poc1-worker): PolicyAuditMode=Enabled
+endpoint 2867 (cep-name:shop-core/orders-6ccc94b59d-kwn5q on poc1-worker): PolicyAuditMode=Enabled
+endpoint 1815 (cep-name:shop-payments/payment-gateway-6c6846d6b5-85ccg on poc1-worker): PolicyAuditMode=Enabled
+endpoint 131 (cep-name:shop-merchant/merchant-5c5cc7d9b6-zwn4s on poc1-worker): PolicyAuditMode=Enabled
+endpoint 2452 (cep-name:shop-reviews/ratings on poc1-worker): PolicyAuditMode=Enabled
+endpoint 2457 (cep-name:shop-reviews/reviews-768b7bd9b6-pvj42 on poc1-worker): PolicyAuditMode=Enabled
+
+### 2026-09-13T14:43:45Z
+$ kubectl --context kind-poc1 apply -f demos/35-shop-platform/20-default-deny-ingress.yaml
+ciliumnetworkpolicy.cilium.io/default-deny-ingress created
+ciliumnetworkpolicy.cilium.io/default-deny-ingress created
+ciliumnetworkpolicy.cilium.io/default-deny-ingress created
+ciliumnetworkpolicy.cilium.io/default-deny-ingress created
+ciliumnetworkpolicy.cilium.io/default-deny-ingress created
+
+### 2026-09-13T14:44:16Z
+$ demos/35-shop-platform/audit-flows.sh demos/35-shop-platform/policies/flows-audit.ndjson 400
+85 AUDIT INGRESS request flows -> demos/35-shop-platform/policies/flows-audit.ndjson
+   24  shopper@shop-clients         -> api-gateway@shop-edge:80
+    6  api-gateway@shop-edge        -> catalog@shop-core:80
+    4  merchant@shop-merchant       -> catalog@shop-core:80
+    6  orders@shop-core             -> catalog@shop-core:80
+    4  reviews@shop-reviews         -> catalog@shop-core:80
+    4  stranger@shop-clients        -> catalog@shop-core:80
+    4  payment-gateway@shop-payments -> merchant@shop-merchant:80
+    6  api-gateway@shop-edge        -> orders@shop-core:80
+    6  api-gateway@shop-edge        -> payment-gateway@shop-payments:80
+    6  orders@shop-core             -> payment-gateway@shop-payments:80
+    4  stranger@shop-clients        -> payment-gateway@shop-payments:80
+    6  api-gateway@shop-edge        -> reviews@shop-reviews:80
+    5  ratings@shop-reviews         -> reviews@shop-reviews:80
+
+
+### Part 3 — the release the generation uses: cf2cnp 0.6.3 (descriptions from the rules) and the dashboard chart 0.2.2
+### 2026-09-13T14:44:45Z
+$ demos/25-hubble-observer-loki/chart-from-fork.sh develop d95da35
+fork: https://github.com/ephico2real2/hubble-observer.git  branch: develop  commit: d95da35 chart: cf2cnp 0.6.3 (descriptions from the rules) and hubble
+dependencies: cf2cnp-0.6.3.tgz
+hubble-policy-verdicts-0.2.2.tgz
+STATUS: deployed
+REVISION: 32
+
+### 2026-09-13T14:45:16Z
+$ bash -c kubectl --context kind-poc1 -n hubble-observer get pods -l app.kubernetes.io/name=cf2cnp -o custom-columns="POD:.metadata.name,IMAGE:.spec.containers[0].image,READY:.status.containerStatuses[0].ready"; kubectl --context kind-poc1 -n monitoring get cm hubble-policy-verdicts -o jsonpath="{.data.hubble-policy-verdicts\.json}" | python3 -c "
+import json,sys; d=json.load(sys.stdin); print([p[\"title\"] for p in d[\"panels\"] if \"audited\" in p[\"title\"].lower() or \"POLICY_DENIED\" in p[\"title\"]])"
+POD                                       IMAGE                               READY
+hubble-observer-cf2cnp-5c7fd8df69-t8589   ghcr.io/ephico2real2/cf2cnp:0.6.3   true
+hubble-observer-cf2cnp-69dc46c99-7qjcm    ghcr.io/ephico2real2/cf2cnp:0.6.1   true
+['Audited (policy evaluated, not enforced) — in range', 'Still audited (last 5 min): source → destination pairs', 'POLICY_DENIED drops per second (hubble_drop_total)']
+
+
+### Part 4 — one request, every namespace: the policies as observed, then with the stranger excluded; the descriptions say what the rules say
+### 2026-09-13T14:46:05Z
+$ demos/26-cf2cnp-policy-from-flows/generate.sh demos/35-shop-platform/policies/flows-audit.ndjson demos/35-shop-platform/policies/cnp-shop-all.yaml
+http=200 → demos/35-shop-platform/policies/cnp-shop-all.yaml
+
+### 2026-09-13T14:46:06Z
+$ bash -c QUERY="exclude=app.kubernetes.io%2Fname%3Dstranger" demos/26-cf2cnp-policy-from-flows/generate.sh demos/35-shop-platform/policies/flows-audit.ndjson demos/35-shop-platform/policies/cnp-shop-intent.yaml
+http=200 → demos/35-shop-platform/policies/cnp-shop-intent.yaml
+
+### 2026-09-13T14:46:06Z
+$ bash -c echo "policies: $(grep -c "^kind: CiliumNetworkPolicy" demos/35-shop-platform/policies/cnp-shop-intent.yaml) (as observed: $(grep -c "^kind: CiliumNetworkPolicy" demos/35-shop-platform/policies/cnp-shop-all.yaml), stranger rules removed: $(($(grep -c "name: stranger" demos/35-shop-platform/policies/cnp-shop-all.yaml) - $(grep -c "name: stranger" demos/35-shop-platform/policies/cnp-shop-intent.yaml))))"; echo; python3 -c "
+import yaml
+for d in yaml.safe_load_all(open(\"demos/35-shop-platform/policies/cnp-shop-intent.yaml\")):
+    if d: print(\"{:14} {:16} {}\".format(d[\"metadata\"][\"namespace\"], d[\"metadata\"][\"name\"], d[\"spec\"][\"description\"]))"
+policies: 6 (as observed: 6, stranger rules removed: 2)
+
+shop-edge      api-gateway      Allow ingress to api-gateway in shop-edge: from shopper in shop-clients on TCP/80
+shop-core      catalog          Allow ingress to catalog in shop-core: from orders on TCP/80; from api-gateway in shop-edge on TCP/80; from merchant in shop-merchant on TCP/80; from reviews in shop-reviews on TCP/80
+shop-payments  payment-gateway  Allow ingress to payment-gateway in shop-payments: from orders in shop-core on TCP/80; from api-gateway in shop-edge on TCP/80
+shop-core      orders           Allow ingress to orders in shop-core: from api-gateway in shop-edge on TCP/80
+shop-reviews   reviews          Allow ingress to reviews in shop-reviews: from api-gateway in shop-edge on TCP/80; from ratings on TCP/80
+shop-merchant  merchant         Allow ingress to merchant in shop-merchant: from payment-gateway in shop-payments on TCP/80
+
+### 2026-09-13T14:46:07Z
+$ bash -c python3 -c "
+import yaml
+for d in yaml.safe_load_all(open(\"demos/35-shop-platform/policies/cnp-shop-intent.yaml\")):
+    if d and d[\"metadata\"][\"name\"]==\"catalog\": print(yaml.safe_dump(d[\"spec\"][\"ingress\"], sort_keys=False))"
+- fromEndpoints:
+  - matchLabels:
+      app.kubernetes.io/name: orders
+  toPorts:
+  - ports:
+    - port: '80'
+      protocol: TCP
+- fromEndpoints:
+  - matchLabels:
+      app.kubernetes.io/name: api-gateway
+      io.kubernetes.pod.namespace: shop-edge
+  toPorts:
+  - ports:
+    - port: '80'
+      protocol: TCP
+- fromEndpoints:
+  - matchLabels:
+      app.kubernetes.io/name: merchant
+      io.kubernetes.pod.namespace: shop-merchant
+  toPorts:
+  - ports:
+    - port: '80'
+      protocol: TCP
+- fromEndpoints:
+  - matchLabels:
+      app.kubernetes.io/name: reviews
+      io.kubernetes.pod.namespace: shop-reviews
+  toPorts:
+  - ports:
+    - port: '80'
+      protocol: TCP
+
+
+
+### Part 5 — apply the intent under audit, then enforce: the shopper through the gateway, the teams between themselves, the stranger nowhere
+### 2026-09-13T14:46:52Z
+$ kubectl --context kind-poc1 apply -f demos/35-shop-platform/policies/cnp-shop-intent.yaml
+ciliumnetworkpolicy.cilium.io/api-gateway created
+ciliumnetworkpolicy.cilium.io/catalog created
+ciliumnetworkpolicy.cilium.io/payment-gateway created
+ciliumnetworkpolicy.cilium.io/orders created
+ciliumnetworkpolicy.cilium.io/reviews created
+ciliumnetworkpolicy.cilium.io/merchant created
+
+### 2026-09-13T14:46:56Z
+$ demos/35-shop-platform/audit-all.sh Disabled
+endpoint 89 (cep-name:shop-edge/api-gateway-7d77448bf5-g59cc on poc1-worker): PolicyAuditMode=Disabled
+endpoint 538 (cep-name:shop-core/catalog-c8fcd8bb-pcnwq on poc1-worker): PolicyAuditMode=Disabled
+endpoint 2867 (cep-name:shop-core/orders-6ccc94b59d-kwn5q on poc1-worker): PolicyAuditMode=Disabled
+endpoint 1815 (cep-name:shop-payments/payment-gateway-6c6846d6b5-85ccg on poc1-worker): PolicyAuditMode=Disabled
+endpoint 131 (cep-name:shop-merchant/merchant-5c5cc7d9b6-zwn4s on poc1-worker): PolicyAuditMode=Disabled
+endpoint 2452 (cep-name:shop-reviews/ratings on poc1-worker): PolicyAuditMode=Disabled
+endpoint 2457 (cep-name:shop-reviews/reviews-768b7bd9b6-pvj42 on poc1-worker): PolicyAuditMode=Disabled
+
+### 2026-09-13T14:47:32Z
+$ demos/35-shop-platform/probe.sh
+shop-clients shopper   api-gateway.shop-edge/catalog/items              HTTP/1.1 200 OK rc=0 
+shop-clients shopper   api-gateway.shop-edge/orders/place               HTTP/1.1 200 OK rc=0 
+shop-clients shopper   api-gateway.shop-edge/reviews/latest             HTTP/1.1 200 OK rc=0 
+shop-clients shopper   api-gateway.shop-edge/pay/charge                 HTTP/1.1 200 OK rc=0 
+shop-merchant merchant-5c5cc7d9b6-zwn4s catalog.shop-core/items                          HTTP/1.1 200 OK rc=0 
+shop-reviews ratings   reviews.shop-reviews/stars                       HTTP/1.1 200 OK rc=0 
+shop-clients stranger  catalog.shop-core/items                        rc=1 
+shop-clients stranger  payment-gateway.shop-payments/charge           rc=1 
+shop-clients shopper   catalog.shop-core/items                        rc=1 
+
+### 2026-09-13T14:47:49Z
+$ demos/35-shop-platform/verdicts.sh 200
+   40  shopper@shop-clients         -> api-gateway@shop-edge        FORWARDED api-gateway
+    9  api-gateway@shop-edge        -> catalog@shop-core            FORWARDED catalog
+    7  merchant@shop-merchant       -> catalog@shop-core            FORWARDED catalog
+    8  orders@shop-core             -> catalog@shop-core            FORWARDED catalog
+    5  reviews@shop-reviews         -> catalog@shop-core            FORWARDED catalog
+    3  shopper@shop-clients         -> catalog@shop-core            DROPPED   (no policy named)
+   11  stranger@shop-clients        -> catalog@shop-core            DROPPED   (no policy named)
+    7  payment-gateway@shop-payments -> merchant@shop-merchant       FORWARDED merchant
+   10  api-gateway@shop-edge        -> orders@shop-core             FORWARDED orders
+   10  api-gateway@shop-edge        -> payment-gateway@shop-payments FORWARDED payment-gateway
+    8  orders@shop-core             -> payment-gateway@shop-payments FORWARDED payment-gateway
+   11  stranger@shop-clients        -> payment-gateway@shop-payments DROPPED   (no policy named)
+    9  api-gateway@shop-edge        -> reviews@shop-reviews         FORWARDED reviews
+    8  ratings@shop-reviews         -> reviews@shop-reviews         FORWARDED reviews
+

@@ -1,0 +1,60 @@
+# evidence for demos/35-shop-platform — recorded 2026-09-13T14:48Z by scripts/evidence/collect.sh
+### 2026-09-13T14:48:16Z
+$ kubectl --context kind-poc1 -n shop-edge get pods -o wide
+NAME                           READY   STATUS    RESTARTS   AGE     IP            NODE          NOMINATED NODE   READINESS GATES
+api-gateway-7d77448bf5-g59cc   1/1     Running   0          9m54s   10.10.4.192   poc1-worker   <none>           <none>
+
+### 2026-09-13T14:48:16Z
+$ kubectl --context kind-poc1 -n shop-core get pods -o wide
+NAME                      READY   STATUS    RESTARTS   AGE     IP            NODE          NOMINATED NODE   READINESS GATES
+catalog-c8fcd8bb-pcnwq    1/1     Running   0          9m55s   10.10.4.245   poc1-worker   <none>           <none>
+orders-6ccc94b59d-kwn5q   2/2     Running   0          9m55s   10.10.4.215   poc1-worker   <none>           <none>
+
+### 2026-09-13T14:48:17Z
+$ kubectl --context kind-poc1 -n shop-payments get pods -o wide
+NAME                               READY   STATUS    RESTARTS   AGE     IP           NODE          NOMINATED NODE   READINESS GATES
+payment-gateway-6c6846d6b5-85ccg   2/2     Running   0          9m55s   10.10.4.23   poc1-worker   <none>           <none>
+
+### 2026-09-13T14:48:17Z
+$ kubectl --context kind-poc1 -n shop-merchant get pods -o wide
+NAME                        READY   STATUS    RESTARTS   AGE     IP           NODE          NOMINATED NODE   READINESS GATES
+merchant-5c5cc7d9b6-zwn4s   2/2     Running   0          9m54s   10.10.4.47   poc1-worker   <none>           <none>
+
+### 2026-09-13T14:48:17Z
+$ kubectl --context kind-poc1 -n shop-reviews get pods -o wide
+NAME                       READY   STATUS    RESTARTS   AGE     IP            NODE          NOMINATED NODE   READINESS GATES
+ratings                    1/1     Running   0          9m53s   10.10.4.22    poc1-worker   <none>           <none>
+reviews-768b7bd9b6-pvj42   2/2     Running   0          9m54s   10.10.4.154   poc1-worker   <none>           <none>
+
+### 2026-09-13T14:48:17Z
+$ kubectl --context kind-poc1 -n shop-clients get pods -o wide
+NAME       READY   STATUS    RESTARTS   AGE     IP            NODE          NOMINATED NODE   READINESS GATES
+shopper    1/1     Running   0          9m54s   10.10.4.12    poc1-worker   <none>           <none>
+stranger   1/1     Running   0          9m54s   10.10.4.153   poc1-worker   <none>           <none>
+
+### 2026-09-13T14:48:18Z
+$ bash -c for ns in shop-edge shop-core shop-payments shop-merchant shop-reviews; do kubectl --context kind-poc1 -n $ns get cnp -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,MANAGED-BY:.metadata.labels.app\.kubernetes\.io/managed-by,DESCRIPTION:.spec.description' --no-headers; done
+shop-edge   api-gateway            cf2cnp   Allow ingress to api-gateway in shop-edge: from shopper in shop-clients on TCP/80
+shop-edge   default-deny-ingress   <none>   default-deny ingress on every shop workload in shop-edge; audited first, enforced once the generated rules are in place
+shop-core   catalog                cf2cnp   Allow ingress to catalog in shop-core: from orders on TCP/80; from api-gateway in shop-edge on TCP/80; from merchant in shop-merchant on TCP/80; from reviews in shop-reviews on TCP/80
+shop-core   default-deny-ingress   <none>   default-deny ingress on every shop workload in shop-core; audited first, enforced once the generated rules are in place
+shop-core   orders                 cf2cnp   Allow ingress to orders in shop-core: from api-gateway in shop-edge on TCP/80
+shop-payments   default-deny-ingress   <none>   default-deny ingress on every shop workload in shop-payments; audited first, enforced once the generated rules are in place
+shop-payments   payment-gateway        cf2cnp   Allow ingress to payment-gateway in shop-payments: from orders in shop-core on TCP/80; from api-gateway in shop-edge on TCP/80
+shop-merchant   default-deny-ingress   <none>   default-deny ingress on every shop workload in shop-merchant; audited first, enforced once the generated rules are in place
+shop-merchant   merchant               cf2cnp   Allow ingress to merchant in shop-merchant: from payment-gateway in shop-payments on TCP/80
+shop-reviews   default-deny-ingress   <none>   default-deny ingress on every shop workload in shop-reviews; audited first, enforced once the generated rules are in place
+shop-reviews   reviews                cf2cnp   Allow ingress to reviews in shop-reviews: from api-gateway in shop-edge on TCP/80; from ratings on TCP/80
+
+### 2026-09-13T14:48:19Z
+$ bash -c demos/35-shop-platform/probe.sh
+shop-clients shopper   api-gateway.shop-edge/catalog/items              HTTP/1.1 200 OK rc=0 
+shop-clients shopper   api-gateway.shop-edge/orders/place               HTTP/1.1 200 OK rc=0 
+shop-clients shopper   api-gateway.shop-edge/reviews/latest             HTTP/1.1 200 OK rc=0 
+shop-clients shopper   api-gateway.shop-edge/pay/charge                 HTTP/1.1 200 OK rc=0 
+shop-merchant merchant-5c5cc7d9b6-zwn4s catalog.shop-core/items                          HTTP/1.1 200 OK rc=0 
+shop-reviews ratings   reviews.shop-reviews/stars                       HTTP/1.1 200 OK rc=0 
+shop-clients stranger  catalog.shop-core/items                        rc=1 
+shop-clients stranger  payment-gateway.shop-payments/charge           rc=1 
+shop-clients shopper   catalog.shop-core/items                        rc=1 
+

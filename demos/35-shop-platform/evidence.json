@@ -1,0 +1,25 @@
+{
+ "captures": [
+  {
+   "name": "grafana-policy-verdicts-shop-core",
+   "url": "https://grafana.poc.local/d/hubble-policy-verdicts?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-role=destination_namespace&var-namespace=shop-core",
+   "wait": "text:Who talked to whom",
+   "height": 1500,
+   "look": "the verdict dashboard (chart 0.2.2) on shop-core: audit, then forwarded by the generated catalog and orders policies from four callers in three namespaces, the stranger and the direct shopper dropped; the audited tile reads none"
+  },
+  {
+   "name": "grafana-policy-verdicts-shop-clients-source",
+   "url": "https://grafana.poc.local/d/hubble-policy-verdicts?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-role=source_namespace&var-namespace=shop-clients",
+   "wait": "text:Who talked to whom",
+   "height": 1500,
+   "look": "the same dashboard with the namespace as the SOURCE, shop-clients: the shopper forwarded into the gateway, the stranger dropped at catalog and payments \u2014 a client namespace's whole footprint on one page"
+  },
+  {
+   "name": "hubble-ui-shop-core",
+   "url": "https://hubble.poc.local/?namespace=shop-core",
+   "wait": "text:catalog",
+   "height": 1100,
+   "look": "Hubble UI's service map for shop-core: the catalog with its callers from shop-edge, shop-merchant, shop-reviews and its own namespace, and the dropped edges from shop-clients"
+  }
+ ]
+}
