@@ -45,6 +45,8 @@ jobs:
       - name: The runner
         run: |
           uname -r; nproc; free -m; df -h / | tail -1; docker version --format 'docker {{.Server.Version}}'; helm version --short
+          # BBR is a module on Ubuntu (tcp_bbr); a kind node shares the host kernel and cannot load it, the host must
+          sudo modprobe tcp_bbr || true
           echo "default_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null || echo absent)  congestion=$(cat /proc/sys/net/ipv4/tcp_available_congestion_control)"; ls /proc/sys/net/core | wc -l
           docker network inspect kind >/dev/null 2>&1 && docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' || echo "no kind network yet"
 

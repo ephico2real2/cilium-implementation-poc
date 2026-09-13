@@ -32,6 +32,15 @@ second consumer of the same scripts, not a second lab.
 | The kind docker subnet on Linux is `172.18.0.0/16` — the PoC's LB pools (`172.18.255.200–250`), Gateway addresses (`.240`, `.241`) and `hosts-entries.sh` are written for it | `cilium/lb-ippool.yaml`, `docker network inspect kind` | on a Linux runner the pools apply unchanged; `/etc/hosts` is writable with `sudo` |
 | Playwright with chromium installs on `ubuntu-latest` (`npx playwright install --with-deps chromium`); the PoC's captures are already playwright scripts (`scripts/evidence/capture.js`, `demos/16-monitoring/browser/*.js`) | Playwright docs; this repository | the screenshots move to CI as they are |
 
+### 2.1 Measured on the runner (phase 0, first runs, 2026-09-13)
+
+| What | Measured | Where |
+|---|---|---|
+| the runner | `6.17.0-1022-azure`, 4 vCPU, 15,989 MB, `default_qdisc=fq_codel`, congestion controls `reno cubic` (BBR is the `tcp_bbr` module, loaded with `modprobe`) | [run 34784194103](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/34784194103) |
+| two kind clusters (1 + 1) with Cilium 1.20.1, KPR, Hubble | up in **3 min 15 s** from checkout; 4,141 MB used with both clusters, agents at 1.1 GB per control plane and 0.47 GB per worker | same |
+| BIG TCP with the lab's VXLAN | the agent refuses to start: `BIG TCP in tunneling mode requires pending kernel support` — a Cilium rule (BIG TCP needs native routing), not a runner limit; dropped from the features entry, its own entry when wanted | same, job `kernel-features` |
+| a Helm change to Cilium's ConfigMap after install | rolls nothing; the operator kept its flags, and the agents died five minutes after the next restart with `Unable to find all Cilium CRDs necessary within 5m0s` — the mesh's certificate job then could not even get a network | same, job `base`; fixed in `scripts/lab-up.sh`: the Gateway API CRDs before Cilium, Gateway API in the one install |
+
 ## 3. Decision: kind for the clusters, minikube where one cluster is enough
 
 The operator asked for minikube and pointed at the host-proxy workaround in #14799. Measured against ClusterMesh's

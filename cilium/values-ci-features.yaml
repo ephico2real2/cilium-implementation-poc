@@ -8,8 +8,9 @@ bpf:
 bandwidthManager:
   enabled: true                # needs net.core.default_qdisc — absent on the linuxkit kernel (seven sysctls in net/core)
   bbr: true                    # needs BBR compiled in — the linuxkit kernel offers reno and cubic only
-enableIPv4BIGTCP: true         # kernel >= 6.3, BPF host routing, KPR, BPF masquerade; Cilium lists supported NICs —
-enableIPv6BIGTCP: true         # a veth/netkit device is the measurement here, not a claim (needs ipv6.enabled)
+# BIG TCP is NOT here: the first spike run measured it — the agent refuses to start with "BIG TCP in tunneling mode
+# requires pending kernel support" (run 34784194103, kernel 6.17.0-1022-azure). The lab runs VXLAN; BIG TCP needs
+# native routing, and is a matrix entry of its own (native routing + autoDirectNodeRoutes) when the lab wants it.
 ipv6:
   enabled: true                # dual-stack: the review of cf2cnp 0.7.0 fixed reserved:world-ipv4 / -ipv6 from Cilium's
                                # source because the IPv4-only laptop could not show them — here they can be captured
