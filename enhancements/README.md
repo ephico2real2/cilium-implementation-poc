@@ -8,7 +8,7 @@ before any of it is built, and closed by a demo with a recorded transcript and e
 
 | # | Proposal | Issue | Plan | Status |
 |---|---|---|---|---|
-| 001 | Policy from observed flows, enterprise-ready: the ten enhancements from demos 26–28 | [#11](https://github.com/ephico2real2/cilium-implementation-poc/issues/11) (tracking), #1–#10 per item | [001-policy-from-flows-enterprise.md](001-policy-from-flows-enterprise.md) | **released 2026-09-13** after the review ([docs/REVIEW_ENH-001.md](../docs/REVIEW_ENH-001.md)): cf2cnp [`v0.6.0`](https://github.com/ephico2real2/cf2cnp/releases/tag/v0.6.0) (E1–E6, E10 merged into `develop` in order) and [`v0.6.1`](https://github.com/ephico2real2/cf2cnp/releases/tag/v0.6.1) (two demo findings: the merge keeps the file's layout, one kube-dns rule), hubble-policy-verdicts [0.2.0](https://github.com/ephico2real2/hubble-policy-verdicts/releases) (E7), the observer fork `develop` `e5077dd` with both and the E8 example; deployed on poc1 (observer release rev 23). Proven by demos: E1+E9 → [demo 29](../demos/29-cross-cluster-policy/README.md); E2 → [demo 30](../demos/30-l7-rules/README.md), E3 → [demo 31](../demos/31-dns-visibility/README.md), E4+E5+E10 → [demo 32](../demos/32-operator-loop/README.md), E6 → [demo 33](../demos/33-hardening/README.md), E7+E8 → [demo 34](../demos/34-verdict-to-policy/README.md). **All ten proven; issues #1–#11 closed.** |
+| 001 | Policy from observed flows, enterprise-ready: the ten enhancements from demos 26–28 | [#11](https://github.com/ephico2real2/cilium-implementation-poc/issues/11) (tracking), #1–#10 per item | [001-policy-from-flows-enterprise.md](001-policy-from-flows-enterprise.md) | **released 2026-09-13** after the review ([docs/REVIEW_ENH-001.md](../docs/REVIEW_ENH-001.md)): cf2cnp [`v0.6.0`](https://github.com/ephico2real2/cf2cnp/releases/tag/v0.6.0) (E1–E6, E10 merged into `develop` in order) and [`v0.6.1`](https://github.com/ephico2real2/cf2cnp/releases/tag/v0.6.1) (two demo findings: the merge keeps the file's layout, one kube-dns rule), hubble-policy-verdicts [0.2.0](https://github.com/ephico2real2/hubble-policy-verdicts/releases) (E7) and 0.2.1 (the namespace filter's side), the observer fork `develop` `e5077dd` with both and the E8 example; deployed on poc1 (observer release rev 23). Proven by demos: E1+E9 → [demo 29](../demos/29-cross-cluster-policy/README.md); E2 → [demo 30](../demos/30-l7-rules/README.md), E3 → [demo 31](../demos/31-dns-visibility/README.md), E4+E5+E10 → [demo 32](../demos/32-operator-loop/README.md), E6 → [demo 33](../demos/33-hardening/README.md), E7+E8 → [demo 34](../demos/34-verdict-to-policy/README.md). **All ten proven; issues #1–#11 closed.** |
 
 ## The list behind 001 (from demos 26, 27 and 28)
 
@@ -27,9 +27,10 @@ before any of it is built, and closed by a demo with a recorded transcript and e
 
 ## Follow-ups noted while proving 001
 
-- **hubble-policy-verdicts: a source-or-destination namespace variable.** The dashboard is "by namespace" through
-  the *destination* namespace label, so an egress drop that leaves the namespace (demo 29 Part 8: `mesh-lab → bank`)
-  is not on the page; `demos/29-cross-cluster-policy/metric.sh` shows what the `or` form would.
+- **hubble-policy-verdicts: a source-or-destination namespace variable — done, 0.2.1.** The dashboard was "by
+  namespace" through the *destination* label, so an egress drop that leaves the namespace (demo 29 Part 8:
+  `mesh-lab → bank`) was not on the page; 0.2.1's `namespace is the` variable (destination or source) puts it there
+  ([demo 29 Part 9](../demos/29-cross-cluster-policy/README.md#part-9-added-later-the-same-day--the-dashboard-chart-021-the-namespace-filter-chooses-its-side)).
 - **cf2cnp chart: the fork's default image.** The chart's `image.repository` is still upstream's
   `ghcr.io/onzack/cf2cnp`, whose registry has no 0.6.0 tag; the fork's README says which image to set, and every
   consumer here sets it. A fork-specific default would be a divergence from the upstream PR, so it is documented, not changed.

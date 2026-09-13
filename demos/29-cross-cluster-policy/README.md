@@ -286,6 +286,32 @@ the two policies took turns:
 
 ![grafana-policy-verdicts-cluster-poc1](output/screenshots/grafana-policy-verdicts-cluster-poc1.png)
 
+## Part 9 (added later the same day) — the dashboard chart 0.2.1: the namespace filter chooses its side
+
+Part 8's gap is closed: hubble-policy-verdicts 0.2.1 adds a `namespace is the` variable (`role`: **destination**,
+the default, or **source**) that every query and the Loki row go through — `${role}=~"$namespace"` — so nothing is
+counted twice and the same page answers both questions. Deployed through the observer fork (`46bd41c`,
+release revision 31), verified in the provisioned ConfigMap, then three more calls from worker@poc2 to the
+accounts pod and the page with the namespace as the source:
+
+```bash
+demos/25-hubble-observer-loki/chart-from-fork.sh develop 46bd41c
+kubectl … -n monitoring get cm hubble-policy-verdicts -o jsonpath=… | python3 …   # the variable and the queries
+kubectl --context kind-poc2 -n mesh-lab exec worker -- sh -c 'for i in 1 2 3; do timeout 3 redis-cli -h accounts.bank.svc.cluster.local -p 80 PING; done'
+```
+
+```text
+REVISION: 31
+role variable: namespace is the -> [('destination', 'destination_namespace'), ('source', 'source_namespace')]
+queries through it: 9
+```
+
+![grafana-policy-verdicts-cluster-poc2-source](output/screenshots/grafana-policy-verdicts-cluster-poc2-source.png)
+
+`worker → accounts (egress) dropped 9` beside the forwarded verdicts to kube-dns and the cache, and the Loki row
+retitled *Dropped flows, mesh-lab as the source* with the same drop from the observer's stream. Gotcha #86 keeps
+the trap; the fix is the chart's.
+
 ## Cleanup
 
 `demos/29-cross-cluster-policy/cleanup.sh` deletes `mesh-lab` in both clusters. Part 1 (the metric on poc2)
@@ -315,3 +341,4 @@ the flows and the four policies are under [`policies/`](policies/).
 |---|---|
 | [`grafana-policy-verdicts-cluster-poc2.png`](output/screenshots/grafana-policy-verdicts-cluster-poc2.png) | the dashboard with `cluster=poc2`: worker@poc2's egress verdict by `worker-batch`, and the Loki row's dropped flows |
 | [`grafana-policy-verdicts-cluster-poc1.png`](output/screenshots/grafana-policy-verdicts-cluster-poc1.png) | the same with `cluster=poc1`: the cache's audit, drops and forwards of Part 6 |
+| [`grafana-policy-verdicts-cluster-poc2-source.png`](output/screenshots/grafana-policy-verdicts-cluster-poc2-source.png) | Part 9, chart 0.2.1: `cluster=poc2` with the namespace as the source — the drops to `bank` on the page |

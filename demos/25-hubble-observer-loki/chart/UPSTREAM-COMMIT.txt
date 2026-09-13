@@ -15,3 +15,6 @@ re-vendored 2026-09-13 (demo 32): cf2cnp 0.6.1 (merge keeps the document as it w
 
 7853c77b6afde1ae90d179441a43c5eec6c3b12f Sun Sep 13 07:07:18 2026 -0500
 re-vendored 2026-09-13 (demo 34): containerName (default the chart name) so a second release keeps its own container label in Loki; the E8 example sets hubble-observer-verdicts
+
+46bd41c2ccadf356251ae8df0864c7031cecb0e4 Sun Sep 13 09:08:54 2026 -0500
+re-vendored 2026-09-13 (demo 29 Part 9): hubble-policy-verdicts 0.2.1 — the namespace filter chooses its side (role: destination or source)

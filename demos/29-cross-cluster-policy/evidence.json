@@ -5,14 +5,21 @@
    "url": "https://grafana.poc.local/d/hubble-policy-verdicts?orgId=1&from=now-30m&to=now&var-cluster=poc2&var-namespace=mesh-lab",
    "wait": "text:Who talked to whom",
    "height": 1500,
-   "look": "the Policy Verdicts dashboard with cluster=poc2: worker@poc2's egress verdicts (forwarded by worker-batch, dropped to accounts) — a policy applied in poc2, decided in poc2, on poc1's Grafana (E9)"
+   "look": "the Policy Verdicts dashboard with cluster=poc2: worker@poc2's egress verdicts (forwarded by worker-batch, dropped to accounts) \u2014 a policy applied in poc2, decided in poc2, on poc1's Grafana (E9)"
   },
   {
    "name": "grafana-policy-verdicts-cluster-poc1",
    "url": "https://grafana.poc.local/d/hubble-policy-verdicts?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-namespace=mesh-lab",
    "wait": "text:Who talked to whom",
    "height": 1500,
-   "look": "the same dashboard with cluster=poc1: the cache's ingress verdicts — audited, then dropped/forwarded as the 0.5.1 and 0.6.0 policies took turns (Part 6)"
+   "look": "the same dashboard with cluster=poc1: the cache's ingress verdicts \u2014 audited, then dropped/forwarded as the 0.5.1 and 0.6.0 policies took turns (Part 6)"
+  },
+  {
+   "name": "grafana-policy-verdicts-cluster-poc2-source",
+   "url": "https://grafana.poc.local/d/hubble-policy-verdicts?orgId=1&from=now-30m&to=now&var-cluster=poc2&var-role=source_namespace&var-namespace=mesh-lab",
+   "wait": "text:Who talked to whom",
+   "height": 1500,
+   "look": "Part 9 (chart 0.2.1): the same dashboard with the namespace as the SOURCE \u2014 worker@poc2's forwarded verdicts and its drops to bank on one page"
   }
  ]
 }

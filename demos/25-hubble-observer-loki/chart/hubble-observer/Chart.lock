@@ -4,6 +4,6 @@ dependencies:
   version: 0.6.1
 - name: hubble-policy-verdicts
   repository: https://ephico2real2.github.io/hubble-policy-verdicts
-  version: 0.2.0
-digest: sha256:8c86e76229fd3de228b0e525e82ec6e146aa5bfa4867fde8488d74179c307cac
-generated: "2026-09-13T06:37:09.069815-05:00"
+  version: 0.2.1
+digest: sha256:1a3c8e061d664cbef5d6d16ca8f886cfb0588f146a04476a572164574bec8616
+generated: "2026-09-13T09:08:46.148112-05:00"

@@ -318,3 +318,26 @@ poc2    dropped   mesh-lab          bank                   5
 poc2    forwarded mesh-lab          mesh-lab               1
 poc2    forwarded mesh-lab          kube-system            5
 
+
+### Part 9 (added later the same day) — the dashboard chart 0.2.1: the namespace filter chooses its side, and the drops that left mesh-lab are on the page
+### 2026-09-13T14:09:26Z
+$ demos/25-hubble-observer-loki/chart-from-fork.sh develop 46bd41c
+fork: https://github.com/ephico2real2/hubble-observer.git  branch: develop  commit: 46bd41c chart: hubble-policy-verdicts 0.2.1 (the namespace filter ch
+dependencies: cf2cnp-0.6.1.tgz
+hubble-policy-verdicts-0.2.1.tgz
+STATUS: deployed
+REVISION: 31
+
+### 2026-09-13T14:09:40Z
+$ bash -c kubectl --context kind-poc1 -n monitoring get cm hubble-policy-verdicts -o jsonpath="{.data.hubble-policy-verdicts\.json}" | python3 -c "
+import json,sys; d=json.load(sys.stdin)
+r=next(v for v in d[\"templating\"][\"list\"] if v[\"name\"]==\"role\"); print(\"role variable:\", r[\"label\"], \"->\", [(o[\"text\"],o[\"value\"]) for o in r[\"options\"]])
+print(\"queries through it:\", sum(1 for p in d[\"panels\"] for t in p.get(\"targets\",[]) if \"role}\" in t.get(\"expr\",\"\")))"; echo "fresh egress drops from worker@poc2 (to accounts in bank):"; kubectl --context kind-poc2 -n mesh-lab exec worker -- sh -c "for i in 1 2 3; do timeout 3 redis-cli -h accounts.bank.svc.cluster.local -p 80 PING; done; echo done"
+role variable: namespace is the -> [('destination', 'destination_namespace'), ('source', 'source_namespace')]
+queries through it: 9
+fresh egress drops from worker@poc2 (to accounts in bank):
+Terminated
+Terminated
+Terminated
+done
+

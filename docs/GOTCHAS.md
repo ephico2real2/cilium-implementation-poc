@@ -2064,6 +2064,9 @@ poc2    dropped   mesh-lab          bank                   5      ← demos/29-c
 hubble_policy_verdicts_total{source_namespace="…"}`) — or add a source-or-destination variable to the chart, which is
 noted as a follow-up in `enhancements/README.md`.
 
+**Fixed the same day:** hubble-policy-verdicts 0.2.1 adds the variable (`namespace is the`: destination or source);
+every query and the Loki row go through it, and demo 29 Part 9 shows the nine drops to `bank` on the page.
+
 ## <a name="87"></a>87. `permissions: pull-requests: write` is not enough to open a pull request from a workflow
 
 **Where:** demo 32 Part 3, the E10 template's second run on the throwaway policies repository. Install, merge and

@@ -31,9 +31,10 @@ dependencies:
   # The Hubble / Policy Verdicts (Namespace) dashboard — audited / forwarded / dropped per namespace from Hubble's `policy`
   # metric — as an optional companion to the Cilium Flows dashboard this chart ships. Off by default; needs the policy
   # metric enabled on the agents (see https://github.com/ephico2real2/hubble-policy-verdicts). 0.2.0 adds the optional Loki
-  # flow row (lokiRow.enabled) with the cf2cnp Generate action, so a verdict becomes a policy on one dashboard.
+  # flow row (lokiRow.enabled) with the cf2cnp Generate action, so a verdict becomes a policy on one dashboard; 0.2.1 lets
+  # the namespace filter choose its side (destination or source), so egress drops leaving the namespace are on the page.
   - name: hubble-policy-verdicts
     alias: policyVerdictsDashboard
-    version: "0.2.0"
+    version: "0.2.1"
     repository: https://ephico2real2.github.io/hubble-policy-verdicts
     condition: policyVerdictsDashboard.enabled
