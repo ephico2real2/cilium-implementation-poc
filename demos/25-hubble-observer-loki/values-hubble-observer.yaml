@@ -69,11 +69,13 @@ cf2cnp:                                  # the README's "Configuration" section:
   enabled: true                          # default false: on — the dashboard links to it (POST /generate + a small UI). Subchart 0.4.0,
                                          # image ghcr.io/onzack/cf2cnp:0.3.1, defaults in default-values/cf2cnp-0.4.0.yaml
   resources: {requests: {cpu: 20m, memory: 32Mi}, limits: {memory: 128Mi}}   # not in defaults: bounded
-  image:                                 # demo 26 Part 14 (2026-09-12) — NOT the chart default (ghcr.io/onzack/cf2cnp:0.3.1). The fork
-    repository: ghcr.io/ephico2real2/cf2cnp   # ephico2real2/cf2cnp branch feat/external-url-multi-flow: download_url honours
-    tag: develop                         # Forwarded / X-Forwarded-Proto / X-Forwarded-Host (or --external-url), many flows per
-    pullPolicy: IfNotPresent             # request merged per workload, ?name=, the UI's copy/download/summary. Built locally and
-                                         # `kind load`-ed into poc1 (no registry push); the upstream PR carries the same commit.
+  image:                                 # demo 26 Part 14/14e (2026-09-13) — NOT the chart default (ghcr.io/onzack/cf2cnp). The fork's
+    repository: ghcr.io/ephico2real2/cf2cnp   # release 0.5.0 (ephico2real2/cf2cnp, tag v0.5.0; upstream PR onzack/cf2cnp#3 pending):
+    tag: "0.5.0"                         # download_url from the proxy headers, many flows per request merged per workload, policy
+    pullPolicy: IfNotPresent             # names a function of the whole selector, labels on every policy, ?name=, body cap, the
+                                         # page's summary/copy/download. The chart itself comes from https://ephico2real2.github.io/cf2cnp
+                                         # (the hubble-observer fork's dependency). Loaded into poc1 with `kind load` as well, so the
+                                         # nodes need no ghcr pull (a personal ghcr package starts private).
   ingress: {enabled: false}              # (default) no Ingress controller here
   httpRoute:
     enabled: false                       # (default) our Gateway (demo 09) admits HTTPRoutes from its OWN namespace only

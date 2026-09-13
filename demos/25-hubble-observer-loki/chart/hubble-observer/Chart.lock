@@ -1,6 +1,6 @@
 dependencies:
 - name: cf2cnp
-  repository: oci://ghcr.io/onzack/helm-charts
-  version: 0.4.0
-digest: sha256:7b0a4a72d7e2c3db6ed6727422a964dbdd72000f2da00af31c88a363873f7a95
-generated: "2026-09-12T15:54:09.426651-05:00"
+  repository: https://ephico2real2.github.io/cf2cnp
+  version: 0.5.0
+digest: sha256:84770f5edaed54fcb367859a78adf6eb1edbaefe78e4ca128d9df05ff6ce62e3
+generated: "2026-09-12T21:39:24.685854-05:00"

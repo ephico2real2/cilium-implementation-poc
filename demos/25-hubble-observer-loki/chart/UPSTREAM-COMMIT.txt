@@ -1,2 +1,5 @@
 f1f5ead05daf9ac7f864adba0a5527d4b90e3e44 2026-09-12 15:49:54 -0500
 https://github.com/ephico2real2/hubble-observer (fork of onzack/hubble-observer, Apache-2.0), helm/hubble-observer at branch develop = upstream main 21319b7 + PR #9 (policy fix) + PR #10 (docs) + PR #11 (fieldMask/extraArgs) + the extended dashboard (drop reason, denying policy) in dashboard/cilium-hubble-flows.json; deployed from it 2026-09-12 (README Part 10)
+
+9ef13c778562d728a12870742ed4c93594cfdd55 Sat Sep 12 21:33:32 2026 -0500
+re-vendored 2026-09-13 from branch develop: the cf2cnp dependency is now the fork's Helm repository https://ephico2real2.github.io/cf2cnp at 0.5.0 (charts/cf2cnp-0.5.0.tgz) while onzack/cf2cnp#3 is pending (demo 26 Part 14f)

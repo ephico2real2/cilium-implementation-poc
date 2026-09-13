@@ -1953,9 +1953,13 @@ API, the UI and the Grafana action, every flow is its own file with the same nam
 
 **Fix.** Treat each download as a *rule*, not a policy: rename it (`shop-from-pos`), or merge the
 `ingress` entries into one `shop` policy before applying, and apply only what the intent says
-(demo 19's `intent.yaml` is the reference, not the flow log).
+(demo 19's `intent.yaml` is the reference, not the flow log). Fixed at the source on the fork's release
+0.5.0 (demo 26 Parts 14e–14f, onzack/cf2cnp#3): flows into one workload merge into one object, and the
+name is a function of the whole selector (`shop`, `shop-frontend`), so equal names imply equal selectors.
+The replacement itself was measured: apply two same-named files, the object keeps the second, `pos` is
+dropped 20 s later.
 
-→ demo 26, Part 5
+→ demo 26, Parts 5 and 14e
 
 ---
 

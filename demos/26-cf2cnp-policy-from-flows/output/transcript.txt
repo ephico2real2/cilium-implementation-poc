@@ -932,3 +932,56 @@ ghcr.io/ephico2real2/cf2cnp develop f910f00758561 9.89MB
   {} as a flow → Failed to parse flow JSON: flow #1: not a Hubble flow (no flow.source/destination labels, no traffic_direction, no uuid) http=400
   a forwarded host with a path is ignored → https://cf2cnp.poc.local/download/e8bd1ea8-7f6d-419b-97d0-8e8e05e867a2
 
+### Part 14e — why a name must be a function of the selector: two policies named shop applied in turn, and what the cluster keeps
+### 2026-09-13T02:37:01Z
+$ bash -c P=demos/26-cf2cnp-policy-from-flows; echo "== the two files cf2cnp 0.3.1 generated in Part 5, both metadata.name: shop =="; grep -h "^  name:" $P/policies/cnp-pos-to-shop.yaml $P/policies/cnp-stranger-to-shop.yaml; echo "== apply pos, then stranger; read back what the API server holds =="; kubectl --context kind-poc1 apply -f $P/policies/cnp-pos-to-shop.yaml; kubectl --context kind-poc1 apply -f $P/policies/cnp-stranger-to-shop.yaml; kubectl --context kind-poc1 -n cf2cnp-lab get cnp shop -o jsonpath="{range .spec.ingress[*].fromEndpoints[*]}  fromEndpoints: {.matchLabels}{\"\n\"}{end}"; echo "  → one object, the second apply REPLACED the first: pos is no longer allowed (Kubernetes: one name per kind per namespace)"; sleep 20; echo "== Hubble agrees (last 20s) =="; $P/verify.sh 20s | grep "shop-" ; echo "== restore: the merged policy from three flows (Part 14), which is one object with both peers =="; kubectl --context kind-poc1 apply -f $P/policies/cnp-merged-from-three-flows.yaml; kubectl --context kind-poc1 -n cf2cnp-lab delete cnp pos --ignore-not-found >/dev/null; kubectl --context kind-poc1 -n cf2cnp-lab get cnp shop -o jsonpath="{range .spec.ingress[*].fromEndpoints[*]}  fromEndpoints: {.matchLabels}{\"\n\"}{end}"
+== the two files cf2cnp 0.3.1 generated in Part 5, both metadata.name: shop ==
+  name: shop
+  name: shop
+== apply pos, then stranger; read back what the API server holds ==
+ciliumnetworkpolicy.cilium.io/shop unchanged
+ciliumnetworkpolicy.cilium.io/shop configured
+  fromEndpoints: {"app.kubernetes.io/name":"stranger"}
+  → one object, the second apply REPLACED the first: pos is no longer allowed (Kubernetes: one name per kind per namespace)
+== Hubble agrees (last 20s) ==
+policies in cf2cnp-lab: ciliumnetworkpolicy.cilium.io/shop ciliumnetworkpolicy.cilium.io/shop-default-deny-ingress 
+    30  stranger   → shop-6d7d797759-4ddlt            :80    FORWARDED                
+    10  pos        → shop-6d7d797759-4ddlt            :80    DROPPED   POLICY_DENIED  
+     3  stranger   → shop-6d7d797759-4ddlt            :80    FORWARDED                by shop
+     2  pos        → shop-6d7d797759-4ddlt            :80    FORWARDED                
+== restore: the merged policy from three flows (Part 14), which is one object with both peers ==
+ciliumnetworkpolicy.cilium.io/pos created
+ciliumnetworkpolicy.cilium.io/shop configured
+  fromEndpoints: {"app.kubernetes.io/name":"pos"}
+  fromEndpoints: {"app.kubernetes.io/name":"stranger"}
+
+### Part 14f — release 0.5.0 of the fork deployed: the chart from https://ephico2real2.github.io/cf2cnp (the hubble-observer fork's dependency), the image ghcr.io/ephico2real2/cf2cnp:0.5.0; names that differ by component
+### 2026-09-13T02:38:03Z
+$ bash -c P=demos/26-cf2cnp-policy-from-flows; echo "== the fork's Helm repository =="; curl -sL https://ephico2real2.github.io/cf2cnp/index.yaml | grep -E "^    version:|appVersion:|releases/download" | sed "s/^/  /"; demos/25-hubble-observer-loki/chart-from-fork.sh develop 2>&1 | tail -3; kubectl --context kind-poc1 -n hubble-observer rollout status deploy/hubble-observer-cf2cnp --timeout=180s; kubectl --context kind-poc1 -n hubble-observer get deploy hubble-observer-cf2cnp -o jsonpath="  image={.spec.template.spec.containers[0].image} args={.spec.template.spec.containers[0].args}{\"\n\"}"; helm --kube-context kind-poc1 -n hubble-observer get metadata hubble-observer -o json | python3 -c "import json,sys; d=json.load(sys.stdin); print(\"  release\", d[\"name\"], \"chart\", d[\"chart\"], d[\"version\"], \"revision\", d[\"revision\"])"; echo "== names are a function of the selector: the recorded pos→shop flow, then the same flow with a component label on shop =="; GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); python3 - <<PY
+import json
+f=json.load(open("$P/policies/flow-pos-to-shop.json"))
+for comp in ("frontend","backend"):
+    g=json.loads(json.dumps(f)); g["flow"]["destination"]["labels"]=[l for l in g["flow"]["destination"]["labels"] if "component" not in l]+["k8s:app.kubernetes.io/component=%s" % comp]
+    open("/tmp/flow-shop-%s.json" % comp,"w").write(json.dumps(g))
+PY
+for f in $P/policies/flow-pos-to-shop.json /tmp/flow-shop-frontend.json /tmp/flow-shop-backend.json; do curl -s --cacert docs/root-ca.crt --resolve cf2cnp.poc.local:443:$GW -X POST https://cf2cnp.poc.local/generate --data-binary @$f | python3 -c "import sys,yaml; d=yaml.safe_load(sys.stdin); m=d[\"metadata\"]; print(\"  name=%-15s labels=%s selector=%s\" % (m[\"name\"], m.get(\"labels\"), d[\"spec\"][\"endpointSelector\"][\"matchLabels\"]))"; done; echo "== the lab back to the tutorial's end state: pos only =="; kubectl --context kind-poc1 apply -f $P/policies/cnp-pos-to-shop.yaml; sleep 15; $P/verify.sh 15s | grep "shop-" | head -3
+== the fork's Helm repository ==
+      appVersion: 0.5.0
+      - https://github.com/ephico2real2/cf2cnp/releases/download/cf2cnp-0.5.0/cf2cnp-0.5.0.tgz
+      version: 0.5.0
+dependencies: cf2cnp-0.5.0.tgz
+STATUS: deployed
+REVISION: 20
+deployment "hubble-observer-cf2cnp" successfully rolled out
+  image=ghcr.io/ephico2real2/cf2cnp:0.5.0 args=["serve","--port","8080"]
+  release hubble-observer chart hubble-observer 2.6.0-alpha revision 20
+== names are a function of the selector: the recorded pos→shop flow, then the same flow with a component label on shop ==
+  name=shop            labels={'app.kubernetes.io/managed-by': 'cf2cnp', 'app.kubernetes.io/name': 'shop'} selector={'app.kubernetes.io/name': 'shop'}
+  name=shop-frontend   labels={'app.kubernetes.io/component': 'frontend', 'app.kubernetes.io/managed-by': 'cf2cnp', 'app.kubernetes.io/name': 'shop'} selector={'app.kubernetes.io/component': 'frontend', 'app.kubernetes.io/name': 'shop'}
+  name=shop-backend    labels={'app.kubernetes.io/component': 'backend', 'app.kubernetes.io/managed-by': 'cf2cnp', 'app.kubernetes.io/name': 'shop'} selector={'app.kubernetes.io/component': 'backend', 'app.kubernetes.io/name': 'shop'}
+== the lab back to the tutorial's end state: pos only ==
+ciliumnetworkpolicy.cilium.io/shop configured
+policies in cf2cnp-lab: ciliumnetworkpolicy.cilium.io/shop ciliumnetworkpolicy.cilium.io/shop-default-deny-ingress 
+    30  pos        → shop-6d7d797759-4ddlt            :80    FORWARDED                
+     6  stranger   → shop-6d7d797759-4ddlt            :80    DROPPED   POLICY_DENIED  
+

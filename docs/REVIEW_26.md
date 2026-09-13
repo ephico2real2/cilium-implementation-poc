@@ -139,8 +139,9 @@ drain, 1 on replies only, malformed text skipped). Its column is therefore C1 on
 
 Not asked: **N1** (README Part 4 still described the IP lookup) — accepted, fixed; **N2** (two workloads
 sharing `app.kubernetes.io/name` and differing by `component` still yield two objects named alike) —
-true, deliberately not changed: folding the component into the name would rename every generated
-policy that carries the label, a maintainers' decision, stated as a known limitation in the PR.
+true; first left as a stated limitation, then changed at the operator's instruction with the Kubernetes
+naming rule as the ground (one name per kind per namespace): the name is a function of the whole
+selector and the selector's labels are carried as metadata — fork release 0.5.0, demo 26 Parts 14e–14f.
 
 **Outcome.** Four refuted, all accepted and measured; the fork's reviewed head `2eb0f6b` is pushed to the
 PR and rolled out on poc1 (Part 14d: https `download_url`, `{}` refused, a forwarded host with a path

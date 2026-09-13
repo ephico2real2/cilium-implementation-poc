@@ -533,6 +533,9 @@ before it is applied; that is the tool's own caution, measured.
 
 **Continued as demo 26** — [`../26-cf2cnp-policy-from-flows/README.md`](../26-cf2cnp-policy-from-flows/README.md): where the flow
 JSON comes from, audit mode first, the three doors of cf2cnp on one lab, and the verdicts on every dashboard.
+Since demo 26 Part 14f the hubble-observer fork's chart takes cf2cnp **0.5.0 from the fork's own Helm repository**
+(`https://ephico2real2.github.io/cf2cnp`, image `ghcr.io/ephico2real2/cf2cnp:0.5.0`) while onzack/cf2cnp#3 is pending;
+the vendored copy at [`chart/`](chart/) is refreshed from that commit ([`chart/UPSTREAM-COMMIT.txt`](chart/UPSTREAM-COMMIT.txt)).
 
 ## Exercises
 

@@ -390,7 +390,7 @@ built as an image, `kind load`-ed into poc1, deployed through the observer chart
 | Measured here | Change | Proof |
 |---|---|---|
 | `download_url` said `http://` behind the https-only Gateway (Part 8; the code used `r.TLS`, nil behind a TLS-terminating proxy) | `baseURL()`: `--external-url` (env `CF2CNP_EXTERNAL_URL`) > RFC 7239 `Forwarded` > `X-Forwarded-Proto`/`-Host` > `r.TLS`/`r.Host`; chart 0.5.0 `externalURL`, `extraArgs`, `extraEnv`, and the container `args` rendered so a flag can be given | seven scheme cases in `server_test.go`; live: the Grafana action's answer now `https://cf2cnp.poc.local/download/1895c9ab-…` (Part 14c) |
-| one policy per flow, all named after the workload — two peers, two objects, the second apply replaces the first (gotcha #81; in file mode the second file overwrote the first) | `/generate` accepts one flow, a JSON array or one flow per line (`hubble observe -o json`); policies selecting the same workload are **merged** into one object with one rule per peer; `?name=` names a single resulting policy; the JSON answer carries `flows`, `policies`, `yaml` | `TestGeneratePolicies_OneFilePerWorkload` fails on upstream main; live: three flows → two documents, `shop` with both peers, accepted by `kubectl apply --dry-run=server` (Part 14) |
+| one policy per flow, all named after the workload — two peers, two objects, the second apply replaces the first (gotcha #81, measured in Part 14e; in file mode the second file overwrote the first) | `/generate` accepts one flow, a JSON array or one flow per line (`hubble observe -o json`); policies selecting the same workload are **merged** into one object with one rule per peer; `?name=` names a single resulting policy; the JSON answer carries `flows`, `policies`, `yaml` | `TestGeneratePolicies_OneFilePerWorkload` fails on upstream main; live: three flows → two documents, `shop` with both peers, accepted by `kubectl apply --dry-run=server` (Part 14) |
 | the page: textarea and button, auto-download, nothing to read before generating | a summary of the pasted flows (direction, verdict, peer → workload:port, replies flagged), a policy-name field, *Copy YAML* / *Download YAML* / *Load example* / *Clear*, the `kubectl apply -f <file>` hint | [`ui-generate.js`](ui-generate.js) on two flows: `2 flow(s) parsed: INGRESS AUDIT pos → shop:80 \| INGRESS AUDIT stranger → shop:80` → `2 flow(s) → 1 policy` (Part 14b) |
 
 ![the fork's page: two flows pasted, the summary, the merged policy](output/screenshots/ui-3-generated.png)
@@ -403,6 +403,47 @@ UUID as cache id, many flows, `?name=`, bad inputs, YOLO). `go test ./...` green
 chart rendered with and without the new values. The upstream chart for hubble-observer pins the cf2cnp
 subchart at 0.4.0, so `cf2cnp.externalURL` becomes settable from there only after a dependency bump — the
 proxy-header path needs no value at all, which is why this lab runs the new image under the old chart.
+
+### Part 14e — one name per kind per namespace: the collision measured, and the naming rule that removes it
+
+Kubernetes identifies an object by API group, kind, namespace and **name**
+([Object Names and IDs](https://kubernetes.io/docs/concepts/overview/working-with-objects/names/)); the
+[recommended labels](https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/)
+distinguish workloads by `app.kubernetes.io/name` (the application), `/instance` (one installation of it)
+and `/component` (one part of it). cf2cnp named a policy after `name` alone, so two workloads that differ
+by component — or, as in Part 5, two *peers* of one workload — produced two objects called `shop`. Measured
+on the cluster (transcript Part 14e): apply the `pos` file, apply the `stranger` file, read the object
+back — it holds **only stranger's rule**, and within 20 seconds Hubble shows `pos → shop DROPPED
+POLICY_DENIED`. The second apply replaced the first, silently: `kubectl apply` reports `configured`, not
+a conflict.
+
+Two changes on the fork close this at the source, both in release 0.5.0:
+
+- **Merging** (Part 14): flows into the same workload become one object with one rule per peer — the
+  peer case.
+- **The name is a function of the whole selector**: `name`, then `instance`, then `component` folded in
+  (`shop`, `shop-frontend`, `shop-blue-frontend`), so equal names imply equal selectors — the workload
+  case. A workload with only a name keeps the name it always had. Every generated policy carries
+  `app.kubernetes.io/managed-by: cf2cnp` and the selector's `name`/`instance`/`component` as **labels**, so
+  `kubectl get cnp -l app.kubernetes.io/name=shop` lists a workload's policies whatever they are called.
+  Measured live (Part 14f): the recorded `pos → shop` flow and the same flow with `component=frontend`
+  and `component=backend` on shop yield `shop`, `shop-frontend`, `shop-backend`, each labelled.
+
+### Part 14f — release 0.5.0 of the fork, and the cluster on it
+
+While [onzack/cf2cnp#3](https://github.com/onzack/cf2cnp/pull/3) is pending, the fork releases on its own:
+
+| Artefact | Where | How |
+|---|---|---|
+| chart `cf2cnp` 0.5.0 (appVersion 0.5.0) | `https://ephico2real2.github.io/cf2cnp` (`index.yaml` on the `gh-pages` branch) and the GitHub release [`cf2cnp-0.5.0`](https://github.com/ephico2real2/cf2cnp/releases/tag/cf2cnp-0.5.0) with the `.tgz` | `helm/chart-releaser-action` on push to `develop` (the fork's default branch) |
+| the same chart as OCI | `oci://ghcr.io/ephico2real2/helm-charts/cf2cnp:0.5.0` | the upstream `helm-publish` workflow on tag `v0.5.0` |
+| image `ghcr.io/ephico2real2/cf2cnp:0.5.0` | ghcr, public (pulls unauthenticated — measured) | the upstream `docker-publish` workflow on tag `v0.5.0` |
+
+The hubble-observer fork's chart (`develop`) now declares the dependency `cf2cnp 0.5.0` from that
+repository instead of `oci://ghcr.io/onzack/helm-charts` `"*"`; `chart-from-fork.sh develop` resolved it
+(`dependencies: cf2cnp-0.5.0.tgz`), release revision 20, the pod on `ghcr.io/ephico2real2/cf2cnp:0.5.0`,
+and demo 25's vendored copy is refreshed from that commit. The lab ends as the tutorial left it: pos
+forwarded by the generated rule, stranger dropped.
 
 ## Exercises
 
