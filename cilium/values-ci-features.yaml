@@ -1,0 +1,15 @@
+# cilium/values-ci-features.yaml — the features the MacBook's Docker Desktop VM kernel (6.6.12-linuxkit) could not run,
+# switched on together on a Linux runner (enhancement 004, phase 0, matrix entry `kernel-features`). Each one is
+# diagnosed to its cause in demos/06-perf/README.md Part 4 and docs/TUNING.md; the runner's kernel (Ubuntu 24.04) is
+# the first place this lab can measure them. Applied on top of the lab's values and values-ci.yaml by scripts/lab-up.sh
+# when LAB_FEATURES is set.
+bpf:
+  datapathMode: netkit         # netkit devices instead of veth pairs — Cilium says kernel >= 6.8; the laptop has 6.6
+bandwidthManager:
+  enabled: true                # needs net.core.default_qdisc — absent on the linuxkit kernel (seven sysctls in net/core)
+  bbr: true                    # needs BBR compiled in — the linuxkit kernel offers reno and cubic only
+enableIPv4BIGTCP: true         # kernel >= 6.3, BPF host routing, KPR, BPF masquerade; Cilium lists supported NICs —
+enableIPv6BIGTCP: true         # a veth/netkit device is the measurement here, not a claim (needs ipv6.enabled)
+ipv6:
+  enabled: true                # dual-stack: the review of cf2cnp 0.7.0 fixed reserved:world-ipv4 / -ipv6 from Cilium's
+                               # source because the IPv4-only laptop could not show them — here they can be captured

@@ -25,12 +25,27 @@ jobs:
   two-clusters-meshed:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: base                # the lab as it runs on the laptop (IPv4, veth, tunnel)
+            features: ""
+            ipfamily: ipv4
+          - name: kernel-features     # what the laptop's VM kernel refused: netkit, bandwidth manager + BBR, BIG TCP, IPv6
+            features: "1"
+            ipfamily: dual
+    name: ${{ matrix.name }}
+    env:
+      LAB_FEATURES: ${{ matrix.features }}
+      LAB_IPFAMILY: ${{ matrix.ipfamily }}
     steps:
       - uses: actions/checkout@v5
 
       - name: The runner
         run: |
-          nproc; free -m; df -h / | tail -1; docker version --format 'docker {{.Server.Version}}'; helm version --short
+          uname -r; nproc; free -m; df -h / | tail -1; docker version --format 'docker {{.Server.Version}}'; helm version --short
+          echo "default_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null || echo absent)  congestion=$(cat /proc/sys/net/ipv4/tcp_available_congestion_control)"; ls /proc/sys/net/core | wc -l
           docker network inspect kind >/dev/null 2>&1 && docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' || echo "no kind network yet"
 
       - name: kind and kubectl (pinned, install only)
@@ -60,7 +75,7 @@ jobs:
           for ctx in kind-poc1 kind-poc2; do
             echo "-- $ctx"; kubectl --context $ctx get nodes -o wide; kubectl --context $ctx -n kube-system get pods -o wide | grep -E 'cilium|hubble|clustermesh'
             kubectl --context $ctx -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --brief
-            kubectl --context $ctx -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status | grep -E 'KubeProxyReplacement|ClusterMesh|Routing|Masquerading|Hubble'
+            kubectl --context $ctx -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --verbose | grep -E 'KubeProxyReplacement|ClusterMesh|Routing|Masquerading|Hubble|Device Mode|BIG TCP|BandwidthManager|IPv6|Encryption|Host firewall'
           done
           cilium clustermesh status --context kind-poc1; cilium clustermesh status --context kind-poc2
 
@@ -92,7 +107,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lab-spike-kind
+          name: lab-spike-kind-${{ matrix.name }}
           path: |
             lab-up.log
             cilium-sysdump-*.zip
