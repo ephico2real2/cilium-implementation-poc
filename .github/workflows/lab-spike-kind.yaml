@@ -48,6 +48,7 @@ jobs:
           # BBR is a module on Ubuntu (tcp_bbr); a kind node shares the host kernel and cannot load it, the host must
           sudo modprobe tcp_bbr || true
           echo "default_qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null || echo absent)  congestion=$(cat /proc/sys/net/ipv4/tcp_available_congestion_control)"; ls /proc/sys/net/core | wc -l
+          echo "security_bprm_committing_creds in kallsyms (Tetragon's base sensor): $(sudo grep -c ' security_bprm_committing_creds$' /proc/kallsyms)"
           docker network inspect kind >/dev/null 2>&1 && docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' || echo "no kind network yet"
 
       - name: kind and kubectl (pinned, install only)
@@ -80,6 +81,7 @@ jobs:
             kubectl --context $ctx -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --verbose | grep -E 'KubeProxyReplacement|ClusterMesh|Routing|Masquerading|Hubble|Device Mode|BIG TCP|BandwidthManager|IPv6|Encryption|Host firewall'
           done
           cilium clustermesh status --context kind-poc1; cilium clustermesh status --context kind-poc2
+          for ctx in kind-poc1 kind-poc2; do kubectl --context $ctx -n kube-system get ds tetragon -o custom-columns='DS:.metadata.name,READY:.status.numberReady,WANT:.status.desiredNumberScheduled' --no-headers; done
 
       - name: A Gateway with an address from the pool, an L2-announced LoadBalancer, a global service
         run: |

@@ -1,0 +1,10 @@
+# cilium/values-tetragon-ci.yaml — Tetragon in the CI lab (enhancement 004), on top of demos/17-tetragon/values-tetragon.yaml.
+# Tetragon is one of the features the MacBook could not run: its base sensor attaches a kprobe to
+# security_bprm_committing_creds, absent from Docker Desktop 4.27's linuxkit kernel (demo 17, blocker 1); the runner's
+# Ubuntu kernel has it — scripts/lab-up.sh checks the symbol before installing and says so if it is missing.
+tetragon:
+  hostProcPath: /procHost          # blocker 2: the mount clusters/ci/*.yaml adds to every node
+  prometheus:
+    serviceMonitor:
+      enabled: false               # no Prometheus operator in the CI lab (a ServiceMonitor would fail the install)
+  resources: {requests: {cpu: 50m, memory: 128Mi}, limits: {memory: 512Mi}}
