@@ -312,6 +312,47 @@ queries through it: 9
 retitled *Dropped flows, mesh-lab as the source* with the same drop from the observer's stream. Gotcha #86 keeps
 the trap; the fix is the chart's.
 
+## Part 10 (added 2026-09-13) — the dashboard chart 0.4.0: the namespace's whole traffic around the verdicts
+
+The operator asked for Cilium's own Grafana dashboards to be checked against ours (`monitoring-example.yaml` at
+1.20.1, fetched and compared: the same four dashboards demo 16 already gets from the Cilium chart, in an older
+form — gotcha #90) and for their findings to be folded into our page without the `kubecon-demo` tag the chart's
+namespace dashboards carry — with the 0.2.2 tiles kept, tiles for the new sections too, the ranked lists under
+their chart, and a quick adversarial review of the result ([`docs/REVIEW_DASHBOARD-0.4.0.md`](../../docs/REVIEW_DASHBOARD-0.4.0.md)).
+hubble-policy-verdicts 0.3.0 then 0.4.0 is the answer: six numbered sections, each a header, a tile line, charts,
+and ranked lists (tables with inline bars — a bar gauge hides the name of a single row and sizes its text by the
+row count, measured on a preview):
+
+| Section | Tiles | Panels | Metric |
+|---|---|---|---|
+| 1 · Policy verdicts | audited / forwarded / dropped / still audited (0.2.2, unchanged — the review hashed them) | the two rate charts, who-talked-to-whom, POLICY_DENIED drops | `hubble_policy_verdicts_total`, `hubble_drop_total` |
+| 2 · Flows | flow events / forwarded / dropped / peers seen | per second by verdict (stacked, the tiles' colours); top 10 sources; top 10 destinations | `hubble_flows_processed_total` (counted per node that saw the flow) |
+| 3 · Drops, every reason | drops / policy drops / other reasons / reasons seen | by reason and protocol; top 10 sources / destinations with drops | `hubble_drop_total` |
+| 4 · Connection health | SYNs sent / missing SYN-ACKs / echo requests / missing replies | SYNs sent, SYN-ACKs received and the missing ones; the ICMP twin — replies matched to the sender by identity AND namespace, a sender with no reply counted in full | `hubble_tcp_flags_total`, `hubble_icmp_total` |
+| 5 · DNS | queries / answered / missing / errors | queries by type; errors by rcode; queries, answers and the missing ones; top 10 names asked — `$namespace` as the asking side whatever `namespace is the` says | `hubble_dns_queries_total`, `hubble_dns_responses_total` |
+| 6 · HTTP | requests / 5xx / p50 / p99 | requests by status; p50 / p99 with trace exemplars; top source → destination workloads; top method × status — server-reported, counted once | `hubble_http_requests_total`, `hubble_http_request_duration_seconds_bucket` |
+
+Every query was run against poc1's Prometheus for `cf2cnp-lab` (source), `shop-core` and `bank` (destination)
+before and after the review's fixes, then the chart was rendered as a preview ConfigMap (its own uid) beside the
+live one and photographed; the preview was deleted after. A Tempo row (traces for the namespace beside the HTTP
+section) was built and parked: the only traced workloads on the lab are petclinic's six JVMs, and scaling them
+up took Prometheus down (gotcha #91). That gotcha is the other thing this part left behind: Prometheus restarting
+under liveness failures whenever the VM was busy, the dashboard red meanwhile — fixed in demo 16's values with a
+10-second probe timeout.
+
+![grafana-policy-verdicts-0.4.0-top](output/screenshots/grafana-policy-verdicts-0.4.0-top.png)
+
+![grafana-policy-verdicts-0.4.0-cf2cnp-lab-source](output/screenshots/grafana-policy-verdicts-0.4.0-cf2cnp-lab-source.png)
+
+![grafana-policy-verdicts-0.4.0-bank-destination](output/screenshots/grafana-policy-verdicts-0.4.0-bank-destination.png)
+
+What the new sections add to the story of this demo: the drop section shows POLICY_DENIED on ICMPv4 beside TCP
+(the verdict panels count decisions, not packets); the connection-health section lists `stranger`'s attempts that
+never complete, per sender (the same drop seen from the client's side — before the review, a sender with no reply
+at all vanished from that list); the DNS section shows what `pos` resolves — the names a `toFQDNs` rule must allow
+— and its NXDOMAINs (`example.com.cf2cnp-lab.svc.cluster.local.`: the search-domain expansion every lookup tries
+first); and `bank` as the destination shows its HTTP requests by status with the p50/p99 the proxy measured.
+
 ## Cleanup
 
 `demos/29-cross-cluster-policy/cleanup.sh` deletes `mesh-lab` in both clusters. Part 1 (the metric on poc2)
@@ -342,3 +383,6 @@ the flows and the four policies are under [`policies/`](policies/).
 | [`grafana-policy-verdicts-cluster-poc2.png`](output/screenshots/grafana-policy-verdicts-cluster-poc2.png) | the dashboard with `cluster=poc2`: worker@poc2's egress verdict by `worker-batch`, and the Loki row's dropped flows |
 | [`grafana-policy-verdicts-cluster-poc1.png`](output/screenshots/grafana-policy-verdicts-cluster-poc1.png) | the same with `cluster=poc1`: the cache's audit, drops and forwards of Part 6 |
 | [`grafana-policy-verdicts-cluster-poc2-source.png`](output/screenshots/grafana-policy-verdicts-cluster-poc2-source.png) | Part 9, chart 0.2.1: `cluster=poc2` with the namespace as the source — the drops to `bank` on the page |
+| [`grafana-policy-verdicts-0.4.0-top.png`](output/screenshots/grafana-policy-verdicts-0.4.0-top.png) | Part 10, chart 0.4.0 preview: the 0.2.2 tiles first, under the section header |
+| [`grafana-policy-verdicts-0.4.0-cf2cnp-lab-source.png`](output/screenshots/grafana-policy-verdicts-0.4.0-cf2cnp-lab-source.png) | Part 10: the six sections and the Loki row, `cf2cnp-lab` as the source |
+| [`grafana-policy-verdicts-0.4.0-bank-destination.png`](output/screenshots/grafana-policy-verdicts-0.4.0-bank-destination.png) | Part 10: `bank` as the destination — the HTTP section with data |

@@ -1,9 +1,14 @@
 # Enhancement 003 — cf2cnp consumes Cilium's own policy spec: the full CiliumNetworkPolicy of 1.20.x, validated the way the agent validates, announced per release
 
-Status: **plan for review** (2026-09-13). The forensic analysis it rests on is on the fork branch
-[`enh/E12-cilium-policy-api`](https://github.com/ephico2real2/cf2cnp/tree/enh/E12-cilium-policy-api):
-[`docs/CRD-SPEC-FORENSICS.md`](https://github.com/ephico2real2/cf2cnp/blob/enh/E12-cilium-policy-api/docs/CRD-SPEC-FORENSICS.md)
-with the probe programs under `hack/cilium-api-probe/`. Nothing is changed in cf2cnp's code yet.
+Status: **released as cf2cnp 0.7.0** (2026-09-13, fork tag `v0.7.0`, develop `3144152`; upstream onzack/cf2cnp#3
+fast-forwarded). Implemented on the fork branch
+[`enh/E12-cilium-policy-api`](https://github.com/ephico2real2/cf2cnp/tree/enh/E12-cilium-policy-api) (fork PR #2),
+reviewed in two passes by Cursor and Codex — [`docs/REVIEW_ENH-003.md`](../docs/REVIEW_ENH-003.md): dual-stack
+world labels, the DNS resolver recognised by the label the parser kept (kube-dns, the CoreDNS Helm chart, NodeLocal,
+OpenShift), resolver rules on `ANY`, `validate` matching admission (ObjectMeta, the CRD's protocol enum, apiVersion
+and kind, no nodeSelector on a namespaced policy, `specs`), `serve` and chart DNS defaults, `merge --l7`. The
+forensic analysis it rests on: [`docs/CRD-SPEC-FORENSICS.md`](https://github.com/ephico2real2/cf2cnp/blob/develop/docs/CRD-SPEC-FORENSICS.md)
+with the probe programs under `hack/cilium-api-probe/`.
 
 ## 1. Why, in one paragraph
 

@@ -2135,6 +2135,59 @@ container name is a path segment under `/var/log/pods`). Measured after: two str
 **The lesson:** a chart meant to be installed twice must let every per-release identity — names, labels, the
 container — be set, and a log query in a README is a claim to measure against the label a shipper actually produces.
 
+## <a name="90"></a>90. The Cilium chart's namespace dashboards carry a `kubecon-demo` tag, and nothing in the chart removes it
+
+**Where:** demo 16 Part 5 turned on `hubble.metrics.dashboards.enabled`; six dashboards arrived as ConfigMaps in
+`monitoring`. Two of them — *Hubble / Network Overview (Namespace)* and *Hubble / DNS Overview (Namespace)* — show a
+`kubecon-demo` tag in Grafana's header and list:
+
+```text
+hubble-dns-namespace              tags: ['kubecon-demo']
+hubble-network-overview-namespace tags: ['kubecon-demo']
+```
+
+**What happened:** the tag is upstream's, in the chart's own files (`install/kubernetes/cilium/files/hubble/dashboards/`,
+still there on `main` on 2026-09-13), and the chart has one switch for all six dashboards and no per-dashboard
+values. Editing the ConfigMap by hand lasts until the next `helm upgrade` of Cilium, which restores it. Cilium's
+`examples/kubernetes/addons/prometheus/monitoring-example.yaml` (fetched and compared) is not a cleaner source: it
+carries an older copy of four of the six, with a hard-coded `prometheus` datasource name instead of the `${DS_PROMETHEUS}`
+input our sidecar resolves, and brings its own Prometheus 2.42 and Grafana 9.3.
+
+**The fix:** the panels those two dashboards are made of live on our own chart since hubble-policy-verdicts 0.3.0 (0.4.0 reviewed),
+re-homed on the verdict dashboard's single namespace filter (demo 29 Part 10), without the tag; the chart's six
+dashboards stay as they are. Removing the tag upstream is a one-line pull request to cilium/cilium, not a chart value.
+
+**The lesson:** a vendor chart's dashboards are the vendor's artefacts, tags and all; the durable way to own the
+look of a page is to own the page.
+
+## <a name="91"></a>91. Prometheus killed itself every few minutes on a busy laptop — the liveness probe, not the queries
+
+**Where:** demo 29 Part 10, capturing the 0.4.0 dashboard while a review job ran `go test` and, later, while
+petclinic's six JVMs started. Every panel red, `dial tcp 10.11.19.139:9090: connect: connection refused`, the top
+tiles at 0 and the charts with data only at the right edge:
+
+```text
+prometheus-monitoring-kube-prometheus-prometheus-0   1/2   Running   21 (34s ago)
+Killing   Container prometheus failed liveness probe, will be restarted
+lastState: terminated exitCode 0 reason Completed          ← SIGTERM from the kubelet, not a crash
+load average 190  (16 cores)
+```
+
+**What happened:** kube-prometheus-stack's default liveness probe gives `/-/healthy` 3 seconds, six times at 5-second
+intervals. On a Docker VM with seven kind nodes, two Cilium installs and a review job, the Go runtime could not
+answer in 3 seconds, the kubelet killed Prometheus, the restart replayed the WAL, the replay kept the VM busy, the
+next probe failed — a loop that fed itself. Scrapes were lost for every window it was down, which is the gap at
+the left of the charts; nothing about the dashboard's queries was wrong (every one of them was run against the API
+directly and succeeded between restarts).
+
+**The fix:** the operator merges a container patch by name into the StatefulSet —
+`prometheus.prometheusSpec.containers[name=prometheus].livenessProbe` with a 10-second timeout and a two-minute
+failure window (demo 16's values, revision 10). Zero restarts since. The startup probe (15 minutes) was never the
+problem.
+
+**The lesson:** when a dashboard goes red, read the pod's `lastState` before the queries: `reason: Completed` with
+exit 0 after a liveness event is the kubelet's doing, and the cure is the probe, not the panel.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -2187,6 +2240,8 @@ Most of these share a shape: **something reported success while not working.**
 - the workflow had the permissions and still could not open the pull request: a repository setting (#87)
 - the stricter policy was valid and idle beside the chart's wider one (#88)
 - the second observer wrote into the first one's Loki stream: one chart, one container name (#89)
+- the vendor's dashboards carried the vendor's tag, and the chart had no switch for it (#90)
+- Prometheus killed itself on a busy laptop: the liveness probe, not the queries (#91)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

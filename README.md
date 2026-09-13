@@ -144,7 +144,7 @@ unchanged, with BGP substituted for L2 in production.
 8m. **Demo 35** is the platform-scale run: a shared catalog called from three namespaces, an API gateway in
    a fourth, a client namespace that must only go through the gateway — one request, six policies whose
    descriptions read like the architecture (cf2cnp 0.6.3).
-9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 89 traps, each with the real error
+9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 91 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -366,7 +366,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 89 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 91 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

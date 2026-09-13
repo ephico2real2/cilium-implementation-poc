@@ -24,6 +24,18 @@ prometheus:
     # Prometheus stores them only with this on. Harmless without a tracing backend.
     enableFeatures: [exemplar-storage]
     enableRemoteWriteReceiver: true
+    # 2026-09-13 (demo 29 Part 10): on a loaded laptop the default liveness probe (3 s timeout, 6 failures at 5 s)
+    # killed Prometheus whenever the VM was busy — 21 restarts in an afternoon, each one a WAL replay that kept the
+    # VM busy enough to fail the next probe (load average 190 on 16 cores), and every dashboard red meanwhile.
+    # The operator merges this container patch by name into the StatefulSet; the probe gets a 10 s timeout and a
+    # two-minute failure window. The startup probe (15 min) is untouched.
+    containers:
+      - name: prometheus
+        livenessProbe:
+          httpGet: {path: /-/healthy, port: http-web, scheme: HTTP}
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 12
     # Demo 22 Part 4: the hub's OWN scrapes carry no `cluster` label (external labels are added only on the way
     # out, never to locally stored series), so the multi-cluster dashboards showed poc1's rows unnamed next to
     # poc2's. A default scrape class relabels EVERY ServiceMonitor/PodMonitor/Probe/ScrapeConfig target that does

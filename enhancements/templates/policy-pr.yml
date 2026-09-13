@@ -29,7 +29,7 @@ permissions:
   pull-requests: write
 
 env:
-  CF2CNP_VERSION: "0.6.1"          # 0.6.0 brought `merge` and the binaries; 0.6.1 keeps the merged file as it was (one rule per PR diff)
+  CF2CNP_VERSION: "0.7.0"          # 0.6.0 brought `merge` and the binaries; 0.6.1 keeps the merged file as it was (one rule per PR diff); 0.7.0 validates with Cilium's own Sanitize and takes --l7 on merge
   CILIUM_VERSION: "v1.20.1"        # the CRD the policy is validated against — your cluster's Cilium version
 
 jobs:

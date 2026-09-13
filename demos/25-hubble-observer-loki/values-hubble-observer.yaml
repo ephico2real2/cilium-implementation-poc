@@ -74,7 +74,7 @@ cf2cnp:                                  # the README's "Configuration" section:
   resources: {requests: {cpu: 20m, memory: 32Mi}, limits: {memory: 128Mi}}   # not in defaults: bounded
   image:                                 # demo 26 Part 14/14e, demo 28 (2026-09-13) — NOT the chart default (ghcr.io/onzack/cf2cnp). The fork's
     repository: ghcr.io/ephico2real2/cf2cnp   # release 0.5.0 (ephico2real2/cf2cnp, tag v0.5.0; upstream PR onzack/cf2cnp#3 pending):
-    tag: "0.6.3"                         # (0.5.1: the page summary names components; 0.6.0, demo 29–33: enhancement 001 — cluster-aware selectors,
+    tag: "0.7.0"                         # (0.5.1: the page summary names components; 0.6.0, demo 29–33: enhancement 001 — cluster-aware selectors,
                                          # L7 rules, the DNS-visibility rule, exclude=, `cf2cnp merge`, allowed origins + token + a policy for the pod,
                                          # release binaries; 0.6.1, demo 32: merge keeps the file as it was, one kube-dns rule; 0.6.3, demo 35: the
                                          # description written from the rules) download_url from
