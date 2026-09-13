@@ -186,17 +186,23 @@ accounts.bank.svc.cluster.local.` (trailing dot). cf2cnp's `Flow` type has no `l
 dropped and the rule is port-only.
 
 **Cited.** `PortRuleHTTP.Path` and `.Method` are extended POSIX regexes; empty means any (`http.go` 66–105).
+Cilium compiles them and hands them to Envoy as safe-regex matchers on `:path` and `:method`
+(`pkg/envoy/policy/envoy_l7_rules_translator.go`); Envoy matches a safe regex against the **whole** header
+value, and `:path` carries the query string — so the tool escapes the path and allows an optional query
+(`^/payments(\?.*)?$`); the anchors are explicit rather than required (review finding).
 "Layer 7 policies will proxy traffic through a node-local envoy instance … will therefore depend on the
 availability of the Cilium agent pod" (`layer7.rst` 61). Demo 16 measured the same: an L7 rule is what puts a
 port on the proxy.
 
 **Design.** Opt-in (`--l7` in the CLI, `?l7=true` on the API, a checkbox on the page). Only `REQUEST`
 L7 records are used (a `RESPONSE` is the reply side, exactly as `is_reply` is skipped today). HTTP: the rule
-gets `http: [{method: "POST", path: "^/payments$"}]` per distinct method + path, the path taken from the
-URL and **anchored** — the field is a regex, and `/payments` unanchored would also allow `/payments-admin`.
-Regex metacharacters in the path are escaped (`regexp.QuoteMeta`). DNS: `dns: [{matchName: "<query without
-the trailing dot>"}]` per distinct query. The rule is attached to the port rule of the same aggregated flow,
-so a port with L7 records becomes `toPorts: [{ports: […], rules: {http: […]}}]`.
+gets `http: [{method: "POST", path: "^/payments(\?.*)?$"}]` per distinct method + path — the path escaped
+(`regexp.QuoteMeta`), an optional query allowed. DNS: `dns: [{matchName: "<query without the trailing dot>"}]`
+per distinct query, **exactly as the resolver sent it**: an L7 DNS policy allows only the names it lists, and
+the resolver tries its search-list expansions (`…svc.cluster.local.bank.svc.cluster.local`) before the real
+name — strip them and lookups fail (both reviewers weighed in; the docs decided). L7 records are kept **per
+port**: a port with them gets its own port rule with a `rules:` block, ports without stay together — an HTTP
+rule seen on 8080 must not restrict 5432 of the same peer pair (review finding).
 
 What it must say in the output (a comment, like the `toCIDR` one): the port now goes through the proxy; a TLS
 port yields no L7 records (nothing was parsed, so no rule is produced — the port stays L4).

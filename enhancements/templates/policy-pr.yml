@@ -33,42 +33,59 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install cf2cnp
-        run: |
-          curl -sSL -o cf2cnp.tgz "https://github.com/ephico2real2/cf2cnp/releases/download/v${CF2CNP_VERSION}/cf2cnp_${CF2CNP_VERSION}_linux_amd64.tar.gz"
-          tar -xzf cf2cnp.tgz && sudo install cf2cnp /usr/local/bin/cf2cnp && cf2cnp --help | head -3
-
-      - name: Merge the flows into the policy (or generate it the first time)
+      - name: Install cf2cnp (release archive, checksum verified)
+        env:
+          VERSION: ${{ env.CF2CNP_VERSION }}
         run: |
           set -eu
-          L7=""; [ "${{ inputs.l7 }}" = "true" ] && L7="--l7"
-          if [ -f "${{ inputs.policy }}" ]; then
-            cf2cnp merge --existing "${{ inputs.policy }}" --input "${{ inputs.flows }}" $L7
-          else
-            mkdir -p out "$(dirname "${{ inputs.policy }}")"
-            cf2cnp generate --input "$(dirname "${{ inputs.flows }}")" --output out $L7
-            n=$(ls out/*.yaml | wc -l); [ "$n" -eq 1 ] || { echo "the flows produce $n policies; one policy file per workload — filter the flows" >&2; exit 1; }
-            mv out/*.yaml "${{ inputs.policy }}"
-          fi
-          git diff --stat -- "${{ inputs.policy }}" || true
+          base="https://github.com/ephico2real2/cf2cnp/releases/download/v${VERSION}"
+          tmp=$(mktemp -d)                                              # never inside the checkout (review finding)
+          curl -sSL -o "$tmp/cf2cnp.tgz"      "$base/cf2cnp_${VERSION}_linux_amd64.tar.gz"
+          curl -sSL -o "$tmp/checksums.txt"   "$base/cf2cnp_${VERSION}_checksums.txt"
+          (cd "$tmp" && grep " cf2cnp_${VERSION}_linux_amd64.tar.gz$" checksums.txt | sha256sum -c -)
+          tar -xzf "$tmp/cf2cnp.tgz" -C "$tmp" && sudo install "$tmp/cf2cnp" /usr/local/bin/cf2cnp && rm -rf "$tmp"
+          cf2cnp --help | head -3
 
-      - uses: actions/setup-go@v5          # ubuntu-latest ships no Go; kubectl-validate runs with `go run` (review finding)
+      - name: Merge the flows into the policy (or generate it the first time)
+        # inputs reach the shell through the environment, never through ${{ }} in the script (script-injection guidance)
+        env:
+          FLOWS: ${{ inputs.flows }}
+          POLICY: ${{ inputs.policy }}
+          L7: ${{ inputs.l7 }}
+        run: |
+          set -eu
+          l7=""; [ "$L7" = "true" ] && l7="--l7"
+          if [ -f "$POLICY" ]; then
+            cf2cnp merge --existing "$POLICY" --input "$FLOWS" $l7
+          else
+            out=$(mktemp -d)
+            mkdir -p "$(dirname "$POLICY")"
+            cf2cnp generate --input "$FLOWS" --output "$out" $l7      # 0.6.0: a flows FILE, not its whole directory
+            n=$(ls "$out"/*.yaml | wc -l); [ "$n" -eq 1 ] || { echo "the flows produce $n policies; one policy file per workload — filter the flows" >&2; exit 1; }
+            mv "$out"/*.yaml "$POLICY"; rm -rf "$out"
+          fi
+          git diff --stat -- "$POLICY" || true
+
+      - uses: actions/setup-go@v5          # ubuntu-latest ships no Go; kubectl-validate runs with `go run`
         with:
           go-version: "1.24"
 
       - name: Validate against the CiliumNetworkPolicy CRD (offline)
-        # kubectl-validate's --local-crds takes a DIRECTORY of CRD files (measured: `--local-crds=./path/to/crds/dir`),
-        # so the CRD goes into its own directory, not next to the policies. No --version: the object is a CRD instance,
-        # the native-schema version does not apply.
+        # kubectl-validate's --local-crds takes a DIRECTORY of CRD files; the CRD lives outside the checkout
+        env:
+          POLICY: ${{ inputs.policy }}
+          CILIUM_VERSION: ${{ env.CILIUM_VERSION }}
         run: |
-          mkdir -p .cilium-crds
-          curl -sSL -o .cilium-crds/ciliumnetworkpolicies.yaml "https://raw.githubusercontent.com/cilium/cilium/${CILIUM_VERSION}/pkg/k8s/apis/cilium.io/client/crds/v2/ciliumnetworkpolicies.yaml"
-          go run sigs.k8s.io/kubectl-validate@v0.0.4 --local-crds .cilium-crds "${{ inputs.policy }}"
-          rm -rf .cilium-crds
+          set -eu
+          crds=$(mktemp -d)
+          curl -sSL -o "$crds/ciliumnetworkpolicies.yaml" "https://raw.githubusercontent.com/cilium/cilium/${CILIUM_VERSION}/pkg/k8s/apis/cilium.io/client/crds/v2/ciliumnetworkpolicies.yaml"
+          go run sigs.k8s.io/kubectl-validate@v0.0.4 --local-crds "$crds" "$POLICY"
+          rm -rf "$crds"
 
       - name: Open the pull request
         uses: peter-evans/create-pull-request@v7
         with:
+          add-paths: ${{ inputs.policy }}          # only the policy file is committed (review finding)
           branch: policy/${{ github.run_id }}
           title: "policy: ${{ inputs.policy }} from ${{ inputs.flows }}"
           commit-message: "policy: evolve ${{ inputs.policy }} from observed flows"
