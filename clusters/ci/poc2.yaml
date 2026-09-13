@@ -1,0 +1,18 @@
+# clusters/ci/poc2.yaml — the CI shape of clusters/poc2.yaml (enhancement 004): one control plane and one worker, because a
+# GitHub-hosted runner for a public repository is 4 vCPU / 16 GB and a job builds two of these plus Cilium. Everything
+# else is the lab's: no kindnet, no kube-proxy (Cilium replaces both), the same non-overlapping CIDRs ClusterMesh needs,
+# the same pinned node image (Kubernetes v1.36.4, the newest Cilium 1.20.1 is tested on). With one control plane there is
+# no kind load-balancer container, so Cilium's k8sServiceHost is the control-plane node's name (scripts/lab-up.sh).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: poc2
+networking:
+  disableDefaultCNI: true
+  kubeProxyMode: none
+  podSubnet: "10.20.0.0/16"
+  serviceSubnet: "10.21.0.0/16"
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  - role: worker
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed

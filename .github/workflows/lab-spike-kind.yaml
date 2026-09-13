@@ -1,0 +1,103 @@
+# Enhancement 004, phase 0 — the lab on a GitHub-hosted runner: two kind clusters, Cilium 1.20.1 with kube-proxy
+# replacement, Gateway API, the LB pools, ClusterMesh, and Cilium's own multi-cluster connectivity test — the way
+# cilium/cilium's conformance-clustermesh.yaml does it, on the same 4 vCPU / 16 GB runners. Dispatched by hand; the
+# job's numbers (wall clock per step, memory, CPU) are the measurement the plan's next phases are sized on.
+name: lab spike (kind)
+
+on:
+  workflow_dispatch:
+    inputs:
+      connectivity_test:
+        description: run `cilium connectivity test --multi-cluster` (about 15 minutes)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  KIND_VERSION: v0.33.0
+  KUBECTL_VERSION: v1.36.4
+  CILIUM_CLI_VERSION: v0.19.7
+  CILIUM_VERSION: "1.20.1"
+
+jobs:
+  two-clusters-meshed:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: The runner
+        run: |
+          nproc; free -m; df -h / | tail -1; docker version --format 'docker {{.Server.Version}}'; helm version --short
+          docker network inspect kind >/dev/null 2>&1 && docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' || echo "no kind network yet"
+
+      - name: kind and kubectl (pinned, install only)
+        uses: helm/kind-action@v1.14.0
+        with:
+          version: ${{ env.KIND_VERSION }}
+          kubectl_version: ${{ env.KUBECTL_VERSION }}
+          install_only: true
+
+      - name: Cilium CLI (pinned)
+        uses: cilium/cilium-cli@v0.19.7
+        with:
+          release-version: ${{ env.CILIUM_CLI_VERSION }}
+          skip-build: true
+
+      - name: Bring the lab up — poc1, poc2, meshed
+        id: up
+        run: |
+          start=$(date +%s)
+          scripts/lab-up.sh poc1 poc2 2>&1 | tee lab-up.log
+          echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+
+      - name: What it cost
+        run: |
+          echo "lab-up took ${{ steps.up.outputs.seconds }} s"
+          free -m; docker stats --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}}'
+          for ctx in kind-poc1 kind-poc2; do
+            echo "-- $ctx"; kubectl --context $ctx get nodes -o wide; kubectl --context $ctx -n kube-system get pods -o wide | grep -E 'cilium|hubble|clustermesh'
+            kubectl --context $ctx -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --brief
+            kubectl --context $ctx -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status | grep -E 'KubeProxyReplacement|ClusterMesh|Routing|Masquerading|Hubble'
+          done
+          cilium clustermesh status --context kind-poc1; cilium clustermesh status --context kind-poc2
+
+      - name: A Gateway with an address from the pool, an L2-announced LoadBalancer, a global service
+        run: |
+          kubectl --context kind-poc1 apply -f demos/05-gateway-api/gateway.yaml
+          for i in $(seq 1 30); do a=$(kubectl --context kind-poc1 get gateway -A -o jsonpath='{.items[0].status.addresses[0].value}' 2>/dev/null); [ -n "$a" ] && break; sleep 5; done
+          echo "gateway address: ${a:-NONE}"; kubectl --context kind-poc1 get gateway -A
+          [ -n "$a" ] || { echo "::error::the Gateway got no address from the pool"; exit 1; }
+          kubectl --context kind-poc1 apply -f demos/07-clustermesh/global-service.yaml; kubectl --context kind-poc2 apply -f demos/07-clustermesh/global-service.yaml
+          kubectl --context kind-poc1 apply -f demos/07-clustermesh/backend-poc1.yaml; kubectl --context kind-poc2 apply -f demos/07-clustermesh/backend-poc2.yaml
+          kubectl --context kind-poc1 rollout status deploy --all --timeout=5m; kubectl --context kind-poc2 rollout status deploy --all --timeout=5m
+          kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -i -A3 'rebel\|global' | head -20 || true
+
+      - name: Connectivity test, multi-cluster (Cilium's own)
+        if: ${{ inputs.connectivity_test }}
+        run: |
+          start=$(date +%s)
+          cilium connectivity test --context kind-poc1 --multi-cluster kind-poc2 --test '!no-unexpected-packet-drops' --collect-sysdump-on-failure --sysdump-output-filename 'cilium-sysdump-<ts>' 2>&1 | tail -40
+          echo "connectivity test took $(( $(date +%s) - start )) s"
+
+      - name: Sysdumps on failure
+        if: failure()
+        run: |
+          cilium sysdump --context kind-poc1 --output-filename cilium-sysdump-poc1-final || true
+          cilium sysdump --context kind-poc2 --output-filename cilium-sysdump-poc2-final || true
+
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-spike-kind
+          path: |
+            lab-up.log
+            cilium-sysdump-*.zip
+          if-no-files-found: ignore
+
+      - name: Down
+        if: always()
+        run: scripts/lab-down.sh || true

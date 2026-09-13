@@ -1,0 +1,13 @@
+# cilium/values-ci.yaml — applied on top of cilium/values-poc1.yaml / values-poc2.yaml by scripts/lab-up.sh in CI
+# (enhancement 004). The lab's values stay the source of truth; this overlay only trims what a 4 vCPU / 16 GB runner
+# cannot afford or does not need: one operator replica, no Hubble UI (the captures use Grafana), and the agents' own
+# resource requests low enough that two clusters and a monitoring stack schedule on two-node clusters.
+operator:
+  replicas: 1
+hubble:
+  ui:
+    enabled: false
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
