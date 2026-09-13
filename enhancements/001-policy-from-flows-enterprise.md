@@ -897,6 +897,25 @@ being exactly the new rule, merged, applied by `kubectl apply` in the demo (the 
 
 ---
 
+## The branches (one per issue, each with the code above applied and its tests green)
+
+| Item | Repository | Branch | What it carries |
+|---|---|---|---|
+| E1 | ephico2real2/cf2cnp | [`enh/E1-cluster-aware-selectors`](https://github.com/ephico2real2/cf2cnp/tree/enh/E1-cluster-aware-selectors) | clusters on the parsed and aggregated flow, `ClusterLabel` on the peer selector, a fixture from a measured poc2 → poc1 request, three tests |
+| E2 | ephico2real2/cf2cnp | [`enh/E2-l7-rules`](https://github.com/ephico2real2/cf2cnp/tree/enh/E2-l7-rules) | `L7` types, REQUEST-only parsing, per-peer HTTP/DNS collection, `WithL7`, `--l7` / `?l7=true` / checkbox, fixtures measured on the bank |
+| E3 | ephico2real2/cf2cnp | [`enh/E3-dns-visibility`](https://github.com/ephico2real2/cf2cnp/tree/enh/E3-dns-visibility) | `WithDNSVisibility`, the factored `dnsVisibilityRule`, `--dns-visibility` / `?dnsVisibility=true` / checkbox, the comment, a test |
+| E4 | ephico2real2/cf2cnp | [`enh/E4-exclude-peers`](https://github.com/ephico2real2/cf2cnp/tree/enh/E4-exclude-peers) | `?exclude=` on the API, the peer checklist on the page, tests including the EGRESS peer case |
+| E5 | ephico2real2/cf2cnp | [`enh/E5-merge`](https://github.com/ephico2real2/cf2cnp/tree/enh/E5-merge) | `MergeInto` (unstructured, idempotent, target-checked), `cf2cnp merge`, README, tests with `ingressDeny` and an annotation surviving |
+| E6 | ephico2real2/cf2cnp | [`enh/E6-hardening`](https://github.com/ephico2real2/cf2cnp/tree/enh/E6-hardening) | CORS allow-list, bearer token (constant-time, preflight and `/health` open), the page's token field, chart `cors` / `auth` / `networkPolicy` with a Secret and a CiliumNetworkPolicy, tests |
+| E7 | ephico2real2/hubble-policy-verdicts | [`enh/E7-loki-row`](https://github.com/ephico2real2/hubble-policy-verdicts/tree/enh/E7-loki-row) | `lokiRow` assembled at render time, the table with the Generate/Download actions, CI parsing the JSON with and without the row (chart 0.2.0) |
+| E8 | ephico2real2/hubble-observer | [`enh/E8-policy-verdict-stream`](https://github.com/ephico2real2/hubble-observer/tree/enh/E8-policy-verdict-stream) | `examples/values-policy-verdicts.yaml` (a second release, `--type policy-verdict`, the field mask) and the README's Loki query |
+| E9 | this repository | demo 29 (with E1) | no code: the demo plan above |
+| E10 | ephico2real2/cf2cnp and this repository | [`enh/E10-binary-release`](https://github.com/ephico2real2/cf2cnp/tree/enh/E10-binary-release), [`enhancements/templates/policy-pr.yml`](templates/policy-pr.yml) | the binary release workflow on `v*` tags; the policy-as-code workflow template |
+
+Branches E2 and E3 both touch the port rule's `rules:` type (E2 renames `DNSRules` to `L7Rules`); E3 keeps
+the old name so each branch stands alone, and the merge order is E1, E2, E3 (E3 rebased onto E2's type),
+E4, E5, E6 — then a fork release 0.6.0 and the demos.
+
 ## Cross-cutting: what "enterprise-ready" adds around the code
 
 - **Audit mode at scale.** Per-endpoint audit (`cilium-dbg endpoint config`) is a lab tool; the agent-wide
