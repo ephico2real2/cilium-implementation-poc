@@ -881,3 +881,21 @@ cf2cnp requests made by the browser:
   POST https://cf2cnp.poc.local/generate headers={"x-grafana-device-id":"f50de6c461bbe25e56e0a0abfc529c9b","accept":"application/json, text/plain, */*","x-grafana-action":"1"} body={"flow":{"time":"2026-09-13T00:23:29.312604426Z","uuid":"1895c9ab-e72e-4b81-ab9f…
     ← 200 {"download_url":"https://cf2cnp.poc.local/download/1895c9ab-e72e-4b81-ab9f-cab0dd802b8c","filename":"cf2cnp-lab-shop.yaml","flows":1,"message":"Policy generated
 
+### Part 15 — Codex's re-checks, measured: the cep-name endpoint lookup, the parser's INGRESS path, the metric's match values, generate.sh on an HTTP error
+### 2026-09-13T00:54:55Z
+$ bash -c P=demos/26-cf2cnp-policy-from-flows; POD=$(kubectl --context kind-poc1 -n cf2cnp-lab get pods -o name | grep /shop | cut -d/ -f2); echo "== cep-name:<ns>/<pod> resolves the endpoint on 1.20.1 =="; kubectl --context kind-poc1 -n kube-system exec pod/cilium-s2wxk -c cilium-agent -- cilium-dbg endpoint get cep-name:cf2cnp-lab/$POD -o json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); e=d[0] if isinstance(d,list) else d; print(\"  id\", e[\"id\"], \"ipv4\", [a.get(\"ipv4\") for a in e[\"status\"][\"networking\"][\"addressing\"]])"; kubectl --context kind-poc1 -n kube-system exec pod/cilium-s2wxk -c cilium-agent -- cilium-dbg endpoint get cep-name:cf2cnp-lab/nope 2>&1 | head -1 | sed "s/^/  missing pod: /"; echo "== audit-mode.sh rewritten on it: the real pod, a missing one, a hostNetwork name =="; $P/audit-mode.sh shop Disabled; $P/audit-mode.sh nosuch Enabled; echo "  exit=$?"; echo "== policy metric match values in Prometheus (all namespaces) =="; kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/label/match/values?match[]=hubble_policy_verdicts_total" | python3 -c "import json,sys; print(\"  \", json.load(sys.stdin)[\"data\"])"; echo "== generate.sh on an empty body: the error is an error now, the output file untouched =="; : > .tmp/empty.json; echo keep-me > .tmp/out.yaml; $P/generate.sh .tmp/empty.json .tmp/out.yaml; echo "  exit=$? out.yaml=$(cat .tmp/out.yaml)"
+== cep-name:<ns>/<pod> resolves the endpoint on 1.20.1 ==
+  id 1955 ipv4 ['10.10.3.7']
+  missing pod: Error: Cannot get endpoint cep-name:cf2cnp-lab/nope: [GET /endpoint/{id}][404] getEndpointIdNotFound
+== audit-mode.sh rewritten on it: the real pod, a missing one, a hostNetwork name ==
+endpoint 1955 (cep-name:cf2cnp-lab/shop-6d7d797759-4ddlt on poc1-worker2): PolicyAuditMode=Disabled
+  PolicyAuditMode                   : Disabled
+audit-mode.sh: no pod named nosuch* in cf2cnp-lab
+  exit=1
+== policy metric match values in Prometheus (all namespaces) ==
+   ['l3-l4', 'l7/dns', 'l7/http', 'none']
+== generate.sh on an empty body: the error is an error now, the output file untouched ==
+curl: (22) The requested URL returned error: 400
+generate.sh: cf2cnp answered http=400: Request body is empty. Please provide Hubble flow JSON.
+  exit=22 out.yaml=keep-me
+

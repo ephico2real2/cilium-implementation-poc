@@ -88,12 +88,19 @@ carry the namespace and **cannot be combined with `--namespace`** (the CLI error
 were empty and cf2cnp answered `400 Request body is empty`); `--traffic-direction ingress|egress` selects
 *which side reported* the flow, and that decides the kind of policy cf2cnp writes.
 
-## Part 3 — the ingress problem: with no policy, nobody reports INGRESS
+## Part 3 — the ingress problem: in this capture, nothing reported INGRESS
 
-This is the measured fact the whole workflow turns on. With no policy on `shop`, every flow *to* shop was
-reported as **EGRESS** — at `TO_OVERLAY` by the sender's node and at `TO_ENDPOINT` by shop's own node —
-and `--traffic-direction ingress` returned **0** flows (Part 1d). Feed cf2cnp one of those and it writes an
-*egress* policy for `pos`, not the ingress policy for `shop` you wanted.
+This is the measured fact the workflow turns on — for this capture. With no policy on `shop`, every flow
+*to* shop was reported as **EGRESS** — at `TO_OVERLAY` by the sender's node and at `TO_ENDPOINT` by shop's
+own node — and `--traffic-direction ingress` returned **0** flows (Part 1d). Feed cf2cnp one of those and it
+writes an *egress* policy for `pos`, not the ingress policy for `shop` you wanted.
+
+It is an observation, not a Cilium invariant (review finding): the parser's `decodeTrafficDirection`
+(cilium v1.20.1 `pkg/hubble/parser/threefour/parser.go`) returns INGRESS for a trace event whenever the local
+endpoint is the destination and the packet is not a reply, policy or no policy — provided the observation
+point carried a connection-tracking reason. What is reliable is the destination's **policy-verdict** event:
+it exists only once a policy selects the endpoint, and it is always reported from the destination's side
+as INGRESS. That is what Part 4 produces.
 
 The egress example is still useful and is kept: from the `pos → reserved:world:443` flow cf2cnp wrote
 [`cnp-pos-to-world.yaml`](policies/cnp-pos-to-world.yaml) — `toCIDR: 104.20.23.154/32` with the tool's own

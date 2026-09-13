@@ -1961,9 +1961,9 @@ API, the UI and the Grafana action, every flow is its own file with the same nam
 
 ## <a name="82"></a>82. A default-deny drop names no policy — "Flows per Denying Policy" stays empty
 
-**Symptom.** Demo 26 Part 9: 94 dropped flows in the hubble-observer dashboard, drop reason
-`POLICY_DENIED` on every one, and the *Flows per Denying Policy* panel says **No data**. The flow JSON
-agrees: `ingress_denied_by: []`.
+**Symptom.** Demo 26 Part 9: the hubble-observer dashboard full of `POLICY_DENIED` drops (the recorded
+counts: 24 in a 60-second `verify.sh`, 81 then 345 in the metric), and the *Flows per Denying Policy*
+panel says **No data**. The flow JSON agrees: `ingress_denied_by: []`.
 
 **Cause.** Hubble's `*_denied_by` lists the **deny rules** (`ingressDeny` / `egressDeny`) that matched.
 A drop because *no allow rule matched* under a default-deny is decided by the absence of a rule, so

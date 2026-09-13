@@ -30,8 +30,9 @@ $G export poc1-worker2 '"pos".*cf2cnp-lab' | python3 -c 'import json,sys; f=json
 ```
 
 *Expect:* the JSON envelope (`flow`, `node_name`, `time`); inside `flow`, the five fields cf2cnp reads
-(README Part 2). Both report `EGRESS` — with no policy on `shop`, nobody reports INGRESS. Now try what the
-CLI refuses:
+(README Part 2). In the recorded capture both report `EGRESS` and the ingress-direction query returned
+nothing — an observation about this topology, not a rule (README Part 3): the reliable INGRESS input is the
+destination's policy-verdict event, Exercise 3. Now try what the CLI refuses:
 
 ```bash
 hubble observe -P --kube-context kind-poc1 --namespace cf2cnp-lab --from-pod cf2cnp-lab/pos --last 5
@@ -164,10 +165,12 @@ the reversible switch, the policy objects untouched. `audit-mode.sh shop Disable
 ## Exercise 10 — extend the dashboard
 
 Edit [`30-policy-verdicts-dashboard.json`](30-policy-verdicts-dashboard.json) — add a stat for
-`sum(increase(hubble_policy_verdicts_total{match="l7"}[$__range]))` — and run
+`sum(increase(hubble_policy_verdicts_total{match=~"l7/.+"}[$__range]))` — and run
 `demos/26-cf2cnp-policy-from-flows/dashboard.sh`. *Expect:* the sidecar log line placing the ConfigMap in
 `/tmp/dashboards/Hubble` and the panel live within a minute; with demo 19's L7 rules on the bank, that stat
-is non-zero for namespace `bank`.
+is non-zero for namespace `bank`. The metric's `match` values on this cluster are `none`, `l3-l4`, `l7/http`
+and `l7/dns` (the handler writes `l7/<subtype>`, cilium v1.20.1 `pkg/hubble/metrics/policy/handler.go`) —
+a bare `match="l7"` matches nothing (review finding).
 
 ## Cleanup
 
