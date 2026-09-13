@@ -1,0 +1,15 @@
+# Demo 30 — Layer 7 visibility for the shop, the demo 16 Part 7 shape: nothing is denied (rule 2 keeps every other
+# ingress open), but :80 on both shop components goes through the proxy on the destination's node, so every request's
+# method and path reach Hubble as flow.l7 — the input cf2cnp 0.6.0 turns into rules with --l7. Hubble sees L7 only on
+# traffic that passes the proxy, and an L7 rule is what puts a port on the proxy (layer7.rst v1.20.1 line 61).
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: shop-http-visibility, namespace: cf2cnp-lab30}
+spec:
+  endpointSelector: {matchLabels: {app.kubernetes.io/name: shop}}
+  ingress:
+    - fromEntities: [all]
+      toPorts:
+        - ports: [{port: "80", protocol: TCP}]
+          rules: {http: [{}]}
+    - fromEntities: [all]

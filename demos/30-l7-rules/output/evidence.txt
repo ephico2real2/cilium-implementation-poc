@@ -1,0 +1,27 @@
+# evidence for demos/30-l7-rules — recorded 2026-09-13T11:11Z by scripts/evidence/collect.sh
+### 2026-09-13T11:11:39Z
+$ kubectl --context kind-poc1 -n cf2cnp-lab30 get pods -o wide
+NAME                             READY   STATUS    RESTARTS   AGE    IP            NODE           NOMINATED NODE   READINESS GATES
+pos                              1/1     Running   0          3m6s   10.10.3.106   poc1-worker2   <none>           <none>
+shop-backend-6d64d6c6dc-rdr68    1/1     Running   0          3m6s   10.10.3.54    poc1-worker2   <none>           <none>
+shop-frontend-67956db844-hbzxb   2/2     Running   0          3m6s   10.10.3.50    poc1-worker2   <none>           <none>
+stranger                         1/1     Running   0          3m6s   10.10.3.6     poc1-worker2   <none>           <none>
+
+### 2026-09-13T11:11:39Z
+$ bash -c kubectl --context kind-poc1 -n cf2cnp-lab30 get cnp -o custom-columns='NAME:.metadata.name,MANAGED-BY:.metadata.labels.app\.kubernetes\.io/managed-by,L7-RULES:.spec.ingress[0].toPorts[0].rules.http[*].path'
+NAME                        MANAGED-BY   L7-RULES
+shop-backend                cf2cnp       ^/api/orders(\?.*)?$
+shop-default-deny-ingress   <none>       <none>
+shop-frontend               cf2cnp       ^/(\?.*)?$,^/checkout(\?.*)?$
+
+### 2026-09-13T11:11:40Z
+$ bash -c demos/30-l7-rules/calls.sh
+pos        shop-frontend.cf2cnp-lab30/                     HTTP/1.1 200 OK rc=0 
+pos        shop-frontend.cf2cnp-lab30/checkout             HTTP/1.1 200 OK rc=0 
+pos        shop-frontend.cf2cnp-lab30/checkout?promo=1     HTTP/1.1 200 OK rc=0 
+pos        shop-frontend.cf2cnp-lab30/admin                HTTP/1.1 403 Forbidden rc=0 
+shop-frontend-67956db844-hbzxb shop-backend.cf2cnp-lab30/api/orders?id=7       HTTP/1.1 200 OK rc=0 
+shop-frontend-67956db844-hbzxb shop-backend.cf2cnp-lab30/admin                 HTTP/1.1 403 Forbidden rc=0 
+stranger   shop-frontend.cf2cnp-lab30/                   rc=1 
+stranger   shop-backend.cf2cnp-lab30/api/orders          rc=1 
+

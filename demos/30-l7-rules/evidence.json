@@ -1,0 +1,18 @@
+{
+ "captures": [
+  {
+   "name": "grafana-l7-http-shop-frontend",
+   "url": "https://grafana.poc.local/d/3g264CZVz/hubble-l7-http-metrics-by-workload?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-destination_namespace=cf2cnp-lab30&var-destination_workload=shop-frontend&var-reporter=server&var-source_namespace=All&var-source_workload=All",
+   "wait": 25000,
+   "height": 1400,
+   "look": "Hubble's L7 HTTP metrics for shop-frontend (reporter=server, the proxy on its node): the 200s of the observed paths and the 403s the proxy answered for /admin once the generated L7 rules were enforced"
+  },
+  {
+   "name": "grafana-policy-verdicts-cf2cnp-lab30",
+   "url": "https://grafana.poc.local/d/hubble-policy-verdicts?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-namespace=cf2cnp-lab30",
+   "wait": "text:Who talked to whom",
+   "height": 1500,
+   "look": "the Policy Verdicts dashboard on the lab: forwarded and dropped with match=l7/http for the proxy's decisions next to the l3-l4 drops of the stranger"
+  }
+ ]
+}

@@ -1,0 +1,292 @@
+### Part 1 — the lab: real paths from nginx, callers that use several, and L7 visibility on the shop
+### 2026-09-13T11:08:31Z
+$ kubectl --context kind-poc1 apply -f demos/30-l7-rules/10-lab.yaml
+namespace/cf2cnp-lab30 created
+configmap/shop-nginx created
+deployment.apps/shop-frontend created
+service/shop-frontend created
+deployment.apps/shop-backend created
+service/shop-backend created
+pod/pos created
+pod/stranger created
+
+### 2026-09-13T11:08:33Z
+$ kubectl --context kind-poc1 apply -f demos/30-l7-rules/20-http-visibility.yaml
+ciliumnetworkpolicy.cilium.io/shop-http-visibility created
+
+### 2026-09-13T11:08:41Z
+$ kubectl --context kind-poc1 -n cf2cnp-lab30 get pods -o wide
+NAME                             READY   STATUS    RESTARTS   AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+pos                              1/1     Running   0          8s    10.10.3.106   poc1-worker2   <none>           <none>
+shop-backend-6d64d6c6dc-rdr68    1/1     Running   0          8s    10.10.3.54    poc1-worker2   <none>           <none>
+shop-frontend-67956db844-hbzxb   2/2     Running   0          8s    10.10.3.50    poc1-worker2   <none>           <none>
+stranger                         1/1     Running   0          8s    10.10.3.6     poc1-worker2   <none>           <none>
+
+
+### Part 2 — what the proxy reports: method, path, status per request, from both shop components
+### 2026-09-13T11:09:33Z
+$ bash -c hubble observe -P --kube-context kind-poc1 --namespace cf2cnp-lab30 --protocol http --last 300 -o json 2>/dev/null > demos/30-l7-rules/policies/flows-http-all.ndjson; echo "$(grep -c . demos/30-l7-rules/policies/flows-http-all.ndjson) HTTP flows saved"
+120 HTTP flows saved
+
+### 2026-09-13T11:09:36Z
+$ bash -c python3 -c "
+import json
+f=[json.loads(l)[\"flow\"] for l in open(\"demos/30-l7-rules/policies/flows-http-all.ndjson\")]
+r=next(x for x in f if x[\"l7\"][\"type\"]==\"REQUEST\" and \"id=42\" in x[\"l7\"][\"http\"][\"url\"])
+print(json.dumps({k:r[k] for k in (\"traffic_direction\",\"verdict\",\"Type\")}), \"| l7:\", json.dumps(r[\"l7\"]))
+"
+{"traffic_direction": "INGRESS", "verdict": "FORWARDED", "Type": "L7"} | l7: {"type": "REQUEST", "http": {"method": "GET", "url": "http://shop-backend.cf2cnp-lab30/api/orders?id=42", "protocol": "HTTP/1.1", "headers": [{"key": ":scheme", "value": "http"}, {"key": "Accept", "value": "*/*"}, {"key": "User-Agent", "value": "Wget"}, {"key": "X-Envoy-Internal", "value": "true"}, {"key": "X-Request-Id", "value": "c77bf8e8-459d-4817-8c47-a96064843da9"}]}}
+
+### 2026-09-13T11:09:55Z
+$ demos/30-l7-rules/l7-summary.sh cf2cnp-lab30 300
+  n source → destination         type      method  path                   code  direction verdict    policy
+ 12 shop-frontend → shop-backend REQUEST   GET     /api/orders?id=42            INGRESS   FORWARDED  -
+ 12 shop-backend → shop-frontend RESPONSE  GET     /api/orders?id=42      200   INGRESS   FORWARDED  -
+ 12 pos → shop-frontend          REQUEST   GET     /                            INGRESS   FORWARDED  -
+ 12 shop-frontend → pos          RESPONSE  GET     /                      200   INGRESS   FORWARDED  -
+ 12 pos → shop-frontend          REQUEST   GET     /checkout                    INGRESS   FORWARDED  -
+ 12 shop-frontend → pos          RESPONSE  GET     /checkout              200   INGRESS   FORWARDED  -
+  8 stranger → shop-frontend     REQUEST   GET     /admin                       INGRESS   FORWARDED  -
+  8 shop-frontend → stranger     RESPONSE  GET     /admin                 200   INGRESS   FORWARDED  -
+  8 stranger → shop-backend      REQUEST   GET     /api/orders                  INGRESS   FORWARDED  -
+  8 shop-backend → stranger      RESPONSE  GET     /api/orders            200   INGRESS   FORWARDED  -
+ 11 shop-frontend → shop-backend REQUEST   GET     /api/orders                  INGRESS   FORWARDED  -
+ 11 shop-backend → shop-frontend RESPONSE  GET     /api/orders            200   INGRESS   FORWARDED  -
+
+
+### Part 3 — the intent (REQUEST records, stranger left out), then the same flows without and with --l7
+### 2026-09-13T11:09:57Z
+$ bash -c python3 -c "
+import json
+n=0; out=open(\"demos/30-l7-rules/policies/flows-http-intent.ndjson\",\"w\")
+for l in open(\"demos/30-l7-rules/policies/flows-http-all.ndjson\"):
+    f=json.loads(l)[\"flow\"]
+    if f[\"l7\"][\"type\"]!=\"REQUEST\" or f[\"source\"].get(\"pod_name\")==\"stranger\": continue
+    out.write(l); n+=1
+print(\"REQUEST records kept, stranger excluded:\", n)"
+REQUEST records kept, stranger excluded: 44
+
+### 2026-09-13T11:09:57Z
+$ demos/26-cf2cnp-policy-from-flows/generate.sh demos/30-l7-rules/policies/flows-http-intent.ndjson demos/30-l7-rules/policies/cnp-shop-l4.yaml
+http=200 → demos/30-l7-rules/policies/cnp-shop-l4.yaml
+
+### 2026-09-13T11:09:58Z
+$ bash -c QUERY=l7=true demos/26-cf2cnp-policy-from-flows/generate.sh demos/30-l7-rules/policies/flows-http-intent.ndjson demos/30-l7-rules/policies/cnp-shop-l7.yaml
+http=200 → demos/30-l7-rules/policies/cnp-shop-l7.yaml
+
+### 2026-09-13T11:09:59Z
+$ diff demos/30-l7-rules/policies/cnp-shop-l4.yaml demos/30-l7-rules/policies/cnp-shop-l7.yaml
+24a25,28
+>           rules:
+>             http:
+>               - method: GET
+>                 path: ^/api/orders(\?.*)?$
+48a53,58
+>           rules:
+>             http:
+>               - method: GET
+>                 path: ^/(\?.*)?$
+>               - method: GET
+>                 path: ^/checkout(\?.*)?$
+[exit code: 1]
+
+### 2026-09-13T11:09:59Z
+$ cat demos/30-l7-rules/policies/cnp-shop-l7.yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop-backend
+  namespace: cf2cnp-lab30
+  labels:
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/managed-by: cf2cnp
+    app.kubernetes.io/name: shop
+spec:
+  description: Allow ingress traffic from cf2cnp-lab30 to cf2cnp-lab30 for the shop
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: frontend
+            app.kubernetes.io/name: shop
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+          rules:
+            http:
+              - method: GET
+                path: ^/api/orders(\?.*)?$
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop-frontend
+  namespace: cf2cnp-lab30
+  labels:
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/managed-by: cf2cnp
+    app.kubernetes.io/name: shop
+spec:
+  description: Allow ingress traffic from cf2cnp-lab30 to cf2cnp-lab30 for the shop
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: pos
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+          rules:
+            http:
+              - method: GET
+                path: ^/(\?.*)?$
+              - method: GET
+                path: ^/checkout(\?.*)?$
+
+
+### Part 4 — enforce: visibility off, default-deny + the generated L7 policies on; the paths that were observed, one that was not, a query string, and the stranger
+### 2026-09-13T11:10:36Z
+$ kubectl --context kind-poc1 delete -f demos/30-l7-rules/20-http-visibility.yaml
+ciliumnetworkpolicy.cilium.io "shop-http-visibility" deleted
+
+### 2026-09-13T11:10:37Z
+$ kubectl --context kind-poc1 apply -f demos/30-l7-rules/30-shop-default-deny-ingress.yaml -f demos/30-l7-rules/policies/cnp-shop-l7.yaml
+ciliumnetworkpolicy.cilium.io/shop-default-deny-ingress created
+ciliumnetworkpolicy.cilium.io/shop-backend created
+ciliumnetworkpolicy.cilium.io/shop-frontend created
+
+### 2026-09-13T11:10:42Z
+$ demos/30-l7-rules/calls.sh
+pos        shop-frontend.cf2cnp-lab30/                     HTTP/1.1 200 OK rc=0 
+pos        shop-frontend.cf2cnp-lab30/checkout             HTTP/1.1 200 OK rc=0 
+pos        shop-frontend.cf2cnp-lab30/checkout?promo=1     HTTP/1.1 200 OK rc=0 
+pos        shop-frontend.cf2cnp-lab30/admin                HTTP/1.1 403 Forbidden rc=0 
+shop-frontend-67956db844-hbzxb shop-backend.cf2cnp-lab30/api/orders?id=7       HTTP/1.1 200 OK rc=0 
+shop-frontend-67956db844-hbzxb shop-backend.cf2cnp-lab30/admin                 HTTP/1.1 403 Forbidden rc=0 
+stranger   shop-frontend.cf2cnp-lab30/                   rc=1 
+stranger   shop-backend.cf2cnp-lab30/api/orders          rc=1 
+
+### 2026-09-13T11:10:56Z
+$ demos/30-l7-rules/l7-summary.sh cf2cnp-lab30 200
+  n source → destination         type      method  path                   code  direction verdict    policy
+ 12 pos → shop-frontend          REQUEST   GET     /                            INGRESS   FORWARDED  -
+ 11 shop-frontend → shop-backend REQUEST   GET     /api/orders                  INGRESS   FORWARDED  -
+ 12 shop-frontend → pos          RESPONSE  GET     /                      200   INGRESS   FORWARDED  -
+ 11 shop-backend → shop-frontend RESPONSE  GET     /api/orders            200   INGRESS   FORWARDED  -
+ 12 pos → shop-frontend          REQUEST   GET     /checkout                    INGRESS   FORWARDED  -
+ 12 shop-frontend → pos          RESPONSE  GET     /checkout              200   INGRESS   FORWARDED  -
+ 11 shop-frontend → shop-backend REQUEST   GET     /api/orders?id=42            INGRESS   FORWARDED  -
+ 11 shop-backend → shop-frontend RESPONSE  GET     /api/orders?id=42      200   INGRESS   FORWARDED  -
+  5 stranger → shop-frontend     REQUEST   GET     /admin                       INGRESS   FORWARDED  -
+  5 shop-frontend → stranger     RESPONSE  GET     /admin                 200   INGRESS   FORWARDED  -
+  5 stranger → shop-backend      REQUEST   GET     /api/orders                  INGRESS   FORWARDED  -
+  5 shop-backend → stranger      RESPONSE  GET     /api/orders            200   INGRESS   FORWARDED  -
+  1 pos → shop-frontend          REQUEST   GET     /checkout?promo=1            INGRESS   FORWARDED  -
+  1 shop-frontend → pos          RESPONSE  GET     /checkout?promo=1      200   INGRESS   FORWARDED  -
+  1 pos → shop-frontend          REQUEST   GET     /admin                       INGRESS   DROPPED    -
+  1 shop-frontend → pos          RESPONSE  GET     /admin                 403   INGRESS   FORWARDED  -
+  1 shop-frontend → shop-backend REQUEST   GET     /api/orders?id=7             INGRESS   FORWARDED  -
+  1 shop-backend → shop-frontend RESPONSE  GET     /api/orders?id=7       200   INGRESS   FORWARDED  -
+  1 shop-frontend → shop-backend REQUEST   GET     /admin                       INGRESS   DROPPED    -
+  1 shop-backend → shop-frontend RESPONSE  GET     /admin                 403   INGRESS   FORWARDED  -
+
+### 2026-09-13T11:10:57Z
+$ hubble observe -P --kube-context kind-poc1 --namespace cf2cnp-lab30 --verdict DROPPED --last 6
+time=2026-09-13T06:10:57.792-05:00 level=WARN msg="Hubble CLI version is lower than Hubble Relay, API compatibility is not guaranteed, updating to a matching or higher version is recommended" hubble-cli-version=1.19.4 hubble-relay-version=1.20.1+g7d68cfb3
+Sep 13 11:10:53.699: cf2cnp-lab30/stranger:45864 (ID:124395) <> cf2cnp-lab30/shop-frontend-67956db844-hbzxb:80 (ID:101965) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
+Sep 13 11:10:53.699: cf2cnp-lab30/stranger:45864 (ID:124395) <> cf2cnp-lab30/shop-frontend-67956db844-hbzxb:80 (ID:101965) Policy denied DROPPED (TCP Flags: SYN)
+Sep 13 11:10:54.654: cf2cnp-lab30/stranger:39392 (ID:124395) <> cf2cnp-lab30/shop-backend-6d64d6c6dc-rdr68:80 (ID:108922) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
+Sep 13 11:10:54.655: cf2cnp-lab30/stranger:39392 (ID:124395) <> cf2cnp-lab30/shop-backend-6d64d6c6dc-rdr68:80 (ID:108922) Policy denied DROPPED (TCP Flags: SYN)
+Sep 13 11:10:55.683: cf2cnp-lab30/stranger:39392 (ID:124395) <> cf2cnp-lab30/shop-backend-6d64d6c6dc-rdr68:80 (ID:108922) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
+Sep 13 11:10:55.683: cf2cnp-lab30/stranger:39392 (ID:124395) <> cf2cnp-lab30/shop-backend-6d64d6c6dc-rdr68:80 (ID:108922) Policy denied DROPPED (TCP Flags: SYN)
+
+
+### Part 5 — the page: the same intent flows pasted, the Layer-7 box ticked (demo 26 script, L7=1)
+### 2026-09-13T11:11:23Z
+$ bash -c SHOTS_DIR=demos/30-l7-rules/output/screenshots L7=1 GW=172.18.255.240 NODE_PATH=/private/tmp/claude-501/-Users-olasumbo-gitRepos-group-sync-dashboard/347fb0b4-55ce-41b5-a043-6128ead9fcf7/scratchpad/pw/node_modules node demos/26-cf2cnp-policy-from-flows/ui-generate.js demos/30-l7-rules/policies/flows-http-intent.ndjson
+page summary: 44 flow(s) parsed: INGRESS FORWARDED shop/frontend → shop/backend:80 | INGRESS FORWARDED shop/frontend → shop/backend:80 | INGRESS FORWARDED pos → shop/frontend:80 | INGRESS FORWARDED pos → shop/frontend:80 | INGRESS FORWARDED shop/frontend → shop/backend:80 | INGRESS FORWARDED shop/frontend → shop/backend:80 | INGRESS FORWARDED pos → shop/frontend:80 | INGRESS FORWARDED pos → shop/frontend:80 | …
+apply hint: 44 flow(s) → 2 policies. Review it, then: kubectl apply -f ciliumnetworkpolicies-2.yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop-backend
+  namespace: cf2cnp-lab30
+  labels:
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/managed-by: cf2cnp
+    app.kubernetes.io/name: shop
+spec:
+  description: Allow ingress traffic from cf2cnp-lab30 to cf2cnp-lab30 for the shop
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: frontend
+            app.kubernetes.io/name: shop
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+          rules:
+            http:
+              - method: GET
+                path: ^/api/orders(\?.*)?$
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop-frontend
+  namespace: cf2cnp-lab30
+  labels:
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/managed-by: cf2cnp
+    app.kubernetes.io/name: shop
+spec:
+  description: Allow ingress traffic from cf2cnp-lab30 to cf2cnp-lab30 for the shop
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: pos
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+          rules:
+            http:
+              - method: GET
+                path: ^/(\?.*)?$
+              - method: GET
+                path: ^/checkout(\?.*)?$
+Copy YAML enabled: true | Download YAML enabled: true
+
+
+### Part 6 — the metrics: the proxy's verdicts (match=l7/http) and the 403s it answered
+### 2026-09-13T11:15:40Z
+$ demos/30-l7-rules/metric.sh cf2cnp-lab30
+== sum by (action, match) (hubble_policy_verdicts_total{destination_namespace="cf2cnp-lab30"})
+   action=dropped match=l7/http 16
+   action=dropped match=none 122
+   action=forwarded match=l7/http 764
+   action=redirected match=l3-l4 260
+   action=redirected match=l4-only 130
+== sum by (status, destination_workload, reporter) (hubble_http_requests_total{destination_namespace="cf2cnp-lab30"})
+   destination_workload=shop-backend reporter=server status=200 185
+   destination_workload=shop-backend reporter=server status=403 8
+   destination_workload=shop-frontend reporter=server status=200 189
+   destination_workload=shop-frontend reporter=server status=403 8
+

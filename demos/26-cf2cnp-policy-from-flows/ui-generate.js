@@ -15,6 +15,8 @@ const { chromium } = require('playwright'); const fs = require('fs'); const path
   await p.locator('textarea').first().fill(flow); await p.locator('textarea').first().dispatchEvent('input'); await p.waitForTimeout(500);
   console.log('page summary:', (await p.locator('#summary').innerText()).trim() || '(none)');
   if (process.env.NAME) await p.fill('#policyName', process.env.NAME);
+  if (process.env.L7) await p.check('#l7');                              // demo 30: the 0.6.0 page's Layer-7 box (?l7=true)
+  if (process.env.DNS_VISIBILITY) await p.check('#dnsVisibility');      // demo 31: the DNS-visibility box (?dnsVisibility=true)
   await p.screenshot({ path: path.join(out, 'ui-2-pasted.png') });
   await p.locator('button', { hasText: /generate policy/i }).first().click(); await p.waitForTimeout(3000);
   await p.screenshot({ path: path.join(out, 'ui-3-generated.png') });

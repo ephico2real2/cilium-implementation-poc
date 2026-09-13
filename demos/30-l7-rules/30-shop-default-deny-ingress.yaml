@@ -1,0 +1,12 @@
+# Demo 30 — one default-deny for both shop components (demo 27's shape), applied together with the generated L7
+# policies in place of the visibility policy. From here on, :80 on the shop stays on the proxy — because the
+# generated rules are L7 rules — and only the observed method+path pairs pass; anything else is answered 403 by
+# the proxy, and a caller with no rule at all is dropped at L3/L4 as before.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: shop-default-deny-ingress, namespace: cf2cnp-lab30}
+spec:
+  description: default-deny ingress on every shop component; the generated L7 rules are the only allow
+  endpointSelector: {matchLabels: {app.kubernetes.io/name: shop}}
+  ingress:
+    - {}
