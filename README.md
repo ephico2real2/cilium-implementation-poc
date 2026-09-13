@@ -144,7 +144,8 @@ unchanged, with BGP substituted for L2 in production.
 8m. **Demo 35** is the platform-scale run: a shared catalog called from three namespaces, an API gateway in
    a fourth, a client namespace that must only go through the gateway — one request, six policies whose
    descriptions read like the architecture (cf2cnp 0.6.3).
-9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 91 traps, each with the real error
+9. **[docs/POLICY-TEST-RESULTS.md](docs/POLICY-TEST-RESULTS.md)** is the one-page answer to "what was tested and what happened" for every generated network policy (demos 26–35) and for cf2cnp's own test layers.
+10. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 91 traps, each with the real error
    text.
 
 ## What is done, and what is left
