@@ -1,7 +1,7 @@
 # Enhancement 002 — the shop platform on the mesh: global services, a gateway per cluster, an "external" database behind a TCPRoute, egress IPs, load, HPA and DR
 
-Status: **plan, revision 2** (2026-09-13) — the operator's decisions on D1–D5 are folded in (§5 is now the decision
-log). Nothing built yet. Written from the operator's summary, the Cilium 1.20.1 documentation, and measurements on
+Status: **plan, revision 3** (2026-09-13) — D1–D5 folded in; **revision 3 redesigns the egress-IP part (R8, demo 39) as
+"egress identity across the mesh, three ways"** with cost, risk and performance measured (§3.5, decision D6). Nothing built yet. Written from the operator's summary, the Cilium 1.20.1 documentation, and measurements on
 poc1/poc2 taken today; every fact that shaped a decision is in §2 with its source.
 
 ## 1. The brief, rewritten
@@ -24,7 +24,7 @@ who may reach whom, in which cluster, by which name), and every claim is measure
 | R5 | An **API gateway per cluster**; **one public URL** `api.shop.poc.local` on a **virtual address that poc1 announces and poc2 takes over in DR**, plus one address per cluster for observation; a script produces the MacBook's `/etc/hosts` block from live state | Gateway API in both clusters, LB IPAM static addresses, L2 announcements as the takeover mechanism |
 | R6 | **Two external clients**, one in Go and one in Python, on the MacBook (or any Linux box): they know **only the URL**, check health, generate load, report per-second success and the serving cluster, and have a flag to skip CA verification; what happens behind the URL is the mesh's business | the platform seen from outside the mesh |
 | R7 | Every workload has **liveness and readiness probes**; the stateless services **autoscale** (HPA on CPU) under the clients' load | metrics-server + HPA, so the failure scenarios are honest |
-| R8 | A **vendor namespace** with a `customer` service gets addresses **from Cilium's pool**: an ingress LoadBalancer IP on the mesh clusters, and an **egress IP** on its traffic to the outside — on a **throwaway single cluster**, because the egress gateway is documented as incompatible with Cluster Mesh | LB IPAM; Egress Gateway |
+| R8 | **Egress identity across the mesh, three ways.** Two caller namespaces, `ns1` and `ns2`, exist in both clusters; a receiver service in each cluster and one outside both. (a) **Egress IPs**: each (namespace, cluster) pair gets its **own egress IP** — `ns1@poc1`, `ns1@poc2`, `ns2@poc1`, `ns2@poc2`, four addresses on the gateway nodes — and the receivers see those addresses in their flows, so their policies are `fromCIDR` per caller; (b) **a LoadBalancer VIP per receiver** with no egress gateway: callers cross the bridge masqueraded to their **node** addresses; (c) the **mesh's own identity** (global service, cluster-aware selectors) as the baseline. Cost, risk and performance of the three are measured side by side | Egress Gateway (per cluster, per namespace), LB IPAM, BPF masquerade, ClusterMesh identities |
 | R9 | **Failure and DR scenarios**, each measured from the client and from Hubble: a pod dies, a service scales to zero in one cluster, a node is drained, a whole cluster is paused and poc2 takes over the public address, the mesh link is cut, the database is lost, everything comes back | global services, affinity, L2 takeover, health |
 | R10 | Policies for all of it are **generated from flows**, reviewed by their descriptions, applied under audit first, then enforced; the verdict dashboards show both clusters | enhancement 001 end to end, on the mesh |
 
@@ -34,9 +34,10 @@ who may reach whom, in which cluster, by which name), and every claim is measure
 |---|---|---|
 | A global service load-balances across clusters when the Service has the **identical name and namespace** in each cluster; `shared: "false"` keeps a cluster's backends to itself while still consuming remote ones | [Global Services, 1.20](https://docs.cilium.io/en/stable/network/clustermesh/global-services/) | R1 as written; the stateless services are global in both clusters |
 | `service.cilium.io/affinity: local` — "the Global Service will load-balance across healthy local backends, and only use remote endpoints if and only if all of local backends are not available or unhealthy" | [Service Affinity, 1.20](https://docs.cilium.io/en/stable/network/clustermesh/affinity/) | R2 is the documented behaviour; scenario S2 measures it |
-| **Egress gateway is not compatible with Cluster Mesh** — "the gateway selected by an egress gateway policy must be in the same cluster as the selected pods"; needs BPF masquerade + KPR (on here), CRD identities (on here); applies only to destinations **outside** the cluster; new pods have a short window before the policy applies | [Egress Gateway, 1.20.1](https://docs.cilium.io/en/stable/network/egress-gateway/egress-gateway/) | R8's egress IP runs on a throwaway `poc5` (as demo 13 ran ztunnel on `poc4`), with an external receiver on that docker network measuring the source IP. Recorded as a gotcha |
+| The egress gateway docs say, verbatim: "Egress gateway is not compatible with the Cluster Mesh feature. **The gateway selected by an egress gateway policy must be in the same cluster as the selected pods.**" It needs BPF masquerade + KPR (on here), CRD identities (on here), applies only to destinations **outside** the cluster ("any IP … which is also an internal cluster IP (e.g. pods, nodes, Kubernetes API server) will be excluded"), the egress IP "must be assigned to a network device on the node", and when several nodes match the selector "the first node in lexical ordering based on their name will be selected" (no HA in OSS) | [Egress Gateway, 1.20.1](https://docs.cilium.io/en/stable/network/egress-gateway/egress-gateway/) | The second sentence is the scope of the incompatibility: a policy may not pick a gateway in the **other** cluster. R8's design never does — every policy selects pods and a gateway node in its own cluster. Demo 39 therefore **enables the feature on poc1 and poc2 and measures the mesh before and after** (global services, remote endpoints, the DB path) with `destinationCIDRs` narrowed to the receivers' addresses so cross-cluster pod traffic is never SNATed; the throwaway `poc5` stays as the fallback if the measurement says otherwise. Secondary addresses are added to the gateway nodes' `eth0` (kind nodes are privileged containers; measured: `poc1-worker2` 172.18.0.4/16, `poc2-worker` 172.18.0.9/16). The docs' sentence and the measurement go into a gotcha either way |
 | A Gateway takes its address from LB IPAM; a **specific address** is requested with `spec.addresses` (type `IPAddress`) | [Gateway API, 1.20](https://docs.cilium.io/en/v1.20/network/servicemesh/gateway-api/gateway-api/) | R3, R5: pinned addresses for the shop gateways and the DB route |
 | A Gateway's `TCPRoute` forwards a TCP listener to a Service; demo 09 ran one on poc1 (the line-echo server) with the native Go client | demo 09, [Gateway API — TCPRoute support](https://docs.cilium.io/en/v1.20/network/servicemesh/gateway-api/gateway-api/) | R3: the DB behind a `TCPRoute` on a dedicated Gateway listener (port 5432), the Envoy proxy in between |
+| A source that is an unknown external address arrives as `reserved:world`; cf2cnp today turns a world **source** into `fromEntities` (its `IngressRule` has no `fromCIDR`), while a world **destination** becomes `toCIDR` | cf2cnp `internal/policy/types.go`, `generateEntityIngressRules` (read today) | R8(a) needs the ingress mirror of `toCIDR`: **cf2cnp 0.7.0, `fromCIDR` for world sources** (one rule per observed source address, `/32`, with the entity comment as for `toCIDR`) — a prerequisite in phase 0, its own branch, tests and a review claim |
 | Traffic that reaches a pod **through the Gateway carries the Gateway's identity, `reserved:ingress`**, not the caller's (measured in demo 33 on cf2cnp) | demo 33 Part 2, the review's C12 | R4: the DB's policy admits `reserved:ingress` on 5432 — the backend's identity ends at the proxy, exactly as with an external database and its firewall. The **backend's** policy is where "only the backend may reach the DB" lives, as `toFQDNs` |
 | `toFQDNs` needs the DNS proxy: an egress L7 DNS rule on the endpoint; the names must resolve through kube-dns for the proxy to see them | [layer3.rst v1.20.1 lines 502–506](https://raw.githubusercontent.com/cilium/cilium/v1.20.1/Documentation/security/policy/layer3.rst), demo 31 | R3/R4: `db-service.poc.local` must resolve **inside** both clusters: a CoreDNS `hosts` entry (the `.poc.local` zone is not a cluster domain), then cf2cnp's `--dns-visibility` → `toFQDNs` on the next run, as demo 31 did |
 | Two clusters on one bridge can each announce addresses with L2 announcements; an address announced by both at once is an ARP conflict. Cilium's L2 announcer holds a lease per service and sends gratuitous ARP when it takes one | [L2 Announcements, 1.20](https://docs.cilium.io/en/v1.20/network/l2-announcements/) | R5/R9: the public VIP is in **both** clusters' Gateways but **announced by poc1 only**; poc2's `CiliumL2AnnouncementPolicy` for it is applied by the DR runbook (`scripts/vip-takeover.sh poc2`) — an active/passive takeover the client never sees except as a pause |
@@ -90,12 +91,16 @@ flowchart LR
   cat2 -.->|"affinity: local → remote\nonly when local gone"| cat1
   cat1 -.-> cat2
 
-  subgraph poc5["poc5 — throwaway single cluster (egress gateway; not compatible with Cluster Mesh)"]
-    vend["vendor/customer"] -->|"SNAT to egress IP 172.31.0.200"| ext["external receiver\n(container on the kind-lab network)\nlogs the source IP"]
+  subgraph eg["R8 — egress identity across the mesh (demo 39)"]
+    ns1a["ns1@poc1 → egress IP 172.18.255.170\n(gateway node poc1-worker2)"] --> rcv2["receiver@poc2\nLB VIP 172.18.255.145\nfromCIDR .170/32, .172/32"]
+    ns2a["ns2@poc1 → egress IP 172.18.255.172"] --> rcv2
+    ns1b["ns1@poc2 → egress IP 172.18.255.171\n(gateway node poc2-worker)"] --> rcv1["receiver@poc1\nLB VIP 172.18.255.245\nfromCIDR .171/32, .173/32"]
+    ns2b["ns2@poc2 → egress IP 172.18.255.173"] --> rcv1
+    ns1a & ns1b --> ext["external receiver\n(container 172.18.0.250 on the bridge)\nlogs the source IP"]
   end
 ```
 
-Namespaces are identical in poc1 and poc2 (R1). Solid arrows are the calls the application makes; dotted arrows
+Namespaces are identical in poc1 and poc2 (R1). The R8 box is demo 39's own lab (§3.5). Solid arrows are the calls the application makes; dotted arrows
 are what Cilium adds or what DR changes: cross-cluster backends for the global services, used only when the local
 ones are gone (R2), and the public VIP served by poc2 after the takeover (R5, S4). The database is on the far side
 of a Gateway for **everyone** — the backends in both clusters and the DBA on the MacBook reach the same address
@@ -126,7 +131,8 @@ and name (R3).
 | shop-merchant | merchant | nginx + ConfigMap | poc1, poc2 | global, affinity local | as above | 1–3 |
 | shop-reviews | reviews, ratings | nginx + ConfigMap; alpine caller | poc1, poc2 | global, affinity local | as above | 1–3 |
 | shop-clients | shopper, stranger | alpine callers | poc1, poc2 | — | — | — |
-| vendor | customer | nginx + ConfigMap | poc1, poc2 (LB IP `172.18.255.243` / `.143`); **poc5** (egress IP) | LB IPAM static address | as above | — |
+| ns1, ns2 (demo 39) | caller (alpine, calls the receivers) | alpine | poc1, poc2 | egress IPs `172.18.255.170–173`, one per (namespace, cluster) | — | — |
+| receivers (demo 39) | receiver (nginx logging `$remote_addr`) | nginx + ConfigMap | poc1 (`LB VIP .245`), poc2 (`LB VIP .145`), a container on the bridge (`172.18.0.250`) | LB IPAM static addresses | `/healthz` | — |
 
 `shopapi` is the one workload that must be a program: it opens a PostgreSQL connection to `db-service.poc.local`,
 so the DB policy is measured on a real query. It is a small Go service (`/orders` reads a table, `/ready` runs
@@ -158,16 +164,44 @@ Neither client knows there are two clusters; `X-Served-By` is only reported, nev
 | **backend** (shop-core) | orders (both clusters) | **`toFQDNs: db-service.poc.local` on TCP/5432** and the kube-dns DNS rule — nothing else, measured with a call to catalog that must be dropped |
 | **shop-db** (shop-core, poc1) | **`reserved:ingress` on TCP/5432** (the `db-gw` Envoy) — nothing else | none |
 | payment-gateway, merchant, reviews | as demo 35, both clusters | as demo 35 |
-| customer (vendor) | `reserved:world` on its LB IP (the MacBook) | the external receiver only (poc5), through the egress gateway |
+| receiver@poc2 (demo 39a) | `fromCIDR` 172.18.255.170/32 (ns1@poc1) and .172/32 (ns2@poc1) — **generated** by cf2cnp 0.7.0 from the flows that arrive as `reserved:world` with those source addresses; ns1@poc2 by identity (same cluster) | — |
+| receiver@poc1 (demo 39a) | `fromCIDR` .171/32 (ns1@poc2) and .173/32 (ns2@poc2); ns1@poc1 by identity | — |
+| ns1, ns2 callers (demo 39a) | — | `toCIDR` the receivers' VIPs and the external receiver on TCP/80, kube-dns |
+
+### 3.5 Egress identity across the mesh — three ways (R8, demo 39)
+
+The question a security team asks when a service in one cluster calls a service in another, or outside: **what
+does the receiver see, and what can it enforce on?** Three answers, built on the same callers (`ns1`, `ns2` in both
+clusters) and the same receivers, so the comparison is fair.
+
+| | (a) Egress IP per (namespace, cluster) | (b) LB VIP per receiver, no egress gateway | (c) Mesh identity (global service) |
+|---|---|---|---|
+| **What the receiver sees** | the caller's egress IP (`reserved:world` + address) — one address per namespace per cluster, four here | the caller's **node** address (BPF masquerade to the node: any pod on that node looks the same) | the caller's identity: labels + namespace + **cluster** (`io.cilium.k8s.policy.cluster`) |
+| **The policy on the receiver** | `fromCIDR: <egress IP>/32` per caller (cf2cnp 0.7.0 generates it from the flows) | `fromCIDR: <node IP>/32` per node — coarse, and changes when nodes do | `fromEndpoints` with the namespace and cluster labels (demo 29) |
+| **Path** | pod → VXLAN to the **gateway node** → SNAT → bridge → receiver's VIP (an extra hop) | pod → node SNAT → bridge → receiver's VIP | pod → VXLAN → pod in the other cluster (no SNAT, no VIP) |
+| **What it costs** | one routable address per (namespace, cluster) on a gateway node's interface; a gateway node per policy (first by name if several match); connection tracking on the gateway | one VIP per receiver from the pool; nothing on the callers | nothing beyond the mesh |
+| **Risk** | the gateway node is a single point of failure for that namespace's egress (no HA in OSS 1.20.1); in-flight connections break on gateway restart; a short window after a pod starts before the policy applies (docs); the mesh must be re-measured with the feature on | the node address is shared by every pod on the node — the policy admits more than the caller; node replacement changes the address | none of the above; only works between mesh members, not for an external receiver |
+| **Performance** | measured: latency and throughput of caller → receiver with `shopctl load` and `iperf3`, versus (b) and (c) | measured | measured (baseline) |
+
+Demo 39 runs all three on the same pairs, in this order, each recorded: (0) a pre-check that enabling the egress
+gateway on poc1 and poc2 leaves the mesh intact (global services, the DB path, `cilium clustermesh status`);
+(a) egress IPs — secondary addresses on the gateway nodes, four `CiliumEgressGatewayPolicy` objects (each selects
+its namespace and a gateway node **in its own cluster**, `destinationCIDRs` = the receivers' addresses only),
+`cilium-dbg bpf egress list`, the receivers' flows showing the four addresses, the policies generated (`fromCIDR`),
+enforced, and a caller from the wrong namespace dropped; the external receiver's access log as the outside view;
+(b) the egress policies removed, the same calls, the receivers now seeing node addresses, the coarser policy, and
+the demonstration that a pod from another namespace on the same node passes it; (c) the global-service path with
+cluster-aware selectors as the baseline. Then the numbers side by side, and the recommendation: identity inside the
+mesh, an egress IP only where a receiver outside the mesh must enforce on an address.
 
 ## 4. Phases, demos, and the scripts each one adds
 
 | Phase | Demo | What it delivers | Scripts / files it adds | Reqs |
 |---|---|---|---|---|
-| 0 — poc2 catches up, the tooling | 36 | Gateway API CRDs v1.6.1, `gatewayAPI.enabled`, `l2announcements`, LB pools on poc2 (`172.18.255.100–127` services, `.128–159` gateways; the VIP `.160` in a pool present in **both** clusters), a wildcard certificate from the enterprise root on poc2; metrics-server on both; the platform manifests parameterised for both contexts; `shopapi` built and loaded into both clusters; both clients built | `demos/36/apply-poc2-prereqs.sh`, `demos/36/metrics-server.sh`, `demos/36/build.sh` (shopapi image, shopctl binaries), `clusters/poc2-lb-ippool.yaml` | R1, R5, R7 |
+| 0 — poc2 catches up, the tooling | 36 | **cf2cnp 0.7.0: `fromCIDR` for world sources** (branch, tests, review claim); Gateway API CRDs v1.6.1, `gatewayAPI.enabled`, `l2announcements`, LB pools on poc2 (`172.18.255.100–127` services, `.128–159` gateways; the VIP `.160` in a pool present in **both** clusters), a wildcard certificate from the enterprise root on poc2; metrics-server on both; the platform manifests parameterised for both contexts; `shopapi` built and loaded into both clusters; both clients built | `demos/36/apply-poc2-prereqs.sh`, `demos/36/metrics-server.sh`, `demos/36/build.sh` (shopapi image, shopctl binaries), `clusters/poc2-lb-ippool.yaml` | R1, R5, R7 |
 | 1 — the platform, global, one URL | 37 | The platform in both clusters (`apply-both.sh`), every stateless Service `global` + `affinity: local`; `shop-gw` in both with the VIP and a per-cluster address, HTTPRoute `api.shop.poc.local`, the `X-Served-By` header; the hosts block; `shopctl probe` from the MacBook (Go and Python); observe-first in both clusters, one `/generate` per cluster, descriptions reviewed, audit, enforce; the dashboards per cluster | `demos/37/apply-both.sh`, `demos/37/audit-both.sh`, `demos/37/flows-both.sh`, `demos/37/generate-both.sh`, `scripts/hosts-entries.sh` extended (the four names), `demos/37/client/{go,python}` | R1, R2, R5, R6, R10 |
 | 2 — the external database | 38 | `shop-db` in poc1; `db-gw` with the TCPRoute and the pinned address; CoreDNS `hosts` entries in both clusters; `backend` configured with the FQDN; the DBA's `psql` from the MacBook; the backend's flows show the world IP first (no names) → `--dns-visibility` → the next flows carry `db-service.poc.local` → `toFQDNs`; the DB's policy (`reserved:ingress` on 5432); a backend call to catalog dropped; poc2's backend reaching the DB across the bridge with a real query | `demos/38/db.yaml` (StatefulSet, ClusterIP), `demos/38/db-gateway.yaml` (Gateway + TCPRoute + ReferenceGrant), `demos/38/coredns-hosts.sh`, `demos/38/db-check.sh` (psql from the MacBook and from each backend) | R3, R4 |
-| 3 — the vendor: LB IP and egress IP | 39 | `customer` with a pinned LB IP in both mesh clusters (the MacBook calls it); `poc5` created (`clusters/poc5.yaml`, network `kind-lab`, `egressGateway.enabled`), the vendor namespace deployed there, an external receiver container, the source IP measured **without** and **with** the `CiliumEgressGatewayPolicy` (`cilium-dbg bpf egress list`), `poc5` deleted; gotcha: egress gateway and Cluster Mesh | `demos/39/vendor.yaml`, `demos/39/poc5-up.sh`, `demos/39/receiver.sh` (the container), `demos/39/egress-policy.yaml`, `demos/39/poc5-down.sh` | R8 |
+| 3 — egress identity across the mesh, three ways | 39 | §3.5: the pre-check (egress gateway enabled on both clusters, the mesh re-measured, `poc5` as the fallback), four egress IPs on the gateway nodes, the receivers (two pods with LB VIPs, one container outside), the flows at the receivers with the four addresses, `fromCIDR` policies generated by cf2cnp 0.7.0 and enforced, then the VIP-and-node-address variant, then the identity baseline; latency and throughput of the three paths; the comparison table filled with measurements; gotcha on the docs' Cluster Mesh sentence | `demos/39/egress-gateway-enable.sh` (helm upgrade both clusters + rollback), `demos/39/gateway-node-ips.sh` (secondary addresses on/off), `demos/39/callers.yaml`, `demos/39/receivers.yaml`, `demos/39/receiver-external.sh`, `demos/39/egress-policies.yaml`, `demos/39/measure.sh` (the three paths), `clusters/poc5.yaml` (fallback only) | R8 |
 | 4 — load, health, autoscaling | 40 | `shopctl load` from the MacBook (both clients); HPA scaling catalog / orders / api-gateway up and back (`kubectl get hpa -w` recorded in both clusters); readiness taking a backend out of the endpoints when the DB is unreachable; verdicts staying forwarded through the scale events | `demos/40/hpa.yaml`, `demos/40/load.sh` (wraps the clients), `demos/40/watch.sh` | R7 |
 | 5 — failures and DR | 41 | The scenario table below, each with the clients' per-second view and Hubble's | `demos/41/scenario.sh <S1..S7>`, `scripts/vip-takeover.sh <cluster>` (applies / removes the L2 policy for the VIP), `scripts/cluster-pause.sh` (exists) | R9 |
 
@@ -195,6 +229,7 @@ captures, a README with the enterprise case, a GUIDE with exercises, a cleanup s
 | D3 | The backend as a Go service with a real PostgreSQL query | **Taken** |
 | D4 | The client knows only the URL; failover is the mesh's business | **Taken** — the public VIP is announced by poc1 and taken over by poc2 in DR (L2 announcements); two clients, Go and Python, with `--insecure` |
 | D5 | Demos 36–41, scripts per demo, steps a junior can follow | **Taken** |
+| D6 | The egress-IP part redesigned (operator, revision 3): per-(namespace, cluster) egress IPs on the mesh clusters themselves, receivers that see and enforce on them, then the VIP/node-address variant and the identity baseline, with cost, risk and performance measured | **Taken** — §3.5; the docs' Cluster Mesh sentence read as its second sentence says (a gateway must be in the pods' own cluster), verified by measurement before anything else is built on it; `poc5` only as the fallback |
 
 ## 6. Stack facts the plan relies on
 
@@ -202,7 +237,7 @@ captures, a README with the enterprise case, a GUIDE with exercises, a cleanup s
 |---|---|
 | Global services: identical name + namespace in each cluster; `shared: "false"` keeps backends local | [docs.cilium.io — Global Services](https://docs.cilium.io/en/stable/network/clustermesh/global-services/) |
 | `affinity: local` uses remote endpoints only when every local backend is unavailable or unhealthy | [docs.cilium.io — Service Affinity](https://docs.cilium.io/en/stable/network/clustermesh/affinity/) |
-| Egress gateway: not compatible with Cluster Mesh; BPF masquerade + KPR; CRD identities; cluster-external destinations; `cilium-dbg bpf egress list` | [docs.cilium.io — Egress Gateway 1.20.1](https://docs.cilium.io/en/stable/network/egress-gateway/egress-gateway/) |
+| Egress gateway: "not compatible with the Cluster Mesh feature. The gateway selected by an egress gateway policy must be in the same cluster as the selected pods"; BPF masquerade + KPR; CRD identities; cluster-external destinations only; the egress IP must be on a node device; several matching nodes → the first by name; `cilium-dbg bpf egress list` | [docs.cilium.io — Egress Gateway 1.20.1](https://docs.cilium.io/en/stable/network/egress-gateway/egress-gateway/) |
 | Gateway addresses from LB IPAM; a static address via `spec.addresses`; TCPRoute supported | [docs.cilium.io — Gateway API](https://docs.cilium.io/en/v1.20/network/servicemesh/gateway-api/gateway-api/), demo 09 |
 | L2 announcements: leases per service, gratuitous ARP on takeover | [docs.cilium.io — L2 Announcements](https://docs.cilium.io/en/v1.20/network/l2-announcements/) |
 | `toFQDNs` needs the DNS proxy (an L7 DNS rule); names come from the DNS answers the proxy sees | [layer3.rst v1.20.1](https://raw.githubusercontent.com/cilium/cilium/v1.20.1/Documentation/security/policy/layer3.rst), demo 31 |
@@ -220,4 +255,5 @@ captures, a README with the enterprise case, a GUIDE with exercises, a cleanup s
 - **`.poc.local` inside the clusters.** The name is served by a CoreDNS `hosts` entry; the DNS proxy sees the answer,
   which is what `toFQDNs` needs. Checked in demo 38 before any policy.
 - **A Gateway on poc2** needs the CRDs, the feature flag and a certificate — phase 0 exists for them.
-- **Egress gateway on a fresh cluster** is a new install path; the phase measures it rather than assuming.
+- **Egress gateway on mesh members.** The docs say the feature "is not compatible with the Cluster Mesh feature" and then scope it to cross-cluster gateway selection. Demo 39 enables it on both clusters with narrow `destinationCIDRs` and measures the mesh first; if anything regresses, the helm upgrade is rolled back (the script keeps the previous values) and the egress-IP part moves to `poc5`.
+- **Four routable addresses on node interfaces** are added by `ip addr add` inside the kind node containers; they do not survive a container restart, so the script that adds them is idempotent and the DR scenarios note it.
