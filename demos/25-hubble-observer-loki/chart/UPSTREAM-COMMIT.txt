@@ -6,3 +6,6 @@ re-vendored 2026-09-13 from branch develop: the cf2cnp dependency is now the for
 
 8c56b622fce2d3e9d5c78e86afd541c26bc18b86 Sat Sep 12 22:20:19 2026 -0500
 re-vendored 2026-09-13 (demo 28): cf2cnp 0.5.1 and the hubble-policy-verdicts 0.1.1 dashboard (alias policyVerdictsDashboard) as dependencies from the forks' Helm repositories
+
+e5077ddf25ee617b8ba6eed38f9b7057c8828402 Sun Sep 13 05:48:48 2026 -0500
+re-vendored 2026-09-13 (demo 29): cf2cnp 0.6.0 and hubble-policy-verdicts 0.2.0 (the Loki row) as dependencies from the forks' Helm repositories; examples/values-policy-verdicts.yaml (E8) is at the fork's repository root

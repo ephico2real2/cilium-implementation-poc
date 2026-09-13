@@ -1,0 +1,31 @@
+# Demo 29 — the mesh lab, applied to BOTH clusters (the global service needs the Service in each cluster; the
+# workload behind it lives in poc1 only, 11-cache-poc1.yaml). `worker` exists in both on purpose: the one in poc2 is the
+# real caller, the one in poc1 is its twin with the SAME labels — the pod a cluster-blind selector would admit instead.
+#   kubectl --context kind-poc1 apply -f demos/29-cross-cluster-policy/10-lab.yaml
+#   kubectl --context kind-poc2 apply -f demos/29-cross-cluster-policy/10-lab.yaml
+apiVersion: v1
+kind: Namespace
+metadata: {name: mesh-lab}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cache
+  namespace: mesh-lab
+  annotations: {service.cilium.io/global: "true"}     # demo 07: one name, backends from every cluster of the mesh
+spec:
+  selector: {app.kubernetes.io/name: cache}
+  ports: [{name: redis, port: 6379, targetPort: 6379}]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: worker
+  namespace: mesh-lab
+  labels: {app.kubernetes.io/name: worker, app.kubernetes.io/component: batch}
+spec:
+  containers:
+    - name: worker
+      image: redis:7-alpine                            # for redis-cli: a real request and a real reply (PING → PONG)
+      command: ["sleep", "infinity"]
+      resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}

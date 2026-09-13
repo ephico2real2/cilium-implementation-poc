@@ -1,0 +1,320 @@
+### 2026-09-13T10:51:26Z
+$ bash -c echo "cf2cnp: $(gh release view v0.6.0 -R ephico2real2/cf2cnp --json tagName,assets --jq ".tagName + \" \" + ([.assets[].name] | join(\" \"))")"; echo "chart:  $(curl -s https://ephico2real2.github.io/cf2cnp/index.yaml | grep -E "^ *version:" | head -3 | tr -s " \n" " ")"; echo "hubble-policy-verdicts: $(curl -s https://ephico2real2.github.io/hubble-policy-verdicts/index.yaml | grep -E "^ *version:" | head -3 | tr -s " \n" " ")"; echo "image:  $(docker image inspect ghcr.io/ephico2real2/cf2cnp:0.6.0 --format "{{.Id}} created {{.Created}}")"
+cf2cnp: v0.6.0 cf2cnp_0.6.0_checksums.txt cf2cnp_0.6.0_darwin_amd64.tar.gz cf2cnp_0.6.0_darwin_arm64.tar.gz cf2cnp_0.6.0_linux_amd64.tar.gz cf2cnp_0.6.0_linux_arm64.tar.gz
+chart:   version: 0.6.0 version: 0.5.1 version: 0.5.0 
+hubble-policy-verdicts:  version: 0.2.0 version: 0.1.1 version: 0.1.0 
+image:  sha256:d0c097a0198b6f96574f4b978d9ccd7c44bb8ab69cda7f597622e59cb688a56c created 2026-09-13T10:46:54.413538136Z
+
+### 2026-09-13T10:51:27Z
+$ demos/25-hubble-observer-loki/chart-from-fork.sh develop e5077dd
+fork: https://github.com/ephico2real2/hubble-observer.git  branch: develop  commit: e5077dd chart: cf2cnp 0.6.0 and hubble-policy-verdicts 0.2.0 (enhanc
+dependencies: cf2cnp-0.6.0.tgz
+hubble-policy-verdicts-0.2.0.tgz
+STATUS: deployed
+REVISION: 23
+
+### 2026-09-13T10:52:16Z
+$ bash -c kubectl --context kind-poc1 -n hubble-observer get pods -o custom-columns="POD:.metadata.name,IMAGE:.spec.containers[0].image,READY:.status.containerStatuses[0].ready" | sed "s#@sha256:[a-f0-9]*##"; echo; echo "the page through the Gateway (cf2cnp.poc.local):"; curl -s --cacert docs/root-ca.crt --resolve cf2cnp.poc.local:443:172.18.255.240 https://cf2cnp.poc.local/ | grep -oE "id=\"(l7|dnsVisibility|token|peers)\"" | sort -u | tr "\n" " "; echo; echo "the dashboard ConfigMap (chart 0.2.0):"; kubectl --context kind-poc1 -n monitoring get cm hubble-policy-verdicts -o jsonpath="{.data.hubble-policy-verdicts\.json}" | python3 -c "import json,sys; d=json.load(sys.stdin); print(\"panels\", len(d[\"panels\"]), \"|\", [p[\"title\"] for p in d[\"panels\"] if p.get(\"type\")==\"row\" or p.get(\"datasource\",{}).get(\"type\")==\"loki\"]); print(\"vars\", [v[\"name\"] for v in d[\"templating\"][\"list\"]])"
+POD                                       IMAGE                                                                                                   READY
+hubble-observer-6f865f8f94-4vvzb          quay.io/cilium/cilium:v1.20.1   true
+hubble-observer-cf2cnp-6c5f5f6f46-dcb9h   ghcr.io/ephico2real2/cf2cnp:0.6.0                                                                       true
+
+the page through the Gateway (cf2cnp.poc.local):
+id="dnsVisibility" id="l7" id="peers" id="token" 
+the dashboard ConfigMap (chart 0.2.0):
+panels 10 | ['Dropped flows → policy (Loki, via cf2cnp)', 'Dropped flows into $namespace — click a Flow UUID: Generate, then Download the CiliumNetworkPolicy']
+vars ['DS_PROMETHEUS', 'cluster', 'namespace', 'DS_LOKI', 'cf2cnpURL']
+
+### 2026-09-13T10:52:18Z
+$ bash -c grep -n "name: policy" demos/16-monitoring/values-cilium-metrics.yaml | head -2; demos/22-multicluster-observability/apply-poc2.sh
+77:          - name: policy                                          # demo 26: policy verdicts as a metric (hubble_policy_verdicts_total,
+  cluster=poc2 relabelings: 7
+Release "cilium" has been upgraded. Happy Helming!
+daemon set "cilium" successfully rolled out
+SERVICEMONITOR          PORT
+cilium-agent            metrics
+cilium-envoy            envoy-metrics
+cilium-operator         metrics
+clustermesh-apiserver   apiserv-metrics
+hubble                  hubble-metrics
+hubble-relay            metrics
+
+
+### Part 2 — the lab in both clusters: cache in poc1 behind a global service, worker in poc2 (and its twin in poc1)
+### 2026-09-13T10:55:03Z
+$ kubectl --context kind-poc1 apply -f demos/29-cross-cluster-policy/10-lab.yaml -f demos/29-cross-cluster-policy/11-cache-poc1.yaml
+namespace/mesh-lab created
+service/cache created
+pod/worker created
+deployment.apps/cache created
+
+### 2026-09-13T10:55:05Z
+$ kubectl --context kind-poc2 apply -f demos/29-cross-cluster-policy/10-lab.yaml
+namespace/mesh-lab created
+service/cache created
+pod/worker created
+
+### 2026-09-13T10:55:17Z
+$ bash -c for c in poc1 poc2; do echo "== $c"; kubectl --context kind-$c -n mesh-lab get pods -o wide --no-headers | awk "{print \$1, \$3, \$6, \$7}"; kubectl --context kind-$c -n mesh-lab get svc cache -o jsonpath="{.metadata.name} {.spec.clusterIP} global={.metadata.annotations.service\.cilium\.io/global}{\"\n\"}"; done
+== poc1
+cache-6d88ffb646-4nbtg Running 10.10.3.235 poc1-worker2
+worker Running 10.10.3.208 poc1-worker2
+cache 10.11.41.102 global=true
+== poc2
+worker Running 10.20.1.153 poc2-worker
+cache 10.21.102.207 global=true
+
+
+### Part 3 — the calls, and the flows Hubble records for them on both sides of the mesh
+### 2026-09-13T10:55:47Z
+$ bash -c for c in poc2 poc1; do echo "worker@$c → cache: $(kubectl --context kind-$c -n mesh-lab exec worker -- sh -c "for i in 1 2 3; do redis-cli -h cache PING; done" 2>&1 | tr "\n" " ")"; done
+worker@poc2 → cache: PONG PONG PONG 
+worker@poc1 → cache: PONG PONG PONG 
+
+### 2026-09-13T10:56:10Z
+$ demos/29-cross-cluster-policy/flows-summary.sh mesh-lab 400
+node                direction  source@cluster → destination@cluster:port              verdict    type  n
+poc2/poc2-worker    EGRESS     worker@poc2 → coredns-879947797-f4bdb@poc2:53    FORWARDED L3_L4 2
+poc1/poc1-worker2   EGRESS     worker@poc2 → cache-6d88ffb646-4nbtg@poc1:6379  FORWARDED L3_L4 15
+poc2/poc2-worker    -          worker@poc2 → reserved:world@-:6379  TRACED    SOCK  2
+poc2/poc2-worker    EGRESS     worker@poc2 → cache-6d88ffb646-4nbtg@poc1:6379  FORWARDED L3_L4 15
+poc2/poc2-worker    EGRESS     worker@poc2 → coredns-879947797-k8xkh@poc2:53    FORWARDED L3_L4 1
+poc1/poc1-worker2   EGRESS     worker@poc1 → coredns-789c5fbdb4-qhj2d@poc1:53    FORWARDED L3_L4 2
+poc1/poc1-control-plane2 EGRESS     worker@poc1 → coredns-789c5fbdb4-qhj2d@poc1:53    FORWARDED L3_L4 2
+poc1/poc1-worker2   EGRESS     worker@poc1 → cache-6d88ffb646-4nbtg@poc1:6379  FORWARDED L3_L4 15
+poc1/poc1-worker2   EGRESS     worker@poc1 → coredns-789c5fbdb4-vb8r9@poc1:53    FORWARDED L3_L4 1
+poc1/poc1-control-plane EGRESS     worker@poc1 → coredns-789c5fbdb4-vb8r9@poc1:53    FORWARDED L3_L4 1
+
+
+### Part 4 — default-deny on the cache under audit, the calls again, and the AUDIT flows from both sides of the mesh
+### 2026-09-13T10:57:21Z
+$ bash -c NS=mesh-lab demos/26-cf2cnp-policy-from-flows/audit-mode.sh cache Enabled
+endpoint 703 (cep-name:mesh-lab/cache-6d88ffb646-4nbtg on poc1-worker2): PolicyAuditMode=Enabled
+  PolicyAuditMode                   : Enabled
+
+### 2026-09-13T10:57:26Z
+$ kubectl --context kind-poc1 apply -f demos/29-cross-cluster-policy/20-cache-default-deny-ingress.yaml
+ciliumnetworkpolicy.cilium.io/cache-default-deny-ingress created
+
+### 2026-09-13T10:57:29Z
+$ bash -c for c in poc2 poc1; do echo "worker@$c → cache: $(kubectl --context kind-$c -n mesh-lab exec worker -- sh -c "for i in 1 2 3; do timeout 5 redis-cli -h cache PING; done" 2>&1 | tr "\n" " ")"; done
+worker@poc2 → cache: PONG PONG PONG 
+worker@poc1 → cache: PONG PONG PONG 
+
+### 2026-09-13T10:57:32Z
+$ bash -c hubble observe -P --kube-context kind-poc1 --to-pod mesh-lab/cache --port 6379 --last 200 -o json 2>/dev/null > demos/29-cross-cluster-policy/policies/flows-cache-all.ndjson; python3 -c "
+import json,collections; c=collections.Counter()
+for l in open(\"demos/29-cross-cluster-policy/policies/flows-cache-all.ndjson\"):
+    try: f=json.loads(l)[\"flow\"]
+    except Exception: continue
+    if f.get(\"is_reply\"): continue
+    c[(f[\"node_name\"], f[\"source\"].get(\"pod_name\",\"?\")+\"@\"+f[\"source\"].get(\"cluster_name\",\"-\"), f.get(\"traffic_direction\",\"-\"), f.get(\"trace_observation_point\",\"-\"), f.get(\"event_type\",{}).get(\"type\"), f.get(\"verdict\"), (f.get(\"ingress_denied_by\") or [{}])[0].get(\"name\",\"\"))]+=1
+print(\"n  node / source@cluster / direction / observation point / event_type / verdict / denied_by\")
+for k,v in sorted(c.items()): print(v, *k)
+"
+n  node / source@cluster / direction / observation point / event_type / verdict / denied_by
+15 poc1/poc1-worker2 worker@poc1 EGRESS TO_ENDPOINT 4 FORWARDED 
+3 poc1/poc1-worker2 worker@poc1 INGRESS - 5 AUDIT 
+15 poc1/poc1-worker2 worker@poc2 EGRESS TO_ENDPOINT 4 FORWARDED 
+3 poc1/poc1-worker2 worker@poc2 INGRESS - 5 AUDIT 
+15 poc2/poc2-worker worker@poc2 EGRESS TO_OVERLAY 4 FORWARDED 
+
+### 2026-09-13T10:57:33Z
+$ bash -c hubble observe -P --kube-context kind-poc1 --from-pod mesh-lab/worker --node-name "poc2/*" --last 200 -o json 2>/dev/null | python3 -c "
+import json,sys,collections; c=collections.Counter(); out=open(\"demos/29-cross-cluster-policy/policies/flows-worker-poc2.ndjson\",\"w\")
+for l in sys.stdin:
+    try: f=json.loads(l)[\"flow\"]
+    except Exception: continue
+    l4=f.get(\"l4\",{}); port=(l4.get(\"TCP\") or l4.get(\"UDP\") or {}).get(\"destination_port\")
+    if f.get(\"is_reply\") or port not in (53,6379) or f.get(\"traffic_direction\")!=\"EGRESS\": continue
+    out.write(l); c[(f[\"destination\"].get(\"pod_name\",\"?\")+\"@\"+f[\"destination\"].get(\"cluster_name\",\"-\"), port, f[\"verdict\"])]+=1
+print(\"worker@poc2 EGRESS request flows kept (poc2-worker):\"); [print(\" \",v,k) for k,v in c.items()]
+"
+worker@poc2 EGRESS request flows kept (poc2-worker):
+  2 ('coredns-879947797-f4bdb@poc2', 53, 'FORWARDED')
+  15 ('cache-6d88ffb646-4nbtg@poc1', 6379, 'FORWARDED')
+  1 ('coredns-879947797-k8xkh@poc2', 53, 'FORWARDED')
+
+
+### Part 5 — the policy for the cache from the poc2 flows only: cf2cnp 0.6.0 through the Gateway, 0.5.1 run locally, and the diff; then the egress policy for worker@poc2
+### 2026-09-13T10:58:24Z
+$ bash -c python3 -c "
+import json
+n=0
+with open(\"demos/29-cross-cluster-policy/policies/flows-cache-from-poc2.ndjson\",\"w\") as out:
+    for l in open(\"demos/29-cross-cluster-policy/policies/flows-cache-all.ndjson\"):
+        try: f=json.loads(l)[\"flow\"]
+        except Exception: continue
+        if f.get(\"verdict\")==\"AUDIT\" and f.get(\"traffic_direction\")==\"INGRESS\" and f[\"source\"].get(\"cluster_name\")==\"poc2\": out.write(l); n+=1
+print(\"AUDIT INGRESS flows from poc2 kept:\", n, \"(the twin in poc1 is not a client — its flows are left out on purpose)\")
+f=json.loads(open(\"demos/29-cross-cluster-policy/policies/flows-cache-from-poc2.ndjson\").readline())[\"flow\"]
+print(\"source.cluster_name:\", f[\"source\"][\"cluster_name\"], \"| source labels:\", [x for x in f[\"source\"][\"labels\"] if \"cluster\" in x or \"name=\" in x or \"component\" in x])
+print(\"destination.cluster_name:\", f[\"destination\"][\"cluster_name\"], \"| ingress_denied_by:\", f.get(\"ingress_denied_by\"))
+"
+AUDIT INGRESS flows from poc2 kept: 3 (the twin in poc1 is not a client — its flows are left out on purpose)
+source.cluster_name: poc2 | source labels: ['k8s:app.kubernetes.io/component=batch', 'k8s:app.kubernetes.io/name=worker', 'k8s:io.cilium.k8s.namespace.labels.kubernetes.io/metadata.name=mesh-lab', 'k8s:io.cilium.k8s.policy.cluster=poc2']
+destination.cluster_name: poc1 | ingress_denied_by: None
+
+### 2026-09-13T10:58:24Z
+$ demos/26-cf2cnp-policy-from-flows/generate.sh demos/29-cross-cluster-policy/policies/flows-cache-from-poc2.ndjson demos/29-cross-cluster-policy/policies/cnp-cache-0.6.0.yaml
+http=200 → demos/29-cross-cluster-policy/policies/cnp-cache-0.6.0.yaml
+
+### 2026-09-13T10:58:27Z
+$ cat demos/29-cross-cluster-policy/policies/cnp-cache-0.6.0.yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: cache-server
+  namespace: mesh-lab
+  labels:
+    app.kubernetes.io/component: server
+    app.kubernetes.io/managed-by: cf2cnp
+    app.kubernetes.io/name: cache
+spec:
+  description: Allow ingress traffic from mesh-lab to mesh-lab for the cache
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: server
+      app.kubernetes.io/name: cache
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: batch
+            app.kubernetes.io/name: worker
+            io.cilium.k8s.policy.cluster: poc2
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+
+### 2026-09-13T10:58:27Z
+$ demos/26-cf2cnp-policy-from-flows/generate.sh demos/29-cross-cluster-policy/policies/flows-worker-poc2.ndjson demos/29-cross-cluster-policy/policies/cnp-worker-poc2.yaml
+http=200 → demos/29-cross-cluster-policy/policies/cnp-worker-poc2.yaml
+
+### 2026-09-13T10:58:27Z
+$ cat demos/29-cross-cluster-policy/policies/cnp-worker-poc2.yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: worker-batch
+  namespace: mesh-lab
+  labels:
+    app.kubernetes.io/component: batch
+    app.kubernetes.io/managed-by: cf2cnp
+    app.kubernetes.io/name: worker
+spec:
+  description: Allow egress traffic for the worker-batch in mesh-lab (2 rules merged from 2 observed flows)
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: batch
+      app.kubernetes.io/name: worker
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+    - toEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: server
+            app.kubernetes.io/name: cache
+            io.cilium.k8s.policy.cluster: poc1
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+
+### 2026-09-13T10:59:26Z
+$ bash -c docker run -d --rm --name cf2cnp-0.5.1 -p 127.0.0.1:28080:8080 ghcr.io/ephico2real2/cf2cnp:0.5.1 >/dev/null && sleep 2 && curl -s --fail-with-body -X POST http://127.0.0.1:28080/generate --data-binary @demos/29-cross-cluster-policy/policies/flows-cache-from-poc2.ndjson -o demos/29-cross-cluster-policy/policies/cnp-cache-0.5.1.yaml; echo "0.5.1 (the image, run locally): $(wc -l < demos/29-cross-cluster-policy/policies/cnp-cache-0.5.1.yaml | tr -d ' ') lines of YAML"; docker stop cf2cnp-0.5.1 >/dev/null
+0.5.1 (the image, run locally): 24 lines of YAML
+
+### 2026-09-13T10:59:31Z
+$ diff demos/29-cross-cluster-policy/policies/cnp-cache-0.5.1.yaml demos/29-cross-cluster-policy/policies/cnp-cache-0.6.0.yaml
+20a21
+>             io.cilium.k8s.policy.cluster: poc2
+[exit code: 1]
+
+
+### Part 6 — the trap, measured: enforce the 0.5.1 policy (no cluster label), then the 0.6.0 one
+### 2026-09-13T10:59:31Z
+$ bash -c NS=mesh-lab demos/26-cf2cnp-policy-from-flows/audit-mode.sh cache Disabled
+E0913 05:59:34.411587   60964 websocket.go:296] Unknown stream id 1, discarding message
+endpoint 703 (cep-name:mesh-lab/cache-6d88ffb646-4nbtg on poc1-worker2): PolicyAuditMode=Disabled
+  PolicyAuditMode                   : Disabled
+
+### 2026-09-13T10:59:36Z
+$ kubectl --context kind-poc1 apply -f demos/29-cross-cluster-policy/policies/cnp-cache-0.5.1.yaml
+ciliumnetworkpolicy.cilium.io/cache-server created
+
+### 2026-09-13T10:59:40Z
+$ bash -c for c in poc2 poc1; do out=$(kubectl --context kind-$c -n mesh-lab exec worker -- sh -c "timeout 5 redis-cli -h cache PING; echo rc=\$?" 2>&1 | tr "\n" " "); echo "worker@$c → cache: $out"; done
+worker@poc2 → cache: Terminated rc=143 
+worker@poc1 → cache: PONG rc=0 
+
+### 2026-09-13T10:59:49Z
+$ demos/29-cross-cluster-policy/verdicts.sh 100
+  5 poc1/poc1-worker2   INGRESS  worker@poc2 → cache-6d88ffb646-4nbtg@poc1:6379 DROPPED (no policy named)
+  1 poc1/poc1-worker2   INGRESS  worker@poc1 → cache-6d88ffb646-4nbtg@poc1:6379 FORWARDED ingress_allowed=cache-server
+
+### 2026-09-13T10:59:52Z
+$ kubectl --context kind-poc1 apply -f demos/29-cross-cluster-policy/policies/cnp-cache-0.6.0.yaml
+ciliumnetworkpolicy.cilium.io/cache-server configured
+
+### 2026-09-13T11:00:00Z
+$ bash -c for c in poc2 poc1; do out=$(kubectl --context kind-$c -n mesh-lab exec worker -- sh -c "timeout 5 redis-cli -h cache PING; echo rc=\$?" 2>&1 | tr "\n" " "); echo "worker@$c → cache: $out"; done
+worker@poc2 → cache: PONG rc=0 
+worker@poc1 → cache: Terminated rc=143 
+
+### 2026-09-13T11:00:09Z
+$ demos/29-cross-cluster-policy/verdicts.sh 60
+  5 poc1/poc1-worker2   INGRESS  worker@poc2 → cache-6d88ffb646-4nbtg@poc1:6379 DROPPED (no policy named)
+  1 poc1/poc1-worker2   INGRESS  worker@poc1 → cache-6d88ffb646-4nbtg@poc1:6379 FORWARDED ingress_allowed=cache-server
+  1 poc1/poc1-worker2   INGRESS  worker@poc2 → cache-6d88ffb646-4nbtg@poc1:6379 FORWARDED ingress_allowed=cache-server
+  5 poc1/poc1-worker2   INGRESS  worker@poc1 → cache-6d88ffb646-4nbtg@poc1:6379 DROPPED (no policy named)
+
+### 2026-09-13T11:00:11Z
+$ kubectl --context kind-poc1 -n mesh-lab get cnp -L app.kubernetes.io/managed-by
+NAME                         AGE     VALID   MANAGED-BY
+cache-default-deny-ingress   2m45s   True    
+cache-server                 35s     True    cf2cnp
+
+
+### Part 7 — E9: the egress policy on poc2, and a cross-cluster verdict on the dashboard with cluster=poc2
+### 2026-09-13T11:00:32Z
+$ kubectl --context kind-poc2 apply -f demos/29-cross-cluster-policy/policies/cnp-worker-poc2.yaml
+ciliumnetworkpolicy.cilium.io/worker-batch created
+
+### 2026-09-13T11:00:37Z
+$ bash -c echo "allowed by the rule:  $(kubectl --context kind-poc2 -n mesh-lab exec worker -- sh -c "timeout 5 redis-cli -h cache PING; echo rc=\$?" 2>&1 | tr "\n" " ")"; echo "not in the rule (accounts.bank in poc2, port 80): $(kubectl --context kind-poc2 -n mesh-lab exec worker -- sh -c "timeout 5 redis-cli -h accounts.bank.svc.cluster.local -p 80 PING; echo rc=\$?" 2>&1 | tr "\n" " ")"
+allowed by the rule:  PONG rc=0 
+not in the rule (accounts.bank in poc2, port 80): Terminated rc=143 
+
+### 2026-09-13T11:00:45Z
+$ demos/29-cross-cluster-policy/verdicts.sh 120
+  5 poc1/poc1-worker2   INGRESS  worker@poc2 → cache-6d88ffb646-4nbtg@poc1:6379 DROPPED (no policy named)
+  1 poc1/poc1-worker2   INGRESS  worker@poc1 → cache-6d88ffb646-4nbtg@poc1:6379 FORWARDED ingress_allowed=cache-server
+  2 poc1/poc1-worker2   INGRESS  worker@poc2 → cache-6d88ffb646-4nbtg@poc1:6379 FORWARDED ingress_allowed=cache-server
+  5 poc1/poc1-worker2   INGRESS  worker@poc1 → cache-6d88ffb646-4nbtg@poc1:6379 DROPPED (no policy named)
+  3 poc2/poc2-worker    EGRESS   worker@poc2 → coredns-879947797-f4bdb@poc2:53 FORWARDED egress_allowed=worker-batch
+  1 poc2/poc2-worker    EGRESS   worker@poc2 → cache-6d88ffb646-4nbtg@poc1:6379 FORWARDED egress_allowed=worker-batch
+  2 poc2/poc2-worker    EGRESS   worker@poc2 → coredns-879947797-k8xkh@poc2:53 FORWARDED egress_allowed=worker-batch
+  5 poc2/poc2-worker    EGRESS   worker@poc2 → accounts-6544fcc9b8-5qt5k@poc2:8080 DROPPED (no policy named)
+
+### 2026-09-13T11:00:46Z
+$ kubectl --context kind-poc2 -n mesh-lab get cnp -L app.kubernetes.io/managed-by
+NAME           AGE   VALID   MANAGED-BY
+worker-batch   14s   True    cf2cnp
+
+### 2026-09-13T11:01:36Z
+$ demos/29-cross-cluster-policy/metric.sh mesh-lab
+cluster action    source_namespace  destination_namespace  verdicts
+poc1    audit     mesh-lab          mesh-lab               6
+poc1    dropped   mesh-lab          mesh-lab               10
+poc1    forwarded mesh-lab          mesh-lab               3
+poc2    dropped   mesh-lab          bank                   5
+poc2    forwarded mesh-lab          mesh-lab               1
+poc2    forwarded mesh-lab          kube-system            5
+

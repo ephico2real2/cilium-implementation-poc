@@ -71,7 +71,9 @@ cf2cnp:                                  # the README's "Configuration" section:
   resources: {requests: {cpu: 20m, memory: 32Mi}, limits: {memory: 128Mi}}   # not in defaults: bounded
   image:                                 # demo 26 Part 14/14e, demo 28 (2026-09-13) — NOT the chart default (ghcr.io/onzack/cf2cnp). The fork's
     repository: ghcr.io/ephico2real2/cf2cnp   # release 0.5.0 (ephico2real2/cf2cnp, tag v0.5.0; upstream PR onzack/cf2cnp#3 pending):
-    tag: "0.5.1"                         # (0.5.1: the page summary names components) download_url from the proxy headers, many flows per request merged per workload, policy
+    tag: "0.6.0"                         # (0.5.1: the page summary names components; 0.6.0, demo 29–33: enhancement 001 — cluster-aware selectors,
+                                         # L7 rules, the DNS-visibility rule, exclude=, `cf2cnp merge`, allowed origins + token + a policy for the pod,
+                                         # release binaries) download_url from the proxy headers, many flows per request merged per workload, policy
     pullPolicy: IfNotPresent             # names a function of the whole selector, labels on every policy, ?name=, body cap, the
                                          # page's summary/copy/download. The chart itself comes from https://ephico2real2.github.io/cf2cnp
                                          # (the hubble-observer fork's dependency). Loaded into poc1 with `kind load` as well, so the
@@ -87,3 +89,7 @@ policyVerdictsDashboard:                 # demo 28 (2026-09-13) — NOT in the u
   enabled: true                          # dashboard (born in demo 26) as its own chart, https://github.com/ephico2real2/hubble-policy-verdicts,
   dashboard: {folder: Hubble}            # a dependency of the hubble-observer fork (alias policyVerdictsDashboard). Sidecar ConfigMap in the
   sidecar: {namespace: monitoring}       # monitoring namespace, next to the chart's own dashboards; the operator CR stays off (no operator here).
+  lokiRow:                               # demo 34 (2026-09-13) — chart 0.2.0: the optional Loki flow row under the verdict panels, so a verdict
+    enabled: true                        # becomes a policy on ONE dashboard: the flow table (uid links to the observer dashboard, the cf2cnp
+    cf2cnpURL: https://cf2cnp.poc.local  # Generate action posting the flow's JSON line) reads the observer's Loki stream by namespace label.
+    observerNamespace: hubble-observer   # the label the demo 10 collector stamps on the observer's log lines (resource/loki-labels)

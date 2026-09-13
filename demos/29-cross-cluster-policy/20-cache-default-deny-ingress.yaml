@@ -1,0 +1,11 @@
+# Demo 29 — default-deny ingress on the cache in poc1, applied while its endpoint is in policy audit mode
+# (demos/26-cf2cnp-policy-from-flows/audit-mode.sh with NS=mesh-lab): every caller is reported as AUDIT, none is cut off,
+# and the AUDIT flows are what cf2cnp turns into the allow rules. Same shape as demo 27's.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata: {name: cache-default-deny-ingress, namespace: mesh-lab}
+spec:
+  description: default-deny ingress on the cache; audited first, enforced once the generated rule is in place
+  endpointSelector: {matchLabels: {app.kubernetes.io/name: cache}}
+  ingress:
+    - {}

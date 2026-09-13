@@ -125,7 +125,10 @@ unchanged, with BGP substituted for L2 in production.
    names cannot collide — the Kubernetes one-name-per-kind-per-namespace rule made concrete.
 8f. **Demo 28** turns the policy-verdicts dashboard into a deliverable: its own chart repository, a
    dependency of the observer chart, offered upstream — with the first-release traps written down.
-9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 85 traps, each with the real error
+8g. **Demo 29** runs cf2cnp 0.6.0 (enhancement 001) on the mesh: the caller's cluster in the generated
+   selector, measured against the 0.5.1 output that enforced the wrong pod; a spoke's verdict on the hub's
+   dashboard.
+9. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 86 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -142,6 +145,7 @@ unchanged, with BGP substituted for L2 in production.
 | ✅ | **poc3 "classic" cluster (kindnet + kube-proxy) — forensic comparison**: rule-count scaling, programming latency, throughput, conntrack/CPU under load | done — demo 11, with the three-cause forensic on Cilium's default install; poc3 is paused (`scripts/cluster-resume.sh poc3`) |
 | ⛔ | **"Cilium mTLS" (mutual authentication, SPIFFE/SPIRE)** | evaluated, **not enabled and not to be adopted**: deprecated in 1.20, removal planned in 1.21 (cilium#47132), ClusterMesh-incompatible — [docs/summary/MTLS_EVALUATION.md](docs/summary/MTLS_EVALUATION.md) |
 | ✅ | **ztunnel mTLS (demo 13)** — evaluated on a throwaway cluster: real mTLS on the wire, but cannot run on any cluster with a `cluster.id` (so never with ClusterMesh), breaks L4 **and** L7 policy for enrolled traffic, −73 % throughput | **not the standard**; WireGuard + identity policy is — `demos/13-ztunnel/README.md` |
+| ✅ | **Enhancement 001 released (demo 29 →)** — cf2cnp 0.6.0 (E1–E6, E10), hubble-policy-verdicts 0.2.0 (E7), the observer fork with both and the E8 example; demo 29 proves E1 and E9 on the mesh | in progress: demos 30–34 prove the rest; `enhancements/README.md` |
 | ✅ | **Policy Verdicts dashboard as a product (demo 28)** — own repo + chart 0.1.1 on gh-pages, dependency of the observer fork, offered upstream; cf2cnp 0.5.1 | done; `demos/28-policy-verdicts-chart/` |
 | ✅ | **cf2cnp 0.5.0 released from the fork and tested (demo 27)** — gh-pages Helm repo, GitHub release, public image; two components, one request, two names that cannot collide | done; `demos/27-cf2cnp-release/` |
 | ✅ | **Policy from observed flows (demo 26)** — audit mode → default-deny → flow JSON from four sources → cf2cnp by API / UI / Grafana action → apply → enforce; the `policy` verdict metric on, the *Hubble / Policy Verdicts (Namespace)* dashboard provisioned | done; `demos/26-cf2cnp-policy-from-flows/` |
@@ -226,6 +230,7 @@ an untested combination.
 | 08 | Enterprise CA | cert-manager root in poc1 issuing every cluster's mesh certificates; trust before join |
 | 09 | Wildcard TLS + 3 route types | cert-manager wildcard and exact certs on one Gateway; `HTTPRoute`, `GRPCRoute`, `TCPRoute` from one 14 MB image — and a native Go client (`-mode client`) that tests all three, which is how the missing-ALPN gotcha (#33) was found |
 | 10 | Flow tracing -> OpenTelemetry | Hubble dynamic flow export per node, tailed by an OTel Collector into OTLP; every flow persistent and queryable. **Events, not spans** -- hubble-otel is archived, see gotcha #30 |
+| 29 | **Policy from a cross-cluster flow (E1), its verdict on the hub (E9)** | cf2cnp 0.6.0 released from the fork (chart, image, four binaries with checksums) and deployed as the observer chart's dependency with the dashboard chart 0.2.0; a `cache` in poc1 behind a global Service, a `worker` in poc2 and a same-labelled twin in poc1; default-deny under audit, the AUDIT flows from the poc2 caller only, the same bytes through 0.6.0 (deployed) and 0.5.1 (the image run locally) — **one line differs**, `io.cilium.k8s.policy.cluster: poc2`; each policy enforced in turn: the cluster-blind one dropped the real caller and admitted the twin, the 0.6.0 one the reverse (verdicts with the policy name); the worker's egress policy applied **in poc2** (kube-dns without the label, the cache with `poc1`), its forwarded and dropped verdicts decided on poc2's node, in poc1's Prometheus under `cluster="poc2"` and on the dashboard's `cluster` variable; why the destination node has no INGRESS flow until a policy selects the endpoint (`parser.go`) |
 | 28 | **The Policy Verdicts dashboard, enterprise-ready** | from a JSON file and a script in this PoC to its own repository ([hubble-policy-verdicts](https://github.com/ephico2real2/hubble-policy-verdicts)): a chart with both delivery paths (Grafana sidecar ConfigMap, Grafana Operator CR), released on gh-pages with a GitHub release, CI that renders it under a camelCase alias — because the first deploy as the observer chart's aliased dependency was refused by the API server (`.Chart.Name` is the alias, #85) — consumed by the hubble-observer fork (`policyVerdictsDashboard.enabled`), the hand-made ConfigMap retired, offered upstream (onzack/hubble-observer#12, PR #13); cf2cnp 0.5.1 names components in the page summary |
 | 27 | **cf2cnp 0.5.0 from the fork, deployed and tested** | the release (gh-pages Helm repo + public ghcr image) reaching poc1 as the hubble-observer chart's dependency, on a lab built for the naming rule: a `shop` frontend and a `shop` backend (same `app.kubernetes.io/name`, different component), one default-deny for both in audit mode, 30 audit flows collected by intent and posted **once** → two policies `shop-frontend` and `shop-backend`, labelled, enforced (stranger dropped at both, the intended paths forwarded *by* the named rules), the page on all 30 flows, the Grafana action; the dashboards and Hubble UI group both components as `shop` — the policy names are what tell them apart; the audit flag that landed on a terminating pod (#84) |
 | 26 | **Policy from observed flows, three ways** | the foundational skill under every "generate policy from traffic" feature, done with open-source parts: where a Hubble flow JSON comes from (the live relay, Loki, the observer log, the node's export file — all four produced the byte-identical policy), what cf2cnp reads in it, the measured fact that nobody reports INGRESS until the workload has a policy — so **default-deny in policy audit mode first** (`AUDIT` verdicts, zero drops), then the flow → policy through the API, the Web UI and the Grafana action, applied under audit, then enforced (`stranger` DROPPED, `pos` forwarded *by* the generated rule); the verdicts read in Hubble UI, the chart's dashboards, the observer's Loki dashboard and a policy-verdicts dashboard of our own on the new `policy` metric; `ingress: []` rejected (#80), cf2cnp's one-name-per-destination (#81), default-deny names no policy (#82); Hubble UI has no extension API but can be framed, Grafana refuses framing by default — measured; then cf2cnp itself improved on the fork and sent upstream ([issue #2](https://github.com/onzack/cf2cnp/issues/2), [PR #3](https://github.com/onzack/cf2cnp/pull/3)): `download_url` honours the proxy headers (#83), many flows per request merged per workload, policy names a function of the whole selector (one name per kind per namespace — the replacement measured), labels on every policy, `?name=`, the page's summary/copy/download; released as 0.5.0 from the fork (gh-pages Helm repo + ghcr image) and running here |
@@ -284,6 +289,7 @@ paused or blocked by the lab carry a marker file where the images will go and a 
 | [26-cf2cnp-policy-from-flows](demos/26-cf2cnp-policy-from-flows/README.md#evidence) | 5 captures + 7 from the two Playwright scripts, pods + policies + verdicts |
 | [27-cf2cnp-release](demos/27-cf2cnp-release/README.md#evidence) | 4 captures + 7 from the two Playwright scripts, pods + policies by label + verdicts + the release |
 | [28-policy-verdicts-chart](demos/28-policy-verdicts-chart/README.md#evidence) | 2 captures + 3 from the page script, the releases + ConfigMaps + Helm release |
+| [29-cross-cluster-policy](demos/29-cross-cluster-policy/README.md#evidence) | 2 captures (the dashboard per cluster), pods in both clusters + the policies with their cluster label + the global Service; the flows and four policies under `policies/` |
 
 ## Docker and kind: the limits this lab hit, and what they mean for a real cluster
 
@@ -332,7 +338,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 85 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 86 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

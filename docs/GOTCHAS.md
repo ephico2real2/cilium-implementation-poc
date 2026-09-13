@@ -73,6 +73,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [83](#83) | a URL built from `r.TLS` behind a TLS-terminating proxy is always `http://` | policy from flows |
 | [84](#84) | the audit flag went to the pod being replaced — a rollout lists the old pod first | policy from flows |
 | [85](#85) | inside an aliased dependency `.Chart.Name` is the alias — a camelCase alias became an object name | policy from flows |
+| [86](#86) | "by namespace" is the destination's: an egress drop that leaves the namespace is not on the dashboard | policy from flows |
 | [78](#78) | The hubble-observer default image (quay.io/cilium/hubble:v1.16.4) is unmaintained — 2024 push, EOL Go, 5 CRITICAL; run the CLI from the agent image at the agents' digest | supply chain |
 | [77](#77) | The hub Prometheus kept the single-cluster 1Gi limit — 51 OOM kills once poc2 wrote in; 2Gi + an out-of-order window | monitoring |
 | [76](#76) | A policy's egress `toPorts` must be the backend pod's port (relay 4245), not the Service port (443) — Cilium enforces after service translation | Cilium policy |
@@ -2041,6 +2042,25 @@ alias; that label is informational.
 
 ---
 
+## <a name="86"></a>86. "By namespace" means the destination's — an egress drop that leaves the namespace is not on the dashboard
+
+**Where:** demo 29 Part 8. The Policy Verdicts (Namespace) dashboard with `cluster=poc2`, `namespace=mesh-lab` showed
+`worker → cache (egress) forwarded` and nothing dropped, while Hubble on poc2's node had just recorded five
+`DROPPED` verdicts for the same worker.
+
+**What happened:** the dashboard's `namespace` variable filters `destination_namespace`. The dropped calls went from
+`mesh-lab` to a pod in `bank` (`worker@poc2 → accounts@poc2:8080`), so their series carry
+`destination_namespace="bank"` and the page for `mesh-lab` never selects them. Prometheus has them:
+
+```text
+poc2    dropped   mesh-lab          bank                   5      ← demos/29-cross-cluster-policy/metric.sh (source OR destination)
+```
+
+**The lesson:** a namespace dashboard answers "what came *into* this namespace and what did the policy do". For
+"what did *this namespace's* workloads try to reach", query the source label too (`… or
+hubble_policy_verdicts_total{source_namespace="…"}`) — or add a source-or-destination variable to the chart, which is
+noted as a follow-up in `enhancements/README.md`.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -2089,6 +2109,7 @@ Most of these share a shape: **something reported success while not working.**
 - the pod never sees TLS, so it never says https (#83)
 - the flag went to the pod on its way out (#84)
 - the chart's name was the alias (#85)
+- the namespace dashboard filtered on the destination, and the egress drops had left the namespace (#86)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

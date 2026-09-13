@@ -1,0 +1,21 @@
+# Demo 29 — the cache behind the global service, in poc1 ONLY. poc2's `cache` Service has no local backend, so a
+# request from poc2 is served across the mesh by this pod (demo 07's failover path, used here on purpose).
+#   kubectl --context kind-poc1 apply -f demos/29-cross-cluster-policy/11-cache-poc1.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cache
+  namespace: mesh-lab
+  labels: {app.kubernetes.io/name: cache, app.kubernetes.io/component: server}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/name: cache}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: cache, app.kubernetes.io/component: server}
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports: [{containerPort: 6379}]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
