@@ -23,7 +23,8 @@ second consumer of the same scripts, not a second lab.
 | The fluentd-hec pattern: pinned `MINIKUBE_VERSION` / `KUBERNETES_VERSION`, `minikube start --driver=docker --container-runtime=containerd --cpus 2 --memory 4096 -n 2`, wait loops with deadlines and `::error::` annotations, a debug workflow on `workflow_dispatch` | `ephico2real2/fluentd-hec` `.github/workflows/ci_build_test.yaml`, `debug-splunk-pod.yaml` | the shape to keep: pinned versions, explicit waits, a dispatchable debug job |
 | **minikube cannot put two profiles on one docker network.** `--network <shared>` for a second profile fails with "can't create with that IP, address already in use" (the IP is computed from the node index, not the profile); the issue is closed *not planned* | [kubernetes/minikube#14799](https://github.com/kubernetes/minikube/issues/14799) | two minikube clusters cannot see each other's node IPs, which ClusterMesh needs |
 | `--static-ip` (docker driver) is ignored when combined with `--network`; the PR that would fix it is open | [kubernetes/minikube#19284](https://github.com/kubernetes/minikube/issues/19284), [tutorial](https://minikube.sigs.k8s.io/docs/tutorials/static_ip/) | the one flag meant to solve #14799 does not work today |
-| The reported workaround: `docker network connect --alias` both KIC containers to a third network after start | #14799 comments | the nodes then carry a second IP the kubelet did not register; Cilium tunnels and the mesh apiserver use the node's InternalIP, so this needs `kubelet.node-ip` set before start — a chicken-and-egg that is measurable, not assumable (§4 phase 0) |
+| The two workarounds in #14799: (a) `docker network connect --alias` both KIC containers to a third network after start; (b) a proxy on the host, reached from the clusters as `host.minikube.internal` | #14799 comments (the operator pointed at (b)) | (a): the nodes carry a second IP the kubelet did not register — Cilium's tunnels and the mesh apiserver use the node's InternalIP, so `kubelet.node-ip` must be set before start; (b): a TCP proxy carries the **control plane** (`cilium clustermesh connect --destination-endpoint host.minikube.internal:<port>` reaches the other cluster's clustermesh-apiserver) but not the **datapath** — ClusterMesh needs "IP connectivity between nodes using the configured InternalIP" and "pods in all clusters must have IP connectivity between each other" ([Cilium ClusterMesh setup](https://docs.cilium.io/en/stable/network/clustermesh/setup/)), i.e. VXLAN between node IPs and pod-to-pod packets, which no host proxy forwards. (b) alone gives cross-cluster service reachability through the host, not a mesh |
+| **What actually blocks two minikube profiles from meshing is Docker's own rule, not minikube's:** Docker isolates user-defined bridge networks from each other with the `DOCKER-ISOLATION-STAGE-1/2` chains, and reserves the `DOCKER-USER` chain, evaluated before its own rules, for the administrator's exceptions | [Docker bridge driver](https://docs.docker.com/engine/network/drivers/bridge/), [Docker and iptables](https://www.net7.be/blog/article/docker_iptables.html) | give each profile its own network (minikube's default) and let the host route between the two bridges — two `iptables -I DOCKER-USER -i br-<poc1> -o br-<poc2> -j ACCEPT` rules and the reverse — and every node IP is routable from the other cluster, VXLAN included: ClusterMesh's prerequisite, met without `--network` or `--static-ip`. A Linux runner has root; the MacBook's Docker VM can be reached with the `nsenter` trick `demos/20-springboot/scale.sh` already uses. This is the path phase 0 measures first |
 | Cilium's own documentation on minikube: with the docker driver "kube-proxy replacement features like host-reachable services may not work" | [Cilium docs, minikube](https://docs.cilium.io/en/v1.9/gettingstarted/minikube/) (the page exists only up to 1.9; newer docs dropped minikube) | KPR on minikube/docker is unsupported territory; demo 03 and demo 11 rest on KPR |
 | **kind puts every cluster on the one `kind` docker network** — that is how poc1 and poc2 mesh today, and how Cilium's own CI meshes two clusters on GitHub Actions: `conformance-clustermesh.yaml` creates cluster 1 and cluster 2 with `helm/kind-action` and two config files | [cilium/cilium conformance-clustermesh.yaml](https://fossies.org/linux/cilium/.github/workflows/conformance-clustermesh.yaml); `docs/SETUP.md` | the mesh-in-CI problem is solved upstream with kind, on the same runners |
 | `helm/kind-action` creates several clusters in one job (called twice with `cluster_name` and `config`); default kind v0.33.0 — the PoC's version | [helm/kind-action](https://github.com/helm/kind-action) | the PoC's `clusters/*.yaml` and `cilium/values-*.yaml` port with one change: node count |
@@ -33,10 +34,14 @@ second consumer of the same scripts, not a second lab.
 
 ## 3. Decision: kind for the clusters, minikube where one cluster is enough
 
-The operator asked for minikube. The measured position is: **minikube's docker driver cannot build the mesh** —
-two profiles on one network is closed *not planned* (#14799), the `--static-ip` route is broken (#19284), and Cilium
-documents KPR on minikube/docker as unsupported. kind builds exactly the PoC's topology on the same runner, and it
-is what Cilium itself uses in its GitHub Actions to mesh two clusters. So:
+The operator asked for minikube and pointed at the host-proxy workaround in #14799. Measured against ClusterMesh's
+prerequisites, that proxy reaches the other cluster's control plane but not its nodes or pods (§2), so it is not a
+mesh. What does meet the prerequisite is the Docker-level fix in §2: one network per profile, as minikube already
+does, and two `DOCKER-USER` rules on the host so the two bridges route to each other — then node IPs are reachable,
+VXLAN runs, and `cilium clustermesh connect` needs no `--destination-endpoint` at all. That is untested on a runner
+and is exactly what phase 0 tests first; what is still documented as unsupported is KPR on minikube's docker driver
+(Cilium's minikube page), which demo 03 and demo 11 rest on. kind builds the PoC's topology with none of these
+questions, on the same runner, the way Cilium's own CI does. So the position, pending phase 0:
 
 - **kind for every job that needs poc1 + poc2, KPR, Gateway API or L2 announcements** — the PoC's own configs,
   scaled to 1 + 1 nodes. Nothing in the demos changes: same cluster names (`kind-poc1`, `kind-poc2`), same CIDRs,
@@ -45,9 +50,12 @@ is what Cilium itself uses in its GitHub Actions to mesh two clusters. So:
   demo 28, the observer of demo 25), because that is the fluentd-hec shape the operator knows and the shape the
   MacBook setup will take. `--cni=false`, Cilium installed by the same `scripts/install-cilium.sh` with
   `kubeProxyReplacement=false` there — and the job records `cilium status` so the difference is visible.
-- **Phase 0 measures the minikube mesh anyway**, once, in a dispatchable job (§4): two profiles, `docker network
-  connect`, `kubelet.node-ip`, `cilium clustermesh connect --destination-endpoint`. If it works on the runner the
-  decision flips to minikube for everything and this section says so; if it does not, the job's log is the record.
+- **Phase 0 measures the minikube mesh first**, in a dispatchable job (§4): two profiles on their own networks,
+  the two `DOCKER-USER` rules, distinct pod CIDRs, Cilium with `cluster.id` 1 and 2, `cilium clustermesh
+  enable/connect`, `cilium clustermesh status --wait`, `cilium connectivity test --multi-cluster`, and `cilium
+  status` with KPR on to see what the docker driver breaks. If it passes, the decision flips to minikube for
+  everything — the operator's preference — and this section says so; if it does not, the job's log is the record,
+  and the host-proxy variant is tried second for what it can give (control plane only).
 
 ## 4. The plan
 
@@ -58,8 +66,14 @@ is what Cilium itself uses in its GitHub Actions to mesh two clusters. So:
   the pools, `cilium clustermesh enable/connect`, `cilium clustermesh status --wait`, `cilium connectivity test
   --multi-cluster`, then `scripts/verify.sh` — and `docker stats`, `free -m`, the job's wall clock, as the
   measurement. The budget question this answers: how much of the PoC fits in 4 vCPU / 16 GB.
-- `lab-spike-minikube.yaml` (`workflow_dispatch`): the minikube mesh attempt of §3, step by step, each step's
-  output captured. Whatever the result, it is recorded in this document.
+- `lab-spike-minikube.yaml` (`workflow_dispatch`), **run first**: the minikube mesh of §3 step by step — `minikube
+  start -p poc1 --driver=docker --container-runtime=containerd --cni=false --extra-config=kubeadm.skip-phases=addon/kube-proxy
+  --extra-config=kubeadm.pod-network-cidr=10.10.0.0/16 --service-cluster-ip-range=10.11.0.0/16 -n 2` and the same
+  for `poc2` with `10.20/16` and `10.21/16`; `iptables -I DOCKER-USER` both ways between the two `br-*` bridges
+  (their names from `docker network inspect`); `scripts/install-cilium.sh` with `k8sServiceHost` = the profile's
+  control-plane IP (`minikube -p poc1 ip`), `cluster.name`/`cluster.id`; the mesh; the connectivity test; then a
+  Gateway and an L2-announced LoadBalancer from a pool inside each profile's subnet. Each step's output captured;
+  the result recorded in this document either way.
 
 ### Phase 1 — the bring-up as scripts (what the MacBook will reuse)
 
@@ -101,8 +115,9 @@ stays the tool for the mesh there too, unless phase 0 says otherwise.
 
 ## 5. Two questions for the operator
 
-1. **kind for the mesh, minikube for the single-cluster jobs** (§3) — or minikube only, accepting that the mesh
-   demos (07, 22, 29, 35) stay on the laptop until minikube's #14799 / #19284 close?
+1. **Run phase 0's minikube spike before choosing?** (§3) — if the `DOCKER-USER` route meshes two profiles on the
+   runner, minikube everywhere is the answer; if not, kind for the mesh jobs and minikube for the single-cluster
+   jobs, or minikube only with the mesh demos (07, 22, 29, 35) staying on the laptop.
 2. **Which groups run on the weekly schedule** — all four (about four runner-hours a week, free on a public
    repository), or `core` and `policy-tools` only, the rest on dispatch?
 
