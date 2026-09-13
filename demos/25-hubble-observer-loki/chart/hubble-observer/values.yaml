@@ -203,3 +203,8 @@ cf2cnp:
         pathType: PathPrefix
 
   extraManifests: []
+
+# Optional companion dashboard: Hubble / Policy Verdicts (Namespace) — the audit → allow → deny picture of the policies
+# generated from these flows (subchart hubble-policy-verdicts; values pass through: dashboard.folder, sidecar.*, grafanaOperator.*)
+policyVerdictsDashboard:
+  enabled: false

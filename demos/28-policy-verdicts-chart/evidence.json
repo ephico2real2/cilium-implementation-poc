@@ -1,0 +1,17 @@
+{
+ "captures": [
+  {
+   "name": "grafana-hubble-folder",
+   "url": "https://grafana.poc.local/dashboards?query=Hubble",
+   "wait": "text:Policy Verdicts",
+   "look": "Grafana's dashboard browser filtered to Hubble: the chart-provisioned Policy Verdicts dashboard listed next to the chart's own"
+  },
+  {
+   "name": "grafana-policy-verdicts-from-chart",
+   "url": "https://grafana.poc.local/d/hubble-policy-verdicts?orgId=1&from=now-1h&to=now&var-cluster=poc1&var-namespace=cf2cnp-lab27",
+   "wait": "text:Who talked to whom",
+   "height": 1500,
+   "look": "the dashboard as the hubble-policy-verdicts chart provisions it (uid hubble-policy-verdicts), on demo 27's namespace"
+  }
+ ]
+}

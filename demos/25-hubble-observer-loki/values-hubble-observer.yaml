@@ -69,9 +69,9 @@ cf2cnp:                                  # the README's "Configuration" section:
   enabled: true                          # default false: on — the dashboard links to it (POST /generate + a small UI). Subchart 0.4.0,
                                          # image ghcr.io/onzack/cf2cnp:0.3.1, defaults in default-values/cf2cnp-0.4.0.yaml
   resources: {requests: {cpu: 20m, memory: 32Mi}, limits: {memory: 128Mi}}   # not in defaults: bounded
-  image:                                 # demo 26 Part 14/14e (2026-09-13) — NOT the chart default (ghcr.io/onzack/cf2cnp). The fork's
+  image:                                 # demo 26 Part 14/14e, demo 28 (2026-09-13) — NOT the chart default (ghcr.io/onzack/cf2cnp). The fork's
     repository: ghcr.io/ephico2real2/cf2cnp   # release 0.5.0 (ephico2real2/cf2cnp, tag v0.5.0; upstream PR onzack/cf2cnp#3 pending):
-    tag: "0.5.0"                         # download_url from the proxy headers, many flows per request merged per workload, policy
+    tag: "0.5.1"                         # (0.5.1: the page summary names components) download_url from the proxy headers, many flows per request merged per workload, policy
     pullPolicy: IfNotPresent             # names a function of the whole selector, labels on every policy, ?name=, body cap, the
                                          # page's summary/copy/download. The chart itself comes from https://ephico2real2.github.io/cf2cnp
                                          # (the hubble-observer fork's dependency). Loaded into poc1 with `kind load` as well, so the
@@ -82,3 +82,8 @@ cf2cnp:                                  # the README's "Configuration" section:
                                          # (allowedRoutes: Same), so the route lives in `routes` with a ReferenceGrant here:
                                          # 20-cf2cnp-route.yaml, hostname cf2cnp.poc.local. The dashboard's CF2CNP URL is set by
                                          # dashboard-from-file.sh (the chart would have taken it from httpRoute.hostnames[0]).
+
+policyVerdictsDashboard:                 # demo 28 (2026-09-13) — NOT in the upstream chart: the Hubble / Policy Verdicts (Namespace)
+  enabled: true                          # dashboard (born in demo 26) as its own chart, https://github.com/ephico2real2/hubble-policy-verdicts,
+  dashboard: {folder: Hubble}            # a dependency of the hubble-observer fork (alias policyVerdictsDashboard). Sidecar ConfigMap in the
+  sidecar: {namespace: monitoring}       # monitoring namespace, next to the chart's own dashboards; the operator CR stays off (no operator here).

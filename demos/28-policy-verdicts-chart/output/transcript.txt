@@ -1,0 +1,126 @@
+### Part 0 — where the dashboard lived: one JSON file and a shell script in this PoC, in neither fork
+### 2026-09-13T03:20:30Z
+$ bash -c ls -la demos/26-cf2cnp-policy-from-flows/30-policy-verdicts-dashboard.json demos/26-cf2cnp-policy-from-flows/dashboard.sh | tr -s " " | cut -d" " -f5-; echo "--- how it reached Grafana: a ConfigMap made by hand ---"; kubectl --context kind-poc1 -n monitoring get cm hubble-policy-verdicts-dashboard -o custom-columns="NAME:.metadata.name,LABEL:.metadata.labels.grafana_dashboard,FOLDER:.metadata.annotations.grafana_folder,MANAGED-BY:.metadata.labels.app\.kubernetes\.io/managed-by"; echo "--- in the forks? ---"; for r in ephico2real2/cf2cnp ephico2real2/hubble-observer; do printf "  %-28s " $r; gh api "search/code?q=repo:$r+policy-verdicts" --jq ".total_count" 2>/dev/null || echo "?"; done; echo "(0 = no file mentions it)"
+11811 Sep 12 19:08 demos/26-cf2cnp-policy-from-flows/30-policy-verdicts-dashboard.json
+1899 Sep 12 18:49 demos/26-cf2cnp-policy-from-flows/dashboard.sh
+--- how it reached Grafana: a ConfigMap made by hand ---
+NAME                               LABEL   FOLDER   MANAGED-BY
+hubble-policy-verdicts-dashboard   1       Hubble   <none>
+--- in the forks? ---
+  ephico2real2/cf2cnp          0
+  ephico2real2/hubble-observer 0
+(0 = no file mentions it)
+
+### Part 1 — the two releases: the dashboard's own repository and chart, cf2cnp 0.5.1
+### 2026-09-13T03:37:54Z
+$ bash -c helm repo update hubble-policy-verdicts cf2cnp-fork >/dev/null 2>&1; helm search repo hubble-policy-verdicts --versions | tail -1; helm search repo cf2cnp-fork --versions | tail -1; echo "--- the releases ---"; gh release list --repo ephico2real2/hubble-policy-verdicts | head -1; gh release list --repo ephico2real2/cf2cnp | head -1; echo "--- the chart, rendered: a sidecar ConfigMap by default, a GrafanaDashboard for the operator ---"; helm template t hubble-policy-verdicts/hubble-policy-verdicts -n monitoring | grep -E "^kind|^  namespace|grafana_dashboard|grafana_folder"; helm template t hubble-policy-verdicts/hubble-policy-verdicts --set sidecar.enabled=false --set grafanaOperator.enabled=true | grep -E "^kind|^  folder"; echo "--- the hubble-observer fork (develop): the dependencies ---"; git -C .tmp/hubble-observer-fork pull -q 2>/dev/null; grep -A2 "name: cf2cnp\|name: hubble-policy-verdicts" .tmp/hubble-observer-fork/helm/hubble-observer/Chart.yaml | grep -v "^--"
+hubble-policy-verdicts/hubble-policy-verdicts	0.1.0        	1.0        	A Grafana dashboard for Cilium network-policy v...
+cf2cnp-fork/cf2cnp	0.5.0        	0.5.0      	A Helm chart for CF2CNP - Cilium Flow to Cilium...
+--- the releases ---
+hubble-policy-verdicts-0.1.0	Latest	hubble-policy-verdicts-0.1.0	2026-09-13T03:36:28Z
+cf2cnp-0.5.1	Latest	cf2cnp-0.5.1	2026-09-13T03:18:54Z
+--- the chart, rendered: a sidecar ConfigMap by default, a GrafanaDashboard for the operator ---
+kind: ConfigMap
+  namespace: monitoring
+    grafana_dashboard: "1"
+    grafana_folder: "Hubble"
+kind: GrafanaDashboard
+  folder: "Hubble"
+--- the hubble-observer fork (develop): the dependencies ---
+  - name: cf2cnp
+    version: "0.5.1"
+    repository: https://ephico2real2.github.io/cf2cnp
+  - name: hubble-policy-verdicts
+    alias: policyVerdictsDashboard
+    version: "0.1.0"
+
+### Part 2 — deployed from the fork: both dependencies resolved, the hand-made ConfigMap retired, one dashboard in Grafana
+### 2026-09-13T03:38:03Z
+$ bash -c demos/25-hubble-observer-loki/chart-from-fork.sh develop 2>&1 | tail -3; kubectl --context kind-poc1 -n hubble-observer rollout status deploy/hubble-observer-cf2cnp --timeout=180s; kubectl --context kind-poc1 -n hubble-observer get deploy hubble-observer-cf2cnp -o jsonpath="  image={.spec.template.spec.containers[0].image}{\"\n\"}"; echo "--- the ConfigMap the chart made (and the one made by hand in demo 26) ---"; kubectl --context kind-poc1 -n monitoring get cm -l grafana_dashboard=1 -o custom-columns="NAME:.metadata.name,FOLDER:.metadata.annotations.grafana_folder,MANAGED-BY:.metadata.labels.app\.kubernetes\.io/managed-by,CHART:.metadata.labels.helm\.sh/chart" | grep -i "policy-verdicts"; kubectl --context kind-poc1 -n monitoring delete cm hubble-policy-verdicts-dashboard; sleep 75; GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); echo "--- Grafana: dashboards whose title says Policy Verdicts ---"; curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana "https://grafana.poc.local/api/search?query=Policy%20Verdicts" | python3 -c "import json,sys; [print(\"  uid=%s folder=%s title=%s\" % (d[\"uid\"], d.get(\"folderTitle\"), d[\"title\"])) for d in json.load(sys.stdin)]"
+dependencies: cf2cnp-0.5.1.tgz
+hubble-policy-verdicts-0.1.0.tgz
+Error: UPGRADE FAILED: failed to create resource: ConfigMap "policyVerdictsDashboard" is invalid: metadata.name: Invalid value: "policyVerdictsDashboard": a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')
+deployment "hubble-observer-cf2cnp" successfully rolled out
+  image=ghcr.io/ephico2real2/cf2cnp:0.5.0
+--- the ConfigMap the chart made (and the one made by hand in demo 26) ---
+hubble-policy-verdicts-dashboard                               Hubble   <none>       <none>
+configmap "hubble-policy-verdicts-dashboard" deleted
+--- Grafana: dashboards whose title says Policy Verdicts ---
+
+### Part 2b — the chart fixed (0.1.1: the object name is never the alias — a dependency with alias policyVerdictsDashboard had rendered a ConfigMap named after it, which the API server refused), deployed
+### 2026-09-13T03:52:39Z
+$ bash -c helm --kube-context kind-poc1 -n hubble-observer history hubble-observer | tail -2 | cut -c1-130; demos/25-hubble-observer-loki/chart-from-fork.sh develop 2>&1 | tail -3; kubectl --context kind-poc1 -n hubble-observer rollout status deploy/hubble-observer-cf2cnp --timeout=180s; kubectl --context kind-poc1 -n hubble-observer get deploy hubble-observer-cf2cnp -o jsonpath="  image={.spec.template.spec.containers[0].image}{\"\n\"}"; echo "--- the ConfigMap the chart made ---"; kubectl --context kind-poc1 -n monitoring get cm -l grafana_dashboard=1 -o custom-columns="NAME:.metadata.name,FOLDER:.metadata.annotations.grafana_folder,MANAGED-BY:.metadata.labels.app\.kubernetes\.io/managed-by,CHART:.metadata.labels.helm\.sh/chart,INSTANCE:.metadata.labels.app\.kubernetes\.io/instance" | grep -i "policy-verdicts\|NAME"; sleep 75; GW=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath="{.status.addresses[0].value}"); echo "--- Grafana: dashboards whose title says Policy Verdicts (exactly one, the chart's uid) ---"; curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u admin:poc-grafana "https://grafana.poc.local/api/search?query=Policy%20Verdicts" | python3 -c "import json,sys; [print(\"  uid=%s folder=%s title=%s\" % (d[\"uid\"], d.get(\"folderTitle\"), d[\"title\"])) for d in json.load(sys.stdin)]"
+20      	Sat Sep 12 21:38:15 2026	deployed  	hubble-observer-2.6.0-alpha	1.16.4     	Upgrade complete                             
+21      	Sat Sep 12 22:38:15 2026	failed    	hubble-observer-2.6.0-alpha	1.16.4     	Upgrade "hubble-observer" failed: failed to c
+hubble-policy-verdicts-0.1.1.tgz
+STATUS: deployed
+REVISION: 22
+deployment "hubble-observer-cf2cnp" successfully rolled out
+  image=ghcr.io/ephico2real2/cf2cnp:0.5.1
+--- the ConfigMap the chart made ---
+NAME                                                           FOLDER   MANAGED-BY   CHART                           INSTANCE
+hubble-dns-namespace                                           Hubble   Helm         cilium-1.20.1                   <none>
+hubble-network-overview-namespace                              Hubble   Helm         cilium-1.20.1                   <none>
+hubble-policy-verdicts                                         Hubble   Helm         policyVerdictsDashboard-0.1.1   hubble-observer
+monitoring-kube-prometheus-k8s-resources-namespace             <none>   Helm         <none>                          monitoring
+monitoring-kube-prometheus-k8s-resources-workloads-namespace   <none>   Helm         <none>                          monitoring
+monitoring-kube-prometheus-namespace-by-pod                    <none>   Helm         <none>                          monitoring
+monitoring-kube-prometheus-namespace-by-workload               <none>   Helm         <none>                          monitoring
+--- Grafana: dashboards whose title says Policy Verdicts (exactly one, the chart's uid) ---
+  uid=hubble-policy-verdicts folder=Hubble title=Hubble / Policy Verdicts (Namespace)
+
+### Part 3 — cf2cnp 0.5.1: the page's summary names workloads the way policies are named (name/instance/component), on demo 27's 30 flows
+### 2026-09-13T03:55:10Z
+$ node demos/26-cf2cnp-policy-from-flows/ui-generate.js demos/27-cf2cnp-release/policies/flows-audit.ndjson
+page summary: 30 flow(s) parsed: INGRESS AUDIT shop/frontend → shop/backend:80 | INGRESS AUDIT pos → shop/frontend:80 | INGRESS AUDIT shop/frontend → shop/backend:80 | INGRESS AUDIT pos → shop/frontend:80 | INGRESS AUDIT shop/frontend → shop/backend:80 | INGRESS AUDIT pos → shop/frontend:80 | INGRESS AUDIT shop/frontend → shop/backend:80 | INGRESS AUDIT pos → shop/frontend:80 | …
+apply hint: 30 flow(s) → 2 policies. Review it, then: kubectl apply -f ciliumnetworkpolicies-2.yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop-backend
+  namespace: cf2cnp-lab27
+  labels:
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/managed-by: cf2cnp
+    app.kubernetes.io/name: shop
+spec:
+  description: Allow ingress traffic from cf2cnp-lab27 to cf2cnp-lab27 for the shop
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/component: frontend
+            app.kubernetes.io/name: shop
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: shop-frontend
+  namespace: cf2cnp-lab27
+  labels:
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/managed-by: cf2cnp
+    app.kubernetes.io/name: shop
+spec:
+  description: Allow ingress traffic from cf2cnp-lab27 to cf2cnp-lab27 for the shop
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+      app.kubernetes.io/name: shop
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: pos
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP
+Copy YAML enabled: true | Download YAML enabled: true
+

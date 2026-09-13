@@ -347,6 +347,10 @@ Grafana's API because the grafana image has no shell to `exec` into — measured
 
 ![Hubble / Policy Verdicts (Namespace) for the lab](output/screenshots/grafana-policy-verdicts.png)
 
+> **Since demo 28** the dashboard is its own chart, [hubble-policy-verdicts](https://github.com/ephico2real2/hubble-policy-verdicts),
+> deployed as a dependency of the hubble-observer fork (uid `hubble-policy-verdicts`); `dashboard.sh` is kept as the
+> record of the first, hand-made provisioning and exits without applying. The JSON here is that first version.
+
 ## Part 11 — can Hubble UI be extended, or can Grafana be embedded in it? Measured
 
 The question was whether Cilium lets you extend the open-source Hubble UI — embed Grafana, or a UI of our

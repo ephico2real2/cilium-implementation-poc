@@ -22,6 +22,14 @@ dependencies:
   # the proxy headers (or externalURL), accepts many flows per request merged per workload, names policies after the whole
   # selector, carries the selector's labels. Upstream: oci://ghcr.io/onzack/helm-charts, version "*".
   - name: cf2cnp
-    version: "0.5.0"
+    version: "0.5.1"
     repository: https://ephico2real2.github.io/cf2cnp
     condition: cf2cnp.enabled
+  # The Hubble / Policy Verdicts (Namespace) dashboard — audited / forwarded / dropped per namespace from Hubble's `policy`
+  # metric — as an optional companion to the Cilium Flows dashboard this chart ships. Off by default; needs the policy
+  # metric enabled on the agents (see https://github.com/ephico2real2/hubble-policy-verdicts).
+  - name: hubble-policy-verdicts
+    alias: policyVerdictsDashboard
+    version: "0.1.1"
+    repository: https://ephico2real2.github.io/hubble-policy-verdicts
+    condition: policyVerdictsDashboard.enabled

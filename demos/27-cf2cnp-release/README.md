@@ -167,8 +167,8 @@ new metadata at work — every policy the tool ever generates for this applicati
 [`ui-generate.js`](../26-cf2cnp-policy-from-flows/ui-generate.js) pasted the 30-line file. The page's own
 summary read `30 flow(s) parsed: INGRESS AUDIT shop → shop:80 | INGRESS AUDIT pos → shop:80 | …`, the
 result `30 flow(s) → 2 policies. Review it, then: kubectl apply -f ciliumnetworkpolicies-2.yaml`, and
-*Copy YAML* / *Download YAML* lit up. (The summary line shows components as `shop → shop`: it prints the
-application name; a follow-up on the fork will add the component there too.)
+*Copy YAML* / *Download YAML* lit up. (The summary line showed components as `shop → shop` in 0.5.0: it printed the
+application name; 0.5.1 prints `shop/frontend → shop/backend` — demo 28 Part 3.)
 
 ![the page: 30 flows pasted, two named policies](output/screenshots/ui-3-generated.png)
 

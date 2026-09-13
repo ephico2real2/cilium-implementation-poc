@@ -28,7 +28,7 @@
   },
   {
    "name": "grafana-policy-verdicts",
-   "url": "https://grafana.poc.local/d/policy-verdicts-26?orgId=1&from=now-45m&to=now&var-cluster=poc1&var-namespace=cf2cnp-lab",
+   "url": "https://grafana.poc.local/d/hubble-policy-verdicts?orgId=1&from=now-45m&to=now&var-cluster=poc1&var-namespace=cf2cnp-lab",
    "wait": "text:Who talked to whom",
    "height": 1500,
    "look": "our own dashboard on hubble_policy_verdicts_total: audited / forwarded / dropped totals, the verdict lines by action and by pair, the who-talked-to-whom table with match=none marking the default-deny's decisions, and the POLICY_DENIED drops beside them"

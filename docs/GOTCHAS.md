@@ -72,6 +72,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [82](#82) | a default-deny drop names no policy — the Denying Policy panel stays empty | policy from flows |
 | [83](#83) | a URL built from `r.TLS` behind a TLS-terminating proxy is always `http://` | policy from flows |
 | [84](#84) | the audit flag went to the pod being replaced — a rollout lists the old pod first | policy from flows |
+| [85](#85) | inside an aliased dependency `.Chart.Name` is the alias — a camelCase alias became an object name | policy from flows |
 | [78](#78) | The hubble-observer default image (quay.io/cilium/hubble:v1.16.4) is unmaintained — 2024 push, EOL Go, 5 CRITICAL; run the CLI from the agent image at the agents' digest | supply chain |
 | [77](#77) | The hub Prometheus kept the single-cluster 1Gi limit — 51 OOM kills once poc2 wrote in; 2Gi + an out-of-order window | monitoring |
 | [76](#76) | A policy's egress `toPorts` must be the backend pod's port (relay 4245), not the Service port (443) — Cilium enforces after service translation | Cilium policy |
@@ -2020,6 +2021,26 @@ check the metadata) and read back which endpoint the script flagged — it print
 
 ---
 
+## <a name="85"></a>85. Inside an aliased dependency, `.Chart.Name` is the alias — and became an object name
+
+**Symptom.** Demo 28 Part 2: the observer chart's upgrade failed on the first deploy of the new dashboard
+subchart: `ConfigMap "policyVerdictsDashboard" is invalid: metadata.name: … a lowercase RFC 1123 subdomain
+must consist of lower case alphanumeric characters`. The subchart rendered fine on its own.
+
+**Cause.** The chart's name helper was the Helm boilerplate `default .Chart.Name .Values.nameOverride`. When
+a chart is consumed as a dependency with `alias: policyVerdictsDashboard`, `.Chart.Name` inside it *is the
+alias* — Helm's own documented behaviour — so a camelCase alias became the ConfigMap's name. Every
+template that derives an object name from `.Chart.Name` has this hole, and only the aliased shape shows it.
+
+**Fix.** Name objects from a fixed lowercase default (`nameOverride` to change it), never from `.Chart.Name`;
+and render the chart in CI **as an aliased dependency of a throwaway parent**, failing on any object name
+with an upper-case letter (the repository's `ci.yml` does). The `helm.sh/chart` label still shows the
+alias; that label is informational.
+
+→ demo 28, Part 2
+
+---
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -2067,6 +2088,7 @@ Most of these share a shape: **something reported success while not working.**
 - a rule that does not exist cannot be named (#82)
 - the pod never sees TLS, so it never says https (#83)
 - the flag went to the pod on its way out (#84)
+- the chart's name was the alias (#85)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

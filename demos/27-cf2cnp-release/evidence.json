@@ -8,7 +8,7 @@
   },
   {
    "name": "grafana-policy-verdicts-cf2cnp-lab27",
-   "url": "https://grafana.poc.local/d/policy-verdicts-26?orgId=1&from=now-45m&to=now&var-cluster=poc1&var-namespace=cf2cnp-lab27",
+   "url": "https://grafana.poc.local/d/hubble-policy-verdicts?orgId=1&from=now-45m&to=now&var-cluster=poc1&var-namespace=cf2cnp-lab27",
    "wait": "text:Who talked to whom",
    "height": 1500,
    "look": "the demo 26 dashboard on this namespace: audit first, then forwarded (l3-l4) for pos and the frontend, dropped for stranger; the metric's destination context is the app name, so both components read as shop here — the policy names are what tell them apart"

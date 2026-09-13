@@ -3,3 +3,6 @@ https://github.com/ephico2real2/hubble-observer (fork of onzack/hubble-observer,
 
 9ef13c778562d728a12870742ed4c93594cfdd55 Sat Sep 12 21:33:32 2026 -0500
 re-vendored 2026-09-13 from branch develop: the cf2cnp dependency is now the fork's Helm repository https://ephico2real2.github.io/cf2cnp at 0.5.0 (charts/cf2cnp-0.5.0.tgz) while onzack/cf2cnp#3 is pending (demo 26 Part 14f)
+
+8c56b622fce2d3e9d5c78e86afd541c26bc18b86 Sat Sep 12 22:20:19 2026 -0500
+re-vendored 2026-09-13 (demo 28): cf2cnp 0.5.1 and the hubble-policy-verdicts 0.1.1 dashboard (alias policyVerdictsDashboard) as dependencies from the forks' Helm repositories
