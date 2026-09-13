@@ -86,6 +86,16 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "O
   kubectl --context "$ctx" wait node --all --for=condition=Ready --timeout=5m >/dev/null && echo "nodes Ready (Step 6.2)"
   kubectl --context "$ctx" -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E 'KubeProxyReplacement:' | sed 's/^/Step 6.3 — /'
 
+  # ---------------------------------------------------------------- CoreDNS on kind: an upstream a pod can reach
+  # A kind node's /etc/resolv.conf names Docker's embedded DNS, 127.0.0.11 — the node's loopback, unreachable from
+  # CoreDNS's pod namespace, so every external name times out ("Resolving timed out after 2001 milliseconds", ten
+  # connectivity-test failures in run 34787222878). cilium/cilium's own kind workflow gives the CoreDNS pods explicit
+  # public resolvers (dnsPolicy None); so does the lab.
+  say "CoreDNS on $c: explicit upstream resolvers (Docker's 127.0.0.11 is not reachable from a pod)"
+  kubectl --context "$ctx" -n kube-system patch deployment coredns --patch '{"spec":{"template":{"spec":{"dnsPolicy":"None","dnsConfig":{"nameservers":["8.8.4.4","8.8.8.8"]}}}}}' >/dev/null
+  kubectl --context "$ctx" -n kube-system rollout status deploy/coredns --timeout=3m >/dev/null
+  kubectl --context "$ctx" run dns-probe-"$c" --rm -i --restart=Never --image=busybox:1.36 --command -- nslookup one.one.one.one 2>/dev/null | grep -m1 -E 'Address: [0-9]' | sed 's/^/external name resolved: /' || echo "::warning::external name resolution from a pod still fails on $c"
+
   # ---------------------------------------------------------------- SETUP Step 8 — LoadBalancer addresses without a cloud
   say "SETUP Step 8 — the LB pools and the L2 announcement policy on $c"
   kubectl --context "$ctx" apply -f cilium/lb-ippool.yaml >/dev/null

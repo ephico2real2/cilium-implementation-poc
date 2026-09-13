@@ -97,7 +97,8 @@ jobs:
 
       - name: Connectivity test, multi-cluster (Cilium's own)
         if: ${{ inputs.connectivity_test }}
-        timeout-minutes: 30      # the step cannot hang the job: the fourth run sat here 23 minutes with no output
+        timeout-minutes: 45      # the step cannot hang the job: the fourth run sat here 23 minutes with no output; the
+                                 # fifth spent 30 on DNS retries (fixed in lab-up.sh: CoreDNS upstreams)
         run: |
           start=$(date +%s)
           kubectl --context kind-poc1 get nodes -o custom-columns='NODE:.metadata.name,TAINTS:.spec.taints[*].key' --no-headers
