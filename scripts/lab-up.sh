@@ -65,6 +65,9 @@ for c in "$@"; do
 
   # ---------------------------------------------------------------- SETUP Step 5 / 9.2 — Cilium, from the lab's values
   say "SETUP Step $( [ "$c" = "$first" ] && echo 5 || echo 9.2 ) — Cilium $CILIUM_VERSION on $c (cilium/values-$c.yaml + values-ci.yaml)"
+  # No `helm --wait` here, as in the guide: Helm would also wait for the Hubble UI's LoadBalancer Service to get its
+  # address, which needs the pools of Step 8, which need Cilium's CRDs — every pod was Running and Helm still timed
+  # out after ten minutes (run 34790002220). Step 6's `cilium status --wait` is the readiness check, as in SETUP.
   # SETUP Step 9.3b, route B only: one Helm CA in both clusters — the second cluster gets the first one's cilium-ca
   # BEFORE Cilium is installed (the chart reuses an existing secret). Route A replaces every certificate with
   # cert-manager's afterwards, so it does not need this.
@@ -77,12 +80,12 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "O
   fi
   helm upgrade --install cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" \
     -f "cilium/values-$c.yaml" -f cilium/values-ci.yaml ${LAB_FEATURES:+-f cilium/values-ci-features.yaml} \
-    --set k8sServiceHost="$host" --set k8sServicePort=6443 --set gatewayAPI.enabled=true --set gatewayAPI.enableAlpn=true --wait --timeout 10m >/dev/null \
-    || { echo "Helm did not get Cilium ready on $c in 10 minutes; the pods and the agent's last lines:"; kubectl --context "$ctx" -n kube-system get pods -o wide | grep -E 'cilium|hubble'; kubectl --context "$ctx" -n kube-system logs ds/cilium -c cilium-agent --tail=15 2>/dev/null | grep -E 'level=(error|fatal)' | tail -5; die "Cilium install failed on $c (SETUP Step 5)"; }
+    --set k8sServiceHost="$host" --set k8sServicePort=6443 --set gatewayAPI.enabled=true --set gatewayAPI.enableAlpn=true >/dev/null \
+    || die "Helm refused the Cilium install on $c (SETUP Step 5)"
 
   # ---------------------------------------------------------------- SETUP Step 6 — verify the install
   say "SETUP Step 6 — verify $c: Cilium's own status, the nodes Ready, kube-proxy replaced"
-  cilium status --context "$ctx" --wait --wait-duration 10m --interactive=false > "/tmp/cilium-status-$c.txt" || { cat "/tmp/cilium-status-$c.txt"; die "Cilium is not healthy on $c (SETUP Step 6.1)"; }
+  cilium status --context "$ctx" --wait --wait-duration 10m --interactive=false > "/tmp/cilium-status-$c.txt" || { cat "/tmp/cilium-status-$c.txt"; kubectl --context "$ctx" -n kube-system get pods -o wide | grep -E 'cilium|hubble'; kubectl --context "$ctx" -n kube-system logs ds/cilium -c cilium-agent --tail=15 2>/dev/null | grep -E 'level=(error|fatal)' | tail -5; die "Cilium is not healthy on $c (SETUP Step 6.1)"; }
   grep -E 'Cilium:|Operator:|Cluster Pods' "/tmp/cilium-status-$c.txt"
   kubectl --context "$ctx" wait node --all --for=condition=Ready --timeout=5m >/dev/null && echo "nodes Ready (Step 6.2)"
   kubectl --context "$ctx" -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E 'KubeProxyReplacement:' | sed 's/^/Step 6.3 — /'
@@ -101,6 +104,11 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "O
   say "SETUP Step 8 — the LB pools and the L2 announcement policy on $c"
   kubectl --context "$ctx" apply -f cilium/lb-ippool.yaml >/dev/null
   kubectl --context "$ctx" get ciliumloadbalancerippools -o custom-columns='POOL:.metadata.name,BLOCKS:.spec.blocks[*].start' --no-headers
+  # "Try it: give Hubble UI a real address" — the UI's Service gets its pinned address once the pool exists
+  if kubectl --context "$ctx" -n kube-system get svc hubble-ui >/dev/null 2>&1; then
+    for i in $(seq 1 24); do ip=$(kubectl --context "$ctx" -n kube-system get svc hubble-ui -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null); [ -n "$ip" ] && break; sleep 5; done
+    echo "hubble-ui LoadBalancer: ${ip:-NO ADDRESS after 2 minutes}"
+  fi
 
   # ---------------------------------------------------------------- metrics-server (new in CI; HPA in 002, the sysdump's usage collectors)
   say "metrics-server $METRICS_SERVER_CHART on $c (kind's kubelets: --kubelet-insecure-tls)"
