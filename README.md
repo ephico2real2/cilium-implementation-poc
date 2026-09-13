@@ -421,6 +421,13 @@ creations of `poc1` the load balancer's IP was `.7`, then `.6`, then `.2` — wh
 the **name** and not the address for `k8sServiceHost`: had the IP been baked into
 `cilium/values-poc1.yaml`, every rebuild would have broken it.
 
+## Enhancements
+
+**[enhancements/](enhancements/README.md)** — proposals that grew out of the demos, each with its motivating
+measurement, an issue, a reviewed plan with the code, and the demo that will prove it. First:
+[001 — policy from observed flows, enterprise-ready](enhancements/001-policy-from-flows-enterprise.md)
+(tracking issue [#11](https://github.com/ephico2real2/cilium-implementation-poc/issues/11)).
+
 ## Parked
 
 - **BGP with an FRR router (demo 12)** — researched and planned, not built:
