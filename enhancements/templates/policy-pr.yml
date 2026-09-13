@@ -52,13 +52,18 @@ jobs:
           fi
           git diff --stat -- "${{ inputs.policy }}" || true
 
+      - uses: actions/setup-go@v5          # ubuntu-latest ships no Go; kubectl-validate runs with `go run` (review finding)
+        with:
+          go-version: "1.24"
+
       - name: Validate against the CiliumNetworkPolicy CRD (offline)
         # kubectl-validate's --local-crds takes a DIRECTORY of CRD files (measured: `--local-crds=./path/to/crds/dir`),
-        # so the CRD goes into its own directory, not next to the policies
+        # so the CRD goes into its own directory, not next to the policies. No --version: the object is a CRD instance,
+        # the native-schema version does not apply.
         run: |
           mkdir -p .cilium-crds
           curl -sSL -o .cilium-crds/ciliumnetworkpolicies.yaml "https://raw.githubusercontent.com/cilium/cilium/${CILIUM_VERSION}/pkg/k8s/apis/cilium.io/client/crds/v2/ciliumnetworkpolicies.yaml"
-          go run sigs.k8s.io/kubectl-validate@v0.0.4 --local-crds .cilium-crds --version 1.36 "${{ inputs.policy }}"
+          go run sigs.k8s.io/kubectl-validate@v0.0.4 --local-crds .cilium-crds "${{ inputs.policy }}"
           rm -rf .cilium-crds
 
       - name: Open the pull request

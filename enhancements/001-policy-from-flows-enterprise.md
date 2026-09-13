@@ -161,7 +161,9 @@ in `generateEndpointEgressRules`, after the namespace label:
 **Tests** (`internal/policy/generator_test.go`): a fixture from a measured bank request across the mesh,
 `payments@poc2 → redis-0@poc1:6379` (`internal/testdata/egress-payments-poc2-to-redis-poc1.json`; the flows
 from poc2 into poc1 that the relay showed as INGRESS were replies, recognisable by their ephemeral destination
-ports — the request is an EGRESS flow reported by the source's node): the egress policy for `payments` gets
+ports — the request is an EGRESS flow, an ESTABLISHED-connection packet traced at `TO_ENDPOINT` on
+`poc1/poc1-worker`, the destination's node; enforcement of the generated egress policy is at the source
+endpoint on poc2, which is what makes the fixture right for E1): the egress policy for `payments` gets
 `toEndpoints` with `io.cilium.k8s.policy.cluster: poc1`; single-cluster fixtures produce no cluster label
 (byte-identical to before); two peers with equal labels in two clusters produce two rules.
 
@@ -875,10 +877,13 @@ jobs:
             mkdir -p "$(dirname "${{ inputs.policy }}")"
             cf2cnp generate --input "$(dirname "${{ inputs.flows }}")" --output "$(dirname "${{ inputs.policy }}")" ${{ inputs.l7 && '--l7' || '' }}
           fi
-      - name: Validate against the CRD schema
+      - uses: actions/setup-go@v5
+        with: {go-version: "1.24"}
+      - name: Validate against the CRD schema (offline; --local-crds takes a directory)
         run: |
-          curl -sSL -o cnp-crd.yaml https://raw.githubusercontent.com/cilium/cilium/v1.20.1/pkg/k8s/apis/cilium.io/client/crds/v2/ciliumnetworkpolicies.yaml
-          go run sigs.k8s.io/kubectl-validate@latest --local-crds cnp-crd.yaml "${{ inputs.policy }}"
+          mkdir -p .cilium-crds
+          curl -sSL -o .cilium-crds/ciliumnetworkpolicies.yaml https://raw.githubusercontent.com/cilium/cilium/v1.20.1/pkg/k8s/apis/cilium.io/client/crds/v2/ciliumnetworkpolicies.yaml
+          go run sigs.k8s.io/kubectl-validate@v0.0.4 --local-crds .cilium-crds "${{ inputs.policy }}"
       - name: Open the pull request
         uses: peter-evans/create-pull-request@v7
         with:
