@@ -158,11 +158,12 @@ in `generateEndpointEgressRules`, after the namespace label:
  }
 ```
 
-**Tests** (`internal/policy/generator_test.go`): a fixture built from the measured bank flow
-(`internal/testdata/ingress-payments-poc2-to-api-poc1.json`, captured by `hubble observe --namespace bank
---to-cluster poc1 --from-cluster poc2 --last 1 -o json`): the policy's `fromEndpoints` carries
-`io.cilium.k8s.policy.cluster: poc2`; the same flow with both clusters `poc1` carries no cluster label; a
-flow with empty `cluster_name` (Hubble without `cluster.name`) carries none.
+**Tests** (`internal/policy/generator_test.go`): a fixture from a measured bank request across the mesh,
+`payments@poc2 → redis-0@poc1:6379` (`internal/testdata/egress-payments-poc2-to-redis-poc1.json`; the flows
+from poc2 into poc1 that the relay showed as INGRESS were replies, recognisable by their ephemeral destination
+ports — the request is an EGRESS flow reported by the source's node): the egress policy for `payments` gets
+`toEndpoints` with `io.cilium.k8s.policy.cluster: poc1`; single-cluster fixtures produce no cluster label
+(byte-identical to before); two peers with equal labels in two clusters produce two rules.
 
 **Demo 29.** The bank across the mesh (demo 15/19): audit mode on poc1's `api`, a default-deny, the
 cross-cluster flow from `payments@poc2` collected and generated *with* and *without* E1 (0.5.1 for the
@@ -901,7 +902,7 @@ being exactly the new rule, merged, applied by `kubectl apply` in the demo (the 
 
 | Item | Repository | Branch | What it carries |
 |---|---|---|---|
-| E1 | ephico2real2/cf2cnp | [`enh/E1-cluster-aware-selectors`](https://github.com/ephico2real2/cf2cnp/tree/enh/E1-cluster-aware-selectors) | clusters on the parsed and aggregated flow, `ClusterLabel` on the peer selector, a fixture from a measured poc2 → poc1 request, three tests |
+| E1 | ephico2real2/cf2cnp | [`enh/E1-cluster-aware-selectors`](https://github.com/ephico2real2/cf2cnp/tree/enh/E1-cluster-aware-selectors) | clusters on the parsed and aggregated flow, `ClusterLabel` on the peer selector, a fixture from a measured `payments@poc2 → redis-0@poc1:6379` request, three tests |
 | E2 | ephico2real2/cf2cnp | [`enh/E2-l7-rules`](https://github.com/ephico2real2/cf2cnp/tree/enh/E2-l7-rules) | `L7` types, REQUEST-only parsing, per-peer HTTP/DNS collection, `WithL7`, `--l7` / `?l7=true` / checkbox, fixtures measured on the bank |
 | E3 | ephico2real2/cf2cnp | [`enh/E3-dns-visibility`](https://github.com/ephico2real2/cf2cnp/tree/enh/E3-dns-visibility) | `WithDNSVisibility`, the factored `dnsVisibilityRule`, `--dns-visibility` / `?dnsVisibility=true` / checkbox, the comment, a test |
 | E4 | ephico2real2/cf2cnp | [`enh/E4-exclude-peers`](https://github.com/ephico2real2/cf2cnp/tree/enh/E4-exclude-peers) | `?exclude=` on the API, the peer checklist on the page, tests including the EGRESS peer case |
