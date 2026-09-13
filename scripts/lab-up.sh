@@ -3,6 +3,12 @@
 # add to the base (05 Gateway API, 08 cert-manager root, 07/24 ClusterMesh on the enterprise CA, 17 Tetragon), so the
 # CI runner and a laptop take one path and every step names the chapter it comes from (enhancement 004).
 #
+# The order, and why: Cilium's CORE first — the CNI, kube-proxy replacement, Gateway API — verified on its own (Steps
+# 5–6); then what the core makes possible (the pools, metrics-server, cert-manager and the root, the mesh on the
+# issuer); THEN Hubble, in one upgrade, when the pools can give its UI an address and the issuer can sign its
+# certificates (no Helm certificates to replace, no LoadBalancer for Helm to wait on — runs 34789240547 and
+# 34790002220); Tetragon last. Each layer is verified before the next is added.
+#
 #   scripts/lab-up.sh poc1                 # one cluster (SETUP Steps 0–8b, demos 05, 08, 17)
 #   scripts/lab-up.sh poc1 poc2            # both, meshed on cert-manager's root (SETUP Step 9 route A, demos 07, 08, 24)
 #   LAB_CLUSTERS_DIR=clusters scripts/lab-up.sh poc1 poc2         # the laptop's full-size configs instead of clusters/ci
@@ -64,10 +70,10 @@ for c in "$@"; do
   echo "SETUP Step 4 — k8sServiceHost=$host"
 
   # ---------------------------------------------------------------- SETUP Step 5 / 9.2 — Cilium, from the lab's values
-  say "SETUP Step $( [ "$c" = "$first" ] && echo 5 || echo 9.2 ) — Cilium $CILIUM_VERSION on $c (cilium/values-$c.yaml + values-ci.yaml)"
-  # No `helm --wait` here, as in the guide: Helm would also wait for the Hubble UI's LoadBalancer Service to get its
-  # address, which needs the pools of Step 8, which need Cilium's CRDs — every pod was Running and Helm still timed
-  # out after ten minutes (run 34790002220). Step 6's `cilium status --wait` is the readiness check, as in SETUP.
+  say "SETUP Step $( [ "$c" = "$first" ] && echo 5 || echo 9.2 ) — Cilium $CILIUM_VERSION CORE on $c (cilium/values-$c.yaml + values-ci.yaml; Hubble comes after the core is verified)"
+  # Hubble is switched off here and on in its own step below: its UI wants an address from Step 8's pools and its
+  # certificates come from demo 08's issuer, neither of which exists yet. No `helm --wait` either: Step 6's
+  # `cilium status --wait` is the readiness check, as in the guide.
   # SETUP Step 9.3b, route B only: one Helm CA in both clusters — the second cluster gets the first one's cilium-ca
   # BEFORE Cilium is installed (the chart reuses an existing secret). Route A replaces every certificate with
   # cert-manager's afterwards, so it does not need this.
@@ -80,7 +86,7 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "O
   fi
   helm upgrade --install cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" \
     -f "cilium/values-$c.yaml" -f cilium/values-ci.yaml ${LAB_FEATURES:+-f cilium/values-ci-features.yaml} \
-    --set k8sServiceHost="$host" --set k8sServicePort=6443 --set gatewayAPI.enabled=true --set gatewayAPI.enableAlpn=true >/dev/null \
+    --set k8sServiceHost="$host" --set k8sServicePort=6443 --set gatewayAPI.enabled=true --set gatewayAPI.enableAlpn=true --set hubble.enabled=false >/dev/null \
     || die "Helm refused the Cilium install on $c (SETUP Step 5)"
 
   # ---------------------------------------------------------------- SETUP Step 6 — verify the install
@@ -89,6 +95,7 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "O
   grep -E 'Cilium:|Operator:|Cluster Pods' "/tmp/cilium-status-$c.txt"
   kubectl --context "$ctx" wait node --all --for=condition=Ready --timeout=5m >/dev/null && echo "nodes Ready (Step 6.2)"
   kubectl --context "$ctx" -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status 2>/dev/null | grep -E 'KubeProxyReplacement:' | sed 's/^/Step 6.3 — /'
+  kubectl --context "$ctx" -n kube-system get ds kube-proxy >/dev/null 2>&1 && die "a kube-proxy DaemonSet exists on $c (SETUP Step 6.3)" || echo "Step 6.3 — no kube-proxy DaemonSet"
 
   # ---------------------------------------------------------------- CoreDNS on kind: an upstream a pod can reach
   # A kind node's /etc/resolv.conf names Docker's embedded DNS, 127.0.0.11 — the node's loopback, unreachable from
@@ -104,11 +111,6 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "O
   say "SETUP Step 8 — the LB pools and the L2 announcement policy on $c"
   kubectl --context "$ctx" apply -f cilium/lb-ippool.yaml >/dev/null
   kubectl --context "$ctx" get ciliumloadbalancerippools -o custom-columns='POOL:.metadata.name,BLOCKS:.spec.blocks[*].start' --no-headers
-  # "Try it: give Hubble UI a real address" — the UI's Service gets its pinned address once the pool exists
-  if kubectl --context "$ctx" -n kube-system get svc hubble-ui >/dev/null 2>&1; then
-    for i in $(seq 1 24); do ip=$(kubectl --context "$ctx" -n kube-system get svc hubble-ui -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null); [ -n "$ip" ] && break; sleep 5; done
-    echo "hubble-ui LoadBalancer: ${ip:-NO ADDRESS after 2 minutes}"
-  fi
 
   # ---------------------------------------------------------------- metrics-server (new in CI; HPA in 002, the sysdump's usage collectors)
   say "metrics-server $METRICS_SERVER_CHART on $c (kind's kubelets: --kubelet-insecure-tls)"
@@ -117,19 +119,6 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "O
     --set 'args={--kubelet-insecure-tls}' --wait --timeout 5m >/dev/null
   kubectl --context "$ctx" top nodes 2>/dev/null | head -3 || echo "(metrics.k8s.io not serving yet — the first scrape takes a minute)"
 
-  # ---------------------------------------------------------------- demo 17 — Tetragon
-  if [ "${LAB_TETRAGON:-1}" = "1" ]; then
-    say "demo 17 — Tetragon $TETRAGON_VERSION on $c"
-    # blocker 1 of demo 17: the base sensor needs security_bprm_committing_creds (CONFIG_SECURITY); a kind node shares
-    # the host kernel, so the host is checked. blocker 2, the /procHost mount, is in clusters/ci/*.yaml.
-    if [ -r /proc/kallsyms ] && ! grep -q ' security_bprm_committing_creds$' /proc/kallsyms; then
-      die "the kernel $(uname -r) has no security_bprm_committing_creds: Tetragon's base sensor cannot load (demo 17, blocker 1)"
-    fi
-    helm upgrade --install tetragon cilium/tetragon --version "$TETRAGON_VERSION" --namespace kube-system --kube-context "$ctx" \
-      -f demos/17-tetragon/values-tetragon.yaml -f cilium/values-tetragon-ci.yaml --wait --timeout 5m >/dev/null
-    kubectl --context "$ctx" -n kube-system rollout status ds/tetragon --timeout=5m >/dev/null || { kubectl --context "$ctx" -n kube-system logs ds/tetragon -c tetragon --tail=20; die "Tetragon's agents did not become ready on $c (demo 17)"; }
-    kubectl --context "$ctx" -n kube-system exec ds/tetragon -c tetragon -- tetra status 2>/dev/null | head -3 || true
-  fi
 done
 
 # ---------------------------------------------------------------- SETUP Step 9.3a / demo 08 — trust BEFORE connecting: route A, the enterprise root
@@ -159,22 +148,20 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "k
   [ "$fps" = "1" ] || die "the clusters do not share one root CA ($fps distinct fingerprints; demo 08 Part 3)"
   echo "root CA fingerprint identical in $# cluster(s)"
 
-  # ---------------------------------------------------------------- SETUP Step 21 / demo 24 — every certificate consumer on the issuer
-  say "demo 24 — Cilium on the issuer: Hubble's certificates$( [ $# -ge 2 ] && echo ' and the mesh apiserver') from ClusterIssuer/ca-issuer"
-  for c in "$@"; do
-    ctx="kind-$c"; mesh=""; [ $# -ge 2 ] && mesh="--set clustermesh.useAPIServer=true --set clustermesh.apiserver.service.type=NodePort"
-    # shellcheck disable=SC2086
-    helm upgrade cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" --reuse-values \
-      -f cilium/values-ci-certmanager.yaml $mesh --wait --timeout 10m >/dev/null
-    kubectl --context "$ctx" -n kube-system wait certificate --all --for=condition=Ready --timeout=3m >/dev/null
-    # a Helm change to a ConfigMap or a Secret rolls nothing by itself (run 34784194103): the agents and the relay are
-    # restarted here, explicitly, and waited for — what `cilium` CLI does after its own upgrades
-    kubectl --context "$ctx" -n kube-system rollout restart ds/cilium deploy/hubble-relay >/dev/null
-    kubectl --context "$ctx" -n kube-system rollout status ds/cilium --timeout=5m >/dev/null
-    kubectl --context "$ctx" -n kube-system rollout status deploy/hubble-relay --timeout=5m >/dev/null
-    cilium status --context "$ctx" --wait --wait-duration 10m --interactive=false > "/tmp/cilium-status-$c.txt" || { cat "/tmp/cilium-status-$c.txt"; die "Cilium is not healthy on $c after the cert-manager switch (demo 24)"; }
-    kubectl --context "$ctx" -n kube-system get certificate -o custom-columns='CERTIFICATE:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status,ISSUER:.spec.issuerRef.name' --no-headers
-  done
+  # ---------------------------------------------------------------- SETUP Step 21 / demo 24 — the mesh apiserver on the issuer
+  if [ $# -ge 2 ]; then
+    say "demo 24 — the mesh apiserver on ClusterIssuer/ca-issuer, in every cluster"
+    for c in "$@"; do
+      ctx="kind-$c"
+      helm upgrade cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" --reuse-values \
+        -f cilium/values-ci-certmanager.yaml --set clustermesh.useAPIServer=true --set clustermesh.apiserver.service.type=NodePort --wait --timeout 10m >/dev/null
+      kubectl --context "$ctx" -n kube-system wait certificate --all --for=condition=Ready --timeout=3m >/dev/null
+      # a Helm change to a ConfigMap rolls nothing by itself (run 34784194103): the agents learn the mesh config on restart
+      kubectl --context "$ctx" -n kube-system rollout restart ds/cilium >/dev/null
+      kubectl --context "$ctx" -n kube-system rollout status ds/cilium --timeout=5m >/dev/null
+      cilium status --context "$ctx" --wait --wait-duration 10m --interactive=false > "/tmp/cilium-status-$c.txt" || { cat "/tmp/cilium-status-$c.txt"; die "Cilium is not healthy on $c with the mesh apiserver (demo 24)"; }
+    done
+  fi
 elif [ $# -ge 2 ]; then
   # SETUP Step 9.3b — route B: Helm's certificates, one CA copied (already done before the second install), the mesh apiserver
   say "SETUP Step 9.3b — route B: the mesh apiserver on Helm's certificates"
@@ -193,4 +180,46 @@ if [ $# -ge 2 ]; then
   say "SETUP Step 9.5 — verify the mesh"
   for c in "$1" "$2"; do cilium clustermesh status --context "kind-$c" --wait --wait-duration 10m; done
 fi
+# ---------------------------------------------------------------- SETUP Step 5.4 / demos 01, 24, 25 — Hubble, on the finished core
+# The relay with server TLS and mTLS, the UI on its pinned LoadBalancer address (the pool exists now), demo 16's
+# metrics, and the certificates from the issuer when cert-manager is on (Helm's otherwise) — one upgrade.
+for c in "$@"; do
+  ctx="kind-$c"
+  say "Hubble on $c — relay (mTLS), UI, metrics; certificates from $( [ "${LAB_CERTMANAGER:-1}" = "1" ] && echo 'ClusterIssuer/ca-issuer' || echo 'Helm')"
+  # shellcheck disable=SC2046
+  helm upgrade cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" --reuse-values \
+    --set hubble.enabled=true $( [ "${LAB_CERTMANAGER:-1}" = "1" ] && echo "-f cilium/values-ci-certmanager.yaml" ) --wait --timeout 10m >/dev/null \
+    || die "Helm could not enable Hubble on $c"
+  [ "${LAB_CERTMANAGER:-1}" = "1" ] && kubectl --context "$ctx" -n kube-system wait certificate --all --for=condition=Ready --timeout=3m >/dev/null
+  # Hubble lives in the agent: the ConfigMap changed, the agents restart to serve it (a Helm change rolls nothing by itself)
+  kubectl --context "$ctx" -n kube-system rollout restart ds/cilium >/dev/null
+  kubectl --context "$ctx" -n kube-system rollout status ds/cilium --timeout=5m >/dev/null
+  kubectl --context "$ctx" -n kube-system rollout status deploy/hubble-relay --timeout=5m >/dev/null
+  cilium status --context "$ctx" --wait --wait-duration 10m --interactive=false > "/tmp/cilium-status-$c.txt" || { cat "/tmp/cilium-status-$c.txt"; die "Cilium is not healthy on $c with Hubble (SETUP Step 5.4)"; }
+  grep -E 'Hubble Relay:|Hubble:' "/tmp/cilium-status-$c.txt" | head -2
+  if kubectl --context "$ctx" -n kube-system get svc hubble-ui >/dev/null 2>&1; then
+    for i in $(seq 1 24); do ip=$(kubectl --context "$ctx" -n kube-system get svc hubble-ui -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null); [ -n "$ip" ] && break; sleep 5; done
+    echo "hubble-ui LoadBalancer: ${ip:-NO ADDRESS after 2 minutes} (SETUP Step 8: give Hubble UI a real address)"
+  fi
+  [ "${LAB_CERTMANAGER:-1}" = "1" ] && kubectl --context "$ctx" -n kube-system get certificate -o custom-columns='CERTIFICATE:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status,ISSUER:.spec.issuerRef.name' --no-headers
+done
+
+# ---------------------------------------------------------------- demo 17 — Tetragon, on the finished core and Hubble
+for c in "$@"; do
+  ctx="kind-$c"
+  # ---------------------------------------------------------------- demo 17 — Tetragon
+  if [ "${LAB_TETRAGON:-1}" = "1" ]; then
+    say "demo 17 — Tetragon $TETRAGON_VERSION on $c"
+    # blocker 1 of demo 17: the base sensor needs security_bprm_committing_creds (CONFIG_SECURITY); a kind node shares
+    # the host kernel, so the host is checked. blocker 2, the /procHost mount, is in clusters/ci/*.yaml.
+    if [ -r /proc/kallsyms ] && ! grep -q ' security_bprm_committing_creds$' /proc/kallsyms; then
+      die "the kernel $(uname -r) has no security_bprm_committing_creds: Tetragon's base sensor cannot load (demo 17, blocker 1)"
+    fi
+    helm upgrade --install tetragon cilium/tetragon --version "$TETRAGON_VERSION" --namespace kube-system --kube-context "$ctx" \
+      -f demos/17-tetragon/values-tetragon.yaml -f cilium/values-tetragon-ci.yaml --wait --timeout 5m >/dev/null
+    kubectl --context "$ctx" -n kube-system rollout status ds/tetragon --timeout=5m >/dev/null || { kubectl --context "$ctx" -n kube-system logs ds/tetragon -c tetragon --tail=20; die "Tetragon's agents did not become ready on $c (demo 17)"; }
+    kubectl --context "$ctx" -n kube-system exec ds/tetragon -c tetragon -- tetra status 2>/dev/null | head -3 || true
+  fi
+done
+
 say "lab up: $*"
