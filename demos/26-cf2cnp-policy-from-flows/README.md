@@ -326,7 +326,7 @@ Grafana's API because the grafana image has no shell to `exec` into — measured
 | Panel | Query | Reads as |
 |---|---|---|
 | Audited / Forwarded / Dropped in range | `sum(increase(hubble_policy_verdicts_total{action="…"}[$__range]))` | the three phases as three numbers |
-| Endpoints in audit mode right now | `count(sum(rate(…{action="audit"}[5m])) by (destination) > 0)` | orange while anything is still observing |
+| Workloads still audited (last 5 min) | `count(sum(rate(…{action="audit"}[5m])) by (destination) > 0)` | orange while anything is still observing; a *workload*, not an endpoint — the destination context collapses replicas |
 | Policy verdicts per second, by action | `sum(rate(…[$__rate_interval])) by (action)` | audit rising then vanishing, dropped appearing = enforcement |
 | by source → destination and action | `… by (source, destination, direction, action)` | who is affected |
 | Who talked to whom, and what the policy did | `sum(increase(…[$__range])) by (cluster, source, destination, direction, action, match)` as a table | `match=none` = the default-deny decided; `l3-l4` = the generated rule |

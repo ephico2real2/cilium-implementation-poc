@@ -146,7 +146,7 @@ Open, with the time range on the last 45 minutes:
 - Hubble Metrics and Monitoring → *Network Policy* — *Expect:* `stranger` in *Top 10 Source Pods with Denied Packets*.
 - Cilium Flows - Hubble Observer, destination namespace `cf2cnp-lab` — *Expect:* the drop count, `POLICY_DENIED`,
   and *Flows per Denying Policy* **empty** (gotcha #82: a default-deny names no policy).
-- Hubble / Policy Verdicts (Namespace) — *Expect:* the three totals, *Endpoints in audit mode* at 0 now, the
+- Hubble / Policy Verdicts (Namespace) — *Expect:* the three totals, *Workloads still audited* at 0 now, the
   audit line ending where the dropped line begins, and `match=none` on the stranger rows of the table.
 
 ## Exercise 9 — reverse it, the safe way

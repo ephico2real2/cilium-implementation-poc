@@ -9,7 +9,7 @@
  ],
  "timezone": "browser",
  "schemaVersion": 39,
- "version": 2,
+ "version": 3,
  "editable": true,
  "graphTooltip": 1,
  "time": {
@@ -216,7 +216,7 @@
   {
    "id": 4,
    "type": "stat",
-   "title": "Endpoints in audit mode right now",
+   "title": "Workloads still audited (last 5 min)",
    "datasource": {
     "type": "prometheus",
     "uid": "${DS_PROMETHEUS}"
@@ -271,7 +271,7 @@
      }
     }
    },
-   "description": "A destination that produced audit verdicts in the last 5 minutes has an endpoint in PolicyAuditMode: policy is being evaluated and reported, nothing is blocked yet. The query is INSTANT: a stat over a range series reduces lastNotNull and would show the last value from the audit window (1) long after audit was switched off \u2014 measured on the first capture."
+   "description": "A destination WORKLOAD (the metric's destination context is app / workload-name, so replicas collapse into one value) that produced audit verdicts in the last 5 minutes has an endpoint in PolicyAuditMode: policy is being evaluated and reported, nothing is blocked yet. The query is INSTANT: a stat over a range series reduces lastNotNull and would show the last value from the audit window (1) long after audit was switched off \u2014 measured on the first capture."
   },
   {
    "id": 5,
