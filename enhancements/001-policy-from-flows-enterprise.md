@@ -2,8 +2,8 @@
 
 Tracking issue [#11](https://github.com/ephico2real2/cilium-implementation-poc/issues/11); one issue per item
 ([#1](https://github.com/ephico2real2/cilium-implementation-poc/issues/1)–[#10](https://github.com/ephico2real2/cilium-implementation-poc/issues/10)).
-Status: **plan, for review** (Codex + Cursor pass, record in `docs/REVIEW_ENH-001.md`) before a line is
-merged. One branch per issue in the fork it changes: `enh/E<n>-<slug>` on
+Status: **reviewed** — [`docs/REVIEW_ENH-001.md`](../docs/REVIEW_ENH-001.md): Cursor's seven refutations applied on
+the branches with tests; Codex's answer pending. Nothing is merged yet. One branch per issue in the fork it changes: `enh/E<n>-<slug>` on
 [ephico2real2/cf2cnp](https://github.com/ephico2real2/cf2cnp),
 [ephico2real2/hubble-observer](https://github.com/ephico2real2/hubble-observer),
 [ephico2real2/hubble-policy-verdicts](https://github.com/ephico2real2/hubble-policy-verdicts); the PoC carries the
