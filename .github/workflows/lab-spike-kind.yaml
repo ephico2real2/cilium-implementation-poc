@@ -67,6 +67,8 @@ jobs:
       - name: Bring the lab up — poc1, poc2, meshed
         id: up
         run: |
+          # pipefail: `lab-up.sh | tee` reported tee's exit status, and run 34789240547 went green past a Helm timeout
+          set -o pipefail
           start=$(date +%s)
           scripts/lab-up.sh poc1 poc2 2>&1 | tee lab-up.log
           echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"

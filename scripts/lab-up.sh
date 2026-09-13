@@ -77,7 +77,8 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "O
   fi
   helm upgrade --install cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" \
     -f "cilium/values-$c.yaml" -f cilium/values-ci.yaml ${LAB_FEATURES:+-f cilium/values-ci-features.yaml} \
-    --set k8sServiceHost="$host" --set k8sServicePort=6443 --set gatewayAPI.enabled=true --set gatewayAPI.enableAlpn=true --wait --timeout 10m >/dev/null
+    --set k8sServiceHost="$host" --set k8sServicePort=6443 --set gatewayAPI.enabled=true --set gatewayAPI.enableAlpn=true --wait --timeout 10m >/dev/null \
+    || { echo "Helm did not get Cilium ready on $c in 10 minutes; the pods and the agent's last lines:"; kubectl --context "$ctx" -n kube-system get pods -o wide | grep -E 'cilium|hubble'; kubectl --context "$ctx" -n kube-system logs ds/cilium -c cilium-agent --tail=15 2>/dev/null | grep -E 'level=(error|fatal)' | tail -5; die "Cilium install failed on $c (SETUP Step 5)"; }
 
   # ---------------------------------------------------------------- SETUP Step 6 — verify the install
   say "SETUP Step 6 — verify $c: Cilium's own status, the nodes Ready, kube-proxy replaced"

@@ -5,14 +5,14 @@
 operator:
   replicas: 1
 # the lab's Hubble UI stays on: the sysdump collects it and demo 01 uses it; it is two small containers
-# CRDs the sysdump collects and enhancement 002 needs: the egress gateway (per-namespace egress IPs, R8), local
-# redirect policies (NodeLocal DNS, demo 31's resolver derivation), endpoint slices. Each registers its CRD, so the
-# collectors stop saying "the server could not find the requested resource".
+# CRDs the sysdump collects and enhancement 002 needs: the egress gateway (per-namespace egress IPs, R8) and local
+# redirect policies (NodeLocal DNS, demo 31's resolver derivation). Each registers its CRD, so the collectors stop
+# saying "the server could not find the requested resource". NOT CiliumEndpointSlice: the agent refuses the pair —
+# "egress gateway is not supported in combination with the CiliumEndpointSlice feature" (run 34789240547, every
+# agent in CrashLoopBackOff) — and the egress gateway is the one 002 needs.
 egressGateway:
   enabled: true
 localRedirectPolicy: true
-ciliumEndpointSlice:
-  enabled: true
 resources:
   requests:
     cpu: 100m
