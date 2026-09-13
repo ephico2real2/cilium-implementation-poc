@@ -79,3 +79,7 @@ decided for Codex. Every accepted fix is on its branch with a test that fails be
 suites are green (`go test ./...` on E1, E2, E4, E5, E6; `helm lint` and the renders on E6, E7, E8; the E7
 CI job; the template parses). The plan's stack facts stood, one corrected (C4). Nothing is merged: the
 branches wait for the operator's go, in the order the plan gives.
+
+## After the merge (added 2026-09-13)
+
+The branches were merged in the plan's order and released (cf2cnp 0.6.0, then 0.6.1; hubble-policy-verdicts 0.2.0; the observer fork), and demos 29–34 ran every item on the clusters. Six defects surfaced that neither reviewer could reach from source, a render or an offline `go test` — each needed the thing to run: `merge` re-serialised the whole file (a PR diff of the file, not the rule), the kube-dns rule appeared twice, the E10 install step saved the archive under a name its checksum line did not carry, the PR step needed a repository setting, the subchart's stricter policy was idle beside the parent chart's `[cluster, world]`, and two releases of the observer chart shared one container name in Loki. All are fixed on the forks and in the template, and recorded in the demos and gotchas #87–#89. The lesson for the next review brief: demand one real run of every artefact that has an environment (a workflow, a second release, a merge on a real file), not only its tests.

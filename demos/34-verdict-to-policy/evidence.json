@@ -1,0 +1,18 @@
+{
+ "captures": [
+  {
+   "name": "grafana-explore-which-policy-allowed-it",
+   "url": "https://grafana.poc.local/explore?schemaVersion=1&orgId=1&panes=%7B%22a%22%3A%20%7B%22datasource%22%3A%20%22loki%22%2C%20%22queries%22%3A%20%5B%7B%22refId%22%3A%20%22A%22%2C%20%22expr%22%3A%20%22sum%20by%20%28allowed_by%29%20%28count_over_time%28%7Bnamespace%3D%5C%22hubble-observer%5C%22%2C%20container%3D%5C%22hubble-observer-verdicts%5C%22%7D%20%7C%20json%20allowed_by%3D%5C%22flow.ingress_allowed_by%5B0%5D.name%5C%22%20%7C%20allowed_by%20%21%3D%20%5C%22%5C%22%20%5B%24__range%5D%29%29%22%2C%20%22datasource%22%3A%20%7B%22type%22%3A%20%22loki%22%2C%20%22uid%22%3A%20%22loki%22%7D%7D%5D%2C%20%22range%22%3A%20%7B%22from%22%3A%20%22now-30m%22%2C%20%22to%22%3A%20%22now%22%7D%7D%7D",
+   "wait": 25000,
+   "height": 1200,
+   "look": "Grafana Explore on the verdict stream: the E8 LogQL \u2014 count of forwarded verdicts per allowing policy (shop-frontend, shop-backend, shop, the cf2cnp ingress policy) over the range"
+  },
+  {
+   "name": "grafana-policy-verdicts-loki-row",
+   "url": "https://grafana.poc.local/d/hubble-policy-verdicts?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-namespace=cf2cnp-lab27",
+   "wait": 30000,
+   "height": 2600,
+   "look": "the whole Policy Verdicts dashboard for cf2cnp-lab27 with the Loki row at the bottom: the dropped flows into the namespace from the observer's stream, each with a Flow UUID whose actions post to cf2cnp"
+  }
+ ]
+}

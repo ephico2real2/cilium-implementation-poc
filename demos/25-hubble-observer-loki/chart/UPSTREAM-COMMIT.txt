@@ -12,3 +12,6 @@ re-vendored 2026-09-13 (demo 29): cf2cnp 0.6.0 and hubble-policy-verdicts 0.2.0 
 
 a00dd7e947cf2499bc6f0b9528eb47a3d1400de8 Sun Sep 13 06:37:18 2026 -0500
 re-vendored 2026-09-13 (demo 32): cf2cnp 0.6.1 (merge keeps the document as it was; one kube-dns rule)
+
+7853c77b6afde1ae90d179441a43c5eec6c3b12f Sun Sep 13 07:07:18 2026 -0500
+re-vendored 2026-09-13 (demo 34): containerName (default the chart name) so a second release keeps its own container label in Loki; the E8 example sets hubble-observer-verdicts

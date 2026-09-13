@@ -76,6 +76,7 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [86](#86) | "by namespace" is the destination's: an egress drop that leaves the namespace is not on the dashboard | policy from flows |
 | [87](#87) | `permissions: pull-requests: write` does not let a workflow open a pull request — a repository setting does | policy from flows |
 | [88](#88) | a stricter policy beside a wider one changes nothing — policies add allows, they never narrow | policy from flows |
+| [89](#89) | two releases of one chart, one `container` label: the second observer's stream was invisible to its own LogQL | policy from flows |
 | [78](#78) | The hubble-observer default image (quay.io/cilium/hubble:v1.16.4) is unmaintained — 2024 push, EOL Go, 5 CRITICAL; run the CLI from the agent image at the agents' digest | supply chain |
 | [77](#77) | The hub Prometheus kept the single-cluster 1Gi limit — 51 OOM kills once poc2 wrote in; 2Gi + an out-of-order window | monitoring |
 | [76](#76) | A policy's egress `toPorts` must be the backend pod's port (relay 4245), not the Service port (443) — Cilium enforces after service translation | Cilium policy |
@@ -2105,6 +2106,32 @@ policies.
 `ingress_allowed_by`) and narrow the widest; a new policy can only widen. Deny needs `ingressDeny`/`egressDeny`
 or a default-deny plus allows — and a chart that ships its own policy for a subchart's pod must expose its entities.
 
+## <a name="89"></a>89. Two releases of one chart, one `container` label — the second stream was invisible to its own query
+
+**Where:** demo 34 Part 1. The E8 example values install a second hubble-observer release, `hubble-observer-verdicts`,
+and the fork's README gives the LogQL `{container="hubble-observer-verdicts"} | json allowed_by=…`. Rendered:
+
+```text
+POD                                         CONTAINER
+hubble-observer-6f865f8f94-4vvzb            hubble-observer
+hubble-observer-verdicts-…                  hubble-observer          ← the chart names the container after the CHART
+```
+
+**What happened:** the deployment template set the container name to `{{ .Chart.Name }}`, the same for every
+release. Log shippers turn the container name into the `container` label (the demo 10 collector: `k8s.container.name`
+→ `container`), so both observers would write into `{namespace="hubble-observer", container="hubble-observer"}`:
+the README's query would select nothing, the dashboard's Loki row would read the verdict stream as well as the
+drop stream, and neither could be told apart in Loki. The review pass rendered the example offline and checked the
+`hubble observe` arguments; a container name is not something a render makes you look at.
+
+**The fix:** the fork's chart gains `containerName` (default the chart's name — nothing changes for a single
+release); the example sets `hubble-observer-verdicts`; the collector's include glob gains the second path (the
+container name is a path segment under `/var/log/pods`). Measured after: two streams, `1696` and `3152` lines in
+15 minutes, and the LogQL answers.
+
+**The lesson:** a chart meant to be installed twice must let every per-release identity — names, labels, the
+container — be set, and a log query in a README is a claim to measure against the label a shipper actually produces.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
@@ -2156,6 +2183,7 @@ Most of these share a shape: **something reported success while not working.**
 - the namespace dashboard filtered on the destination, and the egress drops had left the namespace (#86)
 - the workflow had the permissions and still could not open the pull request: a repository setting (#87)
 - the stricter policy was valid and idle beside the chart's wider one (#88)
+- the second observer wrote into the first one's Loki stream: one chart, one container name (#89)
 
 **Verify the thing you actually care about, with a tool that would notice if it were false.** That
 is why this repo's READMEs quote captured output, why `scripts/verify.sh` exists, and why the

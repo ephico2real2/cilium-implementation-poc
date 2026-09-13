@@ -15,13 +15,15 @@ const { chromium } = require('playwright'); const fs = require('fs'); const path
   p.on('request', r => { if (/cf2cnp/.test(r.url())) net.push(`${r.method()} ${r.url()} headers=${JSON.stringify(Object.fromEntries(Object.entries(r.headers()).filter(([k]) => /x-grafana|^accept$|origin/.test(k))))} body=${(r.postData() || '').slice(0, 80)}${(r.postData() || '').length > 80 ? '…' : ''}`); });
   p.on('response', async r => { if (/cf2cnp/.test(r.url())) { let t = ''; try { t = (await r.text()).slice(0, 160).replace(/\n/g, ' '); } catch (e) {} net.push(`  ← ${r.status()} ${t}`); } });
   await p.goto('https://grafana.poc.local/login', { waitUntil: 'load' }); await p.fill('input[name=user]', 'admin'); await p.fill('input[name=password]', 'poc-grafana'); await p.click('button[type=submit]'); await p.waitForTimeout(3000);
-  await p.goto(`https://grafana.poc.local/d/hubble-observer-23862?orgId=1&from=now-30m&to=now&var-destinationnamespace=${ns}`, { waitUntil: 'load' });
+  // DASH_URL (demo 34): another dashboard with the same Flow UUID actions — the Policy Verdicts dashboard's Loki row (E7)
+  await p.goto(process.env.DASH_URL || `https://grafana.poc.local/d/hubble-observer-23862?orgId=1&from=now-30m&to=now&var-destinationnamespace=${ns}`, { waitUntil: 'load' });
   for (let i = 0; i < 40; i++) { await p.waitForTimeout(5000); if (/DROPPED/.test(await p.evaluate(() => document.body.innerText))) break; }
   await p.waitForTimeout(3000); await p.screenshot({ path: path.join(out, 'grafana-1-dashboard-filtered.png') });
   await p.evaluate(() => { document.querySelectorAll('*').forEach(e => { if (e.scrollWidth > e.clientWidth + 10) e.scrollLeft = e.scrollWidth; }); }); await p.waitForTimeout(2000);
   const cell = await p.evaluate(() => {
     const re = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
     const e = Array.from(document.querySelectorAll('[role="gridcell"] a, [role="gridcell"]')).find(e => re.test((e.innerText || '').trim()));
+    if (e) e.scrollIntoView({ block: 'center' });   // demo 34: the Loki row sits below the fold of the verdicts dashboard
     return e ? { uuid: e.innerText.trim(), rect: e.getBoundingClientRect().toJSON() } : null;
   });
   if (!cell) { console.log('no Flow UUID cell found in the table'); await b.close(); process.exit(1); }

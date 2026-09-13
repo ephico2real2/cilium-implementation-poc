@@ -1,0 +1,23 @@
+# evidence for demos/34-verdict-to-policy — recorded 2026-09-13T12:14Z by scripts/evidence/collect.sh
+### 2026-09-13T12:14:32Z
+$ kubectl --context kind-poc1 -n hubble-observer get pods -o wide
+NAME                                        READY   STATUS    RESTARTS   AGE     IP            NODE           NOMINATED NODE   READINESS GATES
+hubble-observer-6f865f8f94-4vvzb            1/1     Running   0          15h     10.10.4.185   poc1-worker    <none>           <none>
+hubble-observer-cf2cnp-69dc46c99-7qjcm      1/1     Running   0          21m     10.10.3.247   poc1-worker2   <none>           <none>
+hubble-observer-verdicts-76dfcf966c-55696   1/1     Running   0          5m30s   10.10.3.17    poc1-worker2   <none>           <none>
+
+### 2026-09-13T12:14:33Z
+$ kubectl --context kind-poc1 -n otel get pods -o wide
+NAME                   READY   STATUS    RESTARTS   AGE     IP            NODE                  NOMINATED NODE   READINESS GATES
+otel-collector-2k2n4   1/1     Running   0          7m7s    10.10.1.216   poc1-control-plane2   <none>           <none>
+otel-collector-8st69   1/1     Running   0          6m28s   10.10.3.21    poc1-worker2          <none>           <none>
+otel-collector-dwb9g   1/1     Running   0          6m43s   10.10.0.178   poc1-control-plane    <none>           <none>
+otel-collector-h6fxv   1/1     Running   0          6m36s   10.10.4.33    poc1-worker           <none>           <none>
+otel-collector-qhcsm   1/1     Running   0          6m58s   10.10.2.243   poc1-control-plane3   <none>           <none>
+
+### 2026-09-13T12:14:33Z
+$ bash -c helm --kube-context kind-poc1 -n hubble-observer list -o json 
+[{"name":"hubble-observer","namespace":"hubble-observer","revision":"30","updated":"2026-09-13 07:08:58.111438 -0500 CDT","status":"deployed","chart":"hubble-observer-2.6.0-alpha","app_version":"1.16.4"},{"name":"hubble-observer-verdicts","namespace":"hubble-observer","revision":"1","updated":"2026-09-13 07:09:02.617848 -0500 CDT","status":"deployed","chart":"hubble-observer-2.6.0-alpha","app_version":"1.16.4"}]
+
+### 2026-09-13T12:14:34Z
+$ bash -c  python3 -c 'import json,sys; [print(r["name"], r["revision"], r["chart"], r["status"]) for r in json.load(sys.stdin)]'

@@ -10,6 +10,8 @@ branches table. One branch per issue in the fork it changes: `enh/E<n>-<slug>` o
 [ephico2real2/hubble-policy-verdicts](https://github.com/ephico2real2/hubble-policy-verdicts); the PoC carries the
 demos and the workflow template.
 
+**Released and proven (2026-09-13):** cf2cnp [`v0.6.0`](https://github.com/ephico2real2/cf2cnp/releases/tag/v0.6.0) and [`v0.6.1`](https://github.com/ephico2real2/cf2cnp/releases/tag/v0.6.1), hubble-policy-verdicts 0.2.0, the observer fork `develop` (`7853c77`) — demos [29](../demos/29-cross-cluster-policy/README.md) (E1, E9), [30](../demos/30-l7-rules/README.md) (E2), [31](../demos/31-dns-visibility/README.md) (E3), [32](../demos/32-operator-loop/README.md) (E4, E5, E10), [33](../demos/33-hardening/README.md) (E6), [34](../demos/34-verdict-to-policy/README.md) (E7, E8). What the demos found that the two review passes could not (each fixed and recorded): the merge re-serialised the file (0.6.1), the kube-dns rule twice (0.6.1), the E10 archive name and the repository's PR setting (template), the observer chart's wider policy beside the subchart's (#88), one container name for two releases (#89).
+
 ## 0. What this is, and the rules it follows
 
 Demos 26–28 built a working "policy from observed flows" loop on open-source parts: Hubble's flows and its

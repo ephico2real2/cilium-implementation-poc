@@ -61,7 +61,11 @@ data:
       # pod log directory on each node — only that pod's files, so the DaemonSet does not become a general log
       # shipper. The container operator turns the path into k8s.namespace.name / k8s.container.name / k8s.pod.name.
       filelog/hubble-observer:
-        include: [/var/log/pods/hubble-observer_hubble-observer-*/hubble-observer/*.log]
+        include:
+          - /var/log/pods/hubble-observer_hubble-observer-*/hubble-observer/*.log
+          # Added in demo 34: the SECOND observer release (policy-verdict events, E8) writes under its own container
+          # name, hubble-observer-verdicts — the first glob's container segment does not match it.
+          - /var/log/pods/hubble-observer_hubble-observer-verdicts-*/hubble-observer-verdicts/*.log
         include_file_path: true
         start_at: end
         storage: file_storage
