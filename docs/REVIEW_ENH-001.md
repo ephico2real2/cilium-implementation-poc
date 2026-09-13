@@ -3,31 +3,32 @@
 Adversarial pass, 2026-09-13, on the 15-claim brief for
 [`enhancements/001-policy-from-flows-enterprise.md`](../enhancements/001-policy-from-flows-enterprise.md) and its ten
 branches. Cursor (Grok 4.6 high fast, ask mode: no shell, no network, no cluster) traced the branches, the
-fixtures and this repository's records. Codex (gpt-5.6-sol, xhigh) ran as task `task-mtzbuw8k-t5rjkh`; its
-answer had not been fetched when this record was written — the plugin's `result` step is reserved for the
-operator (`/codex:result task-mtzbuw8k-t5rjkh`); its column is filled in when it is. Every verdict below was
-re-checked here, most by measurement on poc1 (the transcript lines are quoted), and every accepted fix was
-applied on its branch with a test and pushed.
+fixtures and this repository's records. Codex (gpt-5.6-sol, xhigh, 54 minutes, task
+`task-mtzbuw8k-t5rjkh`) ran `go test` on archived copies of every branch, `helm lint` and both renders on
+E7, an offline render of E8, and fetched Cilium's source and docs at v1.20.1; its sandbox refused the live
+cluster. (Its answer file was overwritten by the `result` fetch and recovered from the Codex session log —
+the write command carried the full text.) Every verdict below was re-checked here, most by measurement on
+poc1 or by reading the cited source, and every accepted fix was applied on its branch with a test and pushed.
 
 ## Verdicts
 
 | Claim | Cursor | Codex | Decision |
 |---|---|---|---|
-| C1 local-cluster default since 1.19 | CONFIRMED (from this repo's records) | pending | — (cited from `clustermesh/policy.rst` 49–56 in the plan) |
-| C2 `cluster_name` + the cluster label on flows | CONFIRMED (fixture) | pending | — |
-| C3 the L7 record's shape | CONFIRMED (fixtures) | pending | — |
-| C4 Path/Method regexes, not anchored by Cilium | PLAUSIBLE | pending | — (E2 anchors and escapes; the plan says so) |
-| C5 kube-dns selector, UDP/53 | CONFIRMED | pending | — **measured**: pods `k8s-app=kube-dns`, Service ports 53/UDP and 53/TCP; the UDP-only rule is upstream's and the FQDN path's; DNS over TCP is a follow-up note, not changed |
-| C6 policy-verdict events, 5.6 % | PLAUSIBLE | pending | — (measured in the plan) |
-| C7 E1 | REFUTED | pending | **Accepted**: empty `cluster_name` fell back to nothing though the label was on the flow — `clusterOf` reads the label; the fixture is an established-connection packet traced on the destination's node, the egress policy is still the right one (plan text corrected) |
-| C8 E2 | REFUTED | pending | **Accepted**: the measured DNS query is a search-list expansion — `cleanDNSQuery` cuts at the first cluster-domain occurrence; query strings dropped (Cilium has no query field); L7-on-a-port semantics are Cilium's, stated in the plan |
-| C9 E3 | CONFIRMED / PLAUSIBLE | pending | — |
-| C10 E4 | REFUTED | pending | **Accepted**: the page's key list now equals the parser's priority list; a test reads the served page |
-| C11 E5 | REFUTED | pending | **Accepted**: `port: 80` and `port: "80"` compare equal (scalars canonicalised as strings); labels stay untouched by design |
-| C12 E6 | CONFIRMED / PLAUSIBLE | pending | **Accepted on two facts I measured**: Gateway traffic is `reserved:ingress`, the kubelet's probes are `reserved:host` (26 of 35 flows) — both admitted; the Grafana selector default is empty (a cross-namespace selector needs the namespace label; the action arrives through the Gateway anyway) |
-| C13 E7 | REFUTED | pending | **Accepted**: `Line` excluded from the frame left the Generate action an empty body — kept and hidden as the 23862 dashboard does; CI asserts it on the Loki table |
-| C14 E8 | REFUTED | pending | **Accepted**: the example pins `quay.io/cilium/cilium:v1.20.1` — `--field-mask` exists on that CLI, not on the chart's default 1.16.4 (demo 25 Part 7b); render checked |
-| C15 E10 | REFUTED / CONFIRMED | pending | **Accepted**: `setup-go` added; `--local-crds` takes a directory (measured from `--help`); `--version` dropped; the plan's snippet aligned |
+| C1 local-cluster default since 1.19 | CONFIRMED (from this repo's records) | CONFIRMED (`policy.rst` 49–56; the chart value `clustermesh.policyDefaultLocalCluster=true`, configurable) | — the plan now names the value |
+| C2 `cluster_name` + the cluster label on flows | CONFIRMED (fixture) | CONFIRMED (`flow.proto` 276–285) | — |
+| C3 the L7 record's shape | CONFIRMED (fixtures) | CONFIRMED (`flow.proto` 243–260, 684–719; DNS also has `cnames`, `rcode`) | — |
+| C4 Path/Method regexes, not anchored by Cilium | PLAUSIBLE | REFUTED: Envoy's safe-regex matches the whole header, so bare `/payments` never matched `/payments-admin` (`envoy_l7_rules_translator.go` 62–117) | **Accepted as a premise correction**: the anchors stay (explicit, valid); `:path` carries the query string, so the rule allows an optional query; the plan's text corrected |
+| C5 kube-dns selector, UDP/53 | CONFIRMED | CONFIRMED (`layer3.rst` 450–499, `layer7.rst` 172–202) | — **measured**: pods `k8s-app=kube-dns`, Service ports 53/UDP and 53/TCP; the UDP-only rule is upstream's and the FQDN path's; DNS over TCP is a follow-up note, not changed |
+| C6 policy-verdict events, 5.6 % | PLAUSIBLE | PLAUSIBLE (semantics confirmed from `parser.go` 182–211; the share not re-measured) | — (measured in the plan) |
+| C7 E1 | REFUTED | REFUTED (same: the label-only cluster was discarded; single-cluster outputs byte-identical to develop, SHA-256 compared) | **Accepted**: empty `cluster_name` fell back to nothing though the label was on the flow — `clusterOf` reads the label; the fixture is an established-connection packet traced on the destination's node, the egress policy is still the right one (plan text corrected) |
+| C8 E2 | REFUTED (strip the search expansion) | REFUTED (one L7 block was attached to every port of a peer pair — release blocker; the expansion must be KEPT: an L7 DNS policy allows only listed names) | **Accepted from Codex, Cursor's strip reverted**: L7 records live on their port (one port rule per port with rules); the path regex allows an optional query; DNS queries kept exactly as observed — the docs decided (`layer7.rst`: "No other DNS queries will be allowed") |
+| C9 E3 | CONFIRMED / PLAUSIBLE | CONFIRMED | — |
+| C10 E4 | REFUTED (key order) | REFUTED (a name-only key removes every component) | **Accepted from both**: the page sends a peer's whole identifying label set as one comma-joined exclude that must match entirely; a bare `key=value` still matches every peer carrying it |
+| C11 E5 | REFUTED | REFUTED (same) | **Accepted**: `port: 80` and `port: "80"` compare equal (scalars canonicalised as strings); labels stay untouched by design |
+| C12 E6 | CONFIRMED / PLAUSIBLE | REFUTED: `ConstantTimeCompare` returns at once on unequal lengths; the scheme was case-sensitive; the Grafana selector lacked its namespace | **Accepted**: `reserved:ingress` and `reserved:host` admitted (measured); the Grafana selector default empty; the token compare hashes both sides before the constant-time compare and the scheme is case-insensitive |
+| C13 E7 | REFUTED | REFUTED (same) | **Accepted**: `Line` excluded from the frame left the Generate action an empty body — kept and hidden as the 23862 dashboard does; CI asserts it on the Loki table |
+| C14 E8 | REFUTED | REFUTED (same, plus: the example inherited the plaintext relay on port 80, refused by a mutual-TLS relay) | **Accepted**: the example pins `quay.io/cilium/cilium:v1.20.1` and carries the relay's mutual-TLS settings; rendered `--server hubble-relay.kube-system.svc.cluster.local:443` |
+| C15 E10 | REFUTED / CONFIRMED | REFUTED: inputs interpolated into shell (script injection), downloads left in the checkout and committed by the PR action's default selection, no checksum check | **Accepted**: inputs reach the shell through the environment; the archive's checksum is verified; downloads go to `mktemp` directories; `add-paths` commits only the policy file; `setup-go` added; `--local-crds` takes a directory (measured) |
 
 ## Measured here, independent of the reviewers
 
@@ -49,13 +50,32 @@ applied on its branch with a test and pushed.
 - **Cursor: E6's Grafana `fromEndpoints` without a namespace label matches the release namespace only.**
   Accepted; the default is empty and the README shows the namespaced form.
 
+## Codex's findings the branches now carry, beyond Cursor's
+
+- **E2 per-port L7 (release blocker).** `HTTPRequests`/`DNSQueries` moved from the aggregated flow to its
+  `PortInfo`; the generator emits one port rule per port that carries L7 records and keeps the plain ports
+  together. Test: a peer pair with 5432 plain and 8080 HTTP yields `[5432] [8080 + rules]`.
+- **E2 keep the DNS query as observed.** Cursor's strip was reverted; the test asserts the measured
+  expansion `accounts.bank.svc.cluster.local.bank.svc.cluster.local` is emitted as is.
+- **E2 optional query in the path regex** (`^…(\?.*)?$`), tested against four paths.
+- **E4 whole-label-set exclude.** Tested: unticking `shop/frontend` keeps `shop/backend`; `name=shop` alone
+  removes both.
+- **E6 compare and scheme.** SHA-256 both sides, `strings.EqualFold` on `Bearer`; tested with a shorter, a
+  longer and a `Basic` header.
+- **E8 relay settings** in the example, rendered.
+- **E10 workflow**: env indirection, checksum, temp directories, `add-paths`.
+
+Codex's remaining suggestions not taken: carrying `Host` into the HTTP rule (the observed host is the
+Gateway's name for Gateway traffic and the Service name for pod traffic — narrowing on it would break
+clients that use another; documented as a design choice), and `RequestURI` verbatim (pins exact query
+strings; the optional-query regex is the intent).
+
 ## Outcome
 
-Fifteen claims: seven refuted by Cursor, every refutation re-traced or measured here and accepted, each fix
-applied on its branch with a test, the branches' suites green (`go test ./...` on E1, E2, E4, E5, E6; `helm
-lint` and the render checks on E6, E7, E8; the CI job on E7). The plan's stack facts stood. Codex's pass is
-outstanding until `/codex:result task-mtzbuw8k-t5rjkh` is run; its verdicts go into the table above and any
-new finding follows the same path (re-check, decide in writing, apply with a test).
-
-Branch heads after the fixes: E1 `e8be5ca`, E2 `f757a3a`, E4 `3c74e93`, E5 `aeaf34e`, E6 `f0cdb97`, E7 `db44bfa`,
-E8 `7a4d78d`, E3 `49f55eb` and E10 `f84c7ce` unchanged.
+Fifteen claims. Cursor refuted seven, Codex ten (six in common, plus C4 as a premise, C8's per-port defect,
+C12's compare, C15's workflow security). Every refutation was re-traced against the cited source or measured
+on poc1, and on the one point where the reviewers disagreed (the DNS search expansion) the documentation
+decided for Codex. Every accepted fix is on its branch with a test that fails before and passes after; the
+suites are green (`go test ./...` on E1, E2, E4, E5, E6; `helm lint` and the renders on E6, E7, E8; the E7
+CI job; the template parses). The plan's stack facts stood, one corrected (C4). Nothing is merged: the
+branches wait for the operator's go, in the order the plan gives.

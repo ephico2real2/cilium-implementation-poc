@@ -2,8 +2,9 @@
 
 Tracking issue [#11](https://github.com/ephico2real2/cilium-implementation-poc/issues/11); one issue per item
 ([#1](https://github.com/ephico2real2/cilium-implementation-poc/issues/1)–[#10](https://github.com/ephico2real2/cilium-implementation-poc/issues/10)).
-Status: **reviewed** — [`docs/REVIEW_ENH-001.md`](../docs/REVIEW_ENH-001.md): Cursor's seven refutations applied on
-the branches with tests; Codex's answer pending. Nothing is merged yet. One branch per issue in the fork it changes: `enh/E<n>-<slug>` on
+Status: **reviewed, both passes** — [`docs/REVIEW_ENH-001.md`](../docs/REVIEW_ENH-001.md): Cursor refuted seven,
+Codex ten; every accepted fix is on its branch with a test. Nothing is merged yet; the merge order is in the
+branches table. One branch per issue in the fork it changes: `enh/E<n>-<slug>` on
 [ephico2real2/cf2cnp](https://github.com/ephico2real2/cf2cnp),
 [ephico2real2/hubble-observer](https://github.com/ephico2real2/hubble-observer),
 [ephico2real2/hubble-policy-verdicts](https://github.com/ephico2real2/hubble-policy-verdicts); the PoC carries the
@@ -32,7 +33,7 @@ Rules for every item:
 | Fact | Source |
 |---|---|
 | Cilium 1.20.1 on kind (poc1 3 CP + 2 W, poc2 1 CP + 1 W), ClusterMesh, Hubble relay on mTLS, Gateway API | demos 01–24 |
-| Since Cilium 1.19, "policies automatically select endpoints from the **local cluster only**, unless one or multiple clusters are specifically targeted" with `io.cilium.k8s.policy.cluster`; "in Cilium v1.18 or lower, policies used to select endpoints from all clusters by default" | `Documentation/network/clustermesh/policy.rst` at v1.20.1, lines 49–56 |
+| Since Cilium 1.19, "policies automatically select endpoints from the **local cluster only**, unless one or multiple clusters are specifically targeted" with `io.cilium.k8s.policy.cluster`; "in Cilium v1.18 or lower, policies used to select endpoints from all clusters by default". The behaviour is the chart value `clustermesh.policyDefaultLocalCluster` (default `true` on 1.20.1); a cluster that sets it `false` is back on the ≤ 1.18 rule, and E1's label then narrows rather than enables | `Documentation/network/clustermesh/policy.rst` at v1.20.1, lines 49–56; the 1.20.1 chart README (review) |
 | A cross-cluster flow carries the peer's cluster as a label: `k8s:io.cilium.k8s.policy.cluster=poc2` on the source of a `payments@poc2 → api@poc1` INGRESS flow, and `source.cluster_name` / `destination.cluster_name` | measured on the bank, 2026-09-13 (this plan's Part 1 record) |
 | L7-visible flows carry `l7.type` (`REQUEST` / `RESPONSE`), `l7.http.method`, `l7.http.url` (a full URL), `l7.http.protocol`, `l7.http.code`, `l7.http.headers`; DNS flows carry `l7.dns.query` (with a trailing dot), `qtypes`, `ips`, `observation_source: proxy` | measured on the bank (demo 19's visibility rules), 2026-09-13 |
 | `PortRuleHTTP{Path, Method, Host, Headers, HeaderMatches}`: Path and Method are "extended POSIX regex" matched against the request; empty = any | `pkg/policy/api/http.go` v1.20.1, lines 66–105 |

@@ -8,7 +8,7 @@ before any of it is built, and closed by a demo with a recorded transcript and e
 
 | # | Proposal | Issue | Plan | Status |
 |---|---|---|---|---|
-| 001 | Policy from observed flows, enterprise-ready: the ten enhancements from demos 26–28 | [#11](https://github.com/ephico2real2/cilium-implementation-poc/issues/11) (tracking), #1–#10 per item | [001-policy-from-flows-enterprise.md](001-policy-from-flows-enterprise.md) | reviewed ([docs/REVIEW_ENH-001.md](../docs/REVIEW_ENH-001.md)): Cursor's seven refutations applied on the branches; Codex's answer pending `/codex:result` |
+| 001 | Policy from observed flows, enterprise-ready: the ten enhancements from demos 26–28 | [#11](https://github.com/ephico2real2/cilium-implementation-poc/issues/11) (tracking), #1–#10 per item | [001-policy-from-flows-enterprise.md](001-policy-from-flows-enterprise.md) | reviewed by both ([docs/REVIEW_ENH-001.md](../docs/REVIEW_ENH-001.md)): Cursor 7 and Codex 10 refutations, all re-checked, applied on the branches with tests; awaiting the go to merge in order |
 
 ## The list behind 001 (from demos 26, 27 and 28)
 
