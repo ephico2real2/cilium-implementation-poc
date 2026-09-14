@@ -137,6 +137,20 @@ Two more rules from the same principle, added 2026-09-14 after runs 12 and 13:
   for shared VIPs — one file per cluster, and the bring-up refuses a cluster without its block (NETWORKING_DESIGN
   §3 item 4, gotcha #94).
 
+### Where it stands (2026-09-14, after run 34796271073)
+
+| Phase | State |
+|---|---|
+| 0 — the spike | **done and green**: kind, two clusters, dependency order, the mesh phase, Cilium's own multi-cluster connectivity test `All 87 tests successful` on both matrix jobs; question 1 below is answered by measurement (kind; minikube cannot mesh two profiles) |
+| 1 — the scripts | `lab-up.sh` (kind), `lab-down.sh`, `lab-route.sh`, `gateway-api-crds.sh` exist and are what phase 0 runs; **`lab-stack.sh` (monitoring, loki, observer) does not exist yet** |
+| 2 — the workflow per demo group | **not started**: the only workflow is the spike; no demo script, no policy test, no capture has run on a runner yet — the lab's own tests are the point of the enhancement and they are still ahead |
+| 3 — the images and charts under test | **not started** (cf2cnp and hubble-policy-verdicts still test only themselves) |
+| 4 — the MacBook | pending phase 2 |
+| the review pass on the bring-up | **not done**: `scripts/lab-up.sh`, the workflow and the per-cluster address plan have had no Codex/Cursor pass; they get one before phase 2 builds on them |
+
+Two corrections to the plan below from what phase 0 measured: Tetragon is IN scope (it runs on the runner with the
+`/procHost` mount, `tetragon 2/2` on both clusters), and the `policy-tools` group runs on kind like the others.
+
 ### Phase 1 — the bring-up as scripts (what the MacBook will reuse)
 
 - `scripts/lab-up.sh <kind|minikube> [poc1] [poc2]`: creates the clusters from `clusters/ci/*.yaml`, installs
