@@ -21,7 +21,7 @@ on:
         default: true
 
 permissions:
-  contents: read
+  contents: write   # the captures are pushed to the ci-captures branch so the job summary can show them (below)
 
 env:
   KIND_VERSION: v0.33.0
@@ -166,6 +166,32 @@ jobs:
           spec: scripts/capture/lab.json
           out: captures
           env-json: '{"GW":"${{ steps.addr.outputs.gw }}","HUBBLE":"${{ steps.addr.outputs.hubble }}","GRAFANA_PASSWORD":"poc-grafana"}'
+
+      # A job summary renders Markdown on the run page, but GitHub strips data: URIs from images and an artifact's files
+      # have no URL of their own (community discussion #35932): an image must be fetched from a public URL. So the PNGs
+      # go to the ci-captures branch (one directory per run) and the summary links them raw — the captures are then ON
+      # the run page, beside the walk's evidence lines.
+      - name: Show the captures on the run page (pushed to the ci-captures branch, linked from the job summary)
+        if: always()
+        run: |
+          set -o pipefail
+          ls captures/*.png >/dev/null 2>&1 || { echo "no captures to show" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          RUN="${{ github.run_id }}"; REPO="${{ github.repository }}"
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin ci-captures >/dev/null 2>&1; then
+            git fetch -q origin ci-captures && git worktree add -q .tmp/cap origin/ci-captures
+          else
+            git worktree add -q --detach .tmp/cap && (cd .tmp/cap && git checkout -q --orphan ci-captures && git rm -rfq . >/dev/null 2>&1 || true)
+          fi
+          mkdir -p ".tmp/cap/$RUN" && cp captures/*.png captures/walk.log ".tmp/cap/$RUN/"
+          (cd .tmp/cap && git add -A && git commit -qm "captures of run $RUN (${{ github.workflow }}, $(date -u +%Y-%m-%dT%H:%MZ))" && git push -q origin HEAD:ci-captures)
+          {
+            echo "## Captures — run $RUN, branch \`ci-captures/$RUN\`"
+            echo; echo "The pages as the runner saw them, with each walk's evidence line (panels, \"No data\" counts). The same files are in the \`lab-observability\` artifact."
+            while IFS= read -r line; do echo "- \`$line\`"; done < captures/walk.log
+            for f in captures/*.png; do n=$(basename "$f" .png); echo; echo "### $n"; echo; echo "![$n](https://raw.githubusercontent.com/$REPO/ci-captures/$RUN/$n.png)"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "captures published: https://github.com/$REPO/tree/ci-captures/$RUN"
 
       # check-log-errors reads the agents' WHOLE log (no --log-check-only-test-time), so the bring-up's lines count too.
       # One exception: "Error initially creating lease lock … already exists" is client-go's leader election losing
