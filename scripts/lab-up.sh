@@ -17,10 +17,12 @@
 #   the Gateway API CRDs            a cluster, nothing else                                     demo 05
 #   Cilium core (CNI, KPR, GW API)  those CRDs, the API endpoint by the name in its certificate SETUP 4, 5, 6
 #   CoreDNS upstreams               the CNI (pods with a network)                               kind on a runner
-#   the LB pools + the L2 policy    Cilium's CRDs, registered by the operator                   SETUP 8
+#   the LB pools + the L2 policy    Cilium's CRDs, registered by the operator; the cluster's OWN   SETUP 8, NETWORKING_DESIGN §0
+#                                   /26 of the reserved range (cilium/lb-ippool-<cluster>.yaml)
 #   metrics-server                  the CNI                                                     HPA (002), the sysdump
 #   cert-manager, the root, issuer  the CNI; the FIRST cluster's root for every other cluster   SETUP 9.3a, demo 08
 #   the mesh apiserver              the issuer (its certificates), a NodePort                   demo 24
+#   the mesh LINK to a peer         the PEER's apiserver up — pairwise, so it is verified last   demo 24, SETUP 9.5
 #   Hubble (relay, UI, metrics)     the pools (its UI's address), the issuer (its certificates) SETUP 5.4, demos 01/24/25
 #   Tetragon                        the CNI, the /procHost mount, the host kernel symbol        demo 17
 #   ClusterMesh connect             every cluster complete: its apiserver up, one root shared   SETUP 9.4, 9.5, demo 07
@@ -48,6 +50,26 @@ cilium_healthy() { # <cluster> <what> — SETUP Step 6.1, reused after every cha
   cilium status --context "kind-$1" --wait --wait-duration 10m --interactive=false > "/tmp/cilium-status-$1.txt" \
     || { cat "/tmp/cilium-status-$1.txt"; evidence "kind-$1"; die "Cilium is not healthy on $1 $2"; }
 }
+cilium_healthy_but_peers() { # <cluster> <peer…> — after the mesh is declared, before every peer is complete
+  # The agents read every peer through their OWN mesh apiserver (KVStoreMesh, chart 1.20.1 default
+  # clustermesh.apiserver.kvstoremesh.enabled=true), so a declared peer that has no apiserver yet is, on every agent,
+  # "controller remote-etcd-<peer> … failed to retrieve cluster configuration: not found" — and `cilium status --wait`
+  # spent its whole 10 minutes on exactly that before dying (run 34791947500). Here those controllers, for the peers
+  # named, are the only errors allowed; anything else is a failure of THIS cluster. The strict check with every peer
+  # complete runs in mesh_connect (SETUP 9.5).
+  local c=$1; shift; local allowed; allowed=$(printf '%s|' "$@"); allowed=${allowed%|}
+  local f="/tmp/cilium-status-$c.txt" other i
+  for i in $(seq 1 30); do
+    cilium status --context "kind-$c" --interactive=false > "$f" 2>&1 || true
+    other=$(awk '/^Errors:/{e=1} /^[A-Za-z]/ && !/^Errors:/{e=0} e' "$f" \
+      | grep -vE "controller remote-etcd-($allowed)(-cluster-config)? is failing" || true)
+    if [ -z "$other" ] && grep -q '^Cluster Pods:' "$f"; then
+      echo "healthy, but for the link to $*: not complete yet — verified once it is (SETUP 9.5)"; return 0
+    fi
+    sleep 10
+  done
+  cat "$f"; evidence "kind-$c"; die "Cilium is not healthy on $c with Hubble and the mesh apiserver (errors beyond the peers not yet complete: $*)"
+}
 
 # ================================================================ SETUP Step 0 / 1 — the requisites, measured
 say "SETUP Step 0–1 — the toolchain, as the guide inventories it"
@@ -66,7 +88,7 @@ helm repo update cilium jetstack metrics-server >/dev/null
 # ================================================================ the kind docker network, with the lab's subnet — before any cluster
 # kind reuses a docker network named `kind` if one exists and, when it creates one itself, passes NO IPv4 subnet
 # (pkg/cluster/internal/providers/docker/network.go, v0.33.0: bridge driver, masquerade, the MTU, a hashed IPv6 ULA)
-# — Docker's IPAM then picks any free pool. The lab's LB pools (cilium/lb-ippool.yaml) and its Gateway addresses
+# — Docker's IPAM then picks any free pool. The lab's LB blocks (cilium/lb-ippool-<cluster>.yaml) and its Gateway addresses
 # are pinned to 172.18.255.x (SETUP Step 8, gotcha #13), so the network is created here with that subnet, and with
 # Docker's container allocation held to the lower half (--ip-range) so no container can ever take a pool address.
 # The IPv6 subnet is the one kind derives for the name "kind", so dual-stack runs are identical either way.
@@ -136,12 +158,27 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "O
   say "CoreDNS on $c — explicit upstream resolvers"
   kubectl --context "$ctx" -n kube-system patch deployment coredns --patch '{"spec":{"template":{"spec":{"dnsPolicy":"None","dnsConfig":{"nameservers":["8.8.4.4","8.8.8.8"]}}}}}' >/dev/null
   kubectl --context "$ctx" -n kube-system rollout status deploy/coredns --timeout=3m >/dev/null
-  kubectl --context "$ctx" run "dns-probe-$c" --rm -i --restart=Never --image=busybox:1.36 --command -- nslookup one.one.one.one 2>/dev/null | grep -m1 -E 'Address: [0-9]' | sed 's/^/external name resolved: /' || echo "::warning::external name resolution from a pod still fails on $c"
+  # Captured, then searched — piped straight into `grep -m1`, kubectl's later writes hit a closed pipe, its exit code
+  # became the pipeline's under pipefail, and the warning fired beside a good answer (run 34792046715:
+  # "external name resolved: Address: 1.0.0.1" followed by the warning). Retried, because CoreDNS was just rolled and
+  # one probe landed before its new endpoints served (run 34792046715, base: no answer at all, 16 s after the roll).
+  # A layer that is verified prints its evidence or stops the run: the raw probe output on failure, then die.
+  local dns="" ok=0 i
+  for i in 1 2 3 4 5 6; do
+    dns=$(kubectl --context "$ctx" run "dns-probe-$c-$i" --rm -i --restart=Never --image=busybox:1.36 --command -- nslookup one.one.one.one 2>&1 || true)
+    if printf '%s\n' "$dns" | grep -qE 'Address: [0-9]'; then ok=1; break; fi
+    sleep 5
+  done
+  if [ "$ok" = 1 ]; then echo "external name resolved (probe $i): $(printf '%s\n' "$dns" | grep -m1 -E 'Address: [0-9]')"
+  else printf '%s\n' "$dns" | sed 's/^/  probe: /'; die "pods on $c cannot resolve an external name after $i probes (CoreDNS upstreams — the layer every FQDN demo needs)"; fi
 
   # ---------------------------------------------------------------- SETUP Step 8 — LoadBalancer addresses without a cloud
-  say "SETUP Step 8 — the LB pools and the L2 announcement policy on $c"
-  kubectl --context "$ctx" apply -f cilium/lb-ippool.yaml >/dev/null
-  kubectl --context "$ctx" get ciliumloadbalancerippools -o custom-columns='POOL:.metadata.name,BLOCKS:.spec.blocks[*].start' --no-headers
+  say "SETUP Step 8 — $c's OWN LB block and its L2 announcement policy (cilium/lb-ippool-$c.yaml)"
+  # one /26 of 172.18.255.0/24 per cluster: every cluster announces on the same bridge, and LB IPAM allocates per
+  # cluster — one pool file for two clusters would hand out the same address twice (NETWORKING_DESIGN §0)
+  [ -f "cilium/lb-ippool-$c.yaml" ] || die "no cilium/lb-ippool-$c.yaml — every cluster has its own block of the reserved range (NETWORKING_DESIGN §0)"
+  kubectl --context "$ctx" apply -f "cilium/lb-ippool-$c.yaml" >/dev/null
+  kubectl --context "$ctx" get ciliumloadbalancerippools -o custom-columns='POOL:.metadata.name,START:.spec.blocks[*].start,STOP:.spec.blocks[*].stop' --no-headers
 
   # ---------------------------------------------------------------- metrics-server
   say "metrics-server $METRICS_SERVER_CHART on $c (kind's kubelets: --kubelet-insecure-tls)"
@@ -189,7 +226,11 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "k
   kubectl --context "$ctx" -n kube-system rollout status ds/cilium --timeout=5m >/dev/null
   kubectl --context "$ctx" -n kube-system rollout status deploy/hubble-relay --timeout=5m >/dev/null
   [ "$mesh" = 1 ] && kubectl --context "$ctx" -n kube-system rollout status deploy/clustermesh-apiserver --timeout=5m >/dev/null
-  cilium_healthy "$c" "with Hubble$( [ "$mesh" = 1 ] && echo ' and the mesh apiserver' )"
+  local pending=() npending=0 m; for m in "${ALL_CLUSTERS[@]}"; do   # peers declared but not complete yet
+    [ "$m" = "$c" ] && continue; case " $COMPLETE " in *" $m "*) ;; *) pending+=("$m"); npending=$((npending+1));; esac
+  done
+  if [ "$mesh" = 1 ] && [ "$npending" -gt 0 ]; then cilium_healthy_but_peers "$c" "${pending[@]}"
+  else cilium_healthy "$c" "with Hubble$( [ "$mesh" = 1 ] && echo ' and the mesh apiserver' )"; fi
   grep -E 'Hubble Relay:|ClusterMesh:' "/tmp/cilium-status-$c.txt" | head -2
   if kubectl --context "$ctx" -n kube-system get svc hubble-ui >/dev/null 2>&1; then
     for i in $(seq 1 24); do ip=$(kubectl --context "$ctx" -n kube-system get svc hubble-ui -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null); [ -n "$ip" ] && break; sleep 5; done
@@ -210,6 +251,7 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "k
     kubectl --context "$ctx" -n kube-system rollout status ds/tetragon --timeout=5m >/dev/null || { kubectl --context "$ctx" -n kube-system logs ds/tetragon -c tetragon --tail=20; die "Tetragon's agents did not become ready on $c (demo 17)"; }
     kubectl --context "$ctx" -n kube-system exec ds/tetragon -c tetragon -- tetra status 2>/dev/null | head -3 || true
   fi
+  COMPLETE="$COMPLETE $c"
   say "$c is complete"
 }
 
@@ -224,14 +266,15 @@ mesh_connect() {
   if [ "$certmanager" = 1 ]; then
     echo "demo 24: the mesh is DECLARED in every cluster on one root — the declaration is the connection; nothing to copy"
   else
-    for c in "$1" "$2"; do cilium clustermesh status --context "kind-$c" --wait --wait-duration 5m; done
-    cilium clustermesh connect --context "kind-$1" --destination-context "kind-$2"
+    local c; for c in "$@"; do cilium clustermesh status --context "kind-$c" --wait --wait-duration 5m; done
+    for c in "${@:2}"; do cilium clustermesh connect --context "kind-$1" --destination-context "kind-$c"; done
   fi
-  say "SETUP Step 9.5 — verify the mesh (connecting ≠ connected)"
-  for c in "$1" "$2"; do cilium clustermesh status --context "kind-$c" --wait --wait-duration 10m; done
+  say "SETUP Step 9.5 — verify the mesh (connecting ≠ connected): every cluster healthy with every peer, then the mesh"
+  local c; for c in "$@"; do cilium_healthy "$c" "with every peer complete (SETUP 9.5)"; echo "$c: $(grep -E 'ClusterMesh:' "/tmp/cilium-status-$c.txt" | head -1 | tr -s ' ')"; done
+  for c in "$@"; do cilium clustermesh status --context "kind-$c" --wait --wait-duration 10m; done
 }
 
-ALL_CLUSTERS=("$@")
+ALL_CLUSTERS=("$@"); COMPLETE=""   # the clusters already complete, space-separated — what the mesh check may still lack
 for c in "$@"; do cluster_create "$c"; done
 for c in "$@"; do cluster_up "$c"; done
 [ "$mesh" = 1 ] && mesh_connect "$@"
