@@ -2216,11 +2216,17 @@ asks it for poc2's cluster configuration. poc2 has no apiserver yet, so the cach
 controller per peer per agent, retried forever. `cilium status --wait` waits for zero errors and never sees them.
 Nothing is wrong with poc1; the error names a peer that is not built yet.
 
-**The fix:** the mesh LINK is pairwise, so it is verified last. After the declaration, a cluster is checked with
-`cilium_healthy_but_peers`: the only errors allowed are `controller remote-etcd-<peer>` and
-`…-cluster-config` for the peers that are not complete yet; anything else fails that cluster. Once every cluster
-is complete, `mesh_connect` runs the strict `cilium status --wait` on every cluster and then `clustermesh status
---wait` — the check with all peers present. The dependency table at the top of the script carries the row.
+**The fix:** the mesh is not part of finishing a cluster at all. *"We need both clusters to be up and independent
+before creating or running clustermesh steps or scripts"* (the operator). `scripts/lab-up.sh` completes every
+cluster on its own — core, DNS, its LB block, metrics-server, its issuer, Hubble, Tetragon, verified — and only
+then runs `mesh_up` on all of them: the apiserver switched on and every member declared in one upgrade per
+cluster, the agents restarted once every apiserver exists, then the strict `cilium status --wait` on each and
+`clustermesh status --wait`. A first cut of the fix tolerated the `remote-etcd-<peer>` errors of peers not yet
+complete inside the per-cluster check; run 34794243096 went through on it — `lab up: poc1 poc2` in 500–566 s, `All 2
+nodes are connected to all clusters` on both — and Cilium's connectivity test then flagged what that ordering had
+left in poc1's agent log: `Failed waiting for clustermesh synchronization, expect possible disruption of
+cross-cluster connections`, logged at the restart that happened while poc2 had no Cilium. The phase design made
+the tolerant check unnecessary and removes the warning at its source, and that code went.
 
 **The lesson:** a status line that names ANOTHER cluster is not this cluster's health. Read which controller is
 failing before trusting a "not healthy": `remote-etcd-<name>` is the link to `<name>`, and a link cannot be
@@ -2248,6 +2254,8 @@ output away, so there was nothing to read.
 early exit can close a pipe on the producer; retry the probe up to six times, five seconds apart, because a just-
 rolled CoreDNS is the expected state at that moment; on the last failure print the raw probe output and stop the
 run. A verified layer prints its evidence or dies; it does not warn.
+
+Run 34794243096: `external name resolved (probe 1): Address: 1.1.1.1` on poc1, `1.0.0.1` on poc2, no warning.
 
 **The lesson:** `pipefail` makes every early-exiting consumer (`grep -m1`, `head`) a failure signal for the
 producer to its left. When the interesting exit code is the producer's, do not put a consumer that stops early on
@@ -2278,7 +2286,19 @@ no allocation plan.
 address unchanged), poc2 gets `172.18.255.128/26` (`.136–175`, `.176–186`) in `cilium/lb-ippool-poc2.yaml`, with
 its own L2 policy and `l2announcements.enabled` in `cilium/values-poc2.yaml`. The bring-up applies
 `cilium/lb-ippool-<cluster>.yaml` and refuses a cluster without one; the CI lab proves each block from the runner
-(ARP, then HTTP) for both clusters.
+for both clusters. Run 34794243096, from the runner:
+
+```text
+== poc1: its pools, and every LoadBalancer address it holds
+gateway-pool       172.18.255.240   172.18.255.250   False       (CONFLICT)
+kind-docker-pool   172.18.255.200   172.18.255.239   False
+  default/cilium-gateway-sw-gateway  172.18.255.241   HTTP 500    (the Gateway answers; demo 02's backend is not deployed)
+  kube-system/hubble-ui              172.18.255.201   HTTP 200
+== poc2: its pools, and every LoadBalancer address it holds
+gateway-pool       172.18.255.176   172.18.255.186   False
+kind-docker-pool   172.18.255.136   172.18.255.175   False
+  default/rebel-base-lb              172.18.255.136   HTTP 200    ← poc2's own block, served, reached from the host
+```
 
 **The lesson:** "the mesh" is a relationship between complete clusters, and completeness includes the address
 plan. Anything applied "to every cluster" from one file must be checked for what is actually per-cluster in it.
@@ -2536,6 +2556,34 @@ recording that it is off and why. netkit and dual-stack are on and measured.
 
 **The lesson:** a runner kernel removes the linuxkit excuse, not every constraint: what a container node can and
 cannot read from its host is a second class of "kernel feature", and it does not change with the kernel version.
+
+## <a name="104"></a>104. `ping` never answers for an L2-announced address — and three addresses serving HTTP 200 were reported "NO ANSWER"
+
+**Where:** run 34794243096, the first run whose bring-up went through end to end; `scripts/lab-route.sh` and the
+workflow's proof loop, both probing the pool addresses from the runner with ICMP first:
+
+```text
+  ARP/ping 172.18.255.241: no answer (the L2 announcement — SETUP Step 8 — or the route)
+  default/cilium-gateway-sw-gateway  172.18.255.241   NO ANSWER     HTTP 500
+  kube-system/hubble-ui              172.18.255.201   NO ANSWER     HTTP 200
+  default/rebel-base-lb              172.18.255.136   NO ANSWER     HTTP 200
+```
+
+The route was right, the L2 policy was right, every address served — and the probe said the opposite.
+
+**What happened:** Cilium's L2 announcements answer ARP for a LoadBalancer address and the datapath serves the
+Service's ports on it; nothing owns the address as an interface address, so an ICMP echo to it reaches a node that
+has no owner to reply. A working VIP and a silent VIP look identical to `ping`. (The MacBook never met this: SETUP
+Step 3.5 verified with `traceroute`, and the demos with `curl`.)
+
+**The fix:** the probe is the protocol the address exists for. A TCP connect is what makes the host ARP for the
+address in the first place; after it, the neighbour table holds the MAC the L2 lease holder answered with. Both
+scripts now print `HTTP <code>  L2 ARP answered by <mac>` per address on Linux (on macOS the host never ARPs for
+it — the next hop is the Docker VM — so HTTP is the proof there).
+
+**The lesson:** a probe has to speak the layer it claims to test. ICMP tests whether a host owns an address; an
+L2-announced VIP is not owned, it is answered — ARP through the neighbour table and TCP through the Service are
+the measurements.
 
 ## The meta-lesson
 

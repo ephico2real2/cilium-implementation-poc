@@ -5,7 +5,7 @@
 #   scripts/lab-up.sh poc1                 # one cluster, complete
 #   scripts/lab-up.sh poc1 poc2            # both, each complete on its own, then meshed on cert-manager's root
 #   LAB_CLUSTERS_DIR=clusters scripts/lab-up.sh poc1 poc2         # the laptop's full-size configs instead of clusters/ci
-#   LAB_FEATURES=1 LAB_IPFAMILY=dual scripts/lab-up.sh poc1 poc2  # + cilium/values-ci-features.yaml (netkit, BBR, IPv6)
+#   LAB_FEATURES=1 LAB_IPFAMILY=dual scripts/lab-up.sh poc1 poc2  # + cilium/values-ci-features.yaml (netkit, IPv6)
 #   LAB_TETRAGON=0 / LAB_CERTMANAGER=0                          # skip demo 17 / Helm's certificates (SETUP 9.3b, route B)
 #
 # THE ORDER IS A DEPENDENCY ORDER, NOT THE DEMOS' LESSON ORDER. The demos were built in stages on purpose, to teach; a
@@ -21,14 +21,16 @@
 #                                   /26 of the reserved range (cilium/lb-ippool-<cluster>.yaml)
 #   metrics-server                  the CNI                                                     HPA (002), the sysdump
 #   cert-manager, the root, issuer  the CNI; the FIRST cluster's root for every other cluster   SETUP 9.3a, demo 08
-#   the mesh apiserver              the issuer (its certificates), a NodePort                   demo 24
-#   the mesh LINK to a peer         the PEER's apiserver up — pairwise, so it is verified last   demo 24, SETUP 9.5
 #   Hubble (relay, UI, metrics)     the pools (its UI's address), the issuer (its certificates) SETUP 5.4, demos 01/24/25
 #   Tetragon                        the CNI, the /procHost mount, the host kernel symbol        demo 17
-#   ClusterMesh connect             every cluster complete: its apiserver up, one root shared   SETUP 9.4, 9.5, demo 07
+#   ---- a cluster is complete and independent here; nothing above knows a peer exists --------------------------------
+#   the mesh apiserver, declared    EVERY cluster complete; the issuer (its certificates); one  SETUP 9.4, demo 24
+#                                   root shared; every member's address known (all created first)
+#   the mesh verified               every apiserver up — the link is pairwise, checked last     SETUP 9.5, demo 07
 #
-# cluster_up runs the whole column for one cluster and verifies each layer before the next; mesh_connect runs once,
-# after every cluster is complete. Every wait has a deadline; a failed layer prints its evidence and stops the run.
+# cluster_up runs the whole column for one cluster and verifies each layer before the next; mesh_up runs once, after
+# every cluster is complete ("we need both clusters up and independent before creating or running clustermesh steps"
+# — the operator, 2026-09-14). Every wait has a deadline; a failed layer prints its evidence and stops the run.
 # Idempotent: an existing cluster is kept, an installed release is upgraded with the same values.
 set -euo pipefail; cd "$(dirname "$0")/.."
 CLUSTERS="${LAB_CLUSTERS_DIR:-clusters/ci}"
@@ -49,26 +51,6 @@ evidence() { # <ctx> — what to print when a Cilium layer fails
 cilium_healthy() { # <cluster> <what> — SETUP Step 6.1, reused after every change to Cilium
   cilium status --context "kind-$1" --wait --wait-duration 10m --interactive=false > "/tmp/cilium-status-$1.txt" \
     || { cat "/tmp/cilium-status-$1.txt"; evidence "kind-$1"; die "Cilium is not healthy on $1 $2"; }
-}
-cilium_healthy_but_peers() { # <cluster> <peer…> — after the mesh is declared, before every peer is complete
-  # The agents read every peer through their OWN mesh apiserver (KVStoreMesh, chart 1.20.1 default
-  # clustermesh.apiserver.kvstoremesh.enabled=true), so a declared peer that has no apiserver yet is, on every agent,
-  # "controller remote-etcd-<peer> … failed to retrieve cluster configuration: not found" — and `cilium status --wait`
-  # spent its whole 10 minutes on exactly that before dying (run 34791947500). Here those controllers, for the peers
-  # named, are the only errors allowed; anything else is a failure of THIS cluster. The strict check with every peer
-  # complete runs in mesh_connect (SETUP 9.5).
-  local c=$1; shift; local allowed; allowed=$(printf '%s|' "$@"); allowed=${allowed%|}
-  local f="/tmp/cilium-status-$c.txt" other i
-  for i in $(seq 1 30); do
-    cilium status --context "kind-$c" --interactive=false > "$f" 2>&1 || true
-    other=$(awk '/^Errors:/{e=1} /^[A-Za-z]/ && !/^Errors:/{e=0} e' "$f" \
-      | grep -vE "controller remote-etcd-($allowed)(-cluster-config)? is failing" || true)
-    if [ -z "$other" ] && grep -q '^Cluster Pods:' "$f"; then
-      echo "healthy, but for the link to $*: not complete yet — verified once it is (SETUP 9.5)"; return 0
-    fi
-    sleep 10
-  done
-  cat "$f"; evidence "kind-$c"; die "Cilium is not healthy on $c with Hubble and the mesh apiserver (errors beyond the peers not yet complete: $*)"
 }
 
 # ================================================================ SETUP Step 0 / 1 — the requisites, measured
@@ -207,34 +189,22 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "k
   fi
 
   # ---------------------------------------------------------------- Hubble (SETUP 5.4, demos 01/24/25) and the mesh apiserver (demo 24), on what now exists
-  say "Hubble on $c$( [ "$mesh" = 1 ] && echo ', and the mesh declared (demo 24: every member by name, address and port)' ) — one upgrade; certificates from $( [ "$certmanager" = 1 ] && echo 'ClusterIssuer/ca-issuer' || echo 'Helm')"
-  # demo 24's clusters.yaml, from live state: the mesh apiserver's users ConfigMap and the kvstoremesh config are
-  # rendered only when the mesh is declared (chart 1.20.1: clustermesh-apiserver/users-configmap.yaml) — without it
-  # the apiserver's init container waited on a ConfigMap that never came (run 34791073921)
-  local declared=""; if [ "$mesh" = 1 ]; then
-    local i=0 m; for m in "${ALL_CLUSTERS[@]}"; do declared="$declared --set clustermesh.config.clusters[$i].name=$m --set clustermesh.config.clusters[$i].ips[0]=$(cp_ip "$m") --set clustermesh.config.clusters[$i].port=32379"; i=$((i+1)); done
-    declared="--set clustermesh.useAPIServer=true --set clustermesh.apiserver.service.type=NodePort --set clustermesh.config.enabled=true $declared"
-    [ "$certmanager" != 1 ] && declared="$declared --set clustermesh.apiserver.tls.auto.method=helm"
-  fi
-  # shellcheck disable=SC2046,SC2086
+  say "Hubble on $c — one upgrade on the verified core; certificates from $( [ "$certmanager" = 1 ] && echo 'ClusterIssuer/ca-issuer' || echo 'Helm')"
+  # the lab's values file carries relay, UI and metrics as the lab wants them (Step 5 had switched them off with the core)
+  # shellcheck disable=SC2046
   helm upgrade cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" --reuse-values \
-    -f "cilium/values-$c.yaml" --set hubble.enabled=true $( [ "$certmanager" = 1 ] && echo "-f cilium/values-ci-certmanager.yaml" ) $declared --wait --timeout 10m >/dev/null \
-    || { evidence "$ctx"; die "Helm could not enable Hubble$( [ "$mesh" = 1 ] && echo ' and the mesh apiserver' ) on $c"; }
+    -f "cilium/values-$c.yaml" --set hubble.enabled=true $( [ "$certmanager" = 1 ] && echo "-f cilium/values-ci-certmanager.yaml" ) --wait --timeout 10m >/dev/null \
+    || { evidence "$ctx"; die "Helm could not enable Hubble on $c"; }
   [ "$certmanager" = 1 ] && kubectl --context "$ctx" -n kube-system wait certificate --all --for=condition=Ready --timeout=3m >/dev/null
-  # Hubble and the mesh config live in the agent: a Helm change to the ConfigMap rolls nothing by itself (run 34784194103) — restart, then wait
+  # Hubble lives in the agent's ConfigMap: a Helm change there rolls nothing by itself (gotcha #97) — restart, then wait
   kubectl --context "$ctx" -n kube-system rollout restart ds/cilium >/dev/null
   kubectl --context "$ctx" -n kube-system rollout status ds/cilium --timeout=5m >/dev/null
   kubectl --context "$ctx" -n kube-system rollout status deploy/hubble-relay --timeout=5m >/dev/null
-  [ "$mesh" = 1 ] && kubectl --context "$ctx" -n kube-system rollout status deploy/clustermesh-apiserver --timeout=5m >/dev/null
-  local pending=() npending=0 m; for m in "${ALL_CLUSTERS[@]}"; do   # peers declared but not complete yet
-    [ "$m" = "$c" ] && continue; case " $COMPLETE " in *" $m "*) ;; *) pending+=("$m"); npending=$((npending+1));; esac
-  done
-  if [ "$mesh" = 1 ] && [ "$npending" -gt 0 ]; then cilium_healthy_but_peers "$c" "${pending[@]}"
-  else cilium_healthy "$c" "with Hubble$( [ "$mesh" = 1 ] && echo ' and the mesh apiserver' )"; fi
-  grep -E 'Hubble Relay:|ClusterMesh:' "/tmp/cilium-status-$c.txt" | head -2
+  cilium_healthy "$c" "with Hubble"
+  grep -E 'Hubble Relay:' "/tmp/cilium-status-$c.txt" | head -1
   if kubectl --context "$ctx" -n kube-system get svc hubble-ui >/dev/null 2>&1; then
     for i in $(seq 1 24); do ip=$(kubectl --context "$ctx" -n kube-system get svc hubble-ui -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null); [ -n "$ip" ] && break; sleep 5; done
-    echo "hubble-ui LoadBalancer: ${ip:-NO ADDRESS after 2 minutes} (SETUP Step 8: give Hubble UI a real address)"
+    echo "hubble-ui LoadBalancer: ${ip:-NO ADDRESS after 2 minutes} (SETUP Step 8: give Hubble UI a real address, from $c's own block)"
   fi
   [ "$certmanager" = 1 ] && kubectl --context "$ctx" -n kube-system get certificate -o custom-columns='CERTIFICATE:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status,ISSUER:.spec.issuerRef.name' --no-headers
 
@@ -251,31 +221,52 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "k
     kubectl --context "$ctx" -n kube-system rollout status ds/tetragon --timeout=5m >/dev/null || { kubectl --context "$ctx" -n kube-system logs ds/tetragon -c tetragon --tail=20; die "Tetragon's agents did not become ready on $c (demo 17)"; }
     kubectl --context "$ctx" -n kube-system exec ds/tetragon -c tetragon -- tetra status 2>/dev/null | head -3 || true
   fi
-  COMPLETE="$COMPLETE $c"
-  say "$c is complete"
+  say "$c is complete and independent — Cilium, DNS, its own LB block, metrics-server, its issuer, Hubble, Tetragon; no mesh yet"
 }
 
-# ================================================================ the mesh, once every cluster is complete
-mesh_connect() {
-  say "SETUP Step 9.4 — ClusterMesh: $1 <-> $2 (every cluster complete; connect only)"
+# ================================================================ the mesh — a phase on COMPLETE clusters, never inside one
+mesh_up() { # <cluster…> — SETUP Step 9.4 (demo 24's declarative form), then Step 9.5
+  say "SETUP Step 9.4 / demo 24 — the mesh on complete clusters ($*): the apiserver on and every member declared, one upgrade per cluster"
   if [ "$certmanager" = 1 ]; then   # demo 08 Part 3: one trust anchor — the fingerprints compared, not assumed
     local fps; fps=$(for c in "$@"; do kubectl --context "kind-$c" -n cert-manager get secret clustermesh-root-ca -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2; done | sort -u | wc -l | tr -d ' ')
     [ "$fps" = "1" ] || die "the clusters do not share one root CA ($fps distinct fingerprints; demo 08 Part 3)"
     echo "root CA fingerprint identical in $# clusters"
   fi
+  # What `cilium clustermesh enable` sets, as Helm values (cilium-cli clustermesh.go: useAPIServer AND config.enabled — the
+  # apiserver's users ConfigMap is rendered only with config.enabled, gotcha #96), plus the NodePort kind needs. On one
+  # root every member is declared by name, address and port — demo 24's clusters.yaml from live state; "Cilium ignores
+  # the local cluster from the list of remote clusters", so the same list is right in every cluster, and the
+  # declaration IS the connection. On route B the CLI's `connect` writes the list, with each peer's own CA.
+  local declared="--set clustermesh.useAPIServer=true --set clustermesh.apiserver.service.type=NodePort --set clustermesh.config.enabled=true" c i=0
   if [ "$certmanager" = 1 ]; then
-    echo "demo 24: the mesh is DECLARED in every cluster on one root — the declaration is the connection; nothing to copy"
+    for c in "$@"; do declared="$declared --set clustermesh.config.clusters[$i].name=$c --set clustermesh.config.clusters[$i].ips[0]=$(cp_ip "$c") --set clustermesh.config.clusters[$i].port=32379"; i=$((i+1)); done
   else
-    local c; for c in "$@"; do cilium clustermesh status --context "kind-$c" --wait --wait-duration 5m; done
+    declared="$declared --set clustermesh.apiserver.tls.auto.method=helm"
+  fi
+  for c in "$@"; do
+    # shellcheck disable=SC2046,SC2086
+    helm upgrade cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "kind-$c" --reuse-values \
+      -f "cilium/values-$c.yaml" $( [ "$certmanager" = 1 ] && echo "-f cilium/values-ci-certmanager.yaml" ) $declared --wait --timeout 10m >/dev/null \
+      || { evidence "kind-$c"; die "Helm could not switch the mesh apiserver on in $c (SETUP Step 9.4)"; }
+    [ "$certmanager" = 1 ] && kubectl --context "kind-$c" -n kube-system wait certificate --all --for=condition=Ready --timeout=3m >/dev/null
+    echo "$c: mesh apiserver on, $# members declared$( [ "$certmanager" = 1 ] && echo ', certificates Ready from ClusterIssuer/ca-issuer' )"
+  done
+  # the agents read the mesh at start: restarted only now, when every apiserver exists (gotcha #92 was this check too early)
+  for c in "$@"; do
+    kubectl --context "kind-$c" -n kube-system rollout restart ds/cilium >/dev/null
+    kubectl --context "kind-$c" -n kube-system rollout status ds/cilium --timeout=5m >/dev/null
+    kubectl --context "kind-$c" -n kube-system rollout status deploy/clustermesh-apiserver --timeout=5m >/dev/null
+  done
+  if [ "$certmanager" != 1 ]; then
+    for c in "$@"; do cilium clustermesh status --context "kind-$c" --wait --wait-duration 5m; done
     for c in "${@:2}"; do cilium clustermesh connect --context "kind-$1" --destination-context "kind-$c"; done
   fi
-  say "SETUP Step 9.5 — verify the mesh (connecting ≠ connected): every cluster healthy with every peer, then the mesh"
-  local c; for c in "$@"; do cilium_healthy "$c" "with every peer complete (SETUP 9.5)"; echo "$c: $(grep -E 'ClusterMesh:' "/tmp/cilium-status-$c.txt" | head -1 | tr -s ' ')"; done
+  say "SETUP Step 9.5 — verify the mesh (connecting ≠ connected): every cluster healthy with every peer's apiserver up, then the mesh"
+  for c in "$@"; do cilium_healthy "$c" "with the mesh (every peer's apiserver up — SETUP 9.5)"; echo "$c: $(grep -E 'ClusterMesh:' "/tmp/cilium-status-$c.txt" | head -1 | tr -s ' ')"; done
   for c in "$@"; do cilium clustermesh status --context "kind-$c" --wait --wait-duration 10m; done
 }
 
-ALL_CLUSTERS=("$@"); COMPLETE=""   # the clusters already complete, space-separated — what the mesh check may still lack
-for c in "$@"; do cluster_create "$c"; done
-for c in "$@"; do cluster_up "$c"; done
-[ "$mesh" = 1 ] && mesh_connect "$@"
+for c in "$@"; do cluster_create "$c"; done   # every cluster exists first: its address is part of the declaration
+for c in "$@"; do cluster_up "$c"; done       # each complete and independent, in turn
+[ "$mesh" = 1 ] && mesh_up "$@"              # only then the mesh, on all of them
 say "lab up: $*"

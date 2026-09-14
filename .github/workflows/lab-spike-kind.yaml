@@ -32,7 +32,7 @@ jobs:
           - name: base                # the lab as it runs on the laptop (IPv4, veth, tunnel)
             features: ""
             ipfamily: ipv4
-          - name: kernel-features     # what the laptop's VM kernel refused: netkit, bandwidth manager + BBR, BIG TCP, IPv6
+          - name: kernel-features     # what the laptop's VM kernel refused and the runner can run: netkit, IPv6 (BIG TCP and the bandwidth manager: gotcha #103)
             features: "1"
             ipfamily: dual
     name: ${{ matrix.name }}
@@ -97,22 +97,31 @@ jobs:
           # the pool addresses reachable from the RUNNER (the host), and the demo names in /etc/hosts — SETUP Steps 3.5 and 8, measured
           scripts/lab-route.sh kind-poc1
           # every cluster's OWN block (NETWORKING_DESIGN §0): poc2 gets a LoadBalancer Service of its own, and its address —
-          # from poc2's /26, not poc1's — is answered on the bridge and served, measured from the runner like poc1's
+          # from poc2's /26, not poc1's — is answered on the bridge and served, measured from the runner like poc1's.
+          # TCP first (that is what makes the host ARP), then the neighbour table: an L2-announced address is answered
+          # on ARP and served on its ports, but nothing owns it as an interface address, so ICMP goes unanswered —
+          # run 34794243096 printed "NO ANSWER" for three addresses that all served HTTP 200.
           kubectl --context kind-poc2 expose deploy rebel-base --name rebel-base-lb --type LoadBalancer --port 80 --target-port 80
           for c in poc1 poc2; do
-            echo "== $c: its pools, and every LoadBalancer address it holds (ARP from the runner, then HTTP)"
+            echo "== $c: its pools, and every LoadBalancer address it holds (HTTP from the runner, then the ARP neighbour it learned)"
             kubectl --context "kind-$c" get ciliumloadbalancerippools -o custom-columns='POOL:.metadata.name,START:.spec.blocks[*].start,STOP:.spec.blocks[*].stop,CONFLICT:.status.conditions[?(@.type=="cilium.io/PoolConflict")].status' --no-headers
             for i in $(seq 1 24); do pending=$(kubectl --context "kind-$c" get svc -A -o json | jq '[.items[] | select(.spec.type=="LoadBalancer") | select((.status.loadBalancer.ingress // []) | length == 0)] | length'); [ "$pending" = 0 ] && break; sleep 5; done
             kubectl --context "kind-$c" get svc -A -o json | jq -r '.items[] | select(.spec.type=="LoadBalancer") | "\(.metadata.namespace)/\(.metadata.name) \(.status.loadBalancer.ingress[0].ip // "<pending>")"' | while read -r svc ip; do
               printf '  %-34s %-16s ' "$svc" "$ip"
               case "$ip" in \<pending\>) echo "NO ADDRESS"; continue;; esac
-              if ping -c1 -W2 "$ip" >/dev/null 2>&1; then printf 'ARP answers   '; else printf 'NO ANSWER     '; fi
-              code=$(curl -s -o /dev/null -m 8 -w '%{http_code}' "http://$ip/" || true); echo "HTTP ${code:-000}"
+              code=$(curl -s -o /dev/null -m 8 --connect-timeout 3 -w '%{http_code}' "http://$ip/" || true)
+              mac=$(ip neigh show to "$ip" | awk '{for (i = 1; i <= NF; i++) if ($i == "lladdr") print $(i+1)}' | head -1)
+              printf 'HTTP %-4s L2 %s\n' "${code:-000}" "${mac:+ARP answered by $mac}${mac:-NOT answered}"
             done
           done
           kubectl --context kind-poc1 get svc rebel-base -o wide; kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -B1 -A4 rebel | head -12
           kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -i -A3 'rebel\|global' | head -20 || true
 
+      # check-log-errors reads the agents' WHOLE log (no --log-check-only-test-time), so the bring-up's lines count too.
+      # One exception: "Error initially creating lease lock … already exists" is client-go's leader election losing
+      # the race to create an L2 announcement lease when both agents come back from a rollout restart — logged once,
+      # level=error, on one agent of run 34794243096, the lease then acquired normally. The CLI's own exception list
+      # carries the retrieve/update/release variants of the same race, not the create one.
       - name: Connectivity test, multi-cluster (Cilium's own)
         if: ${{ inputs.connectivity_test }}
         timeout-minutes: 45      # the step cannot hang the job: the fourth run sat here 23 minutes with no output; the
@@ -122,7 +131,8 @@ jobs:
           kubectl --context kind-poc1 get nodes -o custom-columns='NODE:.metadata.name,TAINTS:.spec.taints[*].key' --no-headers
           # streamed, not piped through tail: a hang must be visible in the log while it happens
           cilium connectivity test --context kind-poc1 --multi-cluster kind-poc2 --test '!no-unexpected-packet-drops' \
-            --collect-sysdump-on-failure --sysdump-output-filename 'cilium-sysdump-<ts>' 2>&1 | grep -v -E '^\s*$' | sed -u 's/^/  /'
+            --collect-sysdump-on-failure --sysdump-output-filename 'cilium-sysdump-<ts>' \
+            --log-check-extra-exceptions 'Error initially creating lease lock' 2>&1 | grep -v -E '^\s*$' | sed -u 's/^/  /'
           echo "connectivity test took $(( $(date +%s) - start )) s"
 
       - name: Sysdumps on failure

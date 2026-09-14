@@ -41,11 +41,14 @@ esac
 
 say "the addresses the cluster is serving right now (Gateways, LoadBalancer Services)"
 kubectl --context "$CTX" get gateway -A -o custom-columns='NS:.metadata.namespace,GATEWAY:.metadata.name,ADDRESS:.status.addresses[0].value,PROGRAMMED:.status.conditions[?(@.type=="Programmed")].status' --no-headers 2>/dev/null
+# (no f-string here: a backslash-escaped quote inside an f-string expression is a SyntaxError on the runner's
+#  python — "unexpected character after line continuation character", run 34794243096)
 kubectl --context "$CTX" get svc -A -o json | python3 -c '
 import json, sys
 for s in json.load(sys.stdin)["items"]:
     ing = (s["status"].get("loadBalancer") or {}).get("ingress") or []
-    if s["spec"].get("type") == "LoadBalancer": print(f"  {s[\"metadata\"][\"namespace\"]}/{s[\"metadata\"][\"name\"]}  {ing[0][\"ip\"] if ing else \"<pending>\"}")'
+    if s["spec"].get("type") == "LoadBalancer":
+        print("  %s/%s  %s" % (s["metadata"]["namespace"], s["metadata"]["name"], ing[0]["ip"] if ing else "<pending>"))'
 
 say "/etc/hosts from live state (scripts/hosts-entries.sh)"
 block=$(CTX="$CTX" scripts/hosts-entries.sh 2>/dev/null)
@@ -63,10 +66,23 @@ PY
   printf '%s\n' "$block" | grep -v '^#'
 fi
 
-say "reachability from this host, measured"
-for gw in $(kubectl --context "$CTX" get gateway -A -o jsonpath='{range .items[*]}{.status.addresses[0].value}{"\n"}{end}' 2>/dev/null | sort -u); do
-  printf '  ARP/ping %s: ' "$gw"; ping -c1 -W2 "$gw" >/dev/null 2>&1 && echo "answers" || echo "no answer (the L2 announcement — SETUP Step 8 — or the route)"
-done
+say "reachability from this host, measured — TCP to each address (that is what makes the host ARP for it), then the neighbour it learned"
+# Not ping: an L2-announced address is answered on ARP and served on its Service ports; nothing owns it as an interface
+# address, so ICMP to it has no owner to reply — "ARP/ping 172.18.255.241: no answer" beside a working Gateway (run
+# 34794243096). A TCP connect is the probe that both resolves ARP and proves the service; the neighbour table then
+# shows the MAC the L2 lease holder answered with (Linux — on macOS the host never ARPs for it: the route's next hop is
+# the VM, SETUP Step 3.5, and HTTP is the proof).
+probe() { # <address> <what>
+  local code mac=""
+  code=$(curl -s -o /dev/null -m 6 --connect-timeout 3 -w '%{http_code}' "http://$1/" 2>/dev/null || true)
+  case "$(uname -s)" in
+    Linux)  mac=$(ip neigh show to "$1" 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "lladdr") print $(i+1)}' | head -1)
+            printf '  %-16s %-30s L2 %-38s HTTP %s\n' "$1" "$2" "${mac:+ARP answered by $mac}${mac:-NOT answered (SETUP Step 8: the L2 policy, or the route)}" "${code:-000}";;
+    *)      printf '  %-16s %-30s via the VM (SETUP 3.5)%-16s HTTP %s\n' "$1" "$2" "" "${code:-000}";;
+  esac
+}
+while read -r ns name addr; do [ -n "$addr" ] && probe "$addr" "gateway $ns/$name"; done < <(kubectl --context "$CTX" get gateway -A -o jsonpath='{range .items[*]}{.metadata.namespace} {.metadata.name} {.status.addresses[0].value}{"\n"}{end}' 2>/dev/null)
+while read -r ns name addr; do [ -n "$addr" ] && probe "$addr" "service $ns/$name"; done < <(kubectl --context "$CTX" get svc -A -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace} {.metadata.name} {.status.loadBalancer.ingress[0].ip}{"\n"}{end}' 2>/dev/null)
 for name in $(printf '%s\n' "${block:-}" | grep -v '^#' | awk '{for(i=2;i<=NF;i++) print $i}'); do
   code=$(curl -sk -o /dev/null -m 8 -w '%{http_code}' "https://$name/" 2>/dev/null || true); [ "$code" = "000" ] && code=$(curl -s -o /dev/null -m 8 -w '%{http_code}' "http://$name/" 2>/dev/null || true)
   printf '  %-28s HTTP %s\n' "$name" "${code:-000}"
