@@ -129,10 +129,12 @@ jobs:
         run: |
           start=$(date +%s)
           kubectl --context kind-poc1 get nodes -o custom-columns='NODE:.metadata.name,TAINTS:.spec.taints[*].key' --no-headers
-          # streamed, not piped through tail: a hang must be visible in the log while it happens
+          # streamed, not piped through tail: a hang must be visible in the log while it happens. --line-buffered, or grep
+          # flushes in 4 KB blocks and the log's timestamps are the flushes, not the events (run 34794243096: eighteen
+          # "Waiting for …" lines stamped 01:06:43, the next batch 01:11:26)
           cilium connectivity test --context kind-poc1 --multi-cluster kind-poc2 --test '!no-unexpected-packet-drops' \
             --collect-sysdump-on-failure --sysdump-output-filename 'cilium-sysdump-<ts>' \
-            --log-check-extra-exceptions 'Error initially creating lease lock' 2>&1 | grep -v -E '^\s*$' | sed -u 's/^/  /'
+            --log-check-extra-exceptions 'Error initially creating lease lock' 2>&1 | grep --line-buffered -v -E '^\s*$' | sed -u 's/^/  /'
           echo "connectivity test took $(( $(date +%s) - start )) s"
 
       - name: Sysdumps on failure

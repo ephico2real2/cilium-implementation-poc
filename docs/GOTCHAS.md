@@ -2226,7 +2226,8 @@ complete inside the per-cluster check; run 34794243096 went through on it — `l
 nodes are connected to all clusters` on both — and Cilium's connectivity test then flagged what that ordering had
 left in poc1's agent log: `Failed waiting for clustermesh synchronization, expect possible disruption of
 cross-cluster connections`, logged at the restart that happened while poc2 had no Cilium. The phase design made
-the tolerant check unnecessary and removes the warning at its source, and that code went.
+the tolerant check unnecessary and removes the warning at its source, and that code went — run 34796271073:
+`lab up: poc1 poc2` in 445 s, `All 87 tests (512 actions) successful`, the log check clean.
 
 **The lesson:** a status line that names ANOTHER cluster is not this cluster's health. Read which controller is
 failing before trusting a "not healthy": `remote-etcd-<name>` is the link to `<name>`, and a link cannot be
