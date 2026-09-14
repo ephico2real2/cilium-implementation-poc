@@ -85,7 +85,9 @@ bank() {
   say "demos 15 + 19 — the bank in both clusters, its routes, and the zero-trust cell's rendered policies"
   # bankdemo:local is the lab's own image: scripts/lab-images.sh builds it and loads it into every cluster BEFORE the labs
   # (a node cannot pull what exists only in the host's Docker — run 34903231161); here it is only checked
-  for c in "$CTX" "$PEER_CTX"; do docker exec "${c#kind-}-control-plane" crictl images 2>/dev/null | grep -q 'bankdemo' || die "bankdemo:local is not in ${c#kind-}'s nodes — scripts/lab-images.sh first"; done
+  # captured, then searched: `… | grep -q` closes the pipe on the first match and, under pipefail, the producer's SIGPIPE
+  # became the check's failure on one node of two (run 34908075674) — gotcha #93's shape
+  local imgs; for c in "$CTX" "$PEER_CTX"; do imgs=$(docker exec "${c#kind-}-control-plane" crictl images 2>/dev/null || true); printf '%s\n' "$imgs" | grep -q 'bankdemo' || die "bankdemo:local is not in ${c#kind-}'s nodes — scripts/lab-images.sh first"; done
   kubectl --context "$PEER_CTX" apply -f demos/15-bank/10-poc2.yaml >/dev/null; sleep 2; kubectl --context "$PEER_CTX" apply -f demos/15-bank/10-poc2.yaml >/dev/null   # the SA race the guide names
   kubectl --context "$PEER_CTX" -n bank rollout status sts/postgres --timeout=5m >/dev/null; kubectl --context "$PEER_CTX" -n bank rollout status deploy/accounts deploy/payments --timeout=5m >/dev/null
   k apply -f demos/15-bank/20-poc1.yaml >/dev/null; sleep 2; k apply -f demos/15-bank/20-poc1.yaml >/dev/null

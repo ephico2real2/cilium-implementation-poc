@@ -2260,6 +2260,10 @@ run. A verified layer prints its evidence or dies; it does not warn.
 
 Run 34794243096: `external name resolved (probe 1): Address: 1.1.1.1` on poc1, `1.0.0.1` on poc2, no warning.
 
+The same shape, a second time (run 34908075674): `docker exec <node> crictl images | grep -q bankdemo` under
+`pipefail` — `grep -q` exits on its first match, `crictl` still has lines to write, and the check failed on one node
+of two while the image was on both. Captured first, then searched, like the probe.
+
 **The lesson:** `pipefail` makes every early-exiting consumer (`grep -m1`, `head`) a failure signal for the
 producer to its left. When the interesting exit code is the producer's, do not put a consumer that stops early on
 its right; capture, then filter.
