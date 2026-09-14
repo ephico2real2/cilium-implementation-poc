@@ -70,5 +70,21 @@ fall back to IPv4-only with a warning unless `LAB_IPFAMILY=dual`, which dies by 
 
 Ten claims; four held by both, four refuted or risked by both on the same points (the empty Docker fields, the
 doubled MAC, the reruns, the macOS route), Codex alone on the masked suite and the watcher, Cursor alone on the
-route-B `connect` and the IPv6 network. Every accepted fix has a stub test in the session log and is measured by the
-runs that follow this record.
+route-B `connect` and the IPv6 network. Every accepted fix has a stub test in the session log and was measured by the
+two runs on the fixed head (`4618cc0`):
+
+| Run | Route | `lab up` | The mesh | Cilium's suite |
+|---|---|---|---|---|
+| [34864635454](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/34864635454) | A, cert-manager's root | 480 s / 542 s | `2 members declared`, `agents: cilium-config and the DaemonSet unchanged, no restart`, `1/1 remote clusters ready` on both | `All 87 tests successful`, both jobs — now with `pipefail`, so a failure would be red |
+| [34865986688](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/34865986688) | **B, Helm certificates** — the first time route B ran anywhere but the laptop | 359 s / 504 s | `cilium-ca fingerprint identical in 2 clusters`, the same declaration, no `connect` | `All 87 tests successful`, both jobs |
+
+What the runs settled beyond the claims: the Hubble upgrade changes the DaemonSet template (`generation 1 → 2`,
+Helm rolls it), the mesh upgrade changes nothing the agents restart for, and the peers reach them through the
+watcher — C2 measured, not only read. The first route-B attempt (run 34865986688's predecessor, 34864652168)
+stopped on `Secret "cilium-ca" … exists and cannot be imported into the current release: invalid ownership
+metadata`: a copied Secret is not Helm's. SETUP 9.3b's "clean way" — the first cluster's CA passed as
+`tls.ca.cert`/`tls.ca.key` to the other clusters' install — is what the script does now.
+
+One line in every run to know about: `Unable to contact Hubble Relay, disabling Hubble telescope and flow
+validation` — the lab's relay requires a client certificate (demo 25's mTLS), which the CLI does not present; the
+suite runs without flow validation. Phase 2 gives the CLI the client certificate or measures without it, by choice.
