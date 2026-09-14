@@ -150,10 +150,20 @@ jobs:
           echo "== demo 25 — check.sh 1 (observer → collector → Loki → Grafana → cf2cnp)"; demos/25-hubble-observer-loki/check.sh 1 2>&1 | head -40 || true
           echo "== the Hubble metrics Prometheus holds (a sample)"; kubectl --context kind-poc1 get --raw '/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=sum(hubble_policy_verdicts_total)%20by%20(action)' 2>/dev/null | python3 -c 'import json,sys; [print("  ", r["metric"], r["value"][1]) for r in json.load(sys.stdin)["data"]["result"]]' || true
 
-      - name: Captures — Grafana's dashboards, the Hubble UI, cf2cnp (Playwright, the demos' own way)
+      # The pages, through the reusable browser action: Playwright pinned and cached on the runner, the pages a JSON spec
+      # (scripts/capture/lab.json) — a new endpoint is a new entry. The addresses come from the cluster, the names resolve
+      # inside Chromium.
+      - name: The addresses the pages live at
+        id: addr
         run: |
-          set -o pipefail
-          mkdir -p captures; scripts/lab-capture.sh captures 2>&1 | tee captures/capture.log
+          echo "gw=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}')" >> "$GITHUB_OUTPUT"
+          echo "hubble=$(kubectl --context kind-poc1 -n kube-system get svc hubble-ui -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" >> "$GITHUB_OUTPUT"
+      - name: Captures — Grafana's dashboards, the Hubble UI, cf2cnp
+        uses: ./.github/actions/browser-walk
+        with:
+          spec: scripts/capture/lab.json
+          out: captures
+          env-json: '{"GW":"${{ steps.addr.outputs.gw }}","HUBBLE":"${{ steps.addr.outputs.hubble }}","GRAFANA_PASSWORD":"poc-grafana"}'
 
       # check-log-errors reads the agents' WHOLE log (no --log-check-only-test-time), so the bring-up's lines count too.
       # One exception: "Error initially creating lease lock … already exists" is client-go's leader election losing

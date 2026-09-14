@@ -1,0 +1,37 @@
+# browser-walk — Playwright on the runner, pinned and cached, driven through a JSON spec of pages: the lab's dashboards
+# today, any endpoint of the operator's choice tomorrow (a new entry in the spec, not new code). Chromium resolves the
+# lab's names itself from the spec's "resolve" map, so no /etc/hosts. Outputs a PNG and an evidence line per page.
+name: browser walk (Playwright)
+description: Drive Chromium through the pages of a JSON spec — screenshots and evidence lines, no /etc/hosts needed
+inputs:
+  spec:               {description: the JSON spec of pages (scripts/capture/walk.js's format), default: scripts/capture/lab.json}
+  out:                {description: the directory for the PNGs and the log, default: captures}
+  playwright-version: {description: the Playwright release, pinned, default: "1.63.0"}
+  env-json:           {description: 'extra variables for the spec''s ${VAR}s, as JSON, e.g. {"GW":"172.18.255.240"}', default: "{}"}
+runs:
+  using: composite
+  steps:
+    - name: Playwright ${{ inputs.playwright-version }} and Chromium (cached by version)
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          .tmp/pw/node_modules
+          ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ inputs.playwright-version }}
+    - name: Install when not cached
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        mkdir -p .tmp/pw && cd .tmp/pw && npm init -y >/dev/null && npm i --no-audit --no-fund "playwright@${{ inputs.playwright-version }}" >/dev/null
+        npx playwright install --with-deps chromium >/dev/null 2>&1
+    - name: The OS libraries Chromium needs (present on a cache hit too)
+      shell: bash
+      run: cd .tmp/pw && npx playwright install-deps chromium >/dev/null 2>&1 || true
+    - name: Walk
+      shell: bash
+      run: |
+        mkdir -p "${{ inputs.out }}"
+        eval "$(echo '${{ inputs.env-json }}' | python3 -c 'import json,sys,shlex; [print(f"export {k}={shlex.quote(str(v))}") for k,v in json.load(sys.stdin).items()]')"
+        S="${{ inputs.out }}" NODE_PATH="$PWD/.tmp/pw/node_modules" node scripts/capture/walk.js "${{ inputs.spec }}" 2>&1 | tee "${{ inputs.out }}/walk.log"
+        ls -la "${{ inputs.out }}"/*.png 2>/dev/null | awk '{print "  " $5, $9}'
