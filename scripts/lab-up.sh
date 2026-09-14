@@ -143,13 +143,18 @@ cluster_up() {
   # ---------------------------------------------------------------- SETUP Step 4 — the API server endpoint, by the name in its certificate
   host="$c-control-plane"; docker ps --format '{{.Names}}' | grep -qx "$c-external-load-balancer" && host="$c-external-load-balancer"
   echo "SETUP Step 4 — k8sServiceHost=$host"
-  if [ "$c" != "$first" ] && [ "$certmanager" != "1" ] && ! kubectl --context "$ctx" -n kube-system get secret cilium-ca >/dev/null 2>&1; then
-    # SETUP Step 9.3b, route B only: one Helm CA everywhere — copied BEFORE Cilium is installed (the chart reuses it)
-    kubectl --context "kind-$first" -n kube-system get secret cilium-ca -o json | python3 -c '
-import json, sys
-s = json.load(sys.stdin)
-print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "Opaque"), "metadata": {"name": "cilium-ca", "namespace": "kube-system"}, "data": s["data"]}))' | kubectl --context "$ctx" apply -f - >/dev/null
-    echo "SETUP Step 9.3b — cilium-ca copied from $first"
+  # SETUP Step 9.3b, route B only — the guide's "clean way": the FIRST cluster's Helm CA passed to every other cluster's
+  # install as tls.ca.cert/key (base64 PEM, the chart's common CA), so the chart renders each cluster's cilium-ca itself.
+  # A copied Secret is not Helm's: "Secret cilium-ca exists and cannot be imported into the current release: invalid
+  # ownership metadata" (run 34864652168, the first route-B run) — that was gotcha #20's neighbour, now measured.
+  local -a ca_args=()
+  if [ "$c" != "$first" ] && [ "$certmanager" != "1" ]; then
+    local ca_crt ca_key
+    ca_crt=$(kubectl --context "kind-$first" -n kube-system get secret cilium-ca -o jsonpath='{.data.ca\.crt}' 2>/dev/null || true)
+    ca_key=$(kubectl --context "kind-$first" -n kube-system get secret cilium-ca -o jsonpath='{.data.ca\.key}' 2>/dev/null || true)
+    [ -n "$ca_crt" ] && [ -n "$ca_key" ] || die "route B: $first has no cilium-ca to share yet (SETUP Step 9.3b) — its Hubble step renders it"
+    ca_args=(--set-string "tls.ca.cert=$ca_crt" --set-string "tls.ca.key=$ca_key")
+    echo "SETUP Step 9.3b — $first's cilium-ca passed as tls.ca.cert/key: one Helm CA in every cluster, rendered by the chart"
   fi
 
   # ---------------------------------------------------------------- SETUP Step 5 / 9.2 — Cilium's CORE (Hubble comes when its needs exist)
@@ -163,7 +168,7 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "O
     helm install cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" \
       -f "cilium/values-$c.yaml" -f cilium/values-ci.yaml ${LAB_FEATURES:+-f cilium/values-ci-features.yaml} \
       --set k8sServiceHost="$host" --set k8sServicePort=6443 --set gatewayAPI.enabled=true --set gatewayAPI.enableAlpn=true \
-      --set hubble.enabled=false --set hubble.relay.enabled=false --set hubble.ui.enabled=false >/dev/null \
+      --set hubble.enabled=false --set hubble.relay.enabled=false --set hubble.ui.enabled=false ${ca_args[@]+"${ca_args[@]}"} >/dev/null \
       || die "Helm refused the Cilium install on $c (SETUP Step 5)"
   fi
   # (the chart's validate.yaml refuses a relay or a UI without hubble.enabled — run 34790879335 — so all three are off
