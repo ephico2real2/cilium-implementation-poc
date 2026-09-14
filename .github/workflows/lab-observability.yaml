@@ -1,0 +1,202 @@
+# Enhancement 004, phases 1 and 2 — the observability lab on a GitHub-hosted runner: lab-route-b.yaml's clusters and
+# mesh (set up complete and independent, the mesh available), then the monitoring stack laid on top from the demos'
+# own files — demo 09's Gateway, 16 (kube-prometheus-stack, the Cilium and Hubble metrics, the dashboards), 21 (Tempo),
+# 10/22/23 (the collector per cluster), 25 (Loki, hubble-observer from the operator's fork with cf2cnp and the verdicts
+# dashboard, cf2cnp behind the Gateway), 18 (OBI) — then the sample applications demos 26–35 work on with one round of
+# their traffic, the demos' own summaries, and the pages captured. Route A: demo 25's relay client certificate, the CLI's
+# certificate and the Gateway's wildcard are cert-manager Certificates from the enterprise root (demos 08 and 24).
+# The base shape (IPv4, veth, tunnel): the shape every one of those demos was captured on.
+name: lab observability (kind) — demos 09/16/18/21/23/25, the labs of 26–35, captures
+
+on:
+  workflow_dispatch:
+    inputs:
+      connectivity_test:
+        description: run `cilium connectivity test --multi-cluster` at the end (about 15 minutes more)
+        type: boolean
+        default: false
+      obi:
+        description: demo 18 (OBI) on both clusters — eBPF instrumentation, the heaviest of the stacks
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  KIND_VERSION: v0.33.0
+  KUBECTL_VERSION: v1.36.4
+  CILIUM_CLI_VERSION: v0.20.0   # 0.19.7 did not know 1.20's CiliumCIDRGroup v2 ("no kind is registered for the type v2alpha1.CiliumCIDRGroupList" in the sysdump)
+  CILIUM_VERSION: "1.20.1"
+  HUBBLE_CLI_VERSION: "1.19.4"   # the laptop's (SETUP Step 1)
+
+jobs:
+  two-clusters-meshed:
+    runs-on: ubuntu-24.04
+    # one job, the base shape: the demos were captured on IPv4, veth and the tunnel, and the stacks are the load here
+    name: observability
+    timeout-minutes: 150
+    env:
+      LAB_FEATURES: ""
+      LAB_IPFAMILY: ipv4
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: The runner
+        run: |
+          uname -r; nproc; free -m; df -h / | tail -1; docker version --format 'docker {{.Server.Version}}'; helm version --short
+          # BBR is a module on Ubuntu (tcp_bbr); a kind node shares the host kernel and cannot load it, the host must
+          sudo modprobe tcp_bbr || true
+          echo "congestion=$(cat /proc/sys/net/ipv4/tcp_available_congestion_control)"
+          # the same measured table a MacBook prints (scripts/lab-preflight.sh): the kernel's netkit, Tetragon's symbol,
+          # the node image for this CPU, IPv6 on a docker network — lab-up.sh runs it again, strictly
+          scripts/lab-preflight.sh
+
+      - name: kind and kubectl (pinned, install only)
+        uses: helm/kind-action@v1.14.0
+        with:
+          version: ${{ env.KIND_VERSION }}
+          kubectl_version: ${{ env.KUBECTL_VERSION }}
+          install_only: true
+
+      - name: Hubble CLI (pinned) — the demo scripts' `hubble observe`
+        run: |
+          curl -sSL --fail --retry 5 --retry-all-errors --retry-delay 3 -o hubble.tgz "https://github.com/cilium/hubble/releases/download/v${HUBBLE_CLI_VERSION}/hubble-linux-amd64.tar.gz"
+          sudo tar -C /usr/local/bin -xzf hubble.tgz hubble && rm hubble.tgz && hubble version
+
+      - name: Cilium CLI (pinned)
+        uses: cilium/cilium-cli@v0.20.0
+        with:
+          release-version: ${{ env.CILIUM_CLI_VERSION }}
+          skip-build: true
+
+      - name: Bring the lab up — poc1, poc2, meshed
+        id: up
+        run: |
+          # pipefail: `lab-up.sh | tee` reported tee's exit status, and run 34789240547 went green past a Helm timeout
+          set -o pipefail
+          start=$(date +%s)
+          # route A: the stack's certificates (the relay's mTLS client, the CLI's, the Gateway's wildcard) are cert-manager's
+          scripts/lab-up.sh poc1 poc2 2>&1 | tee lab-up.log
+          echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+
+      - name: What it cost
+        run: |
+          echo "lab-up took ${{ steps.up.outputs.seconds }} s"
+          free -m; docker stats --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}}'
+          for ctx in kind-poc1 kind-poc2; do
+            echo "-- $ctx"; kubectl --context $ctx get nodes -o wide; kubectl --context $ctx -n kube-system get pods -o wide | grep -E 'cilium|hubble|clustermesh'
+            kubectl --context $ctx -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --brief
+            kubectl --context $ctx -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --verbose | grep -E 'KubeProxyReplacement|ClusterMesh|Routing|Masquerading|Hubble|Device Mode|BIG TCP|BandwidthManager|IPv6|Encryption|Host firewall'
+          done
+          cilium clustermesh status --context kind-poc1; cilium clustermesh status --context kind-poc2
+          for ctx in kind-poc1 kind-poc2; do kubectl --context $ctx -n kube-system get ds tetragon -o custom-columns='DS:.metadata.name,READY:.status.numberReady,WANT:.status.desiredNumberScheduled' --no-headers; done
+
+      - name: A Gateway with an address from the pool, an L2-announced LoadBalancer, a global service
+        run: |
+          kubectl --context kind-poc1 apply -f demos/05-gateway-api/gateway.yaml
+          for i in $(seq 1 30); do a=$(kubectl --context kind-poc1 get gateway -A -o jsonpath='{.items[0].status.addresses[0].value}' 2>/dev/null); [ -n "$a" ] && break; sleep 5; done
+          echo "gateway address: ${a:-NONE}"; kubectl --context kind-poc1 get gateway -A
+          [ -n "$a" ] || { echo "::error::the Gateway got no address from the pool"; exit 1; }
+          kubectl --context kind-poc1 apply -f demos/07-clustermesh/global-service.yaml; kubectl --context kind-poc2 apply -f demos/07-clustermesh/global-service.yaml
+          kubectl --context kind-poc1 apply -f demos/07-clustermesh/backend-poc1.yaml; kubectl --context kind-poc2 apply -f demos/07-clustermesh/backend-poc2.yaml
+          kubectl --context kind-poc1 rollout status deploy/rebel-base --timeout=5m; kubectl --context kind-poc2 rollout status deploy/rebel-base --timeout=5m
+          # the pool addresses reachable from the RUNNER (the host), and the demo names in /etc/hosts — SETUP Steps 3.5 and 8, measured
+          scripts/lab-route.sh kind-poc1
+          # every cluster's OWN block (NETWORKING_DESIGN §0): poc2 gets a LoadBalancer Service of its own, and its address —
+          # from poc2's /26, not poc1's — is answered on the bridge and served, measured from the runner like poc1's.
+          # TCP first (that is what makes the host ARP), then the neighbour table: an L2-announced address is answered
+          # on ARP and served on its ports, but nothing owns it as an interface address, so ICMP goes unanswered —
+          # run 34794243096 printed "NO ANSWER" for three addresses that all served HTTP 200.
+          kubectl --context kind-poc2 expose deploy rebel-base --name rebel-base-lb --type LoadBalancer --port 80 --target-port 80
+          for c in poc1 poc2; do
+            echo "== $c: its pools, and every LoadBalancer address it holds (HTTP from the runner, then the ARP neighbour it learned)"
+            kubectl --context "kind-$c" get ciliumloadbalancerippools -o custom-columns='POOL:.metadata.name,START:.spec.blocks[*].start,STOP:.spec.blocks[*].stop,CONFLICT:.status.conditions[?(@.type=="cilium.io/PoolConflict")].status' --no-headers
+            for i in $(seq 1 24); do pending=$(kubectl --context "kind-$c" get svc -A -o json | jq '[.items[] | select(.spec.type=="LoadBalancer") | select((.status.loadBalancer.ingress // []) | length == 0)] | length'); [ "$pending" = 0 ] && break; sleep 5; done
+            kubectl --context "kind-$c" get svc -A -o json | jq -r '.items[] | select(.spec.type=="LoadBalancer") | "\(.metadata.namespace)/\(.metadata.name) \(.status.loadBalancer.ingress[0].ip // "<pending>")"' | while read -r svc ip; do
+              printf '  %-34s %-16s ' "$svc" "$ip"
+              case "$ip" in \<pending\>) echo "NO ADDRESS"; continue;; esac
+              code=$(curl -s -o /dev/null -m 8 --connect-timeout 3 -w '%{http_code}' "http://$ip/" || true)
+              mac=$(ip neigh show to "$ip" | awk '{for (i = 1; i <= NF; i++) if ($i == "lladdr") print $(i+1)}' | head -1)
+              if [ -n "$mac" ]; then l2="ARP answered by $mac"; else l2="NOT answered"; fi   # not ${mac:+…}${mac:-…}: both halves expand when set (review, N2)
+              printf 'HTTP %-4s L2 %s\n' "${code:-000}" "$l2"
+            done
+          done
+          kubectl --context kind-poc1 get svc rebel-base -o wide; kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -B1 -A4 rebel | head -12
+          kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -i -A3 'rebel\|global' | head -20 || true
+
+      # The stacks, from the demos' own files, in dependency order (scripts/lab-stack.sh's table), on the meshed lab
+      - name: The observability stack — demos 09, 16, 21, 10/22/23, 25, 18, the CLI's certificate
+        run: |
+          set -o pipefail
+          steps="routes monitoring tempo collectors loki-observer"
+          [ "${{ inputs.obi }}" = "true" ] && steps="$steps obi"
+          steps="$steps hubble-cli"
+          scripts/lab-stack.sh $steps 2>&1 | tee stack.log
+          echo "== what it costs with the stacks up"; free -m | head -2; docker stats --no-stream --format '  {{.Name}} {{.CPUPerc}} {{.MemUsage}}'
+
+      # The sample applications of demos 26–35 with one round of their traffic — so every dashboard has flows to show
+      - name: The labs of demos 26, 27, 30, 32, 35 and their traffic
+        run: |
+          set -o pipefail
+          scripts/lab-apps.sh all 2>&1 | tee apps.log
+
+      # What the demos would read next — their own summaries, run as the guides run them (the numbers are the evidence)
+      - name: The demos' summaries — 26 verify.sh, 30 l7-summary.sh, 35 verdicts.sh, 25 check.sh
+        run: |
+          echo "== demo 26 — verify.sh (Hubble's verdicts in cf2cnp-lab, with the policy that decided)"; demos/26-cf2cnp-policy-from-flows/verify.sh 5m 2>&1 | head -30 || true
+          echo "== demo 30 — l7-summary.sh cf2cnp-lab30 (method+path pairs from the proxy's flows)"; demos/30-l7-rules/l7-summary.sh cf2cnp-lab30 200 2>&1 | head -30 || true
+          echo "== demo 35 — verdicts.sh (the platform's audited pairs)"; demos/35-shop-platform/verdicts.sh 200 2>&1 | head -40 || true
+          echo "== demo 25 — check.sh 1 (observer → collector → Loki → Grafana → cf2cnp)"; demos/25-hubble-observer-loki/check.sh 1 2>&1 | head -40 || true
+          echo "== the Hubble metrics Prometheus holds (a sample)"; kubectl --context kind-poc1 get --raw '/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=sum(hubble_policy_verdicts_total)%20by%20(action)' 2>/dev/null | python3 -c 'import json,sys; [print("  ", r["metric"], r["value"][1]) for r in json.load(sys.stdin)["data"]["result"]]' || true
+
+      - name: Captures — Grafana's dashboards, the Hubble UI, cf2cnp (Playwright, the demos' own way)
+        run: |
+          set -o pipefail
+          mkdir -p captures; scripts/lab-capture.sh captures 2>&1 | tee captures/capture.log
+
+      # check-log-errors reads the agents' WHOLE log (no --log-check-only-test-time), so the bring-up's lines count too.
+      # One exception: "Error initially creating lease lock … already exists" is client-go's leader election losing
+      # the race to create an L2 announcement lease when both agents come back from a rollout restart — logged once,
+      # level=error, on one agent of run 34794243096, the lease then acquired normally. The CLI's own exception list
+      # carries the retrieve/update/release variants of the same race, not the create one.
+      - name: Connectivity test, multi-cluster (Cilium's own)
+        if: ${{ inputs.connectivity_test }}
+        timeout-minutes: 45      # the step cannot hang the job: the fourth run sat here 23 minutes with no output; the
+                                 # fifth spent 30 on DNS retries (fixed in lab-up.sh: CoreDNS upstreams)
+        run: |
+          # pipefail: the suite's exit code is the step's — run 34794243096 reported "1/87 tests failed" and both jobs were
+          # green, because grep and sed were the last commands of the pipe (review of 004, N1)
+          set -o pipefail
+          start=$(date +%s)
+          kubectl --context kind-poc1 get nodes -o custom-columns='NODE:.metadata.name,TAINTS:.spec.taints[*].key' --no-headers
+          # streamed, not piped through tail: a hang must be visible in the log while it happens. --line-buffered, or grep
+          # flushes in 4 KB blocks and the log's timestamps are the flushes, not the events (run 34794243096: eighteen
+          # "Waiting for …" lines stamped 01:06:43, the next batch 01:11:26)
+          cilium connectivity test --context kind-poc1 --multi-cluster kind-poc2 --test '!no-unexpected-packet-drops' \
+            --collect-sysdump-on-failure --sysdump-output-filename 'cilium-sysdump-<ts>' \
+            --log-check-extra-exceptions 'Error initially creating lease lock' 2>&1 | grep --line-buffered -v -E '^\s*$' | sed -u 's/^/  /'
+          echo "connectivity test took $(( $(date +%s) - start )) s"
+
+      - name: Sysdumps on failure
+        if: failure()
+        run: |
+          cilium sysdump --context kind-poc1 --output-filename cilium-sysdump-poc1-final || true
+          cilium sysdump --context kind-poc2 --output-filename cilium-sysdump-poc2-final || true
+
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-observability
+          path: |
+            lab-up.log
+            stack.log
+            apps.log
+            captures/
+            cilium-sysdump-*.zip
+          if-no-files-found: ignore
+
+      - name: Down
+        if: always()
+        run: scripts/lab-down.sh || true
