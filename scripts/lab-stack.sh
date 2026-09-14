@@ -103,6 +103,9 @@ step_collectors() {
   k apply -f demos/23-collector-per-cluster/10-collector-service.yaml >/dev/null          # the per-cluster Service name apps rely on
   k apply -f demos/22-multicluster-observability/20-tempo-central-service.yaml >/dev/null  # the role-named global Service: poc1's Tempo for every cluster
   if kubectl --context "$PEER_CTX" get nodes >/dev/null 2>&1; then
+    # a global Service is the same name in the same namespace in every cluster (demo 22): the peer has no monitoring
+    # stack, so the namespace exists there only for this Service (run 34888325967: "namespaces monitoring not found")
+    kubectl --context "$PEER_CTX" create namespace monitoring --dry-run=client -o yaml | kubectl --context "$PEER_CTX" apply -f - >/dev/null
     kubectl --context "$PEER_CTX" apply -f demos/22-multicluster-observability/20-tempo-central-service.yaml >/dev/null
     kubectl --context "$PEER_CTX" apply -f demos/23-collector-per-cluster/20-otel-collector-poc2.yaml >/dev/null
     kubectl --context "$PEER_CTX" -n otel rollout status deploy/otel-collector --timeout=5m >/dev/null   # demo 23: a Deployment, the cluster's gateway
