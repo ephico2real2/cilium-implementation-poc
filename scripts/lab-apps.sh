@@ -83,13 +83,9 @@ sw_traffic() { # the two requests the demo makes: allowed by L7, denied by L7 (a
 }
 bank() {
   say "demos 15 + 19 — the bank in both clusters, its routes, and the zero-trust cell's rendered policies"
-  # the bank is the lab's own image, built from demos/15-bank/app and loaded into every cluster (the README's first two
-  # commands) — a fresh runner has neither, and the pods sat in ImagePullBackOff behind a rollout timeout (run 34903231161)
-  if ! docker image inspect bankdemo:local >/dev/null 2>&1; then
-    docker build -q -t bankdemo:local -f demos/15-bank/app/Containerfile demos/15-bank/app >/dev/null || die "the bank image did not build (demos/15-bank/app/Containerfile)"
-  fi
-  for c in "${CTX#kind-}" "${PEER_CTX#kind-}"; do kind load docker-image bankdemo:local --name "$c" >/dev/null 2>&1 || die "kind load of bankdemo:local into $c failed"; done
-  echo "bankdemo:local built and loaded into ${CTX#kind-} and ${PEER_CTX#kind-}"
+  # bankdemo:local is the lab's own image: scripts/lab-images.sh builds it and loads it into every cluster BEFORE the labs
+  # (a node cannot pull what exists only in the host's Docker — run 34903231161); here it is only checked
+  for c in "$CTX" "$PEER_CTX"; do docker exec "${c#kind-}-control-plane" crictl images 2>/dev/null | grep -q 'bankdemo' || die "bankdemo:local is not in ${c#kind-}'s nodes — scripts/lab-images.sh first"; done
   kubectl --context "$PEER_CTX" apply -f demos/15-bank/10-poc2.yaml >/dev/null; sleep 2; kubectl --context "$PEER_CTX" apply -f demos/15-bank/10-poc2.yaml >/dev/null   # the SA race the guide names
   kubectl --context "$PEER_CTX" -n bank rollout status sts/postgres --timeout=5m >/dev/null; kubectl --context "$PEER_CTX" -n bank rollout status deploy/accounts deploy/payments --timeout=5m >/dev/null
   k apply -f demos/15-bank/20-poc1.yaml >/dev/null; sleep 2; k apply -f demos/15-bank/20-poc1.yaml >/dev/null

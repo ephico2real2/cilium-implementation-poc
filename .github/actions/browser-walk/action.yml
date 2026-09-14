@@ -46,7 +46,9 @@ runs:
         set -o pipefail
         OUT="${{ inputs.out }}"; BR="${{ inputs.publish-branch }}"; REPO="${{ github.repository }}"
         ls "$OUT"/*.png >/dev/null 2>&1 || { echo "no captures to publish" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; }
-        WF=$(echo "${{ github.workflow }}" | tr -c 'A-Za-z0-9._-' '-' | sed 's/-*$//'); DIR="$(date -u +%Y-%m-%dT%H%MZ)_${WF}_run${{ github.run_id }}-${{ github.run_attempt }}_${{ github.job }}"
+        # the workflow's FILE name (lab-observability), not its display name — the first published folder carried the
+        # display name mangled to 80 characters of dashes
+        REF="${{ github.workflow_ref }}"; REF="${REF%%@*}"; WF=$(basename "$REF" | sed -E 's/\.ya?ml$//'); DIR="$(date -u +%Y-%m-%dT%H%MZ)_${WF}_run${{ github.run_id }}-${{ github.run_attempt }}_${{ github.job }}"
         git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
         rm -rf .tmp/cap; git worktree prune
         if git ls-remote --exit-code --heads origin "$BR" >/dev/null 2>&1; then git fetch -q origin "$BR" && git worktree add -q .tmp/cap "origin/$BR"

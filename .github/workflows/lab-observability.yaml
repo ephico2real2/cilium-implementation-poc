@@ -129,6 +129,13 @@ jobs:
           kubectl --context kind-poc1 get svc rebel-base -o wide; kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -B1 -A4 rebel | head -12
           kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -i -A3 'rebel\|global' | head -20 || true
 
+      # The lab's own images, built from their Containerfiles and loaded into both clusters before anything names them
+      # (a kind node pulls from registries, not from the host's Docker): the operator's "build the images first" (2026-09-14)
+      - name: The lab's images — built, loaded into every cluster
+        run: |
+          set -o pipefail
+          scripts/lab-images.sh poc1 poc2 2>&1 | tee images.log
+
       # The stacks, from the demos' own files, in dependency order (scripts/lab-stack.sh's table), on the meshed lab
       - name: The observability stack — demos 09, 16, 21, 10/22/23, 25, 18, the CLI's certificate
         run: |
@@ -215,6 +222,7 @@ jobs:
           name: lab-observability
           path: |
             lab-up.log
+            images.log
             stack.log
             apps.log
             traffic.log
