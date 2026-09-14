@@ -62,10 +62,9 @@ helm repo add jetstack https://charts.jetstack.io >/dev/null 2>&1 || true       
 helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ >/dev/null 2>&1 || true
 helm repo update cilium jetstack metrics-server >/dev/null
 
-# ================================================================ one cluster, complete
-cluster_up() {
-  local c="$1" ctx="kind-$1" cfg host n ip
-  # ---------------------------------------------------------------- SETUP Step 3 / 9.1 — the cluster
+# ================================================================ SETUP Step 3 / 9.1 — every cluster first: the mesh declaration (demo 24) needs every control plane's IP
+cluster_create() {
+  local c="$1" cfg n
   say "SETUP Step $( [ "$c" = "$first" ] && echo 3 || echo 9.1 ) — create $c (kind, no CNI, no kube-proxy, the lab's CIDRs)"
   cfg="$CLUSTERS/$c.yaml"
   if [ "${LAB_IPFAMILY:-ipv4}" = "dual" ]; then   # the lab's IPv4 ranges plus a ULA range per cluster (poc1 fd00:1:…, poc2 fd00:2:…)
@@ -75,7 +74,12 @@ cluster_up() {
   if kind get clusters 2>/dev/null | grep -qx "$c"; then echo "kind cluster $c exists, kept"; else kind create cluster --config "$cfg" --wait 0; fi
   local subnet; subnet=$(docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' | tr ' ' '\n' | grep -m1 '\.')
   [ "$subnet" = "172.18.0.0/16" ] || die "the kind docker network is $subnet; the lab's pools expect 172.18.0.0/16 (cilium/lb-ippool.yaml, SETUP Step 8)"
+}
+cp_ip() { docker inspect "$1-control-plane" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'; }   # demo 24: the address the other clusters reach the mesh apiserver at (NodePort 32379)
 
+# ================================================================ one cluster, complete
+cluster_up() {
+  local c="$1" ctx="kind-$1" host ip
   # ---------------------------------------------------------------- demo 05 — the Gateway API CRDs, before Cilium
   say "demo 05 — Gateway API $GATEWAY_API_VERSION CRDs on $c (vendored: crds/gateway-api)"
   GATEWAY_API_VERSION="$GATEWAY_API_VERSION" scripts/gateway-api-crds.sh "$ctx"
@@ -147,12 +151,18 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "k
   fi
 
   # ---------------------------------------------------------------- Hubble (SETUP 5.4, demos 01/24/25) and the mesh apiserver (demo 24), on what now exists
-  say "Hubble on $c$( [ "$mesh" = 1 ] && echo ' and the mesh apiserver' ) — one upgrade; certificates from $( [ "$certmanager" = 1 ] && echo 'ClusterIssuer/ca-issuer' || echo 'Helm')"
-  # shellcheck disable=SC2046
+  say "Hubble on $c$( [ "$mesh" = 1 ] && echo ', and the mesh declared (demo 24: every member by name, address and port)' ) — one upgrade; certificates from $( [ "$certmanager" = 1 ] && echo 'ClusterIssuer/ca-issuer' || echo 'Helm')"
+  # demo 24's clusters.yaml, from live state: the mesh apiserver's users ConfigMap and the kvstoremesh config are
+  # rendered only when the mesh is declared (chart 1.20.1: clustermesh-apiserver/users-configmap.yaml) — without it
+  # the apiserver's init container waited on a ConfigMap that never came (run 34791073921)
+  local declared=""; if [ "$mesh" = 1 ]; then
+    local i=0 m; for m in "${ALL_CLUSTERS[@]}"; do declared="$declared --set clustermesh.config.clusters[$i].name=$m --set clustermesh.config.clusters[$i].ips[0]=$(cp_ip "$m") --set clustermesh.config.clusters[$i].port=32379"; i=$((i+1)); done
+    declared="--set clustermesh.useAPIServer=true --set clustermesh.apiserver.service.type=NodePort --set clustermesh.config.enabled=true $declared"
+    [ "$certmanager" != 1 ] && declared="$declared --set clustermesh.apiserver.tls.auto.method=helm"
+  fi
+  # shellcheck disable=SC2046,SC2086
   helm upgrade cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" --reuse-values \
-    -f "cilium/values-$c.yaml" --set hubble.enabled=true $( [ "$certmanager" = 1 ] && echo "-f cilium/values-ci-certmanager.yaml" ) \
-    $( [ "$mesh" = 1 ] && echo "--set clustermesh.useAPIServer=true --set clustermesh.apiserver.service.type=NodePort" ) \
-    $( [ "$mesh" = 1 ] && [ "$certmanager" != 1 ] && echo "--set clustermesh.apiserver.tls.auto.method=helm" ) --wait --timeout 10m >/dev/null \
+    -f "cilium/values-$c.yaml" --set hubble.enabled=true $( [ "$certmanager" = 1 ] && echo "-f cilium/values-ci-certmanager.yaml" ) $declared --wait --timeout 10m >/dev/null \
     || { evidence "$ctx"; die "Helm could not enable Hubble$( [ "$mesh" = 1 ] && echo ' and the mesh apiserver' ) on $c"; }
   [ "$certmanager" = 1 ] && kubectl --context "$ctx" -n kube-system wait certificate --all --for=condition=Ready --timeout=3m >/dev/null
   # Hubble and the mesh config live in the agent: a Helm change to the ConfigMap rolls nothing by itself (run 34784194103) — restart, then wait
@@ -192,12 +202,18 @@ mesh_connect() {
     [ "$fps" = "1" ] || die "the clusters do not share one root CA ($fps distinct fingerprints; demo 08 Part 3)"
     echo "root CA fingerprint identical in $# clusters"
   fi
-  for c in "$1" "$2"; do cilium clustermesh status --context "kind-$c" --wait --wait-duration 5m; done
-  cilium clustermesh connect --context "kind-$1" --destination-context "kind-$2"
+  if [ "$certmanager" = 1 ]; then
+    echo "demo 24: the mesh is DECLARED in every cluster on one root — the declaration is the connection; nothing to copy"
+  else
+    for c in "$1" "$2"; do cilium clustermesh status --context "kind-$c" --wait --wait-duration 5m; done
+    cilium clustermesh connect --context "kind-$1" --destination-context "kind-$2"
+  fi
   say "SETUP Step 9.5 — verify the mesh (connecting ≠ connected)"
   for c in "$1" "$2"; do cilium clustermesh status --context "kind-$c" --wait --wait-duration 10m; done
 }
 
+ALL_CLUSTERS=("$@")
+for c in "$@"; do cluster_create "$c"; done
 for c in "$@"; do cluster_up "$c"; done
 [ "$mesh" = 1 ] && mesh_connect "$@"
 say "lab up: $*"
