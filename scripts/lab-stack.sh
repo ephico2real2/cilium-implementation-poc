@@ -54,6 +54,10 @@ step_routes() {
   # cert-manager watches Gateways only with this setting (demo 09 Part 2); --reuse-values keeps crds.enabled
   helm upgrade cert-manager jetstack/cert-manager -n cert-manager --kube-context "$CTX" --reuse-values --set config.gatewayAPI.enabled=true --wait --timeout 5m >/dev/null
   k apply -f demos/09-routes/01-gateway.yaml >/dev/null
+  # cert-manager's gateway shim creates the Certificates from the listeners' hostnames a few seconds after the Gateway
+  # exists; `kubectl wait` on an object that is not there yet fails at once (run 34887012554), so: exist first, then Ready
+  local _i; for _i in $(seq 1 30); do k -n routes get certificate wildcard-poc-local-tls >/dev/null 2>&1 && break; sleep 4; done
+  k -n routes get certificate wildcard-poc-local-tls >/dev/null 2>&1 || { k -n cert-manager logs deploy/cert-manager --tail=20; die "cert-manager created no Certificate for routes-gw's listeners in 2 minutes (demo 09 Part 2: config.gatewayAPI.enabled)"; }
   k -n routes wait certificate/wildcard-poc-local-tls --for=condition=Ready --timeout=3m >/dev/null
   local _i a=""; for _i in $(seq 1 30); do a=$(k -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}' 2>/dev/null); [ -n "$a" ] && break; sleep 4; done
   [ "$a" = "172.18.255.240" ] || die "routes-gw got '${a:-no address}', the demo pins 172.18.255.240 (gotcha #13; is the pool applied?)"
