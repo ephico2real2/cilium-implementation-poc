@@ -39,7 +39,7 @@ laptop, a router, a switch/LAN, servers on that LAN, and services that float acr
 
 | Layer | In a real data centre | In this PoC | Created by |
 |---|---|---|---|
-| **4. Service addresses (VIPs)** | Addresses that belong to a *service*, not to one server. Announced by the servers via ARP on the LAN (L2), or via BGP to the router (L3). Move when a server dies. | `172.18.255.200–250`, announced by whichever node holds the Cilium L2 lease | Cilium LB IPAM + `CiliumL2AnnouncementPolicy` (`cilium/lb-ippool.yaml`) |
+| **4. Service addresses (VIPs)** | Addresses that belong to a *service*, not to one server. Announced by the servers via ARP on the LAN (L2), or via BGP to the router (L3). Move when a server dies. **Each cluster owns its own block of the VIP range** — clusters share the LAN, never an address. | the reserved `172.18.255.0/24`, one /26 per cluster: poc1 `.192/26` (`.200–250`), poc2 `.128/26` (`.136–186`), each announced by whichever of ITS nodes holds the Cilium L2 lease | Cilium LB IPAM + `CiliumL2AnnouncementPolicy`, one file per cluster (`cilium/lb-ippool-poc1.yaml`, `cilium/lb-ippool-poc2.yaml`) |
 | **3. Servers (NICs on the LAN)** | Bare-metal or VMware hosts, each with a NIC plugged into the access switch, addresses from the LAN's DHCP/static plan | kind nodes = Docker containers, each with `eth0` on the bridge: `172.18.0.2 … .0.10` | `kind create cluster` (Docker allocates from the bottom of the subnet) |
 | **2. The LAN / switch** | A VLAN on the access switch, e.g. `10.50.20.0/24`, with the router's interface as `.1` | Docker bridge network `kind` = `172.18.0.0/16`, Linux bridge `br-e1180494aacf`, gateway `172.18.0.1` | `docker network create kind` (kind does it for you the first time) |
 | **1. The router / the client's path in** | The core/distribution router with a route to the VLAN; the client's laptop on a different network reaches the VLAN *through* it | **macOS:** the Mac is the router, next hop is the Docker VM (`192.168.64.2` over `bridge100`). **Linux:** the host *is* the router, it holds `172.18.0.1` on the bridge itself | `sudo route -n add …` (macOS); nothing (Linux) |
@@ -214,6 +214,24 @@ Three things to read off that output, because they are the design:
    would have to allocate ~65,000 containers before it reached them. If two pools overlapped,
    Cilium marks the later one `Conflicting` and allocates nothing from it — `CONFLICT False` on
    both is the check.
+4. **Every cluster owns a block of its own — the VIP range is subdivided, not shared.** A cluster is
+   a complete system before it joins any mesh, and its service addresses are part of that. All
+   clusters announce on the SAME bridge, and LB IPAM allocates per cluster (one operator, one
+   cluster; the [LB IPAM docs](https://docs.cilium.io/en/stable/network/lb-ipam/) describe no
+   coordination between clusters), so one pool file applied to two clusters hands out the same
+   address twice and both answer ARP for it. The reserved top `/24` is carved into `/26` blocks
+   with one layout inside each — plain Services at base+8…+47, Gateways at base+48…+58:
+
+   | Block | Cluster | Services pool | Gateway pool | File |
+   |---|---|---|---|---|
+   | `172.18.255.192/26` | poc1 | `.200–.239` | `.240–.250` | `cilium/lb-ippool-poc1.yaml` |
+   | `172.18.255.128/26` | poc2 | `.136–.175` | `.176–.186` | `cilium/lb-ippool-poc2.yaml` |
+   | `172.18.255.64/26` | poc3, when a third cluster exists | `.72–.111` | `.112–.122` | — |
+   | `172.18.255.0/26` | shared VIPs — a pool present in every cluster that announces them | | | enhancement 002 |
+
+   The CI lab creates the docker network with `--ip-range 172.18.0.0/17` (`scripts/lab-up.sh`), so
+   Docker can never allocate a container address in the top half at all. This is the enterprise
+   shape: one VIP VLAN, a block per cluster, DNS pointing into each block.
 
 ---
 
@@ -280,7 +298,7 @@ fc00:f853:ccd:e793::/64 gw fc00:f853:ccd:e793::1
 ```
 
 If your subnet is not `172.18.0.0/16` (Docker picks the first free `172.x.0.0/16`), every
-`172.18` below becomes your value — the pools in `cilium/lb-ippool.yaml` included.
+`172.18` below becomes your value — the pools in `cilium/lb-ippool-poc1.yaml` included.
 
 Then create the cluster (SETUP Step 3). The nodes attach to the bridge and take addresses from the
 bottom:
@@ -570,7 +588,7 @@ Take `scripts/network-plan.sh` output and this table into the meeting.
 |---|---|
 | Enabling `kernelForUDP`, and why it must precede cluster creation | `docs/SETUP.md` Step 2.3b, Step 2.7 |
 | The route, derived value by value, with the failure modes | `docs/SETUP.md` Step 3.5 (3.5.1–3.5.5), and the no-sudo alternative 3.5b |
-| The two LB IPAM pools and the L2 policy, with the API-version trap | `docs/SETUP.md` Step 8, `cilium/lb-ippool.yaml`, README finding #2 |
+| The two LB IPAM pools and the L2 policy, with the API-version trap | `docs/SETUP.md` Step 8, `cilium/lb-ippool-poc1.yaml`, README finding #2 |
 | Pinning a Gateway's address on the path that propagates | `docs/GOTCHAS.md` #13, `demos/09-routes/01-gateway.yaml` |
 | Wildcard TLS + DNS into the Gateway range | `demos/09-routes/README.md`, `scripts/hosts-entries.sh` |
 | Reprint the live plan | `scripts/network-plan.sh` |

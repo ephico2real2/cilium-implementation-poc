@@ -161,7 +161,7 @@ sudo route -n add -net 172.18.0.0/16 192.168.64.2
 ## Finding — the two Cilium load-balancer CRDs are on different API versions
 
 ```
-$ kubectl apply -f cilium/lb-ippool.yaml
+$ kubectl apply -f cilium/lb-ippool-poc1.yaml
 Warning: cilium.io/v2alpha1 CiliumLoadBalancerIPPool is deprecated; use cilium.io/v2
 ```
 

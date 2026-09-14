@@ -86,7 +86,7 @@ hubble:
     # service below.
     enabled: true
     service:
-      # LoadBalancer so Cilium's own LB IPAM hands it an address from cilium/lb-ippool.yaml,
+      # LoadBalancer so Cilium's own LB IPAM hands it an address from cilium/lb-ippool-poc1.yaml,
       # instead of needing a port-forward.
       #
       # SET IT HERE, NOT WITH `kubectl patch`. An imperative patch on a Helm-managed Service is
@@ -124,7 +124,7 @@ hubble:
 # ---------------------------------------------------------------------------------------------
 # kind has no cloud load balancer, so a Service of type LoadBalancer would sit <pending> forever and
 # Gateway API would never get an address. Rather than add MetalLB, use Cilium's own two features:
-#   - LB IPAM hands out IPs from a CiliumLoadBalancerIPPool (see cilium/lb-ippool.yaml)
+#   - LB IPAM hands out IPs from a CiliumLoadBalancerIPPool (see cilium/lb-ippool-poc1.yaml)
 #   - L2 announcements answer ARP for those IPs so they are reachable on the docker bridge
 # One less component, and it is itself a Cilium capability worth showing.
 l2announcements:

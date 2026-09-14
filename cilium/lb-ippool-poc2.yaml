@@ -1,0 +1,50 @@
+# LoadBalancer addresses for poc2 — the cluster's OWN block of the docker network's reserved range, in TWO pools.
+#
+# Apply with:
+#   kubectl --context kind-poc2 apply -f cilium/lb-ippool-poc2.yaml
+#
+# poc2 is a complete cluster before it is a mesh peer, and that includes its service addresses:
+# it holds the /26 below it in the subdivision of 172.18.255.0/24 (cilium/lb-ippool-poc1.yaml
+# carries the whole table and the reasoning; NETWORKING_DESIGN.md §0 the layer it belongs to).
+# Same layout as poc1's block, offset by one /26: base 172.18.255.128 — plain Services at
+# base+8 … base+47, Gateways at base+48 … base+58. Nothing here overlaps poc1's .192/26, so the two
+# clusters can announce on one bridge without ever answering ARP for the same address.
+#
+# The two pools, the complementary selectors on io.cilium.gateway/owning-gateway and the L2 policy
+# are poc1's exactly — one design, two instances.
+apiVersion: "cilium.io/v2"
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: kind-docker-pool          # the SERVICES pool
+spec:
+  blocks:
+    - start: "172.18.255.136"
+      stop: "172.18.255.175"      # 40 addresses for plain LoadBalancer Services
+  serviceSelector:
+    matchExpressions:
+      - key: io.cilium.gateway/owning-gateway
+        operator: DoesNotExist    # anything that is NOT a Gateway
+---
+apiVersion: "cilium.io/v2"
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: gateway-pool              # RESERVED FOR CILIUM GATEWAY API
+spec:
+  blocks:
+    - start: "172.18.255.176"
+      stop: "172.18.255.186"      # 11 addresses for Services Cilium generates for a Gateway
+  serviceSelector:
+    matchExpressions:
+      - key: io.cilium.gateway/owning-gateway
+        operator: Exists          # only Services Cilium generated for a Gateway
+---
+# L2 ANNOUNCEMENTS: make the addresses above actually answerable on the bridge (covers both pools).
+apiVersion: "cilium.io/v2alpha1"
+kind: CiliumL2AnnouncementPolicy
+metadata:
+  name: kind-l2-announce
+spec:
+  interfaces:
+    - ^eth0$
+  externalIPs: false
+  loadBalancerIPs: true

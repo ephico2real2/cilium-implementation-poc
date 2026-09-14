@@ -1,7 +1,23 @@
-# LoadBalancer addresses for kind, carved out of the DOCKER NETWORK — in TWO pools.
+# LoadBalancer addresses for poc1 — the cluster's OWN block of the docker network's reserved range, in TWO pools.
 #
 # Apply with:
-#   kubectl apply -f cilium/lb-ippool.yaml
+#   kubectl --context kind-poc1 apply -f cilium/lb-ippool-poc1.yaml
+#
+# ONE BLOCK PER CLUSTER. A cluster is a complete system before it joins any mesh, and its service
+# addresses are part of that. Every cluster on the `kind` bridge answers ARP for its LoadBalancer
+# addresses on the SAME segment, and LB IPAM is a per-cluster allocator (one operator, one cluster;
+# the LB IPAM docs describe no coordination between clusters) — so two clusters handed one pool
+# file would allocate the same address twice and both would answer for it. The reserved range
+# 172.18.255.0/24 is therefore subdivided, one /26 per cluster, the SAME layout inside each block
+# (base+8 … base+47 for plain Services, base+48 … base+58 for Gateways; NETWORKING_DESIGN.md §0):
+#
+#   172.18.255.192/26   poc1     services .200–.239   gateways .240–.250   THIS FILE
+#   172.18.255.128/26   poc2     services .136–.175   gateways .176–.186   cilium/lb-ippool-poc2.yaml
+#   172.18.255.64/26    poc3     services .72–.111    gateways .112–.122   when a third cluster exists
+#   172.18.255.0/26     shared   VIPs a pool in EVERY announcing cluster may hold (enhancement 002)
+#
+# Docker allocates container addresses only from 172.18.0.0/17 (scripts/lab-up.sh creates the
+# network with --ip-range), so nothing else can ever land in 172.18.255.0/24.
 #
 # WHY TWO POOLS. A Gateway and a plain LoadBalancer Service are different things to operate: the
 # Gateway range is what DNS points at (the wildcard *.poc.local resolves into it), what a firewall
@@ -22,9 +38,10 @@
 # .200-.250; it is shrunk to .200-.239 in the SAME apply that adds .240-.250, so the two never
 # overlap at any point.
 #
-# WHY THIS TOP SLICE OF 172.18.0.0/16. Docker's IPAM allocates container addresses from the
-# bottom upward (.2, .3, ...), so a pool at the far top can never collide with a node. Confirm the
-# subnet on your machine first: docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}'
+# WHY THE TOP OF 172.18.0.0/16. Docker's IPAM allocates container addresses from the bottom
+# upward (.2, .3, ...), so a block at the far top can never collide with a node even on a network
+# kind created without --ip-range. Confirm the subnet on your machine first:
+#   docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}'
 #
 # MACOS: these addresses are reachable from the host only with kernelForUDP and the host route
 # (SETUP 2.3b and 3.5). That is a host/VM boundary; no in-cluster load balancer changes it.

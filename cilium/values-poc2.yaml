@@ -21,9 +21,12 @@
 #     DNS:poc2-control-plane; it does not list every address the container might be given, and
 #     Docker reassigns those on restart. See SETUP.md Step 5.3 for the failure this avoids.
 #
-#  3. No LB IPAM or L2 announcements. poc2 hosts no Gateway and no LoadBalancer Service; it exists
-#     to be the far side of the mesh. Leaving them out keeps the cluster small on a laptop already
-#     running poc1's five nodes.
+#  3. Its OWN LoadBalancer block, announced by its OWN L2 policy. A cluster is a complete system
+#     before it is a mesh peer, and its service addresses are part of that: poc2 holds
+#     172.18.255.128/26 of the reserved range (cilium/lb-ippool-poc2.yaml), poc1 holds .192/26 —
+#     one layout, one block per cluster, so two clusters on one bridge never answer ARP for the same
+#     address. (An earlier revision left LB IPAM and L2 off here "to keep the laptop small"; that made
+#     poc2 an appendage of poc1, and a lab built for testing does the right thing.)
 cluster:
   name: poc2
   id: 2
@@ -56,6 +59,16 @@ bpf:
   masquerade: true
 
 l7Proxy: true
+
+# LoadBalancer addresses without a cloud — poc2's own block (see 3. above). LB IPAM hands out
+# addresses from cilium/lb-ippool-poc2.yaml; L2 announcements answer ARP for them on the bridge.
+l2announcements:
+  enabled: true
+# L2 announcements lease-hammer the API server at default settings; the values Cilium's own docs
+# suggest for small clusters (the same as poc1's).
+k8sClientRateLimit:
+  qps: 50
+  burst: 100
 
 hubble:
   enabled: true

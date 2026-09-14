@@ -39,7 +39,7 @@ spec:
   # simply the next free one. Gateway API's spec.infrastructure.annotations is defined as
   # "annotations that SHOULD be applied to any resources created in response to this Gateway",
   # and Cilium advertises GatewayInfrastructurePropagation. The IP must sit inside gateway-pool
-  # (cilium/lb-ippool.yaml), the only pool whose selector matches a Gateway-owned Service.
+  # (cilium/lb-ippool-poc1.yaml), the only pool whose selector matches a Gateway-owned Service.
   infrastructure:
     annotations:
       lbipam.cilium.io/ips: "172.18.255.240"

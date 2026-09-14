@@ -14,7 +14,7 @@
 # alongside. One dataplane does policy, load balancing and ingress.
 #
 # WHERE ITS ADDRESS COMES FROM. Cilium creates a Service of type LoadBalancer for this Gateway.
-# On kind that would normally sit <pending> forever, which is why cilium/lb-ippool.yaml exists:
+# On kind that would normally sit <pending> forever, which is why cilium/lb-ippool-poc1.yaml exists:
 # LB IPAM assigns an address out of the kind docker subnet and L2 announcements make it answerable.
 # No MetalLB, no kube-vip.
 apiVersion: gateway.networking.k8s.io/v1
@@ -28,7 +28,7 @@ spec:
   # simply the next free one. Gateway API's spec.infrastructure.annotations is defined as
   # "annotations that SHOULD be applied to any resources created in response to this Gateway",
   # and Cilium advertises GatewayInfrastructurePropagation. The IP must sit inside gateway-pool
-  # (cilium/lb-ippool.yaml), the only pool whose selector matches a Gateway-owned Service.
+  # (cilium/lb-ippool-poc1.yaml), the only pool whose selector matches a Gateway-owned Service.
   infrastructure:
     annotations:
       lbipam.cilium.io/ips: "172.18.255.241"

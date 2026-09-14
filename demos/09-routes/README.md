@@ -27,7 +27,7 @@ Every response names the app that served it, so the output is the evidence.
 All output is in [`output/transcript.txt`](output/transcript.txt).
 
 > **Addresses changed on 2026-09-11.** A dedicated pool was reserved for Gateways
-> (`cilium/lb-ippool.yaml`): `routes-gw` moved **`.202 → .240`**, and demo 05's `sw-gateway`
+> (`cilium/lb-ippool-poc1.yaml`): `routes-gw` moved **`.202 → .240`**, and demo 05's `sw-gateway`
 > **`.200 → .241`**. Command examples below use the new addresses; **captured output quoted from
 > before the change still shows the old ones** — it is a record, not an error. The live values
 > always come from `scripts/hosts-entries.sh`.
@@ -171,7 +171,7 @@ sudo mkdir -p /etc/resolver
 sudo sh -c 'echo "nameserver 127.0.0.1" > /etc/resolver/poc.local'
 ```
 
-`address=/.poc.local/` answers **every** `*.poc.local` with the Gateway's address — which sits in the **reserved Gateway range** `172.18.255.240–250` (`cilium/lb-ippool.yaml`), so the wildcard can never land on a plain Service, and the
+`address=/.poc.local/` answers **every** `*.poc.local` with the Gateway's address — which sits in the **reserved Gateway range** `172.18.255.240–250` (`cilium/lb-ippool-poc1.yaml`), so the wildcard can never land on a plain Service, and the
 `/etc/resolver/poc.local` file tells macOS to send only that domain to dnsmasq. This is the option
 that makes the wildcard *certificate* useful with a wildcard *name*: invent `foo.poc.local`, add an
 HTTPRoute, and it resolves and terminates TLS with no further change.
@@ -438,7 +438,7 @@ fragile in exactly the way gotcha #13 describes, and it also blurs an operationa
 address DNS points at, a firewall names and a bookmark holds should be *a Gateway address by
 construction*, not by allocation order.
 
-`cilium/lb-ippool.yaml` now defines **two pools with complementary selectors** on the label Cilium
+`cilium/lb-ippool-poc1.yaml` now defines **two pools with complementary selectors** on the label Cilium
 puts on every Gateway-generated Service, `io.cilium.gateway/owning-gateway`:
 
 | Pool | Range | Selector | Draws from it |

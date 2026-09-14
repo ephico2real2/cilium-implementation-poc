@@ -27,7 +27,7 @@ the files those commands use are in [`clusters/`](clusters/) (the kind cluster d
 | 4 | the API server endpoint Cilium must use (the load balancer by DNS name, not IP — a TLS SAN lesson) | [Step 4 — find the API server endpoint Cilium must use](docs/SETUP.md#step-4--find-the-api-server-endpoint-cilium-must-use) |
 | 5 | **install Cilium**: `helm repo add cilium https://helm.cilium.io/` then `helm install cilium cilium/cilium --version 1.20.1 -n kube-system -f cilium/values-poc1.yaml …` — kube-proxy replacement, Hubble with relay mTLS from day one, cluster name/id ([`cilium/values-poc1.yaml`](cilium/values-poc1.yaml)) | [Step 5 — install Cilium](docs/SETUP.md#step-5--install-cilium) |
 | 6 | verify: `cilium status --wait`, `hubble status`, no kube-proxy anywhere | [Step 6 — verify the install](docs/SETUP.md#step-6--verify-the-install) |
-| 8 | LoadBalancer addresses from Cilium's own LB IPAM ([`cilium/lb-ippool.yaml`](cilium/lb-ippool.yaml)) | [Step 8 — LoadBalancer addresses without a cloud (and without MetalLB or kube-vip)](docs/SETUP.md#step-8--loadbalancer-addresses-without-a-cloud-and-without-metallb-or-kube-vip) |
+| 8 | LoadBalancer addresses from Cilium's own LB IPAM ([`cilium/lb-ippool-poc1.yaml`](cilium/lb-ippool-poc1.yaml)) | [Step 8 — LoadBalancer addresses without a cloud (and without MetalLB or kube-vip)](docs/SETUP.md#step-8--loadbalancer-addresses-without-a-cloud-and-without-metallb-or-kube-vip) |
 | 9 | **the second cluster and ClusterMesh**: `clusters/poc2.yaml`, `cilium/values-poc2.yaml`, the shared CA, the join | [Step 9 — the second cluster and ClusterMesh](docs/SETUP.md#step-9--the-second-cluster-and-clustermesh) |
 
 Steps 10 onward install what each demo adds, in the demo's order. There is no Makefile: every step is
@@ -44,7 +44,7 @@ endpoint by DNS name, the second cluster's disjoint CIDRs) and the **network lay
 | In this lab (Docker Desktop, kind) | In a real homelab / production-capable cluster |
 |---|---|
 | pod and service CIDRs chosen inside the `kind` docker bridge; node IPs are container IPs on that bridge (172.18.0.0/16); the two clusters can only mesh because they share it | a real subnet plan: routable node networks, non-overlapping pod/service CIDRs per cluster, and a route (or a tunnel) between the clusters' networks |
-| LoadBalancer addresses handed out by Cilium's LB IPAM from a slice of the docker bridge (`cilium/lb-ippool.yaml`), reached from macOS through a static route into the Docker VM (Step 3.5) | an LB pool on a real VLAN, announced by L2 or BGP (demo 12 parks BGP for exactly this reason) |
+| LoadBalancer addresses handed out by Cilium's LB IPAM from a slice of the docker bridge (`cilium/lb-ippool-poc1.yaml`), reached from macOS through a static route into the Docker VM (Step 3.5) | an LB pool on a real VLAN, announced by L2 or BGP (demo 12 parks BGP for exactly this reason) |
 | **DNS:** every hostname — `bank`, `grafana`, `petclinic`, `cf2cnp`, `web`, `grpc`, `deathstar`, `hubble` … `.poc.local` — is written into the MacBook's `/etc/hosts` by each demo's `hosts-entries.sh`, all pointing at the one Gateway address `172.18.255.240`; nothing resolves the names for the pods or for anyone else | a **wildcard A record `*.poc.local` → the Gateway's LoadBalancer address** in the homelab's DNS zone (one record replaces every `hosts-entries.sh`), with exact records only where a listener is exact (`exact.example.test` in demo 09); or external-dns creating records from the HTTPRoutes' hostnames; the pods use the same zone through CoreDNS forwarding (gotcha #63 is the Docker VM's upstream, not a design) |
 | **TLS:** one **wildcard certificate `*.poc.local`** on the Gateway's `https-wildcard` listener (`wildcard-poc-local-tls`), issued by **cert-manager from the demo 08 enterprise root** (`ClusterIssuer/ca-issuer`, 90-day validity, renewed automatically), plus an exact-name certificate for the exact listener; the Mac trusts the root by passing `docs/root-ca.crt` to `curl` and the browser | the same Gateway listener and the same cert-manager `Certificate` — issued by the enterprise CA (a real PKI root or intermediate, the root distributed to workstations through the OS trust store, not a `--cacert` flag) or, for a public zone, by an ACME issuer with DNS-01 (the only ACME path that can issue a wildcard); the listener's `certificateRefs` do not change |
 | the ClusterMesh API server as a NodePort on a control-plane container IP (`clusters.yaml`) | a LoadBalancer or a DNS name per cluster (`address:` in the guide's `clusters.yaml`), with the shared CA provisioned before the join (demo 08/24) |
@@ -145,7 +145,7 @@ unchanged, with BGP substituted for L2 in production.
    a fourth, a client namespace that must only go through the gateway — one request, six policies whose
    descriptions read like the architecture (cf2cnp 0.6.3).
 9. **[docs/POLICY-TEST-RESULTS.md](docs/POLICY-TEST-RESULTS.md)** is the one-page answer to "what was tested and what happened" for every generated network policy (demos 26–35) and for cf2cnp's own test layers.
-10. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 91 traps, each with the real error
+10. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 94 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -367,7 +367,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 91 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 94 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 
@@ -418,7 +418,7 @@ containing both therefore needs *two different* `apiVersion` values. Check rathe
 kubectl api-resources | grep -iE 'loadbalancerippool|l2announcement'
 ```
 
-See NETWORKING_DESIGN.md §0 and §3, SETUP.md Step 8 and `cilium/lb-ippool.yaml`.
+See NETWORKING_DESIGN.md §0 and §3, SETUP.md Step 8 and `cilium/lb-ippool-poc1.yaml`.
 
 ### 3. Finish ALL Docker Desktop settings BEFORE creating any cluster
 

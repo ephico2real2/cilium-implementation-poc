@@ -308,7 +308,7 @@ spec:
 **And the pin only works inside a pool whose selector matches the Service** — from the docs,
 *"requested IPs will not be allocated or assigned if the services don't match the pool's
 selector."* Which is why the Gateway range is a **separate pool** selected on
-`io.cilium.gateway/owning-gateway` (see `cilium/lb-ippool.yaml`).
+`io.cilium.gateway/owning-gateway` (see `cilium/lb-ippool-poc1.yaml`).
 
 **The lesson:** a pin you never verified propagated is not a pin. Check the *generated* object's
 annotations, not the one you wrote.
@@ -2187,6 +2187,101 @@ problem.
 
 **The lesson:** when a dashboard goes red, read the pod's `lastState` before the queries: `reason: Completed` with
 exit 0 after a liveness event is the kubelet's doing, and the cure is the probe, not the panel.
+
+## <a name="92"></a>92. The mesh declared before the peer exists — `cilium status --wait` spends its whole timeout on `remote-etcd-<peer>`
+
+**Where:** the CI lab (enhancement 004), `scripts/lab-up.sh` finishing poc1 with Hubble and the mesh apiserver in one
+upgrade, poc2 created but with no Cilium yet. Runs 34791947500 and 34792046715, all four jobs, the same way:
+
+```text
+== Hubble on poc1, and the mesh declared (demo 24: every member by name, address and port) — one upgrade  (00:15:25)
+    \__/       ClusterMesh:        OK
+Deployment             clustermesh-apiserver    Desired: 1, Ready: 1/1, Available: 1/1
+Errors:  cilium  cilium-442h9  controller remote-etcd-poc2 is failing since 1m2s (3x): failed to retrieve cluster configuration: not found
+         cilium  cilium-442h9  controller remote-etcd-poc2-cluster-config is failing since 4s (11x): not found
+Error: Unable to determine status:  timeout while waiting for status to become successful: context deadline exceeded
+##[error]Cilium is not healthy on poc1 with Hubble and the mesh apiserver   (00:26:34)
+```
+
+Eleven minutes on one line, then the run dies — "things just stop here and stay for like forever" (the operator,
+watching it).
+
+**What happened:** demo 24's shape declares every member of the mesh in every cluster (`clustermesh.config.clusters`:
+name, address, port), and the lab does that when it finishes each cluster, because the mesh apiserver's users
+ConfigMap is rendered only from that declaration (run 34791073921, gotcha #96). But the agents act on
+the declaration at once. With KVStoreMesh — the chart's default, `clustermesh.apiserver.kvstoremesh.enabled: true`
+("caches the information retrieved from the remote clusters in the local etcd instance", values.yaml of chart
+1.20.1) — every agent reads each remote cluster through its OWN mesh apiserver, which is up (`ClusterMesh: OK`), and
+asks it for poc2's cluster configuration. poc2 has no apiserver yet, so the cache has nothing: `not found`, on a
+controller per peer per agent, retried forever. `cilium status --wait` waits for zero errors and never sees them.
+Nothing is wrong with poc1; the error names a peer that is not built yet.
+
+**The fix:** the mesh LINK is pairwise, so it is verified last. After the declaration, a cluster is checked with
+`cilium_healthy_but_peers`: the only errors allowed are `controller remote-etcd-<peer>` and
+`…-cluster-config` for the peers that are not complete yet; anything else fails that cluster. Once every cluster
+is complete, `mesh_connect` runs the strict `cilium status --wait` on every cluster and then `clustermesh status
+--wait` — the check with all peers present. The dependency table at the top of the script carries the row.
+
+**The lesson:** a status line that names ANOTHER cluster is not this cluster's health. Read which controller is
+failing before trusting a "not healthy": `remote-etcd-<name>` is the link to `<name>`, and a link cannot be
+healthy before both ends exist.
+
+## <a name="93"></a>93. `grep -m1` under `pipefail` — a warning printed right after the answer it warns about
+
+**Where:** the same runs, the CoreDNS layer of `scripts/lab-up.sh`:
+
+```text
+== CoreDNS on poc1 — explicit upstream resolvers  (00:16:50)
+external name resolved: Address: 1.0.0.1
+##[warning]external name resolution from a pod still fails on poc1
+```
+
+**What happened:** the probe was one pipeline, `kubectl run … nslookup | grep -m1 'Address: [0-9]' | sed … ||
+echo warning`. `grep -m1` exits after the first match and closes its end of the pipe; kubectl still has lines to
+write (the second answer, then `pod "dns-probe" deleted`), the write fails, kubectl exits non-zero, and under
+`set -o pipefail` that becomes the pipeline's status — so the `||` branch fires even though sed already printed
+the resolved address. The same run's base job showed the other face: no answer at all, 16 seconds after CoreDNS
+was rolled, because the probe landed before the new endpoints served, and the script had thrown the probe's raw
+output away, so there was nothing to read.
+
+**The fix:** capture first, search second — `dns=$(kubectl run … 2>&1 || true)` and grep the variable — so no
+early exit can close a pipe on the producer; retry the probe up to six times, five seconds apart, because a just-
+rolled CoreDNS is the expected state at that moment; on the last failure print the raw probe output and stop the
+run. A verified layer prints its evidence or dies; it does not warn.
+
+**The lesson:** `pipefail` makes every early-exiting consumer (`grep -m1`, `head`) a failure signal for the
+producer to its left. When the interesting exit code is the producer's, do not put a consumer that stops early on
+its right; capture, then filter.
+
+## <a name="94"></a>94. One pool file for two clusters on one bridge — the same addresses allocated twice, announced twice
+
+**Where:** `scripts/lab-up.sh` at `7108157`, SETUP Step 8 inside `cluster_up`, run for EVERY cluster:
+
+```bash
+kubectl --context "$ctx" apply -f cilium/lb-ippool.yaml      # poc1's 172.18.255.200–250, in poc2 too
+```
+
+Not measured — the runs never reached poc2's Step 8 — the operator caught it reading the log: *"A cluster is
+independent before it joined a mesh and this is true for the pool IPs reserved as well. So poc2 must have its
+own."*
+
+**What would have happened:** LB IPAM is a per-cluster allocator (one operator, one cluster; the
+[LB IPAM docs](https://docs.cilium.io/en/stable/network/lb-ipam/) describe no coordination between clusters), and
+both clusters' nodes sit on the same docker bridge. poc2's first LoadBalancer Service would have been given
+`172.18.255.200` — the Hubble UI's address on poc1 — and, once poc2 announced (its values had L2 announcements OFF,
+so at first nothing would have answered for poc2's addresses at all, a quieter failure), two clusters would have
+answered ARP for one address. In a data centre this is the classic shared-VLAN mistake: two teams, one VIP range,
+no allocation plan.
+
+**The fix:** the reserved top `/24` is subdivided, one `/26` per cluster with one layout inside each block
+(NETWORKING_DESIGN.md §3 item 4): poc1 keeps `172.18.255.192/26` (`.200–239`, `.240–250` — every documented
+address unchanged), poc2 gets `172.18.255.128/26` (`.136–175`, `.176–186`) in `cilium/lb-ippool-poc2.yaml`, with
+its own L2 policy and `l2announcements.enabled` in `cilium/values-poc2.yaml`. The bring-up applies
+`cilium/lb-ippool-<cluster>.yaml` and refuses a cluster without one; the CI lab proves each block from the runner
+(ARP, then HTTP) for both clusters.
+
+**The lesson:** "the mesh" is a relationship between complete clusters, and completeness includes the address
+plan. Anything applied "to every cluster" from one file must be checked for what is actually per-cluster in it.
 
 ## The meta-lesson
 

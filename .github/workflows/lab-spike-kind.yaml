@@ -96,6 +96,20 @@ jobs:
           kubectl --context kind-poc1 rollout status deploy/rebel-base --timeout=5m; kubectl --context kind-poc2 rollout status deploy/rebel-base --timeout=5m
           # the pool addresses reachable from the RUNNER (the host), and the demo names in /etc/hosts — SETUP Steps 3.5 and 8, measured
           scripts/lab-route.sh kind-poc1
+          # every cluster's OWN block (NETWORKING_DESIGN §0): poc2 gets a LoadBalancer Service of its own, and its address —
+          # from poc2's /26, not poc1's — is answered on the bridge and served, measured from the runner like poc1's
+          kubectl --context kind-poc2 expose deploy rebel-base --name rebel-base-lb --type LoadBalancer --port 80 --target-port 80
+          for c in poc1 poc2; do
+            echo "== $c: its pools, and every LoadBalancer address it holds (ARP from the runner, then HTTP)"
+            kubectl --context "kind-$c" get ciliumloadbalancerippools -o custom-columns='POOL:.metadata.name,START:.spec.blocks[*].start,STOP:.spec.blocks[*].stop,CONFLICT:.status.conditions[?(@.type=="cilium.io/PoolConflict")].status' --no-headers
+            for i in $(seq 1 24); do pending=$(kubectl --context "kind-$c" get svc -A -o json | jq '[.items[] | select(.spec.type=="LoadBalancer") | select((.status.loadBalancer.ingress // []) | length == 0)] | length'); [ "$pending" = 0 ] && break; sleep 5; done
+            kubectl --context "kind-$c" get svc -A -o json | jq -r '.items[] | select(.spec.type=="LoadBalancer") | "\(.metadata.namespace)/\(.metadata.name) \(.status.loadBalancer.ingress[0].ip // "<pending>")"' | while read -r svc ip; do
+              printf '  %-34s %-16s ' "$svc" "$ip"
+              case "$ip" in \<pending\>) echo "NO ADDRESS"; continue;; esac
+              if ping -c1 -W2 "$ip" >/dev/null 2>&1; then printf 'ARP answers   '; else printf 'NO ANSWER     '; fi
+              code=$(curl -s -o /dev/null -m 8 -w '%{http_code}' "http://$ip/" || true); echo "HTTP ${code:-000}"
+            done
+          done
           kubectl --context kind-poc1 get svc rebel-base -o wide; kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -B1 -A4 rebel | head -12
           kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -i -A3 'rebel\|global' | head -20 || true
 

@@ -879,7 +879,7 @@ So a request to `https://hubble.poc.local` travels: **Mac → `bridge100` → VM
 is observable with an ordinary tool, which is the point of writing it down.
 
 **Why the Gateway range matters to the router view.** `172.18.255.240–250` is reserved for
-Gateways (`cilium/lb-ippool.yaml`). That is the range DNS points at (`*.poc.local`), the range a
+Gateways (`cilium/lb-ippool-poc1.yaml`). That is the range DNS points at (`*.poc.local`), the range a
 firewall rule would name, and the range a bookmark holds — and because only Gateway-owned Services
 can draw from it, "this address is a Gateway" is true by construction rather than by luck.
 Reference: [Cilium LB IPAM](https://docs.cilium.io/en/stable/network/lb-ipam/).
@@ -1259,8 +1259,10 @@ instead.
 
 ## Step 8 — LoadBalancer addresses without a cloud (and without MetalLB or kube-vip)
 
-> The two pools applied here are the reserved ranges of [NETWORKING_DESIGN.md](../NETWORKING_DESIGN.md) §0
-> (`kind-docker-pool` `.255.200–239` for plain Services, `gateway-pool` `.255.240–250` for Gateway API only).
+> The two pools applied here are **poc1's block** of the reserved range in [NETWORKING_DESIGN.md](../NETWORKING_DESIGN.md)
+> §0 and §3 — `172.18.255.192/26`: `kind-docker-pool` `.255.200–239` for plain Services, `gateway-pool`
+> `.255.240–250` for Gateway API only. **Every cluster gets a block of its own** (poc2's is Step 9.2b): the
+> clusters share the bridge, never an address.
 
 **Why this is needed.** kind has no cloud provider, so a `type: LoadBalancer` Service stays
 `<pending>` forever and a Gateway never gets an address. The reflex is to install MetalLB or
@@ -1280,7 +1282,7 @@ docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}'
 ```
 
 Docker allocates container addresses from the **bottom** of that range upward (`.2`, `.3`, `.4`…),
-so `cilium/lb-ippool.yaml` takes a slice from the **top**. They can never collide. The slice is split
+so `cilium/lb-ippool-poc1.yaml` takes a slice from the **top**. They can never collide. The slice is split
 into **two pools with complementary selectors** — `172.18.255.240–250` reserved for Gateway-owned
 Services (label `io.cilium.gateway/owning-gateway` Exists), `172.18.255.200–239` for everything
 else — so a Gateway's address is in the Gateway range by construction. Reference:
@@ -1288,7 +1290,7 @@ else — so a Gateway's address is in the Gateway range by construction. Referen
 rules that matter (selector match is required for a pinned IP; overlapping pools conflict).
 
 ```bash
-kubectl --context kind-poc1 apply -f cilium/lb-ippool.yaml
+kubectl --context kind-poc1 apply -f cilium/lb-ippool-poc1.yaml
 ```
 
 **An API version trap.** Applying the pool as `cilium.io/v2alpha1` produces:
@@ -1432,6 +1434,29 @@ IPAM:  IPv4: 6/254 allocated from 10.20.1.0/24,
 ```
 
 `10.20.x` — poc2's subnet. poc1 uses `10.10.x`.
+
+### Step 9.2b — poc2's own LoadBalancer block
+
+A cluster is a complete system before it joins any mesh, and its service addresses are part of that.
+poc2 announces on the same docker bridge as poc1, and LB IPAM allocates per cluster, so poc2 gets
+**its own /26** of the reserved range — `172.18.255.128/26`, the same layout as poc1's block one /26
+lower (NETWORKING_DESIGN.md §3, item 4) — never poc1's file:
+
+```bash
+kubectl --context kind-poc2 apply -f cilium/lb-ippool-poc2.yaml
+kubectl --context kind-poc2 get ciliumloadbalancerippool
+```
+
+```
+NAME               DISABLED   CONFLICTING   IPS AVAILABLE   AGE
+gateway-pool       false      False         11              5s
+kind-docker-pool   false      False         40              5s
+```
+
+`cilium/values-poc2.yaml` turns `l2announcements` on for exactly this (with the same client rate
+limit as poc1); an earlier revision left it off "to keep the laptop small", which made poc2 an
+appendage of poc1. The CI lab (`scripts/lab-up.sh`) applies `cilium/lb-ippool-<cluster>.yaml` for
+every cluster and refuses to bring one up without its file.
 
 ### Step 9.3 — establish trust BEFORE connecting
 

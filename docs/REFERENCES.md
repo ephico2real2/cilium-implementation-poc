@@ -10,7 +10,7 @@ cert-manager **v1.21.1**, Gateway API **v1.6.1**.
 | Topic | Source | Used in |
 |---|---|---|
 | Release notes and headline features of 1.20 | [cilium/cilium v1.20.0 release](https://github.com/cilium/cilium/releases/tag/v1.20.0) · [Isovalent: Cilium 1.20](https://isovalent.com/blog/post/cilium-1-20/) | README versions, `docs/summary/MTLS_EVALUATION.md` §7 |
-| LoadBalancer IPAM (the two reserved pools) | [LB IPAM](https://docs.cilium.io/en/stable/network/lb-ipam/) | `NETWORKING_DESIGN.md`, SETUP Step 8, `cilium/lb-ippool.yaml` |
+| LoadBalancer IPAM (the two reserved pools) | [LB IPAM](https://docs.cilium.io/en/stable/network/lb-ipam/) | `NETWORKING_DESIGN.md`, SETUP Step 8, `cilium/lb-ippool-poc1.yaml` |
 | L2 announcements (who answers ARP for a VIP) | [L2 Announcements](https://docs.cilium.io/en/stable/network/l2-announcements/) | `NETWORKING_DESIGN.md` §4.4, gotcha #14 |
 | Masquerading → eBPF host routing (the day-1 value) | [Masquerading](https://docs.cilium.io/en/stable/network/concepts/masquerading/) · [Tuning Guide](https://docs.cilium.io/en/stable/operations/performance/tuning/) | `docs/TUNING.md` §1, demo 11 Part 3, `cilium/values-poc*.yaml` |
 | Benchmark methodology (netperf, TCP_CRR, CPU per throughput) | [CNI Performance Benchmark](https://docs.cilium.io/en/stable/operations/performance/benchmark/) | demo 11 Part 4, demo 14 |

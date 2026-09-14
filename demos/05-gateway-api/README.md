@@ -166,7 +166,7 @@ sw-gateway   cilium   172.18.255.200   True         70s
 **`PROGRAMMED: True` with a real ADDRESS** is the payoff, and it is worth understanding where that
 address came from. Cilium created a Service of type LoadBalancer for the Gateway; on kind that
 would normally sit `<pending>` forever. **Cilium's own LB IPAM** assigned `172.18.255.200` from the
-pool in `cilium/lb-ippool.yaml`, and **L2 announcements** made it answerable on the docker bridge.
+pool in `cilium/lb-ippool-poc1.yaml`, and **L2 announcements** made it answerable on the docker bridge.
 No MetalLB, no kube-vip.
 
 ```bash

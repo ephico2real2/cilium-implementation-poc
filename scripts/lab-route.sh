@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # lab-route.sh [<kube-context>] — make the lab's LoadBalancer addresses reachable from THIS host, then prove it.
 #
-# The pools (cilium/lb-ippool.yaml) hand out 172.18.255.200–250, inside the `kind` docker network's subnet, and
-# Cilium's L2 announcement policy answers ARP for them on the nodes' eth0 (SETUP Step 8). Whether the host can reach
+# Each cluster's pools (cilium/lb-ippool-<cluster>.yaml) hand out its own /26 of 172.18.255.0/24, inside the `kind`
+# docker network's subnet, and its L2 announcement policy answers ARP for them on its nodes' eth0 (SETUP Step 8,
+# NETWORKING_DESIGN §0). One route covers every block. Whether the host can reach
 # them depends on where the host sits:
 #   Linux (a GitHub runner, a Linux laptop): the docker network is a bridge ON this host, with a connected route for
 #     the whole subnet — the pool addresses are on-link, and an ARP from the host reaches the nodes. Nothing to add;
@@ -14,7 +15,7 @@
 # Then the demo hostnames (*.poc.local) go into /etc/hosts from LIVE state (scripts/hosts-entries.sh — it never
 # guesses an address), and the Gateway and the Hubble UI are called by name, end to end.
 #   scripts/lab-route.sh kind-poc1
-set -uo pipefail; cd "$(dirname "$0")/.."
+set -uo pipefail; cd "$(dirname "$0")/.." || exit 1
 CTX="${1:-kind-poc1}"
 SUDO=""; [ "$(id -u)" = "0" ] || SUDO="sudo -n"
 say() { printf '\n== %s\n' "$1"; }
