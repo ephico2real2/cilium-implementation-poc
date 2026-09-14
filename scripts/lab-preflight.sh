@@ -103,6 +103,12 @@ qd=$([ "$os" = Linux ] && sysctl -n net.core.default_qdisc 2>/dev/null || docker
 row no "bandwidth manager + BBR" "off inside kind nodes (host default_qdisc=$qd)" "net.core.default_qdisc is host-netns only; a kind node is a container — any kernel (gotcha #103)"
 row no "BIG TCP" "not with the lab's VXLAN tunnel" "needs native routing (the agent: 'BIG TCP in tunneling mode requires pending kernel support', gotcha #103)"
 
+# ---------------------------------------------------------------- forwarding: what Docker sets, read back
+if [ "$os" = Linux ]; then fwd=$(sysctl -n net.ipv4.ip_forward 2>/dev/null || cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo "?")
+else fwd=$(docker run --rm --privileged busybox:1.36 cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo "?"); fi
+if [ "$fwd" = 1 ]; then row ok "net.ipv4.ip_forward" "1 (the kernel the nodes egress through)" "Docker sets it at start (--ip-forward, default true); nothing for the lab to set"
+else row warn "net.ipv4.ip_forward" "${fwd}" "pods would not reach the outside — Docker normally sets it; check the daemon's --ip-forward"; fi
+
 # ---------------------------------------------------------------- the node image for this CPU
 plat=$(docker manifest inspect "$NODE_IMAGE" 2>/dev/null | python3 -c '
 import json, sys
