@@ -58,9 +58,15 @@ PY
 else
   row ok "docker" "engine $dver" ""
 fi
-if [ "$dmem" -ge 16 ]; then row ok "memory for the nodes" "$dmem GiB, $dcpu CPUs" "≥ 16 GiB for the laptop's full-size clusters (SETUP 2.3), ≥ 8 for clusters/ci"
-elif [ "$dmem" -ge 8 ]; then row warn "memory for the nodes" "$dmem GiB, $dcpu CPUs" "enough for clusters/ci (the runner: 5 GB used, meshed); the full-size poc1 wants 16 (SETUP 2.3)"
-else row REQUIRED-FAIL "memory for the nodes" "$dmem GiB, $dcpu CPUs" "below 8 GiB two clusters do not fit — raise the VM (SETUP Step 2.3)"; fi
+# the floors are measured, not chosen: the runner's 4 vCPU / 15 GiB carries clusters/ci (1+1 twice, meshed, Hubble,
+# Tetragon, Cilium's 87-test suite) with ~5 GB used; the laptop's full-size clusters/ (3+2 and 1+1, seven nodes)
+# were run on 16 CPUs / 16 GiB and the guide asks for ≥ 8 / 16 (SETUP Steps 0.4 and 2.3)
+if [ "$dmem" -ge 16 ]; then row ok "memory for the nodes" "$dmem GiB" "≥ 16 GiB for the laptop's full-size clusters (SETUP 2.3), ≥ 8 for clusters/ci"
+elif [ "$dmem" -ge 8 ]; then row warn "memory for the nodes" "$dmem GiB" "enough for clusters/ci (the runner: 5 GB used, meshed); the full-size poc1 wants 16 (SETUP 2.3)"
+else row REQUIRED-FAIL "memory for the nodes" "$dmem GiB" "below 8 GiB two clusters do not fit — raise the VM (SETUP Step 2.3, docs/DOCKER-DESKTOP-RUNBOOK.md §4)"; fi
+if [ "${dcpu:-0}" -ge 8 ]; then row ok "CPUs for the nodes" "$dcpu" "≥ 8 for the full-size clusters (SETUP 0.4); the runner's 4 carried clusters/ci"
+elif [ "${dcpu:-0}" -ge 4 ]; then row warn "CPUs for the nodes" "$dcpu" "the measured floor for clusters/ci (the runner: 4 vCPU, connectivity test 15–23 min); the full-size clusters want 8"
+else row REQUIRED-FAIL "CPUs for the nodes" "$dcpu" "below 4, two clusters with Cilium have never been measured to work — raise the VM (SETUP Step 2.3, docs/DOCKER-DESKTOP-RUNBOOK.md §4)"; fi
 
 # ---------------------------------------------------------------- the kernel the nodes will share
 kv=$(echo "$kern" | grep -oE '^[0-9]+\.[0-9]+(\.[0-9]+)?')
