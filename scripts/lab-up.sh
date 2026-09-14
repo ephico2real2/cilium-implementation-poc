@@ -60,7 +60,8 @@ kv=$(kind version | awk '{print $2}' | sed 's/^v//'); [ "$kv" = "$KIND_VERSION_W
 printf 'kind %s | kubectl %s | helm %s | cilium-cli %s | docker %s | kernel %s\n' "$kv" \
   "$(kubectl version --client -o json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["clientVersion"]["gitVersion"])')" \
   "$(helm version --short)" "$(cilium version --client 2>/dev/null | grep -m1 -oE 'v?[0-9]+\.[0-9]+\.[0-9]+')" "$(docker version --format '{{.Server.Version}}')" "$(uname -r)"
-docker info >/dev/null 2>&1 || die "the Docker daemon is not answering (SETUP Step 1.4)"
+# what THIS host can run, measured before anything is created (SETUP Steps 0–2; the same table on the runner and a Mac)
+LAB_PREFLIGHT_STRICT=1 CILIUM_VERSION="$CILIUM_VERSION" scripts/lab-preflight.sh || die "preflight failed (the table above says which row; SETUP Steps 1–2)"
 for c in "$@"; do [ -f "$CLUSTERS/$c.yaml" ] || die "no cluster config $CLUSTERS/$c.yaml"; done
 helm repo add cilium https://helm.cilium.io/ >/dev/null 2>&1 || true                                  # SETUP Step 5.1
 helm repo add jetstack https://charts.jetstack.io >/dev/null 2>&1 || true                              # demo 08

@@ -329,8 +329,24 @@ CPUs=16 Mem=8221433856 Kernel=6.6.12-linuxkit
 their own, so this was not enough.
 
 **Also note the kernel: `6.6.12-linuxkit`.** Write it down. Cilium's `netkit` device mode needs
-**≥ 6.7**, so on this machine netkit is unavailable and the performance demo uses the bandwidth
-manager and BIG TCP instead. That is a measured constraint, not a guess.
+**≥ 6.8 and `CONFIG_NETKIT`** (Cilium 1.20.1 system requirements), so on this machine netkit is
+unavailable and the performance demo uses the bandwidth manager and BIG TCP instead. That is a
+measured constraint, not a guess.
+
+> **That kernel is Docker Desktop's, not the Mac's — and it moved (2026-09-14).** The `6.6.12` above is
+> what Docker Desktop **4.27.2** (February 2024, the version on the 2019 Intel MacBook) shipped. Docker
+> Desktop 4.89.0 (August 2026) ships Linux kernel **v7.0.12** ([release notes](https://docs.docker.com/desktop/release-notes/)),
+> on Intel and on Apple silicon alike, so the netkit floor is a Desktop version, not a CPU. What stays
+> the same on ANY Mac, and on the runner: the bandwidth manager is off inside kind nodes, because the
+> sysctl it reads lives in the host's network namespace (gotcha #103); BIG TCP needs native routing and
+> the lab runs VXLAN (same gotcha). What is different on **Apple silicon**: the CPU is arm64 — the pinned
+> node image is an OCI index carrying `linux/amd64` and `linux/arm64`, so the cluster files do not change;
+> the VMM can be Docker VMM or the Apple Virtualization framework (General settings) — Step 3.5's route
+> was measured on the Virtualization framework with `kernelForUDP`, and on Docker VMM it is unmeasured.
+> Nothing in the cluster files or the values is per-OS on purpose; `scripts/lab-preflight.sh` measures
+> every one of these rows on the machine in front of you, before a cluster exists — netkit by creating a
+> device, Tetragon's symbol from kallsyms, the node image for this CPU from the registry index, the VM's
+> host bridge, IPv6 on a docker network — so a difference is caught at Step 0, not in Step 6.
 
 ### Step 2.2 — see what is already running
 

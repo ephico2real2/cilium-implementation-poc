@@ -186,8 +186,16 @@ the "run the generated image and the analysis" the operator described.
 
 ### Phase 4 — the MacBook
 
-`scripts/lab-up.sh minikube poc1` on the MacBook (docker driver, one profile) for the single-cluster demos; kind
-stays the tool for the mesh there too, unless phase 0 says otherwise.
+kind on the MacBook too (phase 0 settled it), with the SAME cluster files and values as the runner; the operator's
+next machine is an Apple silicon (M5 Pro) MacBook. What the research settled (2026-09-14): the `6.6.12-linuxkit`
+kernel that refused netkit was Docker Desktop 4.27.2's (February 2024) on the 2019 Intel MacBook — Desktop 4.89.0
+ships kernel v7.0.12 (release notes), on both CPUs, above netkit's 6.8 floor (Cilium 1.20.1 system requirements,
+which also need `CONFIG_NETKIT` — measured, not assumed). The pinned `kindest/node` digest is the OCI index with
+`linux/amd64` and `linux/arm64` (read from the registry), so nothing in `clusters/` changes for arm64. What does not
+change with the chip: the bandwidth manager off inside kind nodes and BIG TCP off under VXLAN (gotcha #103). What is
+unmeasured: Step 3.5's host route under Docker VMM (measured only on the Apple Virtualization framework with
+`kernelForUDP`). `scripts/lab-preflight.sh` measures all of it on the machine before a cluster exists — the runner
+prints the same table — so the M5's first command is that script, and its table is the record.
 
 ## 5. Two questions for the operator
 
