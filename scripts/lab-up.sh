@@ -13,6 +13,7 @@
 # is made fully functional on its own before anything crosses clusters. What must exist before what:
 #
 #   component                       needs                                                       chapter
+#   the kind docker network         nothing — created FIRST, with the subnet the pools are pinned to SETUP 3.5.1, 8
 #   the Gateway API CRDs            a cluster, nothing else                                     demo 05
 #   Cilium core (CNI, KPR, GW API)  those CRDs, the API endpoint by the name in its certificate SETUP 4, 5, 6
 #   CoreDNS upstreams               the CNI (pods with a network)                               kind on a runner
@@ -62,6 +63,26 @@ helm repo add jetstack https://charts.jetstack.io >/dev/null 2>&1 || true       
 helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ >/dev/null 2>&1 || true
 helm repo update cilium jetstack metrics-server >/dev/null
 
+# ================================================================ the kind docker network, with the lab's subnet — before any cluster
+# kind reuses a docker network named `kind` if one exists and, when it creates one itself, passes NO IPv4 subnet
+# (pkg/cluster/internal/providers/docker/network.go, v0.33.0: bridge driver, masquerade, the MTU, a hashed IPv6 ULA)
+# — Docker's IPAM then picks any free pool. The lab's LB pools (cilium/lb-ippool.yaml) and its Gateway addresses
+# are pinned to 172.18.255.x (SETUP Step 8, gotcha #13), so the network is created here with that subnet, and with
+# Docker's container allocation held to the lower half (--ip-range) so no container can ever take a pool address.
+# The IPv6 subnet is the one kind derives for the name "kind", so dual-stack runs are identical either way.
+LAB_SUBNET="${LAB_SUBNET:-172.18.0.0/16}"; LAB_IP_RANGE="${LAB_IP_RANGE:-172.18.0.0/17}"; LAB_SUBNET6="${LAB_SUBNET6:-fc00:f853:ccd:e793::/64}"
+say "the kind docker network: $LAB_SUBNET (containers from $LAB_IP_RANGE, the pools above it), IPv6 $LAB_SUBNET6"
+if docker network inspect kind >/dev/null 2>&1; then
+  have=$(docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' | tr ' ' '\n' | grep -m1 '\.')
+  [ "$have" = "$LAB_SUBNET" ] || die "a docker network 'kind' exists with subnet $have, not $LAB_SUBNET — delete it (no cluster must be on it) or set LAB_SUBNET and the pools to match"
+  echo "exists with $have, kept"
+else
+  mtu=$(docker network inspect bridge --format '{{index .Options "com.docker.network.driver.mtu"}}' 2>/dev/null); [ -n "$mtu" ] || mtu=1500
+  docker network create -d bridge --subnet "$LAB_SUBNET" --ip-range "$LAB_IP_RANGE" --gateway "${LAB_SUBNET%.*.*}.0.1" \
+    -o com.docker.network.bridge.enable_ip_masquerade=true -o com.docker.network.driver.mtu="$mtu" --ipv6 --subnet "$LAB_SUBNET6" kind >/dev/null
+  echo "created: $(docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}')"
+fi
+
 # ================================================================ SETUP Step 3 / 9.1 — every cluster first: the mesh declaration (demo 24) needs every control plane's IP
 cluster_create() {
   local c="$1" cfg n
@@ -72,8 +93,6 @@ cluster_create() {
     sed -e "s|podSubnet: \"\(.*\)\"|podSubnet: \"\1,fd00:$n:10::/48\"|" -e "s|serviceSubnet: \"\(.*\)\"|serviceSubnet: \"\1,fd00:$n:11::/112\"|" -e 's|^networking:|networking:\n  ipFamily: dual|' "$CLUSTERS/$c.yaml" > "$cfg"
   fi
   if kind get clusters 2>/dev/null | grep -qx "$c"; then echo "kind cluster $c exists, kept"; else kind create cluster --config "$cfg" --wait 0; fi
-  local subnet; subnet=$(docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' | tr ' ' '\n' | grep -m1 '\.')
-  [ "$subnet" = "172.18.0.0/16" ] || die "the kind docker network is $subnet; the lab's pools expect 172.18.0.0/16 (cilium/lb-ippool.yaml, SETUP Step 8)"
 }
 cp_ip() { docker inspect "$1-control-plane" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'; }   # demo 24: the address the other clusters reach the mesh apiserver at (NodePort 32379)
 
