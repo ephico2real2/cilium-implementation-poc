@@ -145,9 +145,17 @@ jobs:
           echo "$spread" | grep -q '"cluster": "poc1"' && echo "$spread" | grep -q '"cluster": "poc2"' || { echo "::error::the global service did not spread over both clusters (demo 07 Part 4)"; exit 1; }
           echo "== demo 07 Part 5 — failover: poc1's backends scaled to zero, the same client, unchanged"
           kubectl --context kind-poc1 scale deployment rebel-base --replicas=0; kubectl --context kind-poc1 wait --for=delete pod -l name=rebel-base --timeout=2m || true
-          sleep 5; over=$(split failover || true); echo "$over"
-          echo "$over" | grep -q '"cluster": "poc2"' && ! echo "$over" | grep -q '"cluster": "poc1"' || { echo "::error::failover did not move every request to poc2 (demo 07 Part 5)"; exit 1; }
-          echo "20 requests, every one answered by poc2 — restored to 2 replicas"
+          # the local backends leave the Service through its EndpointSlice; the first run measured 18 of 20 answers with a
+          # 5 s pause (two requests met a backend the datapath had not dropped yet) — so the measurement starts when the
+          # slice is empty, and the counts are printed as they are
+          for i in $(seq 1 30); do n=$(kubectl --context kind-poc1 get endpointslice -l kubernetes.io/service-name=rebel-base -o json | jq '[.items[].endpoints // [] | length] | add // 0'); [ "$n" = 0 ] && break; sleep 2; done
+          echo "poc1's rebel-base EndpointSlice: $n endpoints left"; sleep 3
+          over=$(split failover || true); echo "$over"
+          echo "$over" | grep -q '"cluster": "poc1"' && { echo "::error::a request was still answered by poc1 after its backends were removed (demo 07 Part 5)"; exit 1; }
+          answered=$(echo "$over" | awk '/"cluster": "poc2"/ {print $1}'); answered=${answered:-0}
+          [ "$answered" -ge 1 ] || { echo "::error::no request reached poc2 after failover (demo 07 Part 5)"; exit 1; }
+          if [ "$answered" -eq 20 ]; then echo "20 of 20 requests answered by poc2 — the guide's 20/20"; else echo "::warning::$answered of 20 requests answered by poc2, $((20 - answered)) unanswered (demo 07 Part 5 measured 20/20 on the laptop)"; fi
+          echo "restored to 2 replicas"
           kubectl --context kind-poc1 scale deployment rebel-base --replicas=2; kubectl --context kind-poc1 rollout status deploy/rebel-base --timeout=3m
 
       # check-log-errors reads the agents' WHOLE log (no --log-check-only-test-time), so the bring-up's lines count too.
