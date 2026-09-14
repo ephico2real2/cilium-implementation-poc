@@ -94,6 +94,8 @@ jobs:
           kubectl --context kind-poc1 apply -f demos/07-clustermesh/global-service.yaml; kubectl --context kind-poc2 apply -f demos/07-clustermesh/global-service.yaml
           kubectl --context kind-poc1 apply -f demos/07-clustermesh/backend-poc1.yaml; kubectl --context kind-poc2 apply -f demos/07-clustermesh/backend-poc2.yaml
           kubectl --context kind-poc1 rollout status deploy/rebel-base --timeout=5m; kubectl --context kind-poc2 rollout status deploy/rebel-base --timeout=5m
+          # the pool addresses reachable from the RUNNER (the host), and the demo names in /etc/hosts — SETUP Steps 3.5 and 8, measured
+          scripts/lab-route.sh kind-poc1
           kubectl --context kind-poc1 get svc rebel-base -o wide; kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -B1 -A4 rebel | head -12
           kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -i -A3 'rebel\|global' | head -20 || true
 
