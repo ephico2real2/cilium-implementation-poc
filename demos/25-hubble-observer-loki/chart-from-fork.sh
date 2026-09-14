@@ -9,6 +9,10 @@ BRANCH="${1:-docs/hubble-cli-image}"; COMMIT="${2:-}"; REPO=https://github.com/e
 rm -rf "$DIR"; git clone -q --branch "$BRANCH" "$REPO" "$DIR"
 [ -n "$COMMIT" ] && git -C "$DIR" checkout -q "$COMMIT"
 echo "fork: $REPO  branch: $BRANCH  commit: $(git -C "$DIR" rev-parse --short HEAD) $(git -C "$DIR" log -1 --format=%s | cut -c1-60)"
-(cd "$DIR/helm/hubble-observer" && helm dependency build >/dev/null 2>&1 && echo "dependencies: $(ls charts)")
+# Helm resolves a dependency's `repository:` URL only through a repository ADDED BY NAME: on a host without them,
+# `helm dependency build` stops with "no repository definition for https://… Please add the missing repos via 'helm
+# repo add'" (Helm 3.14; the runner, run 34889840964; reproduced with an empty repositories.yaml) — the laptop had them
+for r in cf2cnp hubble-policy-verdicts; do helm repo add "$r" "https://ephico2real2.github.io/$r" >/dev/null 2>&1 || true; done
+(cd "$DIR/helm/hubble-observer" && helm dependency build 2>&1 | grep -vE '^(Update Complete|Saving|Downloading|Deleting)' ; echo "dependencies: $(ls charts)")
 helm upgrade --install hubble-observer "$DIR/helm/hubble-observer" -n hubble-observer --create-namespace --kube-context kind-poc1 \
   -f demos/25-hubble-observer-loki/values-hubble-observer.yaml --set ciliumNetworkPolicy.enabled=true --wait --timeout 5m | grep -E "REVISION|STATUS"

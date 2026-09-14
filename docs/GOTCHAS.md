@@ -2595,6 +2595,28 @@ it — the next hop is the Docker VM — so HTTP is the proof there).
 L2-announced VIP is not owned, it is answered — ARP through the neighbour table and TCP through the Service are
 the measurements.
 
+## <a name="105"></a>105. `helm dependency build` resolves a dependency's repository URL only through a repository added by name
+
+**Where:** the CI lab's observability run (run 34889840964), demo 25's `chart-from-fork.sh` on a runner with no Helm
+repositories configured: the fork's chart lists `cf2cnp` and `hubble-policy-verdicts` with their `repository:` URLs,
+and `helm dependency build` stopped before the install with nothing printed (its output was thrown away).
+Reproduced on the laptop with an empty `repositories.yaml`:
+
+```text
+Error: no repository definition for https://ephico2real2.github.io/cf2cnp, https://ephico2real2.github.io/hubble-policy-verdicts. Please add the missing repos via 'helm repo add'
+```
+
+**What happened:** Helm 3 (3.14 here) looks a dependency's URL up in the repositories it knows by name and refuses
+the build when none matches — the URL in `Chart.yaml` is not enough. The laptop had both forks added by name from
+the earlier demos, so the same script had never failed there; the runner is a fresh machine every time, which is
+what makes it a test.
+
+**The fix:** the script adds the two repositories by name before the build (idempotent), and no longer hides the
+build's output — an error is printed, not swallowed by `>/dev/null 2>&1` under `set -e`.
+
+**The lesson:** "works on my machine" for Helm often means "my `repositories.yaml`"; a script that builds
+dependencies adds the repositories it needs, and never sends a failing command's output to `/dev/null`.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
