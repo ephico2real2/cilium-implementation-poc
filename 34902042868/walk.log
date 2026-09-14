@@ -1,0 +1,132 @@
+login: https://grafana.poc.local/login → Grafana
+grafana-hubble-network-overview: settled 3s; panels=8; "No data"=1; first: Flows processed by type
+L7/HTTP
+Trace/to-endpoint
+Trace/to-proxy
+PolicyVerdict/ | Flows processed by verdict
+FORWARDED
+REDIRECTED | Top 10 sources
+pos
+1.38 p/s
+shop
+4.20 p/s
+stranger
+1.04 p/s | Top 10 destinations
+pos
+1.01 p/s
+shop
+4.83 p/s
+stranger
+778 mp/s | Missing TCP SYN-ACKs
+Series color
+Name
+Mean
+Last *
+pos
+180 mp/s
+230 mp/s
+shop
+180 mp/s
+230 mp/s
+stranger
+130 mp/s
+173 mp/s | Missing ICMP Echo Replys
+No data
+grafana-hubble-l7-http: settled 3s; panels=11; "No data"=7; first: Incoming Request Volume
+No data | Incoming Request Success Rate (non-5xx responses)
+No data | Request Duration
+No data | Incoming Requests by Source and Response Code
+No data | Incoming Request Success Rate (non-5xx responses) By Source
+No data | HTTP Request Duration by Source
+No data
+grafana-hubble-dns: settled 3s; panels=4; "No data"=4; first: DNS queries
+No data | Top 10 DNS queries
+No data | Missing DNS responses
+No data | DNS errors
+No data
+grafana-hubble-metrics: settled 3s; panels=33; "No data"=0; first: Flows processed Per Node
+avg
+min
+max | Flows Types
+Drop
+PolicyVerdict
+Trace
+Drop
+L7
+PolicyVerdict
+Trace | L7 Flow Distribution
+DNS
+HTTP | Trace Flow Distribution
+to-endpoint
+to-network
+to-overlay
+to-stack
+to-endpoint
+to-network
+to-overlay
+to-proxy
+to-stack | Forwarded vs Dropped
+AUDIT
+DROPPED
+FORWARDED
+AUDIT
+DROPPED
+FORWARDED
+REDIRECTED | Drop Reason
+POLICY_DENIED
+UNSUPPORTED_L3_PROTOCOL
+SERVICE_BACKEND_NOT_FOUND
+UNSUPPORTED_L3_PROTOCOL
+grafana-cilium-metrics: settled 3s; panels=75; "No data"=0; first: Errors & Warnings
+ERROR
+ERROR
+WARN
+WARN | CPU Usage per node
+min
+min
+avg
+avg
+max
+max | Virtual Memory Bytes
+Min Virtual Memory
+Average Virtual Memory
+Max Virtual Memory | Resident memory status
+AVG_resident_memory_bytes
+MAX_resident_memory_bytes_max
+MIN_resident_memory_bytes_min | Open file descriptors
+all nodes
+min/node
+avg/node
+max/node | System-wide BPF memory usage
+AVG_bpf_memory_bytes_avg
+MAX_bpf_memory_bytes_max
+MIN_bpf_memory_bytes_min
+grafana-policy-verdicts: settled 3s; panels=45; "No data"=0; first: Audited (policy evaluated, not enforced) — in range
+0 | Forwarded by an allow rule — in range
+269 | Dropped by policy — in range
+0 | Still audited (last 5 min): source → destination pairs
+none | Policy verdicts per second, by action
+forwarded
+redirected | Verdicts per second, by source → destination and action
+shop → pos (ingress) forwarded
+pos → shop (ingress) forwarded
+shop → shop (ingress) forwarded
+stranger → shop (ingress) forwarded
+shop → stranger (ingress) forwarded
+pos → shop (ingress) redirected
+shop → shop (ingress) redirected
+stranger → shop (ingress) redirected
+grafana-hubble-observer-flows: settled 3s; panels=8; "No data"=2; first: Total Flows
+336 | Flows per Verdict
+DROPPED | Flows per Direction
+INGRESS | Flows per Source Namespace
+Series color
+Name
+cf2cnp-lab27
+100% | Flows per Destination
+No data | Flows per Drop Reason
+POLICY_DENIED
+SERVICE_BACKEND_NOT_FOUND
+hubble-ui-namespaces: settled 0s; Idle | Welcome! | To begin select one of the namespaces: | Choose namespace
+hubble-ui-cf2cnp-lab30: settled 0s; cf2cnp-lab30 | Any verdict | Visual | 84.1 flows/s•4/4 nodes | cf2cnp-lab30 | stranger | shop | 80 | TCP | HTTP
+cf2cnp: settled 0s; title: CF2CNP - Cilium Flow to CiliumNetworkPolicy
