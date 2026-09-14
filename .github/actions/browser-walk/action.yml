@@ -1,13 +1,17 @@
 # browser-walk — Playwright on the runner, pinned and cached, driven through a JSON spec of pages: the lab's dashboards
 # today, any endpoint of the operator's choice tomorrow (a new entry in the spec, not new code). Chromium resolves the
-# lab's names itself from the spec's "resolve" map, so no /etc/hosts. Outputs a PNG and an evidence line per page.
+# lab's names itself from the spec's "resolve" map, so no /etc/hosts. Outputs a PNG and an evidence line per page, and —
+# because a job summary renders Markdown but strips data: URIs and cannot reach artifact files (community discussion
+# #35932) — pushes the PNGs to a branch of this public repository, one folder per run, and links them raw from the job
+# summary, so the captures are ON the run page. The folder: <UTC time>_<workflow>_run<id>-<attempt>_<job>.
 name: browser walk (Playwright)
-description: Drive Chromium through the pages of a JSON spec — screenshots and evidence lines, no /etc/hosts needed
+description: Drive Chromium through the pages of a JSON spec — screenshots and evidence lines on the run page
 inputs:
   spec:               {description: the JSON spec of pages (scripts/capture/walk.js's format), default: scripts/capture/lab.json}
   out:                {description: the directory for the PNGs and the log, default: captures}
   playwright-version: {description: the Playwright release, pinned, default: "1.63.0"}
   env-json:           {description: 'extra variables for the spec''s ${VAR}s, as JSON, e.g. {"GW":"172.18.255.240"}', default: "{}"}
+  publish-branch:     {description: the branch the captures are pushed to for the job summary ("" = do not publish; needs contents write), default: ci-captures}
 runs:
   using: composite
   steps:
@@ -33,5 +37,26 @@ runs:
       run: |
         mkdir -p "${{ inputs.out }}"
         eval "$(echo '${{ inputs.env-json }}' | python3 -c 'import json,sys,shlex; [print(f"export {k}={shlex.quote(str(v))}") for k,v in json.load(sys.stdin).items()]')"
-        S="${{ inputs.out }}" NODE_PATH="$PWD/.tmp/pw/node_modules" node scripts/capture/walk.js "${{ inputs.spec }}" 2>&1 | tee "${{ inputs.out }}/walk.log"
+        S="${{ inputs.out }}" NODE_PATH="$PWD/.tmp/pw/node_modules" node scripts/capture/walk.js "${{ inputs.spec }}" 2>&1 | tee "${{ inputs.out }}/walk.log" || true
         ls -la "${{ inputs.out }}"/*.png 2>/dev/null | awk '{print "  " $5, $9}'
+    - name: Publish to the branch and the job summary
+      if: inputs.publish-branch != ''
+      shell: bash
+      run: |
+        set -o pipefail
+        OUT="${{ inputs.out }}"; BR="${{ inputs.publish-branch }}"; REPO="${{ github.repository }}"
+        ls "$OUT"/*.png >/dev/null 2>&1 || { echo "no captures to publish" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; }
+        WF=$(echo "${{ github.workflow }}" | tr -c 'A-Za-z0-9._-' '-' | sed 's/-*$//'); DIR="$(date -u +%Y-%m-%dT%H%MZ)_${WF}_run${{ github.run_id }}-${{ github.run_attempt }}_${{ github.job }}"
+        git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        rm -rf .tmp/cap; git worktree prune
+        if git ls-remote --exit-code --heads origin "$BR" >/dev/null 2>&1; then git fetch -q origin "$BR" && git worktree add -q .tmp/cap "origin/$BR"
+        else git worktree add -q --detach .tmp/cap && (cd .tmp/cap && git checkout -q --orphan "$BR" && git rm -rfq . >/dev/null 2>&1 || true); fi
+        mkdir -p ".tmp/cap/$DIR" && cp "$OUT"/*.png "$OUT"/walk.log ".tmp/cap/$DIR/"
+        (cd .tmp/cap && git add -A && git commit -qm "captures: $DIR" && git push -q origin "HEAD:$BR")
+        {
+          echo "## Captures — [\`$DIR\`](https://github.com/$REPO/tree/$BR/$DIR)"
+          echo; echo "The pages as the runner saw them, each with the walk's evidence line (panels, \"No data\" counts). The same files are in the run's artifact."
+          echo; while IFS= read -r line; do echo "- \`$line\`"; done < "$OUT/walk.log"
+          for f in "$OUT"/*.png; do n=$(basename "$f" .png); echo; echo "### $n"; echo; echo "![$n](https://raw.githubusercontent.com/$REPO/$BR/$DIR/$n.png)"; done
+        } >> "$GITHUB_STEP_SUMMARY"
+        echo "captures published: https://github.com/$REPO/tree/$BR/$DIR"

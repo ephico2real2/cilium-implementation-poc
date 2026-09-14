@@ -15,8 +15,17 @@
 #   lab32    cf2cnp-lab27 (+ kiosk)       32    a new caller of demo 27's storefront                     kiosk → frontend
 #   lab35    shop-edge/core/payments/     35    the platform: a gateway, a shared catalog, three teams,  probe.sh: the shopper, a team call, the stranger
 #            merchant/reviews/clients           a client namespace; default-deny under audit
+#   app02    default                      02    the Star Wars app behind demo 05's Gateway, with its L3/L4  the landing request (200) and the exhaust
+#                                              and L7 policies — the first policy demo's end state         port (403 from the proxy)
+#   bank     bank (both clusters)         15,   the bank: postgres + accounts + payments on poc2, redis +   exercise.sh through the Gateway; demo 19's
+#                                        19    payments + api + web on poc1, its routes; demo 19's cell     egress-test.sh: the DROPPED flows the
+#                                              (rendered policies) in both clusters                         observer, Loki and the verdict tiles show
+#   dns      cf2cnp-lab                   31    the chapter's generated DNS-visibility policy on pos, so    pos → example.com / cilium.io by name
+#                                              Hubble sees names (the DNS dashboard, toFQDNs later)
+#   traffic  every lab above              —     `traffic <minutes>`: every generator above, round after   what a dashboard needs: minutes of it
+#                                              round, then a wait until Prometheus and Loki hold it
 set -euo pipefail; cd "$(dirname "$0")/.."
-CTX="${LAB_STACK_CTX:-kind-poc1}"
+CTX="${LAB_STACK_CTX:-kind-poc1}"; PEER_CTX="${LAB_STACK_PEER_CTX:-kind-poc2}"
 say() { printf '\n== %s  (%s)\n' "$1" "$(date +%H:%M:%S)"; }
 die() { echo "::error::$1"; exit 1; }
 k() { kubectl --context "$CTX" "$@"; }
@@ -61,7 +70,70 @@ lab35() {
   demos/35-shop-platform/probe.sh 2>&1 | sed 's/^/  /'
 }
 
-[ $# -ge 1 ] || { echo "usage: $0 all | lab26 lab27 lab30 lab32 lab35"; exit 2; }
-[ "$1" = all ] && set -- lab26 lab27 lab30 lab32 lab35
-for l in "$@"; do case "$l" in lab26|lab27|lab30|lab32|lab35) "$l";; *) die "unknown lab $l";; esac; done
-say "labs up on ${CTX#kind-}: $*"
+app02() {
+  say "demo 02 — the Star Wars app in default, behind demo 05's Gateway; its L3/L4 and L7 policies (the demo's end state)"
+  k apply -f demos/02-l7-policy/http-sw-app.yaml >/dev/null; ready default
+  k apply -f demos/02-l7-policy/01-l3-l4-policy.yaml -f demos/02-l7-policy/02-l7-policy.yaml >/dev/null
+  sw_traffic
+}
+sw_traffic() { # the two requests the demo makes: allowed by L7, denied by L7 (a 403 from the proxy), and the xwing dropped at L3
+  printf '  %-12s %-52s %s\n' tiefighter 'POST deathstar/v1/request-landing' "$(k exec tiefighter -- curl -s -m 3 -XPOST deathstar.default.svc.cluster.local/v1/request-landing 2>/dev/null | tr -d '\n' | cut -c1-40)"
+  printf '  %-12s %-52s %s\n' tiefighter 'PUT  deathstar/v1/exhaust-port' "$(k exec tiefighter -- curl -s -m 3 -XPUT -o /dev/null -w '%{http_code}' deathstar.default.svc.cluster.local/v1/exhaust-port 2>/dev/null)"
+  printf '  %-12s %-52s %s\n' xwing 'POST deathstar/v1/request-landing' "$(k exec xwing -- curl -s -m 3 -o /dev/null -w '%{http_code}' -XPOST deathstar.default.svc.cluster.local/v1/request-landing 2>/dev/null || echo 'no answer (dropped at L3)')"
+}
+bank() {
+  say "demos 15 + 19 — the bank in both clusters, its routes, and the zero-trust cell's rendered policies"
+  kubectl --context "$PEER_CTX" apply -f demos/15-bank/10-poc2.yaml >/dev/null; sleep 2; kubectl --context "$PEER_CTX" apply -f demos/15-bank/10-poc2.yaml >/dev/null   # the SA race the guide names
+  kubectl --context "$PEER_CTX" -n bank rollout status sts/postgres --timeout=5m >/dev/null; kubectl --context "$PEER_CTX" -n bank rollout status deploy/accounts deploy/payments --timeout=5m >/dev/null
+  k apply -f demos/15-bank/20-poc1.yaml >/dev/null; sleep 2; k apply -f demos/15-bank/20-poc1.yaml >/dev/null
+  k -n bank rollout status sts/redis deploy/payments deploy/api deploy/web --timeout=5m >/dev/null
+  k apply -f demos/15-bank/30-gateway.yaml >/dev/null
+  for c in "$CTX" "$PEER_CTX"; do kubectl --context "$c" apply -f demos/19-zero-trust-cell/10-platform-baseline.yaml -f demos/19-zero-trust-cell/rendered/cell-policies.yaml >/dev/null; done
+  echo "bank up in both clusters; $(k -n bank get cnp --no-headers | wc -l | tr -d ' ') cell policies in poc1, $(kubectl --context "$PEER_CTX" -n bank get cnp --no-headers | wc -l | tr -d ' ') in poc2"
+  bank_traffic
+}
+bank_traffic() { # demo 15's payments through the Gateway (CA: this lab's root, exported by lab-stack.sh), demo 19's egress probe (the drops)
+  CA="${ROOT_CA:-.tmp/root-ca.crt}" demos/15-bank/exercise.sh 5 chk-1001 2>&1 | tail -3 | sed 's/^/  /' || true
+  demos/19-zero-trust-cell/egress-test.sh "${CTX#kind-}" 2>&1 | tail -4 | sed 's/^/  /' || true
+}
+dns() {
+  say "demo 31 — the chapter's generated DNS-visibility policy on cf2cnp-lab/pos (names in Hubble's flows and the DNS dashboard)"
+  k apply -f demos/31-dns-visibility/policies/cnp-pos-dns-visibility.yaml >/dev/null
+  hit cf2cnp-lab pos - http://example.com/; hit cf2cnp-lab pos - https://cilium.io/
+}
+traffic() { # <minutes> — every generator, round after round, then the wait for the metrics that the dashboards read
+  local minutes="${1:-5}" end round=0; end=$(( $(date +%s) + minutes * 60 ))
+  say "traffic for $minutes minutes — every lab's generators, round after round (a dashboard's rate windows need minutes, not a burst)"
+  while [ "$(date +%s)" -lt "$end" ]; do
+    round=$((round + 1))
+    { hit cf2cnp-lab pos - http://shop.cf2cnp-lab/; hit cf2cnp-lab stranger - http://shop.cf2cnp-lab/; hit cf2cnp-lab pos - http://example.com/
+      hit cf2cnp-lab27 pos client http://shop-frontend.cf2cnp-lab27/; hit cf2cnp-lab27 kiosk client http://shop-frontend.cf2cnp-lab27/
+      demos/30-l7-rules/calls.sh; demos/35-shop-platform/probe.sh
+      k get pod tiefighter >/dev/null 2>&1 && sw_traffic
+      k -n bank get deploy api >/dev/null 2>&1 && bank_traffic
+    } >/dev/null 2>&1 || true
+    printf '  round %d at %s\n' "$round" "$(date +%H:%M:%S)"; sleep 15
+  done
+  say "waiting until Prometheus and Loki hold what the dashboards read"
+  local q _i n
+  for q in 'sum(rate(hubble_http_requests_total[5m]))' 'sum(hubble_dns_queries_total)' 'sum(hubble_policy_verdicts_total{action="dropped"})' 'sum(hubble_flows_processed_total)'; do
+    for _i in $(seq 1 30); do
+      n=$(k get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$q")" 2>/dev/null | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(r[0]["value"][1] if r else "")' 2>/dev/null || true)
+      [ -n "$n" ] && [ "$n" != "0" ] && break; sleep 10
+    done
+    printf '  %-56s %s\n' "$q" "${n:-nothing after 5 min}"
+  done
+  n=$(k get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query?query=$(python3 -c 'import urllib.parse; print(urllib.parse.quote("sum(count_over_time({namespace=\"hubble-observer\",container=\"hubble-observer\"}[15m]))"))')" 2>/dev/null | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(r[0]["value"][1] if r else "0")' 2>/dev/null || echo "?")
+  printf '  %-56s %s\n' "Loki: observer lines, last 15 min" "$n"
+}
+
+[ $# -ge 1 ] || { echo "usage: $0 all | lab26 lab27 lab30 lab32 lab35 app02 bank dns | traffic <minutes>"; exit 2; }
+[ "$1" = all ] && set -- lab26 lab27 lab30 lab32 lab35 app02 bank dns
+while [ $# -gt 0 ]; do
+  case "$1" in
+    lab26|lab27|lab30|lab32|lab35|app02|bank|dns) "$1"; shift;;
+    traffic) traffic "${2:-5}"; shift 2;;
+    *) die "unknown lab $1";;
+  esac
+done
+say "labs on ${CTX#kind-}: done"
