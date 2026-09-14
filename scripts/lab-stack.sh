@@ -133,8 +133,10 @@ step_loki_observer() {
     monitoring hubble-observer-flows hubble-observer-23862 Hubble | k apply -f - >/dev/null
   local _i; for _i in $(seq 1 24); do k -n routes get httproute cf2cnp -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null | grep -q True && break; sleep 5; done
   echo "observer: $(k -n hubble-observer get deploy hubble-observer -o jsonpath='{.status.readyReplicas}')/1 ready; cf2cnp route: $(k -n routes get httproute cf2cnp -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null); Loki: $(k -n monitoring get sts loki -o jsonpath='{.status.readyReplicas}')/1"
+  # this lab's root, for the check's curl (the file in docs/ is the laptop's root)
+  mkdir -p .tmp; k -n cert-manager get secret clustermesh-root-ca -o jsonpath='{.data.tls\.crt}' | base64 -d > .tmp/root-ca.crt
   echo "the demo's own check (demos/25-hubble-observer-loki/check.sh 1):"
-  demos/25-hubble-observer-loki/check.sh 1 2>&1 | sed 's/^/  /' | head -40 || true
+  ROOT_CA=.tmp/root-ca.crt demos/25-hubble-observer-loki/check.sh 1 2>&1 | sed 's/^/  /' | head -40 || true
 }
 
 # ---------------------------------------------------------------- demo 18 — OBI on both clusters
@@ -154,7 +156,7 @@ step_hubble_cli() {
   k -n kube-system wait certificate/hubble-cli-client-certs --for=condition=Ready --timeout=3m >/dev/null
   if command -v hubble >/dev/null; then
     # shellcheck disable=SC2046
-    scripts/hubble-tls.sh --configure "$CTX" >/dev/null && echo "hubble CLI configured for $CTX: $(hubble status --kube-context "$CTX" $(scripts/hubble-tls.sh "$CTX") 2>/dev/null | grep -E 'Current/Max Flows|Nodes' | tr '\n' ' ')"
+    scripts/hubble-tls.sh --configure "$CTX" >/dev/null && echo "hubble CLI configured for $CTX: $(hubble status -P --kube-context "$CTX" $(scripts/hubble-tls.sh "$CTX") 2>&1 | grep -E 'Current/Max Flows|Nodes|rror' | tr '\n' ' ')"
   else echo "::warning::no hubble CLI on this host — the demo scripts that call it (26's verify.sh, 32's callers.sh) need it"; fi
 }
 
