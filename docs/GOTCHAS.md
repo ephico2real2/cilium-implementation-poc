@@ -2283,6 +2283,260 @@ its own L2 policy and `l2announcements.enabled` in `cilium/values-poc2.yaml`. Th
 **The lesson:** "the mesh" is a relationship between complete clusters, and completeness includes the address
 plan. Anything applied "to every cluster" from one file must be checked for what is actually per-cluster in it.
 
+## <a name="95"></a>95. kind never chose `172.18.0.0/16` — Docker did, and kind reuses whatever `kind` network exists
+
+**Where:** the CI lab (enhancement 004). The lab's LB blocks, its Gateway addresses and `hosts-entries.sh` are all
+written for `172.18.255.x` (gotcha #13), and every run so far had found that subnet — until the operator asked what
+actually set it.
+
+**What happened:** nothing set it. kind reuses a docker network named `kind` when one exists, and when it creates
+one it passes NO IPv4 subnet — the bridge driver, masquerading, the MTU and a hashed IPv6 ULA, nothing else
+(`pkg/cluster/internal/providers/docker/network.go` at v0.33.0; kubernetes-sigs/kind#1718). Docker's IPAM then
+picks the first free pool from its defaults, which on a fresh host is `172.18.0.0/16` and on a host with other
+user-defined networks is the next one along. Every pinned address in this repo rested on a coincidence.
+
+**The fix:** `scripts/lab-up.sh` creates the network FIRST, before any cluster, with the subnet the lab is written
+for and Docker's container allocation held to the lower half so no container can ever take a pool address:
+
+```bash
+docker network create -d bridge --subnet 172.18.0.0/16 --ip-range 172.18.0.0/17 --gateway 172.18.0.1 \
+  -o com.docker.network.bridge.enable_ip_masquerade=true -o com.docker.network.driver.mtu=<bridge mtu> \
+  --ipv6 --subnet fc00:f853:ccd:e793::/64 kind
+```
+
+```text
+== the kind docker network: 172.18.0.0/16 (containers from 172.18.0.0/17, the pools above it), IPv6 fc00:f853:ccd:e793::/64
+created: 172.18.0.0/16 fc00:f853:ccd:e793::/64                                             (run 34792046715)
+```
+
+An existing `kind` network with another subnet stops the run and says so; `LAB_SUBNET` / `LAB_IP_RANGE` move the
+lab, together with its pool files. On the MacBook, NETWORKING_DESIGN.md §4.2 now says the same: create the network
+before the first `kind create cluster`.
+
+**The lesson:** "it has always been 172.18" is not a design. Find who allocates an address before you pin
+anything to it; if the answer is "nobody", allocate it yourself.
+
+## <a name="96"></a>96. `useAPIServer=true` without the mesh declared — the apiserver waits forever on a ConfigMap the chart never renders
+
+**Where:** run 34791073921, finishing poc1 with Hubble and the mesh apiserver in one upgrade:
+
+```text
+Error: UPGRADE FAILED: context deadline exceeded
+clustermesh-apiserver-6999ccd445-jvphc   0/3   Init:0/1   0   10m   <none>   poc1-worker
+##[error]Helm could not enable Hubble and the mesh apiserver on poc1
+```
+
+`kubectl describe` on the pod: `FailedMount … configmap "clustermesh-remote-users" not found`, every minute, for
+ten minutes.
+
+**What happened:** chart 1.20.1 mounts that ConfigMap into the apiserver whenever the TLS auth mode is not
+`legacy` (`templates/clustermesh-apiserver/deployment.yaml`, volume `etcd-users-config`) — but renders it only when
+the mesh is declared: `templates/clustermesh-apiserver/users-configmap.yaml` is wrapped in `if and
+.Values.clustermesh.useAPIServer .Values.clustermesh.config.enabled …`. The lab had switched the apiserver on and
+meant to `clustermesh connect` later, demo 07's way; `connect` is what would have written the users. Until then the
+pod referenced a ConfigMap that did not exist, and a missing ConfigMap volume is not an error Helm reports — it is a
+pod that never starts.
+
+**The fix:** demo 24's shape, from live state — every member declared in every cluster in the same upgrade that
+turns the apiserver on:
+
+```bash
+--set clustermesh.useAPIServer=true --set clustermesh.apiserver.service.type=NodePort --set clustermesh.config.enabled=true \
+--set clustermesh.config.clusters[0].name=poc1 --set clustermesh.config.clusters[0].ips[0]=<poc1-control-plane's address> --set clustermesh.config.clusters[0].port=32379 \
+--set clustermesh.config.clusters[1].name=poc2 …
+```
+
+which is why `scripts/lab-up.sh` creates every cluster before it completes any: the addresses must exist to be
+declared. On one root (cert-manager, demo 08) the declaration IS the connection — nothing to copy afterwards.
+
+**The lesson:** an `Init:0/1` that never moves is a mount, not a crash; `describe` it before reading any log. And
+in this chart, "the apiserver on" and "the mesh declared" are one decision, not two steps.
+
+## <a name="97"></a>97. A Helm upgrade that changes only Cilium's ConfigMap rolls nothing — the agents run the old flags until something else restarts them
+
+**Where:** run 34784194103, the first cut of the CI lab: Cilium installed, then `helm upgrade` to switch the Gateway
+API on, then `cilium clustermesh enable`. The operator kept its flags (`rollout status` had nothing to wait for),
+and the agents that the mesh's certificate job restarted five minutes later died on the new config:
+
+```text
+Unable to find all Cilium CRDs necessary within 5m0s timeout        (the agents' log, in the sysdump)
+```
+
+— the Gateway API CRDs the new flags needed were not installed, so the restarted agents waited for CRDs the old
+agents had never been asked about, and the run never got as far as the mesh.
+
+**What happened:** Cilium's agent and operator read `cilium-config` at start-up. A `helm upgrade` that changes a
+value which lands only in that ConfigMap changes no pod template, so Kubernetes rolls no pod, and Helm's own
+`--wait` sees nothing to wait for either. The change is real and invisible until the next restart — which is when
+it bites, at a moment nobody connected to the upgrade. Gotcha #42 recorded the same shape for one flag; the CI lab
+met it for the whole feature set at once.
+
+**The fix:** two things, in `scripts/lab-up.sh`. Everything Cilium reads at start-up is present BEFORE Cilium
+(the ten Gateway API CRDs first, `gatewayAPI.enabled` and `enableAlpn` in the one install), so no later upgrade
+needs a restart for them; and every upgrade that changes agent-side config (Hubble, the mesh) is followed by
+`rollout restart ds/cilium` and `rollout status`, then Cilium's own status — the restart is part of the change, not
+a consequence found later.
+
+**The lesson:** after a Helm upgrade of Cilium, check whether a pod actually rolled (`kubectl rollout history`,
+or simply pod ages). If nothing did, the agents are still running the values from before the upgrade.
+
+## <a name="98"></a>98. CoreDNS on kind under Cilium: pods could not resolve one external name until CoreDNS was given real upstreams
+
+**Where:** run 34787222878, Cilium's connectivity test, and the FQDN demos behind it:
+
+```text
+curl: (28) Resolving timed out after 2000 milliseconds
+```
+
+Everything inside the cluster resolved; anything outside it did not.
+
+**What happened:** kind's node entrypoint rewrites the node's `/etc/resolv.conf` from Docker's embedded DNS
+(`127.0.0.11`) to the Docker host's address and adds iptables rules that redirect that traffic back to
+`127.0.0.11` (`enable_network_magic` in `images/base/files/usr/local/bin/entrypoint`, kind v0.33.0). CoreDNS with
+the default `dnsPolicy: Default` forwards to that file, i.e. to the host address, and relies on the node's iptables
+to turn it into the embedded resolver. On the runner, under Cilium with BPF masquerading and BPF host routing, the
+queries timed out. Which hop drops them was not measured — the redirect is a netfilter rule in the node, and BPF
+host routing is precisely the path that does not traverse netfilter (demo 11 measured that bypass), but the lab did
+not capture the packets, and the fix does not depend on the answer.
+
+**The fix:** CoreDNS forwards to resolvers a pod can reach directly, before anything that needs the outside world:
+
+```bash
+kubectl -n kube-system patch deployment coredns --patch \
+  '{"spec":{"template":{"spec":{"dnsPolicy":"None","dnsConfig":{"nameservers":["8.8.4.4","8.8.8.8"]}}}}}'
+```
+
+```text
+external name resolved (probe 1): Address: 1.0.0.1          (a busybox pod, nslookup one.one.one.one)
+```
+
+and the probe is retried across the CoreDNS roll, because the first probe after `rollout status` landed before the
+new endpoints served (run 34792046715, base job — gotcha #93).
+
+**The lesson:** on kind, "DNS works" means "kind's network magic works", and that magic is iptables in the node.
+Any CNI that bypasses the node's netfilter needs CoreDNS pointed at a resolver it can reach on its own.
+
+## <a name="99"></a>99. Helm `--wait` blocked ten minutes on a LoadBalancer Service whose pool did not exist yet
+
+**Where:** run 34790002220, Step 5 of the CI lab installing Cilium with the lab's values:
+
+```text
+Error: context deadline exceeded
+cilium-bbb7m       1/1   Running   0   10m
+hubble-relay-…     1/1   Running   0   10m
+hubble-ui-…        2/2   Running   0   10m
+```
+
+Every pod Running from the first minute; Helm timed out anyway.
+
+**What happened:** Helm's `--wait` waits for more than pods: "all Pods, PVCs, Services, and minimum number of Pods
+of a Deployment, StatefulSet, or ReplicaSet are in a ready state" — and a Service of type LoadBalancer is ready
+when it has an ingress address. The lab's values give the Hubble UI a LoadBalancer Service (SETUP Step 8), and the
+pool that would assign its address is applied AFTER Cilium (it needs Cilium's CRDs). With the pool missing the
+Service stays `<pending>`, and `--wait` cannot tell "pending because the pool comes next" from "broken".
+
+**The fix:** the order became the dependency order. Cilium's core is installed without `--wait` and verified with
+Cilium's own status (which knows what a healthy agent is), the pools are applied on the verified core, and only
+then does the upgrade that adds Hubble run with `--wait` — its LoadBalancer now has a pool to draw from. Same
+reason the Hubble UI's address is printed by the script right after: `hubble-ui LoadBalancer: 172.18.255.201`.
+
+**The lesson:** `--wait` encodes Helm's idea of ready, not yours. When a release contains a LoadBalancer Service,
+whatever assigns its address must exist before `--wait` is reasonable.
+
+## <a name="100"></a>100. `cilium connectivity test` needs a SECOND schedulable node — with a tainted control plane and one worker it waits forever
+
+**Where:** run 34785675472, cancelled by hand after the connectivity test had sat 23 minutes on its deployment
+phase, `echo-other-node` never scheduled.
+
+**What happened:** the test schedules `echo-other-node` on a node other than the client's; a kind cluster of one
+control plane and one worker has exactly one schedulable node, because kubeadm taints the control plane
+`node-role.kubernetes.io/control-plane:NoSchedule`. The CLI waits for the pod, and the pod waits for a node
+(cilium/cilium-cli#2186). Cilium's own kind template for its conformance clustermesh workflow removes the taint for
+this reason — "otherwise additional worker node might be required for conformance testing".
+
+**The fix:** `clusters/ci/poc1.yaml` and `poc2.yaml` remove the taint through `kubeadmConfigPatches`, listed for
+BOTH `kubeadm.k8s.io/v1beta3` and `v1beta4` — kind picks the kubeadm apiVersion by Kubernetes version (`v1beta4`
+from v1.36), and a patch whose apiVersion does not match is silently ignored, which would have left the taint in
+place with no error. The workflow prints every node's taints before the test and gives the step a 45-minute
+timeout, so the next such wait ends with a log instead of a cancellation.
+
+**The lesson:** a two-node lab is a one-node lab to anything that wants "another node". Before a test that spreads
+pods, count schedulable nodes, not nodes.
+
+## <a name="101"></a>101. The egress gateway and CiliumEndpointSlice refuse to run together — and `| tee` turned the crash into a green step
+
+**Where:** run 34789240547. `cilium/values-ci.yaml` had switched on every CRD the sysdump had complained about,
+including `ciliumEndpointSlice.enabled`, beside the egress gateway that enhancement 002 needs:
+
+```text
+cilium-9l9km   0/1   CrashLoopBackOff   6 (3m47s ago)   10m
+egress gateway is not supported in combination with the CiliumEndpointSlice feature     (the agent, pkg/egressgateway/manager.go:196)
+```
+
+And the bring-up step was GREEN: `scripts/lab-up.sh poc1 poc2 2>&1 | tee lab-up.log` reported tee's exit status,
+so a Helm timeout inside the script failed nothing, and the run went on to the next step with agents in
+CrashLoopBackOff.
+
+**What happened:** the agent refuses the pair at start-up — a hard rule in Cilium 1.20's source, not a warning —
+and a CrashLoopBackOff is invisible to a pipeline that only sees `tee`. Two independent traps, found in one run
+because the second hid the first.
+
+**The fix:** CiliumEndpointSlice is out of the CI values (the egress gateway is the one 002 needs; the sysdump's
+"could not find the requested resource" for CES is an accepted warning), and the workflow's bring-up step sets
+`set -o pipefail` before the pipe, so the script's exit code is the step's.
+
+**The lesson:** every `| tee` in a CI step needs `pipefail` or it is a step that cannot fail. And two features
+that each install fine can still be a combination the agent refuses — read the agent's first log lines after any
+values change, not only the pod count.
+
+## <a name="102"></a>102. Installing Cilium with Hubble off means relay and UI off too — the chart's own validation refuses the lab's values otherwise
+
+**Where:** run 34790879335, Step 5 of the CI lab installing the core with `--set hubble.enabled=false` on top of
+the lab's values file, which carries relay and UI on:
+
+```text
+Error: execution error at (cilium/templates/validate.yaml:71:7): Hubble Relay requires .Values.hubble.enabled=true
+##[error]Helm refused the Cilium install on poc1 (SETUP Step 5)
+```
+
+**What happened:** `templates/validate.yaml` in chart 1.20.1 fails the render when `hubble.relay.enabled` is true
+while `hubble.enabled` is false; the UI has the same guard. A `--set` that switches Hubble off does not switch its
+dependants off, and the values file still names them.
+
+**The fix:** the core install sets all three off — `hubble.enabled`, `hubble.relay.enabled`, `hubble.ui.enabled`
+— and the later Hubble upgrade re-applies the lab's values file, which carries them exactly as the lab wants them.
+The chart validated the lab's own dependency order for it.
+
+**The lesson:** switching a feature off with `--set` while a values file switches its dependants on is a render
+error, and the chart's `validate.yaml` is the place to read what depends on what.
+
+## <a name="103"></a>103. Two kernel features the runner still could not give the lab: BIG TCP under VXLAN, and the bandwidth manager inside kind
+
+**Where:** the `kernel-features` matrix entry of the CI lab, kernel `6.17.0-1022-azure` — the first place this lab
+could measure netkit, dual-stack, BBR and BIG TCP at all (the MacBook's `6.6.12-linuxkit` refused them, demo 06
+Part 4).
+
+**What happened, measured:**
+
+```text
+BIG TCP in tunneling mode requires pending kernel support                                  (run 34784194103, the agent refuses to start)
+BPF bandwidth manager could not read procfs … /host/proc/sys/net/core/default_qdisc         (run 34785181164, tcp_bbr loaded on the host)
+Bandwidth Manager: Disabled
+Device Mode: netkit                                                                        (run 34785181164 — this one works)
+```
+
+BIG TCP is a Cilium rule, not a kernel gap: it needs native routing, and the lab runs VXLAN. The bandwidth manager
+reads `net.core.default_qdisc`, a sysctl of the HOST's network namespace only; a kind node is a container with its
+own namespace, so the file is not there on any kernel — the laptop's "seven sysctls in net/core" (demo 06) was
+this, not only linuxkit. Both would show on a VM-based node.
+
+**The fix:** BIG TCP left the features entry (a matrix entry of its own — native routing plus
+`autoDirectNodeRoutes` — when the lab wants it); the bandwidth manager stays declared so the status line keeps
+recording that it is off and why. netkit and dual-stack are on and measured.
+
+**The lesson:** a runner kernel removes the linuxkit excuse, not every constraint: what a container node can and
+cannot read from its host is a second class of "kernel feature", and it does not change with the kernel version.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**

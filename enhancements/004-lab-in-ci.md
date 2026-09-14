@@ -42,6 +42,12 @@ second consumer of the same scripts, not a second lab.
 | two meshed kind clusters, Gateway API, the pools, the mesh connected — the whole `lab-up.sh` | **291–334 s**; a Gateway programmed with `172.18.255.241` from the pool; `ClusterMesh: 1/1 remote clusters ready` on both; 5 GB used | [run 34785181164](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/34785181164) |
 | the features the laptop's kernel refused, on the runner (`kernel-features`) | **netkit: `Device Mode: netkit`**; **dual-stack: KPR on IPv4 and IPv6, IPAM from `fd00:1:10::/64`, BPF masquerading for both**; BBR loaded on the host (`reno cubic bbr`) but **the bandwidth manager stays Disabled in kind**: the agent reads `/host/proc/sys/net/core/default_qdisc`, a sysctl of the host's network namespace only, and a kind node's own namespace has no such file — the laptop's "seven entries in net/core" was this too, not only linuxkit | same run, job `kernel-features` |
 | a Helm change to Cilium's ConfigMap after install | rolls nothing; the operator kept its flags, and the agents died five minutes after the next restart with `Unable to find all Cilium CRDs necessary within 5m0s` — the mesh's certificate job then could not even get a network | same, job `base`; fixed in `scripts/lab-up.sh`: the Gateway API CRDs before Cilium, Gateway API in the one install |
+| the mesh apiserver switched on without the mesh declared | `Init:0/1` for ten minutes, `FailedMount … configmap "clustermesh-remote-users" not found` — chart 1.20.1 mounts the users ConfigMap whenever TLS auth is not legacy but renders it only under `clustermesh.config.enabled` (gotcha #96) | [run 34791073921](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/34791073921); fixed: every member declared (name, address, port 32379) in the upgrade that turns the apiserver on, from live state — so all clusters are created before any is completed |
+| the mesh declared on poc1 while poc2 had no Cilium yet | `cilium status --wait` spent its full 10 minutes on `controller remote-etcd-poc2 … failed to retrieve cluster configuration: not found` on every agent (KVStoreMesh reads each peer through the LOCAL apiserver's cache, which had nothing for poc2), `ClusterMesh: OK` on the same status; the run died at 00:26:34 after starting the step at 00:15:25 (gotcha #92) | [run 34791947500](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/34791947500), [run 34792046715](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/34792046715); fixed: the link is pairwise and verified last — `cilium_healthy_but_peers` allows only the `remote-etcd-<peer>` controllers of peers not yet complete, the strict check runs in `mesh_connect` |
+| the kind docker network created by the script, subnet pinned, `--ip-range` the lower half | `created: 172.18.0.0/16 fc00:f853:ccd:e793::/64` at 00:14:33, both clusters up on it by 00:15:27 (gotcha #95) | run 34792046715, both jobs |
+| poc1 alone, clusters created → core verified → DNS → pools → metrics-server → cert-manager root + issuer | **1 min 40 s** (00:15:29 → 00:17:13, job `base`); the whole column is per cluster, so two clusters cost twice that plus Hubble/mesh/Tetragon | run 34792046715 |
+| the DNS probe | `external name resolved: Address: 1.0.0.1` followed by the warning that it had failed — `grep -m1` under `pipefail` (gotcha #93); the base job's probe found no answer 16 s after the CoreDNS roll — the probe landed before the new endpoints served | run 34792046715; fixed: captured then searched, six probes across the roll, the raw output printed and the run stopped on the last failure |
+| one pool file (`cilium/lb-ippool.yaml`) applied to every cluster | not measured — the runs never reached poc2's Step 8; the operator caught it in the log: poc2 would have been given poc1's `172.18.255.200–250` on the same bridge, with no L2 policy of its own (gotcha #94) | fixed at `bed849f`: one /26 per cluster, `cilium/lb-ippool-<cluster>.yaml`, poc2 announcing; the workflow proves both clusters' addresses from the runner |
 
 ## 3. Decision: kind for the clusters, minikube where one cluster is enough
 
@@ -109,6 +115,19 @@ to every other cluster), then Hubble and the mesh apiserver in one upgrade on th
 then connects the mesh. The table of what must exist before what is at the top of the script. What that removed,
 each measured in a run: Helm waiting on a Hubble UI LoadBalancer that had no pool yet; Helm certificates issued only
 to be replaced by cert-manager's; a certgen Job whose secret the CLI polled for; Tetragon before its host was ready.
+
+Two more rules from the same principle, added 2026-09-14 after runs 12 and 13:
+
+- **The mesh link is pairwise, so it is verified last.** A cluster is complete on its own components; the link to a
+  peer cannot be healthy before both ends exist. After the declaration, the health check allows exactly the
+  `remote-etcd-<peer>` controllers of the peers not yet complete and nothing else; once every cluster is complete,
+  the strict check runs on all of them, then `clustermesh status --wait` (gotcha #92).
+- **"Independent" includes the address plan.** *"A cluster is independent before it joined a mesh and this is true
+  for the pool IPs reserved as well. So poc2 must have its own. We can subdivide what is reserved on the network
+  between poc1 and poc2. This is how we set up in an enterprise."* (the operator). The reserved top /24 is
+  subdivided into /26 blocks with one layout inside each — poc1 `.192/26`, poc2 `.128/26`, poc3 `.64/26`, `.0/26`
+  for shared VIPs — one file per cluster, and the bring-up refuses a cluster without its block (NETWORKING_DESIGN
+  §3 item 4, gotcha #94).
 
 ### Phase 1 — the bring-up as scripts (what the MacBook will reuse)
 

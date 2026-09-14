@@ -283,10 +283,25 @@ bridge100:
 (The number is assigned by macOS; Docker's own docs say `bridge101`, this machine got `bridge100`.
 Never copy the number from a guide — README finding #1.)
 
-### 4.2 Create the docker network (kind does this) and the cluster
+### 4.2 Create the docker network YOURSELF, then the cluster
 
-kind creates the `kind` network on first use with a subnet Docker picks (`172.18.0.0/16` here).
-There is nothing to do by hand, but **look at it**, because every later address derives from it:
+kind reuses a docker network named `kind` when one exists, and when it creates one it passes **no
+IPv4 subnet** — the bridge driver, masquerading, the MTU and a hashed IPv6 ULA, nothing else
+(`pkg/cluster/internal/providers/docker/network.go` at v0.33.0; kubernetes-sigs/kind#1718). So the
+`172.18.0.0/16` this design is written for was Docker's first free pool, not a choice — on a host with
+other user-defined networks it would have been the next one along, and every pinned address in this
+repo would have been wrong (gotcha #95). Allocate it yourself, **before the first cluster**, with
+Docker's container allocation held to the lower half so no node can ever take a pool address:
+
+```bash
+mtu=$(docker network inspect bridge --format '{{index .Options "com.docker.network.driver.mtu"}}'); mtu=${mtu:-1500}
+docker network create -d bridge --subnet 172.18.0.0/16 --ip-range 172.18.0.0/17 --gateway 172.18.0.1 \
+  -o com.docker.network.bridge.enable_ip_masquerade=true -o com.docker.network.driver.mtu="$mtu" \
+  --ipv6 --subnet fc00:f853:ccd:e793::/64 kind
+```
+
+(`scripts/lab-up.sh` does exactly this, and refuses to continue if a `kind` network with another
+subnet already exists.) Then **look at it**, because every later address derives from it:
 
 ```bash
 docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} gw {{.Gateway}}{{"\n"}}{{end}}'
@@ -297,8 +312,9 @@ docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} gw {{.Ga
 fc00:f853:ccd:e793::/64 gw fc00:f853:ccd:e793::1
 ```
 
-If your subnet is not `172.18.0.0/16` (Docker picks the first free `172.x.0.0/16`), every
-`172.18` below becomes your value — the pools in `cilium/lb-ippool-poc1.yaml` included.
+If a `kind` network already exists with another subnet (a cluster created before this step), either
+delete it when no cluster is on it (`docker network rm kind`) and create it as above, or make every
+`172.18` below your value — the blocks in `cilium/lb-ippool-poc1.yaml` and `-poc2.yaml` included.
 
 Then create the cluster (SETUP Step 3). The nodes attach to the bridge and take addresses from the
 bottom:
@@ -485,7 +501,7 @@ The evidence for this is already in §4.4 layer 2: the Docker Desktop VM *is* a 
 dockerd, and `172.18.0.0/16 dev br-… scope link src 172.18.0.1` is the routing entry any Linux
 Docker host has. The commands below are that same check, run on the host itself.
 
-### 5.1 Create the cluster, then look at the bridge
+### 5.1 Create the network (§4.2's command — the same on Linux), then the cluster, then look at the bridge
 
 ```bash
 docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} gw {{.Gateway}}{{"\n"}}{{end}}'
