@@ -308,6 +308,12 @@ Note it down now.
 
 ## Step 2 — size the Docker VM, and clear the decks
 
+> **The runbook for this step, from a real run:** [DOCKER-DESKTOP-RUNBOOK.md](DOCKER-DESKTOP-RUNBOOK.md) —
+> what is installed and which version, the settings file and its keys, the VM disk, resizing the VM by
+> editing the file with Docker quit (backup, edit, read back, diff), finding out whether Homebrew or a
+> dmg installed it, upgrading through the cask and where that needs a terminal, and the verification
+> afterwards — every command with the output it gave on 2026-09-14.
+
 ### Step 2.1 — find out how big the VM actually is
 
 **Why.** Step 0.4 measured the *host*. Docker Desktop runs a Linux VM inside it, and only the VM's
