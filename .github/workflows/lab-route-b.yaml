@@ -132,8 +132,14 @@ jobs:
           cilium clustermesh status --context kind-poc1 --wait --wait-duration 5m
           cilium clustermesh status --context kind-poc2 --wait --wait-duration 5m
           echo "== demo 07 Part 4 — one global service, backends in both clusters (the response names its cluster)"
-          split() { kubectl --context kind-poc1 run "xcheck-$1" --rm -i --restart=Never --image=curlimages/curl:8.11.1 --command -- sh -c 'for i in $(seq 20); do curl -s -m 3 http://rebel-base.default.svc.cluster.local/; echo; done' 2>/dev/null | grep -o '"cluster": "[a-z0-9]*"' | sort | uniq -c; }
-          spread=$(split spread || true); echo "$spread"
+          # the guide's client is a pod that already exists (tiefighter, `kubectl exec`); a pod created for the measurement
+          # lost its first two requests to its own start-up in two runs (18 of 20 in Part 4 AND Part 5, run 34879584075),
+          # so the client is created once, waited for, warmed with one answered request, and exec'd for both parts
+          kubectl --context kind-poc1 run xcheck --restart=Never --image=curlimages/curl:8.11.1 --command -- sleep 3600
+          kubectl --context kind-poc1 wait --for=condition=Ready pod/xcheck --timeout=2m
+          for i in $(seq 1 20); do kubectl --context kind-poc1 exec xcheck -- curl -s -m 3 http://rebel-base.default.svc.cluster.local/ 2>/dev/null | grep -q '"cluster"' && break; sleep 1; done
+          split() { kubectl --context kind-poc1 exec xcheck -- sh -c 'for i in $(seq 20); do curl -s -m 3 http://rebel-base.default.svc.cluster.local/; echo; done' 2>/dev/null | grep -o '"cluster": "[a-z0-9]*"' | sort | uniq -c; }
+          spread=$(split || true); echo "$spread"
           echo "$spread" | grep -q '"cluster": "poc1"' && echo "$spread" | grep -q '"cluster": "poc2"' || { echo "::error::the global service did not spread over both clusters (demo 07 Part 4)"; exit 1; }
           echo "== demo 07 Part 5 — failover: poc1's backends scaled to zero, the same client, unchanged"
           kubectl --context kind-poc1 scale deployment rebel-base --replicas=0; kubectl --context kind-poc1 wait --for=delete pod -l name=rebel-base --timeout=2m || true
@@ -142,12 +148,13 @@ jobs:
           # slice is empty, and the counts are printed as they are
           for i in $(seq 1 30); do n=$(kubectl --context kind-poc1 get endpointslice -l kubernetes.io/service-name=rebel-base -o json | jq '[.items[].endpoints // [] | length] | add // 0'); [ "$n" = 0 ] && break; sleep 2; done
           echo "poc1's rebel-base EndpointSlice: $n endpoints left"; sleep 3
-          over=$(split failover || true); echo "$over"
+          over=$(split || true); echo "$over"
           echo "$over" | grep -q '"cluster": "poc1"' && { echo "::error::a request was still answered by poc1 after its backends were removed (demo 07 Part 5)"; exit 1; }
           answered=$(echo "$over" | awk '/"cluster": "poc2"/ {print $1}'); answered=${answered:-0}
           [ "$answered" -ge 1 ] || { echo "::error::no request reached poc2 after failover (demo 07 Part 5)"; exit 1; }
           if [ "$answered" -eq 20 ]; then echo "20 of 20 requests answered by poc2 — the guide's 20/20"; else echo "::warning::$answered of 20 requests answered by poc2, $((20 - answered)) unanswered (demo 07 Part 5 measured 20/20 on the laptop)"; fi
           echo "restored to 2 replicas"
+          kubectl --context kind-poc1 delete pod xcheck --wait=false
           kubectl --context kind-poc1 scale deployment rebel-base --replicas=2; kubectl --context kind-poc1 rollout status deploy/rebel-base --timeout=3m
 
       # check-log-errors reads the agents' WHOLE log (no --log-check-only-test-time), so the bring-up's lines count too.
