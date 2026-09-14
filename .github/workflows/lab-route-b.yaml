@@ -27,20 +27,12 @@ jobs:
   two-clusters-meshed:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: base                # the lab as it runs on the laptop (IPv4, veth, tunnel)
-            features: ""
-            ipfamily: ipv4
-          - name: kernel-features     # what the laptop's VM kernel refused and the runner can run: netkit, IPv6 (BIG TCP and the bandwidth manager: gotcha #103)
-            features: "1"
-            ipfamily: dual
-    name: ${{ matrix.name }}
+    # one job, the kernel-features shape (netkit, dual-stack): route A's workflow keeps the base entry — the laptop's
+    # shape is measured there; this pipeline is route B end to end, once (the operator, 2026-09-14)
+    name: kernel-features
     env:
-      LAB_FEATURES: ${{ matrix.features }}
-      LAB_IPFAMILY: ${{ matrix.ipfamily }}
+      LAB_FEATURES: "1"
+      LAB_IPFAMILY: dual
     steps:
       - uses: actions/checkout@v5
 
@@ -191,7 +183,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lab-route-b-${{ matrix.name }}
+          name: lab-route-b
           path: |
             lab-up.log
             cilium-sysdump-*.zip
