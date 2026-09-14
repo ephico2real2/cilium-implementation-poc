@@ -39,7 +39,10 @@ if ! docker info >/dev/null 2>&1; then
   printf '\n'; [ "$STRICT" = 1 ] && exit 1; exit 0
 fi
 dver=$(docker version --format '{{.Server.Version}}' 2>/dev/null); kern=$(docker info --format '{{.KernelVersion}}' 2>/dev/null)
-dmem=$(( $(docker info --format '{{.MemTotal}}' 2>/dev/null || echo 0) / 1073741824 )); dcpu=$(docker info --format '{{.NCPU}}' 2>/dev/null)
+# a daemon that answers can still print an empty field (Desktop mid-start): default every number, or `set -u` and the
+# arithmetic abort the table half-way (review of 004, C7)
+raw_mem=$(docker info --format '{{.MemTotal}}' 2>/dev/null); raw_mem=${raw_mem:-0}; dmem=$(( raw_mem / 1073741824 ))
+dcpu=$(docker info --format '{{.NCPU}}' 2>/dev/null); dcpu=${dcpu:-0}
 if [ "$os" = Darwin ]; then
   app=$(defaults read /Applications/Docker.app/Contents/Info.plist CFBundleShortVersionString 2>/dev/null || echo "?")
   row ok "Docker Desktop" "app $app, engine $dver" "4.89.0 ships Linux kernel v7.0.12 (release notes); 4.27.2 shipped 6.6.12"
@@ -69,25 +72,31 @@ elif [ "${dcpu:-0}" -ge 4 ]; then row warn "CPUs for the nodes" "$dcpu" "the mea
 else row REQUIRED-FAIL "CPUs for the nodes" "$dcpu" "below 4, two clusters with Cilium have never been measured to work — raise the VM (SETUP Step 2.3, docs/DOCKER-DESKTOP-RUNBOOK.md §4)"; fi
 
 # ---------------------------------------------------------------- the kernel the nodes will share
-kv=$(echo "$kern" | grep -oE '^[0-9]+\.[0-9]+(\.[0-9]+)?')
+kv=$(echo "$kern" | grep -oE '^[0-9]+\.[0-9]+(\.[0-9]+)?' || true); kv=${kv:-0}
 if ver_ge "$kv" 6.8; then
   # the version is necessary, not sufficient: netkit also needs CONFIG_NETKIT — so a device is actually created
   if [ "$os" = Linux ] && [ -r "/boot/config-$(uname -r)" ]; then
     if grep -qE '^CONFIG_NETKIT=(y|m)' "/boot/config-$(uname -r)"; then row ok "netkit (kernel $kern)" "≥ 6.8 and CONFIG_NETKIT in /boot/config" "Cilium $CILIUM_VERSION system requirements: netkit ≥ 6.8 + CONFIG_NETKIT"
     else row no "netkit (kernel $kern)" "≥ 6.8 but no CONFIG_NETKIT in /boot/config" "same rule; bpf.datapathMode=netkit will be refused"; fi
   else
-    # a privileged container on the SAME kernel (the VM's, on macOS) tries the device; iproute2 comes from the Cilium image
-    if docker run --rm --privileged --net=host --entrypoint sh "quay.io/cilium/cilium:v$CILIUM_VERSION" -c 'ip link add lab-preflight-nk type netkit >/dev/null 2>&1 && ip link del lab-preflight-nk' >/dev/null 2>&1; then
+    # on the SAME kernel (the VM's, on macOS): the kernel's own config when it exports one (Cilium creates netkit through
+    # netlink, so CONFIG_NETKIT is the fact); otherwise a device is created with the Cilium image's iproute2 (6.19 on its
+    # Ubuntu 26.04 base, which knows the netkit link type — review of 004, C7)
+    if docker run --rm --privileged busybox:1.36 sh -c 'zcat /proc/config.gz 2>/dev/null | grep -qE "^CONFIG_NETKIT=(y|m)"' >/dev/null 2>&1; then
+      row ok "netkit (kernel $kern)" "≥ 6.8 and CONFIG_NETKIT in the VM kernel's /proc/config.gz" "Cilium $CILIUM_VERSION system requirements: netkit ≥ 6.8 + CONFIG_NETKIT"
+    elif docker run --rm --privileged --net=host --entrypoint sh "quay.io/cilium/cilium:v$CILIUM_VERSION" -c 'ip link add lab-preflight-nk type netkit >/dev/null 2>&1 && ip link del lab-preflight-nk' >/dev/null 2>&1; then
       row ok "netkit (kernel $kern)" "≥ 6.8 and a netkit device was created" "Cilium $CILIUM_VERSION system requirements: netkit ≥ 6.8 + CONFIG_NETKIT (measured, not assumed)"
-    else row no "netkit (kernel $kern)" "≥ 6.8 but 'ip link add … type netkit' failed" "the kernel lacks CONFIG_NETKIT; the veth datapath stays (demo 06 Part 4)"; fi
+    else row no "netkit (kernel $kern)" "≥ 6.8 but no CONFIG_NETKIT exported and 'ip link add … type netkit' failed" "the kernel lacks CONFIG_NETKIT; the veth datapath stays (demo 06 Part 4)"; fi
   fi
 else
   row no "netkit (kernel $kern)" "kernel < 6.8" "Cilium $CILIUM_VERSION system requirements: netkit ≥ 6.8 — on macOS this is Docker Desktop's kernel: upgrade Desktop (4.89.0: 7.0.12)"
 fi
 # Tetragon's base sensor (demo 17, blocker 1): the symbol must exist on the kernel the nodes share
-if [ "$os" = Linux ]; then sym=$(grep -c ' security_bprm_committing_creds$' /proc/kallsyms 2>/dev/null || echo 0)
-else sym=$(docker run --rm --privileged busybox:1.36 grep -c ' security_bprm_committing_creds$' /proc/kallsyms 2>/dev/null || echo 0); fi
-if [ "${sym:-0}" -ge 1 ]; then row ok "Tetragon base sensor" "security_bprm_committing_creds exported" "demo 17 blocker 1 (CONFIG_SECURITY); blocker 2, /procHost, is in clusters/ci/*.yaml"
+# grep -c prints its 0 AND exits 1 on no match, so `|| echo 0` had made "0\\n0" — not an integer (review of 004, C7)
+if [ "$os" = Linux ]; then sym=$(grep -c ' security_bprm_committing_creds$' /proc/kallsyms 2>/dev/null || true)
+else sym=$(docker run --rm --privileged busybox:1.36 grep -c ' security_bprm_committing_creds$' /proc/kallsyms 2>/dev/null || true); fi
+sym=${sym:-0}
+if [ "$sym" -ge 1 ]; then row ok "Tetragon base sensor" "security_bprm_committing_creds exported" "demo 17 blocker 1 (CONFIG_SECURITY); blocker 2, /procHost, is in clusters/ci/*.yaml"
 else row no "Tetragon base sensor" "security_bprm_committing_creds NOT in kallsyms" "demo 17 blocker 1 — LAB_TETRAGON=0, or another kernel"; fi
 # two rows that are the same on every host, so nobody looks for them in the kernel
 qd=$([ "$os" = Linux ] && sysctl -n net.core.default_qdisc 2>/dev/null || docker run --rm --privileged busybox:1.36 sysctl -n net.core.default_qdisc 2>/dev/null || echo "?")
@@ -114,7 +123,7 @@ case "$os" in
 esac
 
 # ---------------------------------------------------------------- IPv6 on a docker network (the dual-stack runs)
-n=lab-preflight-v6; docker network rm "$n" >/dev/null 2>&1 || true
+n="lab-preflight-v6-$$"; trap 'docker network rm "$n" >/dev/null 2>&1 || true' EXIT   # this run's own name, gone on any exit (review, N4)
 if docker network create --ipv6 --subnet fd00:1ab:9:9::/64 "$n" >/dev/null 2>&1 \
    && docker run --rm --net "$n" busybox:1.36 sh -c 'ip -6 addr show eth0 | grep -q "inet6 fd00:1ab:9:9"' >/dev/null 2>&1; then
   row ok "IPv6 on a docker network" "a container got fd00:1ab:9:9::/64" "LAB_IPFAMILY=dual is possible (cilium/values-ci-features.yaml)"

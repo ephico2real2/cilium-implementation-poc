@@ -32,9 +32,13 @@ case "$(uname -s)" in
     fi
     ;;
   Darwin)
-    vm_ip=$(docker run --rm --net=host --privileged busybox sh -c "ip -4 addr show eth1 | grep -o 'inet [0-9.]*'" 2>/dev/null | awk '{print $2}')
-    if netstat -rn -f inet | grep -q "^${subnet%%/*}"; then echo "route: $(netstat -rn -f inet | grep "^${subnet%%/*}" | head -1) (SETUP Step 3.5, present)"
-    elif [ -n "$vm_ip" ]; then echo "SETUP Step 3.5: sudo route -n add -net $subnet $vm_ip"; $SUDO route -n add -net "$subnet" "$vm_ip" 2>/dev/null || echo "::warning::run it in a Terminal: sudo route -n add -net $subnet $vm_ip (sudo cannot prompt here — SETUP Step 3.5.4)"
+    vm_ip=$(docker run --rm --net=host --privileged busybox:1.36 sh -c "ip -4 addr show eth1 | grep -o 'inet [0-9.]*'" 2>/dev/null | awk '{print $2}')
+    # `route -n get` names the gateway the kernel would use for the subnet; a present Step 3.5 route answers with the
+    # VM's address, an absent one with the LAN's default gateway. (netstat prints the destination classfully abbreviated —
+    # `172.18`, NETWORKING_DESIGN §4.3's capture — so a grep for 172.18.0.0 never saw a present route: review of 004, N3)
+    gw=$(route -n get "${subnet%%/*}" 2>/dev/null | awk '$1 == "gateway:" {print $2; exit}')
+    if [ -n "$vm_ip" ] && [ "$gw" = "$vm_ip" ]; then echo "route: $subnet via $gw (SETUP Step 3.5, present)"
+    elif [ -n "$vm_ip" ]; then echo "SETUP Step 3.5: sudo route -n add -net $subnet $vm_ip (the kernel would use ${gw:-no gateway} today)"; $SUDO route -n add -net "$subnet" "$vm_ip" 2>/dev/null || echo "::warning::run it in a Terminal: sudo route -n add -net $subnet $vm_ip (sudo cannot prompt here — SETUP Step 3.5.4)"
     else echo "::warning::no eth1 in the Docker VM: enable kernelForUDP (SETUP Step 2.3b) before the route can exist"; fi
     ;;
 esac
@@ -73,11 +77,14 @@ say "reachability from this host, measured — TCP to each address (that is what
 # shows the MAC the L2 lease holder answered with (Linux — on macOS the host never ARPs for it: the route's next hop is
 # the VM, SETUP Step 3.5, and HTTP is the proof).
 probe() { # <address> <what>
-  local code mac=""
+  local code mac="" l2
   code=$(curl -s -o /dev/null -m 6 --connect-timeout 3 -w '%{http_code}' "http://$1/" 2>/dev/null || true)
   case "$(uname -s)" in
     Linux)  mac=$(ip neigh show to "$1" 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "lladdr") print $(i+1)}' | head -1)
-            printf '  %-16s %-30s L2 %-38s HTTP %s\n' "$1" "$2" "${mac:+ARP answered by $mac}${mac:-NOT answered (SETUP Step 8: the L2 policy, or the route)}" "${code:-000}";;
+            # one string, built by a test: `${mac:+…}${mac:-…}` expanded BOTH halves when mac was set — run 34796271073
+            # printed every MAC twice (review of 004, C8)
+            if [ -n "$mac" ]; then l2="ARP answered by $mac"; else l2="NOT answered (SETUP Step 8: the L2 policy, or the route)"; fi
+            printf '  %-16s %-30s L2 %-38s HTTP %s\n' "$1" "$2" "$l2" "${code:-000}";;
     *)      printf '  %-16s %-30s via the VM (SETUP 3.5)%-16s HTTP %s\n' "$1" "$2" "" "${code:-000}";;
   esac
 }

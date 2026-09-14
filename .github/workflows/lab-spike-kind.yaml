@@ -7,6 +7,10 @@ name: lab spike (kind)
 on:
   workflow_dispatch:
     inputs:
+      certmanager:
+        description: route A (true, cert-manager's root — the default) or route B (false, Helm certificates, SETUP 9.3b)
+        type: boolean
+        default: true
       connectivity_test:
         description: run `cilium connectivity test --multi-cluster` (about 15 minutes)
         type: boolean
@@ -71,7 +75,7 @@ jobs:
           # pipefail: `lab-up.sh | tee` reported tee's exit status, and run 34789240547 went green past a Helm timeout
           set -o pipefail
           start=$(date +%s)
-          scripts/lab-up.sh poc1 poc2 2>&1 | tee lab-up.log
+          LAB_CERTMANAGER=$( [ "${{ inputs.certmanager }}" = "false" ] && echo 0 || echo 1 ) scripts/lab-up.sh poc1 poc2 2>&1 | tee lab-up.log
           echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
 
       - name: What it cost
@@ -112,7 +116,8 @@ jobs:
               case "$ip" in \<pending\>) echo "NO ADDRESS"; continue;; esac
               code=$(curl -s -o /dev/null -m 8 --connect-timeout 3 -w '%{http_code}' "http://$ip/" || true)
               mac=$(ip neigh show to "$ip" | awk '{for (i = 1; i <= NF; i++) if ($i == "lladdr") print $(i+1)}' | head -1)
-              printf 'HTTP %-4s L2 %s\n' "${code:-000}" "${mac:+ARP answered by $mac}${mac:-NOT answered}"
+              if [ -n "$mac" ]; then l2="ARP answered by $mac"; else l2="NOT answered"; fi   # not ${mac:+…}${mac:-…}: both halves expand when set (review, N2)
+              printf 'HTTP %-4s L2 %s\n' "${code:-000}" "$l2"
             done
           done
           kubectl --context kind-poc1 get svc rebel-base -o wide; kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -B1 -A4 rebel | head -12
@@ -128,6 +133,9 @@ jobs:
         timeout-minutes: 45      # the step cannot hang the job: the fourth run sat here 23 minutes with no output; the
                                  # fifth spent 30 on DNS retries (fixed in lab-up.sh: CoreDNS upstreams)
         run: |
+          # pipefail: the suite's exit code is the step's — run 34794243096 reported "1/87 tests failed" and both jobs were
+          # green, because grep and sed were the last commands of the pipe (review of 004, N1)
+          set -o pipefail
           start=$(date +%s)
           kubectl --context kind-poc1 get nodes -o custom-columns='NODE:.metadata.name,TAINTS:.spec.taints[*].key' --no-headers
           # streamed, not piped through tail: a hang must be visible in the log while it happens. --line-buffered, or grep

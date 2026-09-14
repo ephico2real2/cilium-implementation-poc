@@ -2220,8 +2220,10 @@ Nothing is wrong with poc1; the error names a peer that is not built yet.
 before creating or running clustermesh steps or scripts"* (the operator). `scripts/lab-up.sh` completes every
 cluster on its own — core, DNS, its LB block, metrics-server, its issuer, Hubble, Tetragon, verified — and only
 then runs `mesh_up` on all of them: the apiserver switched on and every member declared in one upgrade per
-cluster, the agents restarted once every apiserver exists, then the strict `cilium status --wait` on each and
-`clustermesh status --wait`. A first cut of the fix tolerated the `remote-etcd-<peer>` errors of peers not yet
+cluster, then the strict `cilium status --wait` on each and `clustermesh status --wait`. The agents need no
+restart for the peers: they watch the projected clustermesh volume (`pkg/clustermesh/common/config.go`), so the
+declaration reaches them live; the script restarts them only when `cilium-config` itself changed, measured by its
+resourceVersion before and after the upgrade (the review of enhancement 004, claim C2). A first cut of the fix tolerated the `remote-etcd-<peer>` errors of peers not yet
 complete inside the per-cluster check; run 34794243096 went through on it — `lab up: poc1 poc2` in 500–566 s, `All 2
 nodes are connected to all clusters` on both — and Cilium's connectivity test then flagged what that ordering had
 left in poc1's agent log: `Failed waiting for clustermesh synchronization, expect possible disruption of
@@ -2350,9 +2352,12 @@ clustermesh-apiserver-6999ccd445-jvphc   0/3   Init:0/1   0   10m   <none>   poc
 `kubectl describe` on the pod: `FailedMount … configmap "clustermesh-remote-users" not found`, every minute, for
 ten minutes.
 
-**What happened:** chart 1.20.1 mounts that ConfigMap into the apiserver whenever the TLS auth mode is not
-`legacy` (`templates/clustermesh-apiserver/deployment.yaml`, volume `etcd-users-config`) — but renders it only when
-the mesh is declared: `templates/clustermesh-apiserver/users-configmap.yaml` is wrapped in `if and
+**What happened:** chart 1.20.1 mounts that ConfigMap into the apiserver's `etcd` container whenever the TLS auth
+mode is not `legacy` (`templates/clustermesh-apiserver/deployment.yaml`, volume `etcd-users-config`; the init
+container itself mounts only the data directory — the kubelet prepares every volume of a pod before it starts any
+container, init containers included, which is why a missing ConfigMap shows as `Init:0/1` rather than as a
+container error; the review of enhancement 004 corrected this line) — but renders it only when the mesh is
+declared: `templates/clustermesh-apiserver/users-configmap.yaml` is wrapped in `if and
 .Values.clustermesh.useAPIServer .Values.clustermesh.config.enabled …`. The lab had switched the apiserver on and
 meant to `clustermesh connect` later, demo 07's way; `connect` is what would have written the users. Until then the
 pod referenced a ConfigMap that did not exist, and a missing ConfigMap volume is not an error Helm reports — it is a
@@ -2505,6 +2510,10 @@ because the second hid the first.
 **The fix:** CiliumEndpointSlice is out of the CI values (the egress gateway is the one 002 needs; the sysdump's
 "could not find the requested resource" for CES is an accepted warning), and the workflow's bring-up step sets
 `set -o pipefail` before the pipe, so the script's exit code is the step's.
+
+The connectivity test step had the same shape — `cilium connectivity test … | grep | sed` — and run 34794243096
+reported `1/87 tests failed` with both jobs green; the review of enhancement 004 found it, and that step has
+`pipefail` too now.
 
 **The lesson:** every `| tee` in a CI step needs `pipefail` or it is a step that cannot fail. And two features
 that each install fine can still be a combination the agent refuses — read the agent's first log lines after any

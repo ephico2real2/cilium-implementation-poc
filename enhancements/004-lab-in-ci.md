@@ -155,7 +155,7 @@ Two corrections to the plan below from what phase 0 measured: Tetragon is IN sco
 
 | # | Task | Needs | State |
 |---|---|---|---|
-| 1 | The review pass on the bring-up: `scripts/lab-up.sh` (`mesh_up`, the DNS probe, reruns, a third cluster), the address plan, `scripts/lab-preflight.sh`, `scripts/lab-route.sh`, the workflow — ten claims, both reviewers on copies | Codex + Cursor | **in progress**, brief at the session's scratch `review-enh004/`; record to `docs/REVIEW_ENH-004.md` |
+| 1 | The review pass on the bring-up: `scripts/lab-up.sh` (`mesh_up`, the DNS probe, reruns, a third cluster), the address plan, `scripts/lab-preflight.sh`, `scripts/lab-route.sh`, the workflow — ten claims, both reviewers on copies | Codex + Cursor | **done**: `docs/REVIEW_ENH-004.md` — ten claims, eight accepted findings (the masked connectivity step, the doubled MAC, the empty Docker fields, reruns resetting the release, route B's `connect`, the macOS route check, the watcher-based agent restart, the temp file), measured by the two runs after it |
 | 2 | Phase 1: `scripts/lab-stack.sh <monitoring\|loki\|observer>` from demos 16, 25 (and 21 when Tempo is unparked), deadline-guarded, then measured on the runner beside the two clusters (the fit is the measurement, §6) | the runner | not started |
 | 3 | Phase 2: `.github/workflows/lab.yaml`, one job per demo group (core, mesh, observability, policy-tools), the demo scripts under `scripts/record.sh`, the policy tests, Playwright captures as artefacts | the runner, task 2 | not started |
 | 4 | hubble-policy-verdicts follow-up: source before destination in the top-10 workloads table (chart 0.4.x, held by `hack/check-dashboard.py`) | the chart repo | not started |

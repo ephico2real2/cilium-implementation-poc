@@ -48,6 +48,22 @@ evidence() { # <ctx> — what to print when a Cilium layer fails
   kubectl --context "$1" -n kube-system get pods -o wide | grep -E 'cilium|hubble|clustermesh' || true
   kubectl --context "$1" -n kube-system logs ds/cilium -c cilium-agent --tail=15 2>/dev/null | grep -E 'level=(error|fatal)' | tail -5 || true
 }
+agents_reread() { # <ctx> <before-resourceVersion of cilium-config> <before-generation of ds/cilium> — after a helm upgrade
+  # What the agents read at start lives in cilium-config (Hubble on/off: gotcha #97); what they read live is the projected
+  # clustermesh volume (pkg/clustermesh/common/config.go watches the peer files — review of 004, C2). So: a changed
+  # DaemonSet template is already rolling (wait for it); a changed ConfigMap with an unchanged template needs the
+  # restart; nothing changed means no restart — a rerun no longer takes every Gateway off the air (gotcha #42).
+  local ctx=$1 cm_before=$2 gen_before=$3 cm_after gen_after
+  cm_after=$(kubectl --context "$ctx" -n kube-system get cm cilium-config -o jsonpath='{.metadata.resourceVersion}')
+  gen_after=$(kubectl --context "$ctx" -n kube-system get ds cilium -o jsonpath='{.metadata.generation}')
+  if [ "$gen_after" != "$gen_before" ]; then echo "  agents: the DaemonSet template changed (generation $gen_before → $gen_after), Helm is rolling it"
+  elif [ "$cm_after" != "$cm_before" ]; then echo "  agents: cilium-config changed, restarting the DaemonSet to read it"; kubectl --context "$ctx" -n kube-system rollout restart ds/cilium >/dev/null
+  else echo "  agents: cilium-config and the DaemonSet unchanged, no restart"; fi
+  kubectl --context "$ctx" -n kube-system rollout status ds/cilium --timeout=5m >/dev/null
+}
+agents_snapshot() { # <ctx> — prints "<cilium-config resourceVersion> <ds/cilium generation>" (0 0 before the first install)
+  echo "$(kubectl --context "$1" -n kube-system get cm cilium-config -o jsonpath='{.metadata.resourceVersion}' 2>/dev/null || echo 0) $(kubectl --context "$1" -n kube-system get ds cilium -o jsonpath='{.metadata.generation}' 2>/dev/null || echo 0)"
+}
 cilium_healthy() { # <cluster> <what> — SETUP Step 6.1, reused after every change to Cilium
   cilium status --context "kind-$1" --wait --wait-duration 10m --interactive=false > "/tmp/cilium-status-$1.txt" \
     || { cat "/tmp/cilium-status-$1.txt"; evidence "kind-$1"; die "Cilium is not healthy on $1 $2"; }
@@ -62,7 +78,13 @@ printf 'kind %s | kubectl %s | helm %s | cilium-cli %s | docker %s | kernel %s\n
   "$(helm version --short)" "$(cilium version --client 2>/dev/null | grep -m1 -oE 'v?[0-9]+\.[0-9]+\.[0-9]+')" "$(docker version --format '{{.Server.Version}}')" "$(uname -r)"
 # what THIS host can run, measured before anything is created (SETUP Steps 0–2; the same table on the runner and a Mac)
 LAB_PREFLIGHT_STRICT=1 CILIUM_VERSION="$CILIUM_VERSION" scripts/lab-preflight.sh || die "preflight failed (the table above says which row; SETUP Steps 1–2)"
-for c in "$@"; do [ -f "$CLUSTERS/$c.yaml" ] || die "no cluster config $CLUSTERS/$c.yaml"; done
+# every per-cluster file, before a repository is added or a cluster created: a missing values or pool file used to be
+# found only inside cluster_up, after kind and Cilium had been built on it (review of enhancement 004, C10)
+for c in "$@"; do
+  [ -f "$CLUSTERS/$c.yaml" ] || die "no cluster config $CLUSTERS/$c.yaml"
+  [ -f "cilium/values-$c.yaml" ] || die "no cilium/values-$c.yaml — every cluster has its own values file (cluster.name, cluster.id)"
+  [ -f "cilium/lb-ippool-$c.yaml" ] || die "no cilium/lb-ippool-$c.yaml — every cluster has its own block of the reserved range (NETWORKING_DESIGN §3 item 4)"
+done
 helm repo add cilium https://helm.cilium.io/ >/dev/null 2>&1 || true                                  # SETUP Step 5.1
 helm repo add jetstack https://charts.jetstack.io >/dev/null 2>&1 || true                              # demo 08
 helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ >/dev/null 2>&1 || true
@@ -83,8 +105,15 @@ if docker network inspect kind >/dev/null 2>&1; then
   echo "exists with $have, kept"
 else
   mtu=$(docker network inspect bridge --format '{{index .Options "com.docker.network.driver.mtu"}}' 2>/dev/null); [ -n "$mtu" ] || mtu=1500
-  docker network create -d bridge --subnet "$LAB_SUBNET" --ip-range "$LAB_IP_RANGE" --gateway "${LAB_SUBNET%.*.*}.0.1" \
-    -o com.docker.network.bridge.enable_ip_masquerade=true -o com.docker.network.driver.mtu="$mtu" --ipv6 --subnet "$LAB_SUBNET6" kind >/dev/null
+  # with IPv6 first, IPv4-only when the daemon refuses it (Docker Desktop with IPv6 off) — the fallback kind's own network
+  # code makes (network.go: isUnknownIPv6FlagError / isIPv6DisabledError); LAB_IPFAMILY=dual then fails at Step 3, by name
+  if ! docker network create -d bridge --subnet "$LAB_SUBNET" --ip-range "$LAB_IP_RANGE" --gateway "${LAB_SUBNET%.*.*}.0.1" \
+      -o com.docker.network.bridge.enable_ip_masquerade=true -o com.docker.network.driver.mtu="$mtu" --ipv6 --subnet "$LAB_SUBNET6" kind >/dev/null 2>&1; then
+    [ "${LAB_IPFAMILY:-ipv4}" = dual ] && die "the docker daemon refused an IPv6 network and LAB_IPFAMILY=dual needs one (Docker Desktop: Resources → Network)"
+    echo "::warning::the docker daemon refused --ipv6; the kind network is IPv4-only (dual-stack runs need IPv6 on the daemon)"
+    docker network create -d bridge --subnet "$LAB_SUBNET" --ip-range "$LAB_IP_RANGE" --gateway "${LAB_SUBNET%.*.*}.0.1" \
+      -o com.docker.network.bridge.enable_ip_masquerade=true -o com.docker.network.driver.mtu="$mtu" kind >/dev/null
+  fi
   echo "created: $(docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}')"
 fi
 
@@ -92,12 +121,15 @@ fi
 cluster_create() {
   local c="$1" cfg n
   say "SETUP Step $( [ "$c" = "$first" ] && echo 3 || echo 9.1 ) — create $c (kind, no CNI, no kube-proxy, the lab's CIDRs)"
+  if kind get clusters 2>/dev/null | grep -qx "$c"; then echo "kind cluster $c exists, kept"; return 0; fi
   cfg="$CLUSTERS/$c.yaml"
   if [ "${LAB_IPFAMILY:-ipv4}" = "dual" ]; then   # the lab's IPv4 ranges plus a ULA range per cluster (poc1 fd00:1:…, poc2 fd00:2:…)
-    n=${c#poc}; cfg=$(mktemp)
+    n=${c#poc}; cfg=$(mktemp "${TMPDIR:-/tmp}/lab-up-$c.XXXXXX")
     sed -e "s|podSubnet: \"\(.*\)\"|podSubnet: \"\1,fd00:$n:10::/48\"|" -e "s|serviceSubnet: \"\(.*\)\"|serviceSubnet: \"\1,fd00:$n:11::/112\"|" -e 's|^networking:|networking:\n  ipFamily: dual|' "$CLUSTERS/$c.yaml" > "$cfg"
   fi
-  if kind get clusters 2>/dev/null | grep -qx "$c"; then echo "kind cluster $c exists, kept"; else kind create cluster --config "$cfg" --wait 0; fi
+  local rc=0; kind create cluster --config "$cfg" --wait 0 || rc=$?
+  [ "$cfg" = "$CLUSTERS/$c.yaml" ] || rm -f "$cfg"   # the rendered dual-stack config is not left in TMPDIR, success or failure (review, N5)
+  return "$rc"
 }
 cp_ip() { docker inspect "$1-control-plane" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'; }   # demo 24: the address the other clusters reach the mesh apiserver at (NodePort 32379)
 
@@ -122,11 +154,18 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "O
 
   # ---------------------------------------------------------------- SETUP Step 5 / 9.2 — Cilium's CORE (Hubble comes when its needs exist)
   say "SETUP Step $( [ "$c" = "$first" ] && echo 5 || echo 9.2 ) — Cilium $CILIUM_VERSION core on $c (cilium/values-$c.yaml + values-ci.yaml)"
-  helm upgrade --install cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" \
-    -f "cilium/values-$c.yaml" -f cilium/values-ci.yaml ${LAB_FEATURES:+-f cilium/values-ci-features.yaml} \
-    --set k8sServiceHost="$host" --set k8sServicePort=6443 --set gatewayAPI.enabled=true --set gatewayAPI.enableAlpn=true \
-    --set hubble.enabled=false --set hubble.relay.enabled=false --set hubble.ui.enabled=false >/dev/null \
-    || die "Helm refused the Cilium install on $c (SETUP Step 5)"
+  if rev=$(helm status cilium --namespace kube-system --kube-context "$ctx" -o json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])' 2>/dev/null); then
+    # a rerun: the release is kept as it is. The core install has no --reuse-values on purpose (a fresh cluster must get
+    # exactly these values), so running it on an existing lab would reset the release — Hubble, the mesh apiserver and,
+    # on route B, the cilium-ca secret removed, to be regenerated differently in each cluster (review, C10)
+    echo "Cilium release exists on $c (revision $rev), the core install is skipped; every later step upgrades with --reuse-values"
+  else
+    helm install cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" \
+      -f "cilium/values-$c.yaml" -f cilium/values-ci.yaml ${LAB_FEATURES:+-f cilium/values-ci-features.yaml} \
+      --set k8sServiceHost="$host" --set k8sServicePort=6443 --set gatewayAPI.enabled=true --set gatewayAPI.enableAlpn=true \
+      --set hubble.enabled=false --set hubble.relay.enabled=false --set hubble.ui.enabled=false >/dev/null \
+      || die "Helm refused the Cilium install on $c (SETUP Step 5)"
+  fi
   # (the chart's validate.yaml refuses a relay or a UI without hubble.enabled — run 34790879335 — so all three are off
   #  here; the Hubble step below re-applies the lab's values file, which carries them as the lab wants them)
 
@@ -192,14 +231,14 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "k
   # ---------------------------------------------------------------- Hubble (SETUP 5.4, demos 01/24/25) and the mesh apiserver (demo 24), on what now exists
   say "Hubble on $c — one upgrade on the verified core; certificates from $( [ "$certmanager" = 1 ] && echo 'ClusterIssuer/ca-issuer' || echo 'Helm')"
   # the lab's values file carries relay, UI and metrics as the lab wants them (Step 5 had switched them off with the core)
+  local snap; snap=$(agents_snapshot "$ctx")
   # shellcheck disable=SC2046
   helm upgrade cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" --reuse-values \
     -f "cilium/values-$c.yaml" --set hubble.enabled=true $( [ "$certmanager" = 1 ] && echo "-f cilium/values-ci-certmanager.yaml" ) --wait --timeout 10m >/dev/null \
     || { evidence "$ctx"; die "Helm could not enable Hubble on $c"; }
   [ "$certmanager" = 1 ] && kubectl --context "$ctx" -n kube-system wait certificate --all --for=condition=Ready --timeout=3m >/dev/null
-  # Hubble lives in the agent's ConfigMap: a Helm change there rolls nothing by itself (gotcha #97) — restart, then wait
-  kubectl --context "$ctx" -n kube-system rollout restart ds/cilium >/dev/null
-  kubectl --context "$ctx" -n kube-system rollout status ds/cilium --timeout=5m >/dev/null
+  # shellcheck disable=SC2086
+  agents_reread "$ctx" $snap   # Hubble lives in the agent's ConfigMap (gotcha #97): a restart when — and only when — it changed
   kubectl --context "$ctx" -n kube-system rollout status deploy/hubble-relay --timeout=5m >/dev/null
   cilium_healthy "$c" "with Hubble"
   grep -E 'Hubble Relay:' "/tmp/cilium-status-$c.txt" | head -1
@@ -228,40 +267,46 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "k
 # ================================================================ the mesh — a phase on COMPLETE clusters, never inside one
 mesh_up() { # <cluster…> — SETUP Step 9.4 (demo 24's declarative form), then Step 9.5
   say "SETUP Step 9.4 / demo 24 — the mesh on complete clusters ($*): the apiserver on and every member declared, one upgrade per cluster"
-  if [ "$certmanager" = 1 ]; then   # demo 08 Part 3: one trust anchor — the fingerprints compared, not assumed
-    local fps; fps=$(for c in "$@"; do kubectl --context "kind-$c" -n cert-manager get secret clustermesh-root-ca -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2; done | sort -u | wc -l | tr -d ' ')
+  # One trust anchor, compared, not assumed: route A's root (demo 08 Part 3) or route B's cilium-ca, copied from the
+  # first cluster before Cilium was installed on the others (Step 4) — so the declaration is the connection on BOTH
+  # routes, and the CLI's `connect` (which writes the same list, map-keyed, into a release that already carries a list —
+  # demos/13's "cannot overwrite table with non table") is not used (review of 004, C4)
+  local fps c i=0
+  if [ "$certmanager" = 1 ]; then
+    fps=$(for c in "$@"; do kubectl --context "kind-$c" -n cert-manager get secret clustermesh-root-ca -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2; done | sort -u | wc -l | tr -d ' ')
     [ "$fps" = "1" ] || die "the clusters do not share one root CA ($fps distinct fingerprints; demo 08 Part 3)"
-    echo "root CA fingerprint identical in $# clusters"
+    echo "root CA fingerprint identical in $# clusters (ClusterIssuer/ca-issuer)"
+  else
+    fps=$(for c in "$@"; do kubectl --context "kind-$c" -n kube-system get secret cilium-ca -o jsonpath='{.data.ca\.crt}' | base64 -d | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2; done | sort -u | wc -l | tr -d ' ')
+    [ "$fps" = "1" ] || die "the clusters do not share one cilium-ca ($fps distinct fingerprints; SETUP Step 9.3b — the copy at Step 4 must precede Cilium on every other cluster)"
+    echo "cilium-ca fingerprint identical in $# clusters (Helm certificates, route B)"
   fi
   # What `cilium clustermesh enable` sets, as Helm values (cilium-cli clustermesh.go: useAPIServer AND config.enabled — the
-  # apiserver's users ConfigMap is rendered only with config.enabled, gotcha #96), plus the NodePort kind needs. On one
-  # root every member is declared by name, address and port — demo 24's clusters.yaml from live state; "Cilium ignores
-  # the local cluster from the list of remote clusters", so the same list is right in every cluster, and the
-  # declaration IS the connection. On route B the CLI's `connect` writes the list, with each peer's own CA.
-  local declared="--set clustermesh.useAPIServer=true --set clustermesh.apiserver.service.type=NodePort --set clustermesh.config.enabled=true" c i=0
-  if [ "$certmanager" = 1 ]; then
-    for c in "$@"; do declared="$declared --set clustermesh.config.clusters[$i].name=$c --set clustermesh.config.clusters[$i].ips[0]=$(cp_ip "$c") --set clustermesh.config.clusters[$i].port=32379"; i=$((i+1)); done
-  else
-    declared="$declared --set clustermesh.apiserver.tls.auto.method=helm"
-  fi
+  # apiserver's users ConfigMap is rendered only with config.enabled, gotcha #96), the NodePort kind needs, and every
+  # member by name, address and port — demo 24's clusters.yaml from live state. "Cilium ignores the local cluster from
+  # the list of remote clusters" (pkg/clustermesh/common/clustermesh.go: "Ignoring configuration for own cluster"), so
+  # the same list is right in every cluster.
+  local -a declared=(--set clustermesh.useAPIServer=true --set clustermesh.apiserver.service.type=NodePort --set clustermesh.config.enabled=true)
   for c in "$@"; do
-    # shellcheck disable=SC2046,SC2086
+    declared+=(--set-string "clustermesh.config.clusters[$i].name=$c" --set-string "clustermesh.config.clusters[$i].ips[0]=$(cp_ip "$c")" --set "clustermesh.config.clusters[$i].port=32379")
+    i=$((i+1))
+  done
+  [ "$certmanager" = 1 ] || declared+=(--set clustermesh.apiserver.tls.auto.method=helm)
+  local snap
+  for c in "$@"; do
+    snap=$(agents_snapshot "kind-$c")
+    # shellcheck disable=SC2046
     helm upgrade cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "kind-$c" --reuse-values \
-      -f "cilium/values-$c.yaml" $( [ "$certmanager" = 1 ] && echo "-f cilium/values-ci-certmanager.yaml" ) $declared --wait --timeout 10m >/dev/null \
+      -f "cilium/values-$c.yaml" $( [ "$certmanager" = 1 ] && echo "-f cilium/values-ci-certmanager.yaml" ) "${declared[@]}" --wait --timeout 10m >/dev/null \
       || { evidence "kind-$c"; die "Helm could not switch the mesh apiserver on in $c (SETUP Step 9.4)"; }
     [ "$certmanager" = 1 ] && kubectl --context "kind-$c" -n kube-system wait certificate --all --for=condition=Ready --timeout=3m >/dev/null
-    echo "$c: mesh apiserver on, $# members declared$( [ "$certmanager" = 1 ] && echo ', certificates Ready from ClusterIssuer/ca-issuer' )"
-  done
-  # the agents read the mesh at start: restarted only now, when every apiserver exists (gotcha #92 was this check too early)
-  for c in "$@"; do
-    kubectl --context "kind-$c" -n kube-system rollout restart ds/cilium >/dev/null
-    kubectl --context "kind-$c" -n kube-system rollout status ds/cilium --timeout=5m >/dev/null
     kubectl --context "kind-$c" -n kube-system rollout status deploy/clustermesh-apiserver --timeout=5m >/dev/null
+    echo "$c: mesh apiserver on, $# members declared$( [ "$certmanager" = 1 ] && echo ', certificates Ready from ClusterIssuer/ca-issuer' )"
+    # the peers arrive through the projected clustermesh volume, which the agent watches (review, C2); the restart
+    # happens only if cilium-config changed — measured by the snapshot, not assumed either way
+    # shellcheck disable=SC2086
+    agents_reread "kind-$c" $snap
   done
-  if [ "$certmanager" != 1 ]; then
-    for c in "$@"; do cilium clustermesh status --context "kind-$c" --wait --wait-duration 5m; done
-    for c in "${@:2}"; do cilium clustermesh connect --context "kind-$1" --destination-context "kind-$c"; done
-  fi
   say "SETUP Step 9.5 — verify the mesh (connecting ≠ connected): every cluster healthy with every peer's apiserver up, then the mesh"
   for c in "$@"; do cilium_healthy "$c" "with the mesh (every peer's apiserver up — SETUP 9.5)"; echo "$c: $(grep -E 'ClusterMesh:' "/tmp/cilium-status-$c.txt" | head -1 | tr -s ' ')"; done
   for c in "$@"; do cilium clustermesh status --context "kind-$c" --wait --wait-duration 10m; done
