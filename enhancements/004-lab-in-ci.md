@@ -151,6 +151,19 @@ Two more rules from the same principle, added 2026-09-14 after runs 12 and 13:
 Two corrections to the plan below from what phase 0 measured: Tetragon is IN scope (it runs on the runner with the
 `/procHost` mount, `tetragon 2/2` on both clusters), and the `policy-tools` group runs on kind like the others.
 
+**Next, in order — what can be built while the MacBook is busy (2026-09-14):**
+
+| # | Task | Needs | State |
+|---|---|---|---|
+| 1 | The review pass on the bring-up: `scripts/lab-up.sh` (`mesh_up`, the DNS probe, reruns, a third cluster), the address plan, `scripts/lab-preflight.sh`, `scripts/lab-route.sh`, the workflow — ten claims, both reviewers on copies | Codex + Cursor | **in progress**, brief at the session's scratch `review-enh004/`; record to `docs/REVIEW_ENH-004.md` |
+| 2 | Phase 1: `scripts/lab-stack.sh <monitoring\|loki\|observer>` from demos 16, 25 (and 21 when Tempo is unparked), deadline-guarded, then measured on the runner beside the two clusters (the fit is the measurement, §6) | the runner | not started |
+| 3 | Phase 2: `.github/workflows/lab.yaml`, one job per demo group (core, mesh, observability, policy-tools), the demo scripts under `scripts/record.sh`, the policy tests, Playwright captures as artefacts | the runner, task 2 | not started |
+| 4 | hubble-policy-verdicts follow-up: source before destination in the top-10 workloads table (chart 0.4.x, held by `hack/check-dashboard.py`) | the chart repo | not started |
+| 5 | The 0.4.0 "top" capture with the who-talked-to-whom table populated | the laptop clusters resumed, or task 3's observability group | waits |
+| 6 | Phase 3: `cf2cnp_ref` / `hpv_ref` inputs — build the image on the runner, `kind load`, vendor the chart | task 3 | not started |
+| 7 | The schedule question, §5 item 2 | the operator | open |
+| — | On the M5 (or this Mac once Docker Desktop 4.91.0 has launched once): `scripts/lab-preflight.sh`, then `scripts/lab-up.sh poc1 poc2` — the CI-size lab is the default (`clusters/ci`); the paused full-size clusters must be deleted first because the names collide (`scripts/lab-down.sh poc1 poc2`, the operator's call) | the Mac, 4 CPUs / 8 GB | waits |
+
 ### Phase 1 — the bring-up as scripts (what the MacBook will reuse)
 
 - `scripts/lab-up.sh <kind|minikube> [poc1] [poc2]`: creates the clusters from `clusters/ci/*.yaml`, installs
