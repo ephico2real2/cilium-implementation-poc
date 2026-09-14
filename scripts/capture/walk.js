@@ -7,7 +7,7 @@
 //
 // spec: { "viewport": {"width", "height"}, "resolve": {"host": "${GW}"}, "login": {"url", "user": [sel, value],
 //         "password": [sel, value], "submit": sel}, "pages": [ {"name", "url", "settle": true|false, "before": ms,
-//         "actions": [ {"click": "text or selector"}, {"fill": [sel, value]}, {"wait": ms} ], "screenshot": true,
+//         "actions": [ {"click": "visible text, exact"}, {"clickSelector": css}, {"fill": [sel, value]}, {"wait": ms} ], "screenshot": true,
 //         "evidence": "panels" | "text" | "title" } ] }
 const { chromium } = require('playwright'); const fs = require('fs');
 const S = process.env.S || '.'; const expand = s => String(s).replace(/\$\{(\w+)\}/g, (_, k) => process.env[k] ?? '');
@@ -38,7 +38,10 @@ const evidence = {
       const waited = page.settle === false ? 0 : await settled(p, page.settleSeconds || 90);
       await p.waitForTimeout(page.before || 5000);
       for (const a of page.actions || []) {
-        if (a.click) { const loc = a.click.startsWith('text=') || /^[a-zA-Z .#\[\]=:-]+$/.test(a.click) && !a.click.includes(' ') ? p.locator(a.click) : p.getByText(new RegExp('^' + a.click + '$')); await loc.first().click({ timeout: a.timeout || 8000 }); }
+        // "click" is visible text, exact; "clickSelector" is CSS. (A heuristic that guessed "bank" was a CSS tag and
+        // "cf2cnp-lab30" was text cost one capture in run 34905753996 — no guessing.)
+        if (a.click) await p.getByText(new RegExp('^' + a.click.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$')).filter({ visible: true }).first().click({ timeout: a.timeout || 8000 });
+        if (a.clickSelector) await p.locator(a.clickSelector).first().click({ timeout: a.timeout || 8000 });
         if (a.fill) await p.fill(a.fill[0], a.fill[1]);
         if (a.wait) await p.waitForTimeout(a.wait);
       }

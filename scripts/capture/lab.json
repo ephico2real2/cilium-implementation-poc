@@ -29,7 +29,7 @@
     {
       "name": "grafana-hubble-l7-http",
       "evidence": "panels",
-      "url": "https://grafana.poc.local/d/3g264CZVz/hubble-l7-http-metrics-by-workload?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-destination_namespace=cf2cnp-lab30&var-destination_workload=shop-frontend&var-source_namespace=cf2cnp-lab30&var-source_workload=All"
+      "url": "https://grafana.poc.local/d/3g264CZVz/hubble-l7-http-metrics-by-workload?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-destination_namespace=cf2cnp-lab30&var-destination_workload=shop-frontend&var-reporter=server&var-source_namespace=cf2cnp-lab30&var-source_workload=All"
     },
     {
       "name": "grafana-hubble-dns",
@@ -79,6 +79,15 @@
           "wait": 1500
         },
         {
+          "fill": [
+            "input[placeholder*='Filter namespaces']",
+            "cf2cnp-lab30"
+          ]
+        },
+        {
+          "wait": 800
+        },
+        {
           "click": "cf2cnp-lab30"
         },
         {
@@ -115,6 +124,15 @@
         },
         {
           "wait": 1500
+        },
+        {
+          "fill": [
+            "input[placeholder*='Filter namespaces']",
+            "bank"
+          ]
+        },
+        {
+          "wait": 800
         },
         {
           "click": "bank"
