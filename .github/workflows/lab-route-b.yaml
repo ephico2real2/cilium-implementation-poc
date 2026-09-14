@@ -1,0 +1,194 @@
+# Enhancement 004 — the lab on route B (Helm certificates, SETUP Step 9.3b), end to end, on a GitHub-hosted runner:
+# the same two kind clusters as lab-spike-kind.yaml, each set up complete and independent, the mesh available and
+# verified — and only then the guide's own checks laid on top: Step 9.3b's shared CA read back from both clusters'
+# certificates, Step 9.5's mesh status, demo 07's global service spread and failover, then Cilium's multi-cluster
+# suite. The tutorials are validated by running what they print; the workflow is the clone of the route-A one with
+# the route fixed and the checks added (the operator, 2026-09-14).
+name: lab route B (kind) — end to end
+
+on:
+  workflow_dispatch:
+    inputs:
+      connectivity_test:
+        description: run `cilium connectivity test --multi-cluster` (about 15 minutes)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  KIND_VERSION: v0.33.0
+  KUBECTL_VERSION: v1.36.4
+  CILIUM_CLI_VERSION: v0.20.0   # 0.19.7 did not know 1.20's CiliumCIDRGroup v2 ("no kind is registered for the type v2alpha1.CiliumCIDRGroupList" in the sysdump)
+  CILIUM_VERSION: "1.20.1"
+
+jobs:
+  two-clusters-meshed:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: base                # the lab as it runs on the laptop (IPv4, veth, tunnel)
+            features: ""
+            ipfamily: ipv4
+          - name: kernel-features     # what the laptop's VM kernel refused and the runner can run: netkit, IPv6 (BIG TCP and the bandwidth manager: gotcha #103)
+            features: "1"
+            ipfamily: dual
+    name: ${{ matrix.name }}
+    env:
+      LAB_FEATURES: ${{ matrix.features }}
+      LAB_IPFAMILY: ${{ matrix.ipfamily }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: The runner
+        run: |
+          uname -r; nproc; free -m; df -h / | tail -1; docker version --format 'docker {{.Server.Version}}'; helm version --short
+          # BBR is a module on Ubuntu (tcp_bbr); a kind node shares the host kernel and cannot load it, the host must
+          sudo modprobe tcp_bbr || true
+          echo "congestion=$(cat /proc/sys/net/ipv4/tcp_available_congestion_control)"
+          # the same measured table a MacBook prints (scripts/lab-preflight.sh): the kernel's netkit, Tetragon's symbol,
+          # the node image for this CPU, IPv6 on a docker network — lab-up.sh runs it again, strictly
+          scripts/lab-preflight.sh
+
+      - name: kind and kubectl (pinned, install only)
+        uses: helm/kind-action@v1.14.0
+        with:
+          version: ${{ env.KIND_VERSION }}
+          kubectl_version: ${{ env.KUBECTL_VERSION }}
+          install_only: true
+
+      - name: Cilium CLI (pinned)
+        uses: cilium/cilium-cli@v0.20.0
+        with:
+          release-version: ${{ env.CILIUM_CLI_VERSION }}
+          skip-build: true
+
+      - name: Bring the lab up — poc1, poc2, meshed
+        id: up
+        run: |
+          # pipefail: `lab-up.sh | tee` reported tee's exit status, and run 34789240547 went green past a Helm timeout
+          set -o pipefail
+          start=$(date +%s)
+          # route B: Helm certificates, one cilium-ca shared by passing the first cluster's CA to the others' install
+          LAB_CERTMANAGER=0 scripts/lab-up.sh poc1 poc2 2>&1 | tee lab-up.log
+          echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+
+      - name: What it cost
+        run: |
+          echo "lab-up took ${{ steps.up.outputs.seconds }} s"
+          free -m; docker stats --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}}'
+          for ctx in kind-poc1 kind-poc2; do
+            echo "-- $ctx"; kubectl --context $ctx get nodes -o wide; kubectl --context $ctx -n kube-system get pods -o wide | grep -E 'cilium|hubble|clustermesh'
+            kubectl --context $ctx -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --brief
+            kubectl --context $ctx -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --verbose | grep -E 'KubeProxyReplacement|ClusterMesh|Routing|Masquerading|Hubble|Device Mode|BIG TCP|BandwidthManager|IPv6|Encryption|Host firewall'
+          done
+          cilium clustermesh status --context kind-poc1; cilium clustermesh status --context kind-poc2
+          for ctx in kind-poc1 kind-poc2; do kubectl --context $ctx -n kube-system get ds tetragon -o custom-columns='DS:.metadata.name,READY:.status.numberReady,WANT:.status.desiredNumberScheduled' --no-headers; done
+
+      - name: A Gateway with an address from the pool, an L2-announced LoadBalancer, a global service
+        run: |
+          kubectl --context kind-poc1 apply -f demos/05-gateway-api/gateway.yaml
+          for i in $(seq 1 30); do a=$(kubectl --context kind-poc1 get gateway -A -o jsonpath='{.items[0].status.addresses[0].value}' 2>/dev/null); [ -n "$a" ] && break; sleep 5; done
+          echo "gateway address: ${a:-NONE}"; kubectl --context kind-poc1 get gateway -A
+          [ -n "$a" ] || { echo "::error::the Gateway got no address from the pool"; exit 1; }
+          kubectl --context kind-poc1 apply -f demos/07-clustermesh/global-service.yaml; kubectl --context kind-poc2 apply -f demos/07-clustermesh/global-service.yaml
+          kubectl --context kind-poc1 apply -f demos/07-clustermesh/backend-poc1.yaml; kubectl --context kind-poc2 apply -f demos/07-clustermesh/backend-poc2.yaml
+          kubectl --context kind-poc1 rollout status deploy/rebel-base --timeout=5m; kubectl --context kind-poc2 rollout status deploy/rebel-base --timeout=5m
+          # the pool addresses reachable from the RUNNER (the host), and the demo names in /etc/hosts — SETUP Steps 3.5 and 8, measured
+          scripts/lab-route.sh kind-poc1
+          # every cluster's OWN block (NETWORKING_DESIGN §0): poc2 gets a LoadBalancer Service of its own, and its address —
+          # from poc2's /26, not poc1's — is answered on the bridge and served, measured from the runner like poc1's.
+          # TCP first (that is what makes the host ARP), then the neighbour table: an L2-announced address is answered
+          # on ARP and served on its ports, but nothing owns it as an interface address, so ICMP goes unanswered —
+          # run 34794243096 printed "NO ANSWER" for three addresses that all served HTTP 200.
+          kubectl --context kind-poc2 expose deploy rebel-base --name rebel-base-lb --type LoadBalancer --port 80 --target-port 80
+          for c in poc1 poc2; do
+            echo "== $c: its pools, and every LoadBalancer address it holds (HTTP from the runner, then the ARP neighbour it learned)"
+            kubectl --context "kind-$c" get ciliumloadbalancerippools -o custom-columns='POOL:.metadata.name,START:.spec.blocks[*].start,STOP:.spec.blocks[*].stop,CONFLICT:.status.conditions[?(@.type=="cilium.io/PoolConflict")].status' --no-headers
+            for i in $(seq 1 24); do pending=$(kubectl --context "kind-$c" get svc -A -o json | jq '[.items[] | select(.spec.type=="LoadBalancer") | select((.status.loadBalancer.ingress // []) | length == 0)] | length'); [ "$pending" = 0 ] && break; sleep 5; done
+            kubectl --context "kind-$c" get svc -A -o json | jq -r '.items[] | select(.spec.type=="LoadBalancer") | "\(.metadata.namespace)/\(.metadata.name) \(.status.loadBalancer.ingress[0].ip // "<pending>")"' | while read -r svc ip; do
+              printf '  %-34s %-16s ' "$svc" "$ip"
+              case "$ip" in \<pending\>) echo "NO ADDRESS"; continue;; esac
+              code=$(curl -s -o /dev/null -m 8 --connect-timeout 3 -w '%{http_code}' "http://$ip/" || true)
+              mac=$(ip neigh show to "$ip" | awk '{for (i = 1; i <= NF; i++) if ($i == "lladdr") print $(i+1)}' | head -1)
+              if [ -n "$mac" ]; then l2="ARP answered by $mac"; else l2="NOT answered"; fi   # not ${mac:+…}${mac:-…}: both halves expand when set (review, N2)
+              printf 'HTTP %-4s L2 %s\n' "${code:-000}" "$l2"
+            done
+          done
+          kubectl --context kind-poc1 get svc rebel-base -o wide; kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -B1 -A4 rebel | head -12
+          kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg service list | grep -i -A3 'rebel\|global' | head -20 || true
+
+      # The tutorials, validated by running what they print — after the clusters are set up and the mesh is available,
+      # never before (the operator's order). SETUP Step 9.3b: the CA the mesh certificates chain to must be the same in
+      # both clusters ("the dates must match poc1's exactly"); Step 9.5: the mesh verified; demo 07 Parts 4–5: one
+      # global service spread over both clusters, then failover with poc1's backends scaled to zero.
+      - name: Route B laid on the meshed lab — SETUP 9.3b / 9.5 and demo 07, as the guide checks them
+        run: |
+          set -o pipefail
+          echo "== SETUP Step 9.3b — the CA behind each cluster's mesh certificates (must be identical)"
+          for ctx in kind-poc1 kind-poc2; do
+            printf '%-10s ' "$ctx"; kubectl --context $ctx -n kube-system get secret clustermesh-apiserver-server-cert -o jsonpath='{.data.ca\.crt}' | base64 -d | openssl x509 -noout -fingerprint -sha256 -dates | tr '\n' ' '; echo
+          done
+          fps=$(for ctx in kind-poc1 kind-poc2; do kubectl --context $ctx -n kube-system get secret clustermesh-apiserver-server-cert -o jsonpath='{.data.ca\.crt}' | base64 -d | openssl x509 -noout -fingerprint -sha256; done | sort -u | wc -l)
+          [ "$fps" -eq 1 ] || { echo "::error::the mesh certificates chain to $fps different CAs — SETUP 9.3b, gotcha #20"; exit 1; }
+          echo "one CA behind both clusters' mesh certificates"
+          echo "== SETUP Step 9.5 — verify the mesh (connecting ≠ connected)"
+          cilium clustermesh status --context kind-poc1 --wait --wait-duration 5m
+          cilium clustermesh status --context kind-poc2 --wait --wait-duration 5m
+          echo "== demo 07 Part 4 — one global service, backends in both clusters (the response names its cluster)"
+          split() { kubectl --context kind-poc1 run "xcheck-$1" --rm -i --restart=Never --image=curlimages/curl:8.11.1 --command -- sh -c 'for i in $(seq 20); do curl -s -m 3 http://rebel-base.default.svc.cluster.local/; echo; done' 2>/dev/null | grep -o '"cluster": "[a-z0-9]*"' | sort | uniq -c; }
+          spread=$(split spread || true); echo "$spread"
+          echo "$spread" | grep -q '"cluster": "poc1"' && echo "$spread" | grep -q '"cluster": "poc2"' || { echo "::error::the global service did not spread over both clusters (demo 07 Part 4)"; exit 1; }
+          echo "== demo 07 Part 5 — failover: poc1's backends scaled to zero, the same client, unchanged"
+          kubectl --context kind-poc1 scale deployment rebel-base --replicas=0; kubectl --context kind-poc1 wait --for=delete pod -l name=rebel-base --timeout=2m || true
+          sleep 5; over=$(split failover || true); echo "$over"
+          echo "$over" | grep -q '"cluster": "poc2"' && ! echo "$over" | grep -q '"cluster": "poc1"' || { echo "::error::failover did not move every request to poc2 (demo 07 Part 5)"; exit 1; }
+          echo "20 requests, every one answered by poc2 — restored to 2 replicas"
+          kubectl --context kind-poc1 scale deployment rebel-base --replicas=2; kubectl --context kind-poc1 rollout status deploy/rebel-base --timeout=3m
+
+      # check-log-errors reads the agents' WHOLE log (no --log-check-only-test-time), so the bring-up's lines count too.
+      # One exception: "Error initially creating lease lock … already exists" is client-go's leader election losing
+      # the race to create an L2 announcement lease when both agents come back from a rollout restart — logged once,
+      # level=error, on one agent of run 34794243096, the lease then acquired normally. The CLI's own exception list
+      # carries the retrieve/update/release variants of the same race, not the create one.
+      - name: Connectivity test, multi-cluster (Cilium's own)
+        if: ${{ inputs.connectivity_test }}
+        timeout-minutes: 45      # the step cannot hang the job: the fourth run sat here 23 minutes with no output; the
+                                 # fifth spent 30 on DNS retries (fixed in lab-up.sh: CoreDNS upstreams)
+        run: |
+          # pipefail: the suite's exit code is the step's — run 34794243096 reported "1/87 tests failed" and both jobs were
+          # green, because grep and sed were the last commands of the pipe (review of 004, N1)
+          set -o pipefail
+          start=$(date +%s)
+          kubectl --context kind-poc1 get nodes -o custom-columns='NODE:.metadata.name,TAINTS:.spec.taints[*].key' --no-headers
+          # streamed, not piped through tail: a hang must be visible in the log while it happens. --line-buffered, or grep
+          # flushes in 4 KB blocks and the log's timestamps are the flushes, not the events (run 34794243096: eighteen
+          # "Waiting for …" lines stamped 01:06:43, the next batch 01:11:26)
+          cilium connectivity test --context kind-poc1 --multi-cluster kind-poc2 --test '!no-unexpected-packet-drops' \
+            --collect-sysdump-on-failure --sysdump-output-filename 'cilium-sysdump-<ts>' \
+            --log-check-extra-exceptions 'Error initially creating lease lock' 2>&1 | grep --line-buffered -v -E '^\s*$' | sed -u 's/^/  /'
+          echo "connectivity test took $(( $(date +%s) - start )) s"
+
+      - name: Sysdumps on failure
+        if: failure()
+        run: |
+          cilium sysdump --context kind-poc1 --output-filename cilium-sysdump-poc1-final || true
+          cilium sysdump --context kind-poc2 --output-filename cilium-sysdump-poc2-final || true
+
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-route-b-${{ matrix.name }}
+          path: |
+            lab-up.log
+            cilium-sysdump-*.zip
+          if-no-files-found: ignore
+
+      - name: Down
+        if: always()
+        run: scripts/lab-down.sh || true
