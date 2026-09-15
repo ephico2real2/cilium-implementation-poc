@@ -117,5 +117,7 @@ scripts/lab-capture.sh                           # the pages, with their expecta
 scripts/lab-down.sh                              # when done; scripts/cluster-pause.sh keeps them for tomorrow
 ```
 
-`/etc/hosts` for the browser: `demos/09-routes/hosts-entries.sh` prints the lines (grafana, hubble, cf2cnp, bank,
-petclinic at the Gateway's address); the walker does not need them, a browser does.
+`/etc/hosts` for the browser: each stack's demo prints its lines — `demos/16-monitoring/hosts-entries.sh` (grafana),
+`demos/25-hubble-observer-loki/hosts-entries.sh` (cf2cnp), `demos/15-bank/hosts-entries.sh`,
+`demos/20-springboot/hosts-entries.sh` — `sudo sh -c 'demos/16-monitoring/hosts-entries.sh >> /etc/hosts'` as SETUP
+Step 9.5b does; the walker does not need them, a browser does.
