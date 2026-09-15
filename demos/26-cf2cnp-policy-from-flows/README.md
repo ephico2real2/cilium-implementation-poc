@@ -67,7 +67,13 @@ Of a flow of about 1.6 KB (the two saved ones are 1592 and 1607 bytes), cf2cnp r
 Labels are filtered to `app.kubernetes.io/name|component|instance`, falling back to `app`, `k8s-app`,
 `name`, `component`, `instance` (the lab pods carry both `app` and `app.kubernetes.io/name`, so the
 generated selectors use the priority key). A **reply** packet (`is_reply: true`) is rejected on purpose —
-the policy must allow the original request. `get-flow.sh` takes the first non-reply flow.
+the policy must allow the original request. `get-flow.sh` takes the first non-reply flow. Both depend on the
+field being there: the observer chart's `fieldMask` (upstream PR #11, merged 2026-09-15) lets Hubble Relay strip
+fields before the flow reaches the pod log and Loki, and its suggested dashboard mask did not carry `is_reply` —
+measured with cf2cnp 0.7.0, the same recorded response flow is refused with the field and becomes
+`Allow ingress to shop/frontend … from shop/backend on TCP/54468` without it. A mask whose flows feed a generator
+keeps `is_reply` (the fork's `fix/field-mask-is-reply` adds it to the suggested list); the lab leaves `fieldMask`
+empty.
 
 **Where a flow can be read from — the four sources, each with its own reach (transcript Parts 3, 3b):**
 
