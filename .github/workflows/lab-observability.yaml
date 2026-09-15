@@ -53,6 +53,7 @@ jobs:
     env:
       LAB_FEATURES: ""
       LAB_IPFAMILY: ipv4
+      LAB_TRUST_ROOT: "1"   # the lab's enterprise root into the runner's OS trust store (update-ca-certificates), proven by a curl by name
     steps:
       - uses: actions/checkout@v5
 
@@ -154,6 +155,9 @@ jobs:
           [ "${{ inputs.obi }}" = "true" ] && steps="$steps obi"
           steps="$steps hubble-cli"
           scripts/lab-stack.sh $steps 2>&1 | tee stack.log
+          # from here every check's curl verifies against the OS bundle, which now holds the lab's root (the operator's rule:
+          # the root goes into the OS trust store, not into every script's flags) — the demos' scripts read ROOT_CA
+          echo "ROOT_CA=/etc/ssl/certs/ca-certificates.crt" >> "$GITHUB_ENV"
           echo "== what it costs with the stacks up"; free -m | head -2; docker stats --no-stream --format '  {{.Name}} {{.CPUPerc}} {{.MemUsage}}'
 
       # The sample applications of demos 26–35 with one round of their traffic, demo 11's forensic client (what demo 15's

@@ -116,8 +116,10 @@ bank() {
   mkdir -p "${LAB_CHECKS_DIR:-captures/checks}"
   if k -n forensic get pod client >/dev/null 2>&1; then
     say "demo 15 — the bank across the mesh, from inside (demos/15-bank/check.sh from forensic/client), before the cell"
-    ( command -v timeout >/dev/null && exec timeout 15m demos/15-bank/check.sh || exec demos/15-bank/check.sh ) > "${LAB_CHECKS_DIR:-captures/checks}/demo15-check.txt" 2>&1 || echo "  check.sh exited $? (the output is kept)"
-    grep -E '^== |served|TOTAL|payments backends|https://bank' "${LAB_CHECKS_DIR:-captures/checks}/demo15-check.txt" | head -24 | sed 's/^/  /'
+    # ROOT_CA: step 7 of the check goes through the Gateway on the wildcard certificate — without this lab's root it read
+    # docs/root-ca.crt (the laptop's) and printed `https://bank.poc.local -> http 000` (run 34930321170)
+    ( export ROOT_CA="${ROOT_CA:-.tmp/root-ca.crt}"; command -v timeout >/dev/null && exec timeout 15m demos/15-bank/check.sh || exec demos/15-bank/check.sh ) > "${LAB_CHECKS_DIR:-captures/checks}/demo15-check.txt" 2>&1 || echo "  check.sh exited $? (the output is kept)"
+    grep -E '^== |served|TOTAL|payments backends|https://bank|^ +[0-9]+ (poc1|poc2|FAIL)$|requests:|stored_in_redis|balance now' "${LAB_CHECKS_DIR:-captures/checks}/demo15-check.txt" | head -40 | sed 's/^/  /'
   else echo "  demo 15's in-cluster check skipped: no forensic/client (scripts/lab-apps.sh forensic first)" | tee "${LAB_CHECKS_DIR:-captures/checks}/demo15-check.txt"; fi
   for c in "$CTX" "$PEER_CTX"; do kubectl --context "$c" apply -f demos/19-zero-trust-cell/10-platform-baseline.yaml -f demos/19-zero-trust-cell/rendered/cell-policies.yaml >/dev/null; done
   echo "bank up in both clusters; $(k -n bank get cnp --no-headers | wc -l | tr -d ' ') cell policies in poc1, $(kubectl --context "$PEER_CTX" -n bank get cnp --no-headers | wc -l | tr -d ' ') in poc2"
