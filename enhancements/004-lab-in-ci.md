@@ -265,6 +265,14 @@ with the pins in `scripts/bootstrap/versions.env`, each release's sha256 verifie
 `ubuntu:24.04` container on arm64, the second pass downloading nothing) and `scripts/bootstrap/macos.sh` (Homebrew, the
 VM from the file with Desktop quit and relaunched, the proof from the VM). Everything after the table is one path.
 
+**The M5's first bring-up, 2026-09-15 17:45:11 → 17:54:45 (9 min 34 s)** — `scripts/lab-up.sh poc1 poc2`, the CI-size
+clusters (`clusters/ci`), the host's trust store untouched (the keychain step needs the operator's password): poc1's
+kind create 28 s, poc2's 18 s; poc1 complete and independent at +4 min 07 s, poc2 at +3 min 33 s; Cilium `OK` with
+`KubeProxyReplacement: True` on both; root CA `F4:FD:F8:B7…` identical in both clusters; ClusterMesh `OK` both ways,
+`2/2 configured, 2/2 connected`, KVStoreMesh `1/1`. Two facts from the log: gotcha #107's webhook race hit on poc1 (the
+Bundle applied at attempt 2 — the retry loop is why the run did not stop), and the whole column installed under **Helm
+4.3.0** (Homebrew's stable) — the first measurement of the lab on Helm 4; the runner stays on 3.21.4.
+
 ## 5. Two questions for the operator
 
 1. **Run phase 0's minikube spike before choosing?** (§3) — if the `DOCKER-USER` route meshes two profiles on the

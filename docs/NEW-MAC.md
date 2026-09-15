@@ -51,8 +51,10 @@ kind version; cilium version --client; hubble version; helm version --short; kub
 
 What Homebrew gives against the pins the Action runs green with (`scripts/bootstrap/versions.env`), measured on the M5
 on 2026-09-15: kind, cilium-cli and hubble at the pins; kubectl 1.37.0 against 1.36.4 (within the client skew); **helm
-4.3.0 against 3.21.4** — brew's stable is Helm 4, the lab has only been measured on 3; `brew install helm@3` is the same
-major, keg-only. `macos.sh` prints this table every time; it is the first line to read if `lab-up.sh` misbehaves here.
+4.3.0 against 3.21.4** — brew's stable is Helm 4, the runner is on 3. Measured on the M5 the same day: `lab-up.sh poc1
+poc2` completed under Helm 4.3.0 (Cilium, cert-manager, trust-manager, Hubble, Tetragon, the mesh apiserver — 9 min
+34 s, enhancement 004 phase 4), so the mismatch is a difference to know, not a blocker; `brew install helm@3` is the
+runner's major, keg-only. `macos.sh` prints this table every time.
 
 ## 2. Podman, Podman Desktop and CRC — for the other projects
 
@@ -181,6 +183,7 @@ path as the CI job, in order:
 
 ```bash
 LAB_TRUST_ROOT=1 scripts/lab-up.sh poc1 poc2     # the clusters, the mesh; the root into this Mac's keychain (a password prompt) and into every namespace (demo 36)
+                                                 # from a shell that cannot prompt (an agent's): scripts/lab-up.sh poc1 poc2, then scripts/lab-trust.sh install kind-poc1 yourself — the M5's first bring-up, 2026-09-15, 9 min 34 s
 scripts/lab-images.sh poc1 poc2                  # the lab's images, built here (arm64) and loaded into both clusters
 scripts/lab-stack.sh all                         # demos 09, 16, 21, 10/22/23, 25, 18, the CLI's certificate, Kyverno
 scripts/lab-apps.sh all                          # the labs of 26–35, the bank, the forensic client, the petclinic, the labelled client
