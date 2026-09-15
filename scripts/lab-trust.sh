@@ -67,7 +67,15 @@ prove() { # <gateway-ip> — the wildcard listener answers any *.poc.local name 
 bundle() { # <ctx>… — trust-manager and the Bundle on each cluster: the root as ConfigMap enterprise-root/ca.crt in every namespace
   local ctx n; for ctx in "$@"; do
     helm upgrade --install trust-manager jetstack/trust-manager --version "$TRUST_MANAGER_VERSION" --namespace cert-manager --kube-context "$ctx" --wait --timeout 5m >/dev/null
-    kubectl --context "$ctx" apply -f demos/36-trust-everywhere/20-bundle.yaml >/dev/null
+    # `helm --wait` returns when the Deployment is Ready, not when its validating webhook is reachable from the API server:
+    # the first apply on poc2 met `failed calling webhook "trust.cert-manager.io" … connect: no route to host` (run
+    # 34936560683, gotcha #107) — the Bundle is applied until the webhook answers, up to a minute
+    local _a out; for _a in $(seq 1 12); do
+      out=$(kubectl --context "$ctx" apply -f demos/36-trust-everywhere/20-bundle.yaml 2>&1) && break
+      case "$out" in *"failed calling webhook"*) sleep 5;; *) echo "$out" >&2; die "Bundle apply failed on $ctx";; esac
+    done
+    [ "$_a" -lt 12 ] || { echo "$out" >&2; die "trust-manager's webhook on $ctx never answered in 60 s"; }
+    [ "$_a" -gt 1 ] && echo "  (the Bundle applied at attempt $_a: trust-manager's webhook was not reachable yet)"
     local _i; for _i in $(seq 1 30); do [ "$(kubectl --context "$ctx" get bundle enterprise-root -o jsonpath='{.status.conditions[?(@.type=="Synced")].status}' 2>/dev/null)" = True ] && break; sleep 2; done
     [ "$(kubectl --context "$ctx" get bundle enterprise-root -o jsonpath='{.status.conditions[?(@.type=="Synced")].status}' 2>/dev/null)" = True ] || { kubectl --context "$ctx" get bundle enterprise-root -o jsonpath='{.status}'; echo; die "Bundle enterprise-root is not Synced on $ctx"; }
     n=$(kubectl --context "$ctx" get cm -A --field-selector metadata.name=enterprise-root --no-headers 2>/dev/null | wc -l | tr -d ' ')
@@ -89,7 +97,11 @@ kyverno() { # <ctx>… — Kyverno and the MutatingPolicy on each cluster; ready
   local ctx st _i; for ctx in "$@"; do
     helm repo add kyverno https://kyverno.github.io/kyverno/ >/dev/null 2>&1 || true
     helm upgrade --install kyverno kyverno/kyverno --version "$KYVERNO_CHART_VERSION" --namespace kyverno --create-namespace --kube-context "$ctx" --wait --timeout 5m >/dev/null
-    kubectl --context "$ctx" apply -f demos/36-trust-everywhere/40-kyverno-mutatingpolicy.yaml >/dev/null
+    local _a out; for _a in $(seq 1 12); do   # the same webhook window as trust-manager's (gotcha #107)
+      out=$(kubectl --context "$ctx" apply -f demos/36-trust-everywhere/40-kyverno-mutatingpolicy.yaml 2>&1) && break
+      case "$out" in *"failed calling webhook"*) sleep 5;; *) echo "$out" >&2; die "MutatingPolicy apply failed on $ctx";; esac
+    done
+    [ "$_a" -lt 12 ] || { echo "$out" >&2; die "Kyverno's webhook on $ctx never answered in 60 s"; }
     # the policy's Ready condition (the CEL policy types report status.conditionStatus, the classic ones status.conditions)
     for _i in $(seq 1 30); do
       st=$(kubectl --context "$ctx" get mutatingpolicy mount-enterprise-root -o jsonpath='{.status.conditionStatus.ready}{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)

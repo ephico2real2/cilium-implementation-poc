@@ -2653,6 +2653,32 @@ against a cluster without the CRD — the lab's clusters have Cilium's, a laptop
 **The lesson:** `-o json` does not mean one shape; read the first bytes of the output before writing the filter, and
 make the filter fail loudly when it finds nothing.
 
+## <a name="107"></a>107. `helm --wait` returns before a chart's admission webhook is reachable — the first object of that kind fails with "no route to host"
+
+**Where:** demo 36's Bundle on poc2 (run 34936560683), applied the moment `helm upgrade --install trust-manager
+… --wait` had returned:
+
+```text
+Error from server (InternalError): error when creating "demos/36-trust-everywhere/20-bundle.yaml": Internal error
+occurred: failed calling webhook "trust.cert-manager.io": failed to call webhook: Post
+"https://trust-manager.cert-manager.svc:443/validate-trust-cert-manager-io-v1alpha1-bundle?timeout=5s":
+dial tcp 10.21.62.185:443: connect: no route to host
+```
+
+The same command had worked on poc1 seconds earlier and on both clusters in the previous run (34933611546).
+
+**What happened:** `--wait` waits for the Deployment's pods to be Ready; the ValidatingWebhookConfiguration is
+already registered, so the API server calls the webhook for every Bundle — through a Service whose backend the
+CNI had not finished programming for the new pod. A window of a few seconds, hit by whichever cluster is
+unlucky; a race, not a broken install. Kyverno's policies go through the same kind of webhook.
+
+**The fix:** apply the first object of a webhook-guarded kind in a short retry loop that recognises the exact
+message (`failed calling webhook`) and sleeps, and fails on anything else — `scripts/lab-trust.sh` does it for
+the Bundle and for Kyverno's MutatingPolicy (12 tries, 5 s apart), and says at which attempt the apply went through.
+
+**The lesson:** "the Deployment is Ready" and "the API server can reach its webhook" are two different moments; the
+second is the one a `kubectl apply` needs.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
