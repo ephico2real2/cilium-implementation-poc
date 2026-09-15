@@ -1,0 +1,317 @@
+login: https://grafana.poc.local/login → Grafana
+grafana-hubble-network-overview: settled 3s; panels=8; "No data"=1; first: Flows processed by type
+L7/HTTP
+Trace/to-endpoint
+Trace/to-proxy
+PolicyVerdict/ | Flows processed by verdict
+FORWARDED
+REDIRECTED | Top 10 sources
+pos
+2.40 p/s
+shop
+7.15 p/s
+stranger
+1.64 p/s | Top 10 destinations
+pos
+1.78 p/s
+shop
+8.20 p/s
+stranger
+1.20 p/s | Missing TCP SYN-ACKs
+Series color
+Name
+Mean
+Last *
+pos
+407 mp/s
+400 mp/s
+shop
+394 mp/s
+400 mp/s
+stranger
+284 mp/s
+273 mp/s | Missing ICMP Echo Replys
+No data
+grafana-hubble-l7-http: settled 3s; panels=11; "No data"=1; first: Incoming Request Volume
+0.536 req/s | Incoming Request Success Rate (non-5xx responses)
+100% | Request Duration
+P50
+Last *: 2.54 ms
+P95
+Last *: 4.83 ms
+P99
+Last *: 7.05 ms | Incoming Requests by Source and Response Code
+Series color
+Name
+Max
+Mean
+Total
+Last *
+poc1 cf2cnp-lab30/: 200
+0.636 req/s
+0.549 req/s
+15.9 req/s
+0.536 req/s | Incoming Request Success Rate (non-5xx responses) By Source
+Series color
+Name
+Mean
+Min
+Max
+Last *
+poc1 cf2cnp-lab30/
+100%
+100%
+100%
+100% | HTTP Request Duration by Source
+Series color
+Name
+Min
+Max
+Mean
+Last *
+poc1 cf2cnp-lab30/ P50
+2.50 ms
+2.83 ms
+2.57 ms
+2.54 ms
+poc1 cf2cnp-lab30/ P95
+4.75 ms
+32.1 ms
+7.68 ms
+4.83 ms
+poc1 cf2cnp-lab30/ P99
+4.95 ms
+46.4 ms
+17.3 ms
+7.05 ms
+grafana-hubble-dns: settled 3s; panels=4; "No data"=1; first: DNS queries
+Series color
+Name
+Mean
+Last *
+pos
+1.35 req/s
+1.40 req/s | Top 10 DNS queries
+example.com.
+12.0 req/s
+example.com.cf2cnp-lab.svc.cluster.local.
+12.0 req/s
+example.com.cluster.local.
+12.0 req/s
+example.com.scdwe4r0avcedi5afgb1yvudeg.bx.internal.cloudapp.net.
+12.0 req/s
+example.com.svc.cluster.local.
+12.0 req/s
+shop.cf2cnp-lab.cf2cnp-lab.svc.cluster.local.
+12.0 req/s
+shop.cf2cnp-lab.svc.cluster.local.
+12.0 req/s | Missing DNS responses
+No data | DNS errors
+Series color
+Name
+Mean
+Last *
+pos: Non-Existent Domain
+0.967 req/s
+1.000 req/s
+grafana-hubble-metrics: settled 3s; panels=33; "No data"=0; first: Flows processed Per Node
+avg
+min
+max | Flows Types
+Drop
+L7
+PolicyVerdict
+Trace
+Unknown
+Drop
+L7
+PolicyVerdict
+Trace
+Unknown | L7 Flow Distribution
+DNS
+HTTP
+DNS
+HTTP | Trace Flow Distribution
+to-endpoint
+to-network
+to-overlay
+to-proxy
+to-stack
+to-endpoint
+to-network
+to-overlay
+to-proxy
+to-stack | Forwarded vs Dropped
+AUDIT
+DROPPED
+FORWARDED
+REDIRECTED
+TRACED
+AUDIT
+DROPPED
+FORWARDED
+REDIRECTED
+TRACED | Drop Reason
+DROP_REASON_UNKNOWN
+POLICY_DENIED
+UNSUPPORTED_L3_PROTOCOL
+DROP_REASON_UNKNOWN
+POLICY_DENIED
+POLICY_DENY
+SERVICE_BACKEND_NOT_FOUND
+UNSUPPORTED_L3_PROTOCOL
+grafana-cilium-metrics: settled 3s; panels=75; "No data"=0; first: Errors & Warnings
+ERROR
+ERROR
+WARN
+WARN | CPU Usage per node
+min
+min
+avg
+avg
+max
+max | Virtual Memory Bytes
+Min Virtual Memory
+Average Virtual Memory
+Max Virtual Memory | Resident memory status
+AVG_resident_memory_bytes
+MAX_resident_memory_bytes_max
+MIN_resident_memory_bytes_min | Open file descriptors
+all nodes
+min/node
+avg/node
+max/node | System-wide BPF memory usage
+AVG_bpf_memory_bytes_avg
+MAX_bpf_memory_bytes_max
+MIN_bpf_memory_bytes_min
+grafana-policy-verdicts: settled 3s; panels=45; "No data"=0; first: Audited (policy evaluated, not enforced) — in range
+0 | Forwarded by an allow rule — in range
+2 K | Dropped by policy — in range
+0 | Still audited (last 5 min): source → destination pairs
+none | Policy verdicts per second, by action
+forwarded
+redirected | Verdicts per second, by source → destination and action
+shop → pos (ingress) forwarded
+pos → shop (ingress) forwarded
+shop → shop (ingress) forwarded
+stranger → shop (ingress) forwarded
+shop → stranger (ingress) forwarded
+pos → shop (ingress) redirected
+shop → shop (ingress) redirected
+stranger → shop (ingress) redirected
+grafana-hubble-observer-flows: settled 3s; panels=8; "No data"=0; first: Total Flows
+2931 | Flows per Verdict
+DROPPED | Flows per Direction
+INGRESS
+EGRESS | Flows per Source Namespace
+Series color
+Name
+cf2cnp-lab27
+83%
+bank
+13%
+cf2cnp-lab
+2%
+default
+2% | Flows per Destination
+Series color
+Name
+example.com
+39%
+api.bank.svc.cluster.local
+36%
+api.stripe.com
+26% | Flows per Drop Reason
+POLICY_DENIED
+POLICY_DENY
+SERVICE_BACKEND_NOT_FOUND
+Value
+hubble-ui-namespaces: settled 0s; Idle | Welcome! | To begin select one of the namespaces: | Choose namespace
+hubble-ui-cf2cnp-lab30: settled 0s; cf2cnp-lab30 | Any verdict | Visual | 172.9 flows/s•4/4 nodes | cf2cnp-lab30 | pos | shop | 80 | TCP | HTTP
+cf2cnp: settled 0s; title: CF2CNP - Cilium Flow to CiliumNetworkPolicy
+grafana-policy-verdicts-bank: settled 4s; panels=45; "No data"=0; first: Audited (policy evaluated, not enforced) — in range
+0 | Forwarded by an allow rule — in range
+2 K | Dropped by policy — in range
+7 | Still audited (last 5 min): source → destination pairs
+none | Policy verdicts per second, by action
+dropped
+forwarded
+redirected | Verdicts per second, by source → destination and action
+reserved:remote-node → api (ingress) dropped
+api → accounts (egress) forwarded
+egress-test → accounts (egress) forwarded
+payments → accounts (egress) forwarded
+egress-test → api (egress) forwarded
+kube-dns → api (egress) forwarded
+reserved:ingress → api (egress) forwarded
+web → api (egress) forwarded
+egress-test → api (ingress) forwarded
+payments → api (ingress) forwarded
+reserved:ingress → api (ingress) forwarded
+web → api (ingress) forwarded
+kube-dns → egress-test (egress) forwarded
+api → egress-test (ingress) forwarded
+api → payments (egress) forwarded
+kube-dns → payments (egress) forwarded
+api → payments (ingress) forwarded
+egress-test → redis (egress) forwarded
+payments → redis (egress) forwarded
+egress-test → redis (ingress) forwarded
+payments → redis (ingress) forwarded
+kube-dns → web (egress) forwarded
+reserved:ingress → web (egress) forwarded
+api → web (ingress) forwarded
+reserved:ingress → web (ingress) forwarded
+egress-test → api (ingress) redirected
+reserved:ingress → api (ingress) redirected
+web → api (ingress) redirected
+api → payments (ingress) redirected
+reserved:ingress → web (ingress) redirected
+grafana-hubble-network-overview-bank: settled 3s; panels=8; "No data"=1; first: Flows processed by type
+L7/HTTP
+Trace/to-endpoint
+Trace/to-overlay
+Trace/to-proxy
+PolicyVerdict/ | Flows processed by verdict
+FORWARDED
+REDIRECTED | Top 10 sources
+accounts
+0 p/s
+api
+0 p/s
+egress-test
+0 p/s
+payments
+109 mp/s
+redis
+109 mp/s
+web
+0 p/s | Top 10 destinations
+accounts
+0 p/s
+api
+0 p/s
+egress-test
+0 p/s
+payments
+109 mp/s
+redis
+109 mp/s
+web
+0 p/s | Missing TCP SYN-ACKs
+Series color
+Name
+Mean
+Last *
+api
+148 mp/s
+27.3 mp/s
+egress-test
+61.9 mp/s
+36.4 mp/s
+payments
+36.2 mp/s
+54.5 mp/s | Missing ICMP Echo Replys
+No data
+hubble-ui-bank: settled 0s; bank | Any verdict | Visual | 174.6 flows/s•4/4 nodes | bank | accounts | 8080 | TCP | HTTP | poc2
+grafana-traces-explore: settled 3s; Skip to main content | Grafana | Bookmarks | Starred | Dashboards | Explore | Drilldown | Metrics | Logs | Traces
