@@ -30,7 +30,7 @@ brew --version
 | go | `brew install go` | 1.22+ | optional: `demos/25-hubble-observer-loki/logql-test` (the dashboard's queries through Loki's engine) |
 | openssl | macOS's LibreSSL is enough | any | the certificate lines the checks print |
 | Codex CLI | `brew install --cask codex` then `codex login` | 0.154.0 on 2026-09-15 | the adversarial review (see `docs/REVIEW_*.md`) |
-| Cursor CLI | `curl https://cursor.com/install -fsS \| bash` then `cursor agent login` | current | the second reviewer |
+| Cursor CLI | `curl https://cursor.com/install -fsS \| bash`, then `agent login` — the binary is **`agent`** in `~/.local/bin` (Cursor's installation page: verify with `agent --version`, update with `agent update`); `cursor agent …` only works where the Cursor IDE's `cursor` launcher is installed | 2026.09.10 on the Intel Mac | the second reviewer: `agent -p --mode ask --output-format text --trust --model cursor-grok-4.6-high-fast "<brief>"` |
 | Podman | `brew install podman` — one install path only, §2 | 6.1.1 (brew stable, 2026-09-15); 5.5.2 on the Intel Mac | the other projects: `release-crc.sh` builds and pushes the dashboard's images with it |
 | Podman Desktop | `brew install --cask podman-desktop` | 1.29.3 cask (2026-09-15); 1.26.2 on the Intel Mac | the GUI for the Podman machine and, with its OpenShift Local extension, for CRC |
 | CRC (OpenShift Local) | not in Homebrew — the guided installer from console.redhat.com/openshift/create/local, a Red Hat account, the pull secret from the same page | v2.63.0 (2026-08-18); 2.49.0 / OpenShift 4.18.2 on the Intel Mac | the dashboard project's cluster — §2 has its minimums |
@@ -41,7 +41,8 @@ One line for the lab's tools:
 ```bash
 brew install git gh kind kubernetes-cli helm cilium-cli hubble jq node go
 brew install --cask docker-desktop codex
-kind version; cilium version --client; hubble version; helm version --short; kubectl version --client
+curl https://cursor.com/install -fsS | bash && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc   # Cursor's CLI, `agent`; its installer puts it in ~/.local/bin
+kind version; cilium version --client; hubble version; helm version --short; kubectl version --client; agent --version
 ```
 
 ## 2. Podman, Podman Desktop and CRC — for the other projects
