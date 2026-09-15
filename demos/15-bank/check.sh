@@ -49,5 +49,5 @@ k2 run bankprobe --rm -i --restart=Never --image=curlimages/curl:8.14.1 --comman
 
 hdr "7. the page through the Gateway (bank.poc.local on the wildcard cert)"
 GW=$(k1 -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}')
-curl -s --cacert docs/root-ca.crt --resolve "bank.poc.local:443:$GW" https://bank.poc.local/ -o /tmp/bank.html -w "  https://bank.poc.local -> http %{http_code}\n"; grep -o '<p class="path">.*</p>' /tmp/bank.html | sed 's/<[^>]*>//g; s/^/  /'
+curl -s --cacert "${ROOT_CA:-docs/root-ca.crt}" --resolve "bank.poc.local:443:$GW" https://bank.poc.local/ -o /tmp/bank.html -w "  https://bank.poc.local -> http %{http_code}\n"; grep -o '<p class="path">.*</p>' /tmp/bank.html | sed 's/<[^>]*>//g; s/^/  /'
 echo; echo "balance now: $(q "curl -s $API/api/balance/chk-1002 | jq -r .balance_cents") cents on chk-1002 (started at 120000)"

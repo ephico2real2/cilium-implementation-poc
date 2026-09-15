@@ -160,16 +160,15 @@ jobs:
           set -o pipefail
           scripts/lab-apps.sh traffic ${{ inputs.traffic_minutes }} 2>&1 | tee traffic.log
 
-      # What the demos would read next — their own summaries, run as the guides run them (the numbers are the evidence)
-      - name: The demos' summaries — 26 verify.sh, 30 l7-summary.sh, 35 verdicts.sh, 25 check.sh
+      # The demos' own checks after the traffic, as ONE report on the run page (above the captures) and in the artifact:
+      # what was installed, what was exercised, what each chapter's check saw
+      - name: The report — the demos' checks (16, 25, 18, 23, 19, 26, 30, 35), on the run page
         run: |
-          echo "== demo 26 — verify.sh (Hubble's verdicts in cf2cnp-lab, with the policy that decided)"; demos/26-cf2cnp-policy-from-flows/verify.sh 5m 2>&1 | head -30 || true
-          echo "== demo 30 — l7-summary.sh cf2cnp-lab30 (method+path pairs from the proxy's flows)"; demos/30-l7-rules/l7-summary.sh cf2cnp-lab30 200 2>&1 | head -30 || true
-          echo "== demo 35 — verdicts.sh (the platform's audited pairs)"; demos/35-shop-platform/verdicts.sh 200 2>&1 | head -40 || true
-          echo "== demo 25 — check.sh 1 (observer → collector → Loki → Grafana → cf2cnp)"; ROOT_CA=.tmp/root-ca.crt demos/25-hubble-observer-loki/check.sh 1 2>&1 | head -40 || true
+          mkdir -p captures
+          TRAFFIC_MINUTES=${{ inputs.traffic_minutes }} scripts/lab-report.sh captures/report.md 2>&1 | tail -12
+          cat captures/report.md >> "$GITHUB_STEP_SUMMARY"
           # the names the stack added (grafana, cf2cnp) into /etc/hosts and proven by name — lab-route.sh ran before the stack existed
           scripts/lab-route.sh kind-poc1 | tail -12
-          echo "== the Hubble metrics Prometheus holds (a sample)"; kubectl --context kind-poc1 get --raw '/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=sum(hubble_policy_verdicts_total)%20by%20(action)' 2>/dev/null | python3 -c 'import json,sys; [print("  ", r["metric"], r["value"][1]) for r in json.load(sys.stdin)["data"]["result"]]' || true
 
       # The pages, through the reusable browser action: Playwright pinned and cached on the runner, the pages a JSON spec
       # (scripts/capture/lab.json) — a new endpoint is a new entry. The addresses come from the cluster, the names resolve

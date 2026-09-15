@@ -130,6 +130,16 @@ traffic() { # <minutes> — every generator, round after round, then the wait fo
   done
   n=$(k get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query?query=$(python3 -c 'import urllib.parse; print(urllib.parse.quote("sum(count_over_time({namespace=\"hubble-observer\",container=\"hubble-observer\"}[15m]))"))')" 2>/dev/null | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(r[0]["value"][1] if r else "0")' 2>/dev/null || echo "?")
   printf '  %-56s %s\n' "Loki: observer lines, last 15 min" "$n"
+  # Tempo: traces from each cluster (demo 23's query) — OBI on the bank and the collectors are the path; absent when Tempo is not installed
+  if k -n monitoring get svc tempo >/dev/null 2>&1; then
+    local c t; for c in "${CTX#kind-}" "${PEER_CTX#kind-}"; do
+      for _i in $(seq 1 30); do
+        t=$(k get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/search?q=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote("{ resource.k8s.cluster.name = \"" + sys.argv[1] + "\" }"))' "$c")&start=$(( $(date +%s) - 1200 ))&end=$(date +%s)&limit=200" 2>/dev/null | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("traces",[])))' 2>/dev/null || echo 0)
+        [ "${t:-0}" -gt 0 ] && break; sleep 10
+      done
+      printf '  %-56s %s\n' "Tempo: traces from $c, last 20 min" "${t:-0}"
+    done
+  fi
 }
 
 [ $# -ge 1 ] || { echo "usage: $0 all | lab26 lab27 lab30 lab32 lab35 app02 bank dns | traffic <minutes>"; exit 2; }
