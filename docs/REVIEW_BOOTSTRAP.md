@@ -4,7 +4,7 @@ Adversarial second-opinion pass, 2026-09-15, on the 12-claim brief for commit `8
 Codex (gpt-5.6-sol, xhigh) had a shell but no Docker daemon and no network to the release hosts; Cursor (Grok 4.6 high
 fast, ask mode, shell blocked) traced from source and marked what it could not measure PLAUSIBLE. Each reviewer worked
 on its own `git archive` export in its own scratch subdirectory; every verdict was re-checked here before a decision.
-The fixes are commit `0789a08`; the runner measured the fixed head in run `<run>`.
+The fixes are commit `0789a08`; the runner measured the fixed head in run `35028933940`.
 
 ## Verdicts
 
@@ -104,4 +104,4 @@ proposed test workflow rejected on scope. Four "not asked" findings, three appli
 two guards against fakes (stuck GUI → die before the write; old value kept → die; good value → pass), `ubuntu.sh` twice
 in a fresh `ubuntu:24.04` arm64 container (five pins + helm installed and verified, the second run downloading nothing),
 `macos.sh` on the M5 (the already-configured path, exit 0, every preflight row ok), and the Action on the fixed head
-(run `<run>`).
+(run `35028933940`).
