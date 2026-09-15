@@ -219,6 +219,21 @@ back to the chart's `hubble-relay-client-certs`, which the relay accepts because
 against its CA only. The earlier demos stay as recorded; the root README says this once (8b), SETUP
 Steps 5, 6 and 9 carry it.
 
+**5h — measured on every CI run.** [`mtls-check.sh`](mtls-check.sh) is Part 5 as five lines the lab's report prints
+on every run of `lab-observability.yaml` (enhancement 004): the relay's config carries the server certificate and
+the client CA and no `disable-server-tls`, its Service is on 443, its certificate's issuer is the enterprise root;
+the observer's `Certificate` is `Ready`, issued by `ca-issuer` for client auth, the pod carries the five
+`HUBBLE_TLS_*` variables; `hubble status` from inside the observer pod over mTLS says `Connected Nodes: 4/4`;
+an anonymous pod running the agent image's own `hubble` is refused with `certificate required` over TLS and gets
+nothing in plaintext (GUIDE exercise 7, scripted); and the observer's stdout and Loki hold the flows that came
+through the stream. The run page shows those lines beside the captures of the flows dashboard and the Hubble UI
+(whose backend also talks TLS to the relay) — the verification the chart's author asked for in
+[onzack/hubble-observer#6](https://github.com/onzack/hubble-observer/issues/6), reproduced on a fresh two-cluster
+mesh every time, not once on a laptop. Which CA: on the lab's route A (this demo, demo 24, the CI job) every one
+of those certificates is cert-manager's, from `ClusterIssuer/ca-issuer` (`hubble.tls.auto.method: certmanager`
+in `cilium/values-ci-certmanager.yaml`); Cilium's own Helm-made `cilium-ca` signs them only on route B, where no
+observer runs.
+
 **What did not change:** the observer's `ciliumNetworkPolicy` stays off (its policy has no DNS rule;
 GUIDE exercise 6).
 

@@ -118,3 +118,16 @@ kubectl -n hubble-observer exec deploy/hubble-observer -c hubble-observer -- hub
 `fieldMask` in the values: *Flows per Destination* empties (no `destination_names`), the table loses its
 Source names (no `labels`). The mask in the values is the smallest one that keeps every panel — remove
 one field at a time and watch which panel goes dark.
+
+## Exercise 12 — Part 5 in five lines, and in CI
+
+```bash
+demos/25-hubble-observer-loki/mtls-check.sh
+```
+
+*Expect:* the relay config with `tls-relay-server-cert-file` 1, `tls-relay-client-ca-files` 1, `disable-server-tls` 0,
+the Service on 443 and the relay's certificate `issuer=CN = clustermesh-root-ca`; the observer's Certificate `Ready`
+with `TLS Web Client Authentication` and the five `HUBBLE_TLS_*` variables on the pod; `Connected Nodes: 4/4` (the
+CI lab) or `7/7` (the laptop) from inside the observer; the anonymous pod's `certificate required`; the observer's
+stdout and Loki counts. The same section is on every CI run's page (`lab-observability.yaml`, the report's "demo 25
+Part 5"), next to the captures of the flows dashboard and the Hubble UI.

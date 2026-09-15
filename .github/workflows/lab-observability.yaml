@@ -196,7 +196,7 @@ jobs:
 
       # The demos' own checks after the traffic, as ONE report on the run page (above the captures) and in the artifact:
       # what was installed, what was exercised, what each chapter's check saw
-      - name: The report — the demos' checks (16, 25, 18, 23, 36, 15, 20, 19, the generated policies, 26, 30, 35), on the run page
+      - name: The report — the demos' checks (16, 25 and its mTLS, 18, 23, 36, 15, 20, 19, the generated policies, 26, 30, 35), on the run page
         run: |
           mkdir -p captures
           TRAFFIC_MINUTES=${{ inputs.traffic_minutes }} scripts/lab-report.sh captures/report.md 2>&1 | tail -16

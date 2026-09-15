@@ -9,6 +9,8 @@
 #   demo  check                                            proves
 #   16    Prometheus: targets up, the Hubble metric families the dashboards read, with samples
 #   25    demos/25-hubble-observer-loki/check.sh            observer → collector → Loki → Grafana → cf2cnp, sent_logs > 0 after the drops
+#   25    demos/25-hubble-observer-loki/mtls-check.sh       Part 5 as a check: the relay requires client certificates, the observer's certificate is
+#                                                           the enterprise issuer's, it streams over mTLS, an anonymous client is refused
 #   18    demos/18-obi/check.sh                             the requests OBI saw, with their trace ids, both clusters
 #   23    demos/23-collector-per-cluster/check.sh           the collector's local-only backends, its Tempo exporter counters, traces per cluster in Tempo
 #   36    demos/36-trust-everywhere/check.sh                one root everywhere: the chain (which CA signed the wildcard), the host's trust store and
@@ -60,6 +62,7 @@ demo16() {
 rm -f "$OUT.body"
 section "demo 16 — Prometheus, the metric families the dashboards read" demo16
 section "demo 25 — the observer pipeline (demos/25-hubble-observer-loki/check.sh 1)" demos/25-hubble-observer-loki/check.sh 1
+section "demo 25 Part 5 — the relay's mutual TLS: required, held by the observer, refused to an anonymous client (demos/25-hubble-observer-loki/mtls-check.sh)" demos/25-hubble-observer-loki/mtls-check.sh
 section "demo 18 — OBI, the requests it saw with their trace ids (demos/18-obi/check.sh 20m)" demos/18-obi/check.sh 20m
 section "demo 23 — the collector per cluster and Tempo's traces per cluster (demos/23-collector-per-cluster/check.sh 20)" demos/23-collector-per-cluster/check.sh 20
 section "demo 36 — one root, everywhere: the chain, the host, both clusters' Bundles, a pod (demos/36-trust-everywhere/check.sh)" demos/36-trust-everywhere/check.sh
