@@ -79,7 +79,7 @@ bundle() { # <ctx>… — trust-manager and the Bundle on each cluster: the root
     local _i; for _i in $(seq 1 30); do [ "$(kubectl --context "$ctx" get bundle enterprise-root -o jsonpath='{.status.conditions[?(@.type=="Synced")].status}' 2>/dev/null)" = True ] && break; sleep 2; done
     [ "$(kubectl --context "$ctx" get bundle enterprise-root -o jsonpath='{.status.conditions[?(@.type=="Synced")].status}' 2>/dev/null)" = True ] || { kubectl --context "$ctx" get bundle enterprise-root -o jsonpath='{.status}'; echo; die "Bundle enterprise-root is not Synced on $ctx"; }
     n=$(kubectl --context "$ctx" get cm -A --field-selector metadata.name=enterprise-root --no-headers 2>/dev/null | wc -l | tr -d ' ')
-    echo "$ctx: trust-manager $TRUST_MANAGER_VERSION, Bundle enterprise-root Synced → ConfigMap enterprise-root/ca.crt in $n namespaces ($(kubectl --context "$ctx" get cm -A --field-selector metadata.name=enterprise-root -o jsonpath='{.items[0].data.ca\.crt}' | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2 | cut -c1-23)…)"
+    echo "$ctx: trust-manager $TRUST_MANAGER_VERSION, Bundle enterprise-root Synced → ConfigMap enterprise-root/ca.crt in $n namespaces: $(kubectl --context "$ctx" get cm -A --field-selector metadata.name=enterprise-root -o jsonpath='{.items[0].data.ca\.crt}' | grep -c 'BEGIN CERTIFICATE') certificates (the public roots + ours, $(kubectl --context "$ctx" -n cert-manager get secret clustermesh-root-ca -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2 | cut -c1-23)…)"
   done
 }
 pod_check() { # <ctx> <ns> <pod> [container] <gateway-ip> <host> — inside a pod that mounts the bundle at /etc/enterprise-root
@@ -88,8 +88,11 @@ pod_check() { # <ctx> <ns> <pod> [container] <gateway-ip> <host> — inside a po
   local with without
   with=$(kubectl --context "$ctx" -n "$ns" exec "$pod" "${c[@]}" -- sh -c "curl -s -o /dev/null -m 8 --cacert /etc/enterprise-root/ca.crt --resolve $host:443:$gw -w '%{http_code}' https://$host/ 2>/dev/null; echo \" rc=\$?\"" 2>/dev/null | tr -d '\n')
   without=$(kubectl --context "$ctx" -n "$ns" exec "$pod" "${c[@]}" -- sh -c "curl -s -o /dev/null -m 8 --resolve $host:443:$gw -w '%{http_code}' https://$host/ 2>/dev/null; echo \" rc=\$?\"" 2>/dev/null | tr -d '\n')
-  printf '  %s/%s → https://%s  with the mounted root: %s   with nothing: %s\n' "$ns" "$pod" "$host" "$with" "$without"
+  local viaenv
+  viaenv=$(kubectl --context "$ctx" -n "$ns" exec "$pod" "${c[@]}" -- sh -c "SSL_CERT_FILE=/etc/enterprise-root/ca.crt curl -s -o /dev/null -m 8 --resolve $host:443:$gw -w '%{http_code}' https://$host/ 2>/dev/null; echo \" rc=\$?\"" 2>/dev/null | tr -d '\n')
+  printf '  %s/%s → https://%s  --cacert the mounted bundle: %s   SSL_CERT_FILE=the bundle, no flag: %s   with nothing: %s\n' "$ns" "$pod" "$host" "$with" "$viaenv" "$without"
   case "$with" in 200*|301*|302*) ;; *) die "the pod's curl with the mounted root did not get an answer ($with)";; esac
+  case "$viaenv" in 200*|301*|302*) echo "  ✓ SSL_CERT_FILE alone is enough for this image's curl (no CURL_CA_BUNDLE pinned in it)";; *) echo "  ✗ SSL_CERT_FILE alone did not verify ($viaenv): this image pins another variable (curl reads CURL_CA_BUNDLE first)";; esac
   case "$without" in *"rc=60"*|*"rc=77"*|*"rc=35"*) echo "  ✓ without the root the pod's curl is refused (curl exit ${without##*rc=}: the peer certificate cannot be authenticated) — the mount is what makes the call trusted";;
     *) die "without the root the pod's curl should have been refused, got '$without' — the image trusts something it should not";; esac
 }

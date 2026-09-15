@@ -42,9 +42,9 @@ kubectl --context kind-poc2 -n bank get cm enterprise-root -o jsonpath='{.data.c
 kubectl --context kind-poc1 create namespace trust-probe; sleep 3; kubectl --context kind-poc1 -n trust-probe get cm enterprise-root; kubectl --context kind-poc1 delete namespace trust-probe --wait=false
 ```
 
-*Expect:* `Synced True`; one `enterprise-root` ConfigMap per namespace, in both clusters, with Exercise 0's
-fingerprint; a namespace created afterwards gets its ConfigMap within seconds — the reason it is a controller and
-not a copy.
+*Expect:* `Synced True`; one `enterprise-root` ConfigMap per namespace, in both clusters, about 150 certificates
+(the public roots trust-manager packages, then ours — Exercise 0's fingerprint is among them); a namespace created
+afterwards gets its ConfigMap within seconds — the reason it is a controller and not a copy.
 
 ## Exercise 3 — a pod (needs demo 11's client: `scripts/lab-apps.sh forensic`, or the rig)
 
@@ -54,9 +54,9 @@ scripts/lab-trust.sh pod-check kind-poc1 forensic client 172.18.255.240 bank.poc
 kubectl --context kind-poc1 -n forensic exec client -- sh -c 'SSL_CERT_FILE=/etc/enterprise-root/ca.crt curl -s -o /dev/null -w "%{http_code}\n" --resolve grafana.poc.local:443:172.18.255.240 https://grafana.poc.local/login'
 ```
 
-*Expect:* `ca.crt` mounted; `with the mounted root: 200 rc=0`, `with nothing: 000 rc=60` (curl 60: the peer
-certificate cannot be authenticated — the image's bundle does not know this root, which is the point); and `200`
-with `SSL_CERT_FILE` set and no flag on the command.
+*Expect:* `ca.crt` mounted; `--cacert the mounted bundle: 200 rc=0`, `SSL_CERT_FILE=the bundle, no flag: 200 rc=0`
+(netshoot's curl is Alpine's, OpenSSL-linked, nothing pinned), `with nothing: 000 rc=60` (curl 60: the peer
+certificate cannot be authenticated — the image's own bundle does not know this root, which is the point).
 
 ## Exercise 4 — Kyverno: the mount without asking (writes: Kyverno on poc1, one policy, one pod)
 
@@ -69,10 +69,12 @@ scripts/lab-trust.sh labelled-check kind-poc1 trust curl 172.18.255.240 bank.poc
 kubectl --context kind-poc1 -n trust get events --field-selector reason=PolicyApplied
 ```
 
-*Expect:* the pod's spec carries `enterprise-root | /etc/enterprise-root | SSL_CERT_FILE` although
-`30-labelled-client.yaml` declares none of them; `curl https://bank.poc.local/` from inside with no flag: `http 200,
-ssl_verify_result 0`; a `PolicyApplied` event naming `mount-enterprise-root`. Remove the label from a copy of the
-pod and create it: nothing is added — the label is the contract.
+*Expect:* the pod's spec carries `enterprise-root | /etc/enterprise-root | SSL_CERT_FILE CURL_CA_BUNDLE
+REQUESTS_CA_BUNDLE NODE_EXTRA_CA_CERTS` although `30-labelled-client.yaml` declares none of them; `curl
+https://bank.poc.local/` from inside with no flag: `http 200, ssl_verify_result 0`; a `PolicyApplied` event naming
+`mount-enterprise-root`. Remove the label from a copy of the pod and create it: nothing is added — the label is the
+contract. (With `SSL_CERT_FILE` alone this image answered `ssl_verify_result 20`: it pins `CURL_CA_BUNDLE`, which curl
+reads first — the reason the policy sets the four conventions.)
 
 Offline first, the way the demo was built:
 

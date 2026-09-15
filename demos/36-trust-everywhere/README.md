@@ -38,7 +38,7 @@ routes-gw 172.18.255.240, certificate wildcard-poc-local-tls Ready
 |---|---|---|---|
 | the MacBook | the System keychain | `scripts/lab-trust.sh install` — `security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain` (demo 09's command; a password prompt) | `security verify-cert -c .tmp/root-ca.crt`; `open https://grafana.poc.local` shows a padlock |
 | the Ubuntu runner (CI) | `/etc/ssl/certs/ca-certificates.crt` | `scripts/lab-up.sh` with `LAB_TRUST_ROOT=1`: `install -m 0644 … /usr/local/share/ca-certificates/cilium-lab-enterprise-root.crt` then `update-ca-certificates` | `openssl verify -CApath /etc/ssl/certs .tmp/root-ca.crt`; then a curl **by name with no `--cacert`** to the wildcard listener, `ssl_verify_result` 0 |
-| a pod, in any namespace, in any cluster | ConfigMap `enterprise-root`, key `ca.crt`, mounted at `/etc/enterprise-root/` | trust-manager's `Bundle` (`20-bundle.yaml`): source = the Secret's `tls.crt` in the trust namespace, target = a ConfigMap in every namespace | `curl --cacert /etc/enterprise-root/ca.crt https://bank.poc.local/` answers; the same curl without it exits 60 |
+| a pod, in any namespace, in any cluster | ConfigMap `enterprise-root`, key `ca.crt`, mounted at `/etc/enterprise-root/` — a **complete** bundle: the public roots trust-manager packages plus ours | trust-manager's `Bundle` (`20-bundle.yaml`): sources = `useDefaultCAs` and the Secret's `tls.crt` in the trust namespace, target = a ConfigMap in every namespace | `curl --cacert /etc/enterprise-root/ca.crt https://bank.poc.local/` answers; the same curl without it exits 60 |
 
 Why trust-manager and not a copy of the ConfigMap per namespace: a namespace created after the copy (every lab
 namespace is) would have nothing, and a rotated root would have to be re-copied everywhere; the Bundle is
@@ -48,10 +48,18 @@ and not the Secret: the Secret carries the key. trust-manager reads sources only
 why it lands in `scripts/lab-up.sh`'s root step, right after the issuer is Ready and — in the mesh exercise — right
 after the root was copied to the other cluster.
 
-For a process that must not know about any of this, the mount plus one environment variable is enough:
-`SSL_CERT_FILE=/etc/enterprise-root/ca.crt` makes every OpenSSL- and curl-based client verify against the root.
-Demo 11's client pod (the rig's `client`, what demo 15's in-cluster check runs from) mounts the ConfigMap with
-`optional: true`, so the same file still schedules on a cluster without the Bundle (poc3, kindnet).
+Why a complete bundle and not the one root: a runtime is pointed at ONE file, so that file must hold everything
+the process may need to trust — the public web for the pod's outbound calls and our root for the platform's.
+`useDefaultCAs` is trust-manager's packaged Mozilla bundle; the ConfigMap comes out at about 150 certificates.
+
+For a process that must not know about any of this, the mount plus an environment variable is enough — but
+*which* variable is per runtime family, and one image measured it: `SSL_CERT_FILE` is the OpenSSL convention
+(Python's `ssl`, Alpine's curl, netshoot), yet the official `curlimages/curl` image sets `CURL_CA_BUNDLE=/cacert.pem`
+in its own image config (`create_base_image.sh` in curl/curl-container), and curl reads `CURL_CA_BUNDLE` before
+`SSL_CERT_FILE` (`src/tool_operate.c`), so in run 34937306210 the labelled pod had the mount and `SSL_CERT_FILE` and
+still failed with `ssl_verify_result 20`. Demo 11's client pod (the rig's `client`, what demo 15's in-cluster check
+runs from) mounts the ConfigMap with `optional: true`, so the same file still schedules on a cluster without the
+Bundle (poc3, kindnet).
 
 ## Part 3 — the mount without asking: Kyverno
 
@@ -66,7 +74,7 @@ Kubernetes' own `MutatingAdmissionPolicy`:
 |---|---|---|
 | `matchConstraints.resourceRules` | pods, on CREATE | `40-kyverno-mutatingpolicy.yaml` |
 | `matchConstraints.objectSelector` | the label `trust.poc.local/root: enterprise` — the whole contract | same |
-| `mutations[0]` | an **ApplyConfiguration**: the volume `enterprise-root` (the ConfigMap trust-manager keeps in the namespace), and for every container — `object.spec.containers.map(c, …)` — the mount at `/etc/enterprise-root` and `SSL_CERT_FILE=/etc/enterprise-root/ca.crt` | same |
+| `mutations[0]` | an **ApplyConfiguration**: the volume `enterprise-root` (the ConfigMap trust-manager keeps in the namespace), and for every container — `object.spec.containers.map(c, …)` — the mount at `/etc/enterprise-root` and the variables the runtime families read, all pointing at the bundle: `SSL_CERT_FILE` (OpenSSL), `CURL_CA_BUNDLE` (curl reads it first), `REQUESTS_CA_BUNDLE` (Python requests), `NODE_EXTRA_CA_CERTS` (Node) | same |
 | `failurePolicy: Fail` | a labelled pod that cannot be mutated must not start unmounted, silently | same |
 | the client | a pod with the label and nothing else: no volume, no mount, no flag | `30-labelled-client.yaml` |
 
@@ -77,9 +85,10 @@ the variable; a pod without the label is untouched; a pod with its own volume, m
 
 Why the label and not a namespace-wide rule: the root is not a secret, but a mount is a contract — a container
 that verifies against a private root should say so where a reader looks (the manifest), and the label is one line.
-Why `SSL_CERT_FILE` and not only the mount: curl, Python's `ssl`, Go's `crypto/x509`, Node with
-`NODE_EXTRA_CA_CERTS` — every stack has an environment variable that takes a file, and this one is the OpenSSL
-family's; the demo's client uses curl with no flag at all.
+Why four variables and not only the mount: every stack has an environment variable that takes a bundle file, and
+they differ — the first run with `SSL_CERT_FILE` alone met the curl image's pinned `CURL_CA_BUNDLE` (Part 2), so the
+policy sets the four conventions at once; the bundle being complete, none of them narrows what the process trusts.
+The demo's client uses curl with no flag at all.
 
 ## Part 4 — what the lab does with it
 

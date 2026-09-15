@@ -1,8 +1,10 @@
-# Demo 36 — the enterprise root as a ConfigMap in EVERY namespace, for pods to mount: trust-manager's Bundle reads the
-# CERTIFICATE (tls.crt) of the issuer's Secret in the trust namespace (cert-manager) and writes ConfigMap enterprise-root
-# with key ca.crt into every namespace, including the ones created later — which a hand copy would miss. The private
-# key never leaves the Secret: a Bundle source names one key of it. The same object in every cluster of the mesh
-# (the root was copied to each cluster's cert-manager in the mesh exercise, SETUP 9.3a / demo 08 Part 3).
+# Demo 36 — the trust bundle as a ConfigMap in EVERY namespace, for pods to mount: trust-manager's Bundle takes the public
+# roots it packages PLUS the CERTIFICATE (tls.crt) of the issuer's Secret in the trust namespace (cert-manager) and writes
+# ConfigMap enterprise-root with key ca.crt into every namespace, including the ones created later — which a hand copy
+# would miss. The private key never leaves the Secret: a Bundle source names one key of it. A complete bundle, so a
+# runtime variable pointed at it (CURL_CA_BUNDLE, SSL_CERT_FILE, …) loses nothing — run 34937306210 showed why that
+# matters: the official curl image pins CURL_CA_BUNDLE=/cacert.pem, which curl reads before SSL_CERT_FILE. The same
+# object in every cluster of the mesh (the root was copied to each cluster's cert-manager in the mesh exercise).
 #   scripts/lab-trust.sh bundle kind-poc1 kind-poc2      # trust-manager, then this
 #   kubectl --context kind-poc1 get bundle enterprise-root; kubectl --context kind-poc1 get cm -A --field-selector metadata.name=enterprise-root
 apiVersion: trust.cert-manager.io/v1alpha1
@@ -11,9 +13,11 @@ metadata:
   name: enterprise-root
 spec:
   sources:
+    - useDefaultCAs: true           # the public roots trust-manager packages (Mozilla's bundle, its defaultPackage) — so a client
+                                    # pointed at this file keeps the public web: the file is a COMPLETE bundle, not one root
     - secret:
         name: clustermesh-root-ca   # the ClusterIssuer/ca-issuer's CA (demo 08): what signed the wildcard, the mesh, the relay
         key: tls.crt                # the certificate only
   target:
     configMap:
-      key: ca.crt                   # → /etc/enterprise-root/ca.crt in a pod that mounts the ConfigMap
+      key: ca.crt                   # → /etc/enterprise-root/ca.crt in a pod that mounts the ConfigMap: the public roots + ours

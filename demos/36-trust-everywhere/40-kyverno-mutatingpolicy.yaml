@@ -1,7 +1,10 @@
-# Demo 36 Part 4 — the mount without asking: Kyverno (v1.19.1) mutates every pod that carries the label
-# trust.poc.local/root=enterprise so that it gets the enterprise root the way demo 11's client declares it by hand —
-# the ConfigMap trust-manager keeps in every namespace mounted at /etc/enterprise-root, and SSL_CERT_FILE pointing at
-# it in EVERY container, so a process that never heard of any of this verifies the Gateway's wildcard. A
+# Demo 36 Part 3 — the mount without asking: Kyverno (v1.19.1) mutates every pod that carries the label
+# trust.poc.local/root=enterprise so that it gets the trust bundle the way demo 11's client declares it by hand —
+# the ConfigMap trust-manager keeps in every namespace mounted at /etc/enterprise-root — and the variables the runtime
+# families read, in EVERY container: SSL_CERT_FILE (the OpenSSL convention), CURL_CA_BUNDLE (curl reads it FIRST — the
+# official curl image pins it to its own /cacert.pem, so SSL_CERT_FILE alone left the pod at ssl_verify_result 20 in
+# run 34937306210), REQUESTS_CA_BUNDLE (Python requests), NODE_EXTRA_CA_CERTS (Node). The file is a complete bundle
+# (20-bundle.yaml: the public roots plus ours), so pointing a runtime at it takes nothing away. A
 # MutatingPolicy (policies.kyverno.io/v1, the CEL policy type — the same language as Kubernetes' own
 # MutatingAdmissionPolicy): the match is a label selector, the mutation is an apply configuration (server-side-apply
 # merge: the volume by name, each container by name, so a pod that already mounts something keeps it).
@@ -41,7 +44,10 @@ spec:
                   Object.spec.containers.volumeMounts{name: "enterprise-root", mountPath: "/etc/enterprise-root", readOnly: true}
                 ],
                 env: [
-                  Object.spec.containers.env{name: "SSL_CERT_FILE", value: "/etc/enterprise-root/ca.crt"}
+                  Object.spec.containers.env{name: "SSL_CERT_FILE", value: "/etc/enterprise-root/ca.crt"},
+                  Object.spec.containers.env{name: "CURL_CA_BUNDLE", value: "/etc/enterprise-root/ca.crt"},
+                  Object.spec.containers.env{name: "REQUESTS_CA_BUNDLE", value: "/etc/enterprise-root/ca.crt"},
+                  Object.spec.containers.env{name: "NODE_EXTRA_CA_CERTS", value: "/etc/enterprise-root/ca.crt"}
                 ]
               })
             }
