@@ -1,8 +1,9 @@
 # A new MacBook, from zero to the preflight
 
 Written 2026-09-15 for the operator's Apple M5 Pro (64 GB). Everything here is the toolchain this lab was built and
-verified with (`README.md` → *Versions*), the same scripts the CI job runs, and the Docker Desktop settings that
-gotchas #103 and the runbook (`docs/DOCKER-DESKTOP-RUNBOOK.md`) were written for. Apple silicon changes two things
+verified with (`README.md` → *Versions*), the same scripts the CI job runs, the Docker Desktop settings that
+gotchas #103 and the runbook (`docs/DOCKER-DESKTOP-RUNBOOK.md`) were written for, and — because the same machine
+carries the other projects — Podman, Podman Desktop and CRC with their measured minimums (§2). Apple silicon changes two things
 against the Intel MacBook: Homebrew lives under `/opt/homebrew`, and Docker Desktop's default virtual machine is
 Docker VMM, on which the host route to the LB blocks (Step 3.5) is unmeasured — the preflight tells.
 
@@ -30,6 +31,10 @@ brew --version
 | openssl | macOS's LibreSSL is enough | any | the certificate lines the checks print |
 | Codex CLI | `brew install --cask codex` then `codex login` | 0.154.0 on 2026-09-15 | the adversarial review (see `docs/REVIEW_*.md`) |
 | Cursor CLI | `curl https://cursor.com/install -fsS \| bash` then `cursor agent login` | current | the second reviewer |
+| Podman | `brew install podman` — one install path only, §2 | 6.1.1 (brew stable, 2026-09-15); 5.5.2 on the Intel Mac | the other projects: `release-crc.sh` builds and pushes the dashboard's images with it |
+| Podman Desktop | `brew install --cask podman-desktop` | 1.29.3 cask (2026-09-15); 1.26.2 on the Intel Mac | the GUI for the Podman machine and, with its OpenShift Local extension, for CRC |
+| CRC (OpenShift Local) | not in Homebrew — the guided installer from console.redhat.com/openshift/create/local, a Red Hat account, the pull secret from the same page | v2.63.0 (2026-08-18); 2.49.0 / OpenShift 4.18.2 on the Intel Mac | the dashboard project's cluster — §2 has its minimums |
+| oc | `crc oc-env` (the cluster's own) or `brew install openshift-cli` | 4.22.12 (brew); 4.13.6 on the Intel Mac | CRC |
 
 One line for the lab's tools:
 
@@ -39,27 +44,78 @@ brew install --cask docker-desktop codex
 kind version; cilium version --client; hubble version; helm version --short; kubectl version --client
 ```
 
-## 2. Podman, for the other projects
+## 2. Podman, Podman Desktop and CRC — for the other projects
 
-kind on Podman is experimental and needs a rootful machine (the research in `enhancements/004-lab-in-ci.md` §2: no
-host route, poor ICMP through gvproxy), so this lab runs on Docker. Podman stays for the projects that use it (CRC,
-the signal system's containers), and the two coexist — separate sockets, separate VMs:
+This lab runs on Docker. kind auto-detects its provider and takes Docker whenever `docker -v` answers
+`Docker version …` (kind v0.33.0, `pkg/cluster/provider.go` `DetectNodeProvider`, then `docker/util.go` `IsAvailable`);
+Podman comes after, behind `KIND_EXPERIMENTAL_PROVIDER` in kind's quick start, which adds that rootless podman needs
+"extra setup … for KIND clusters to be fully functional"; and its machine has no host route to a container IP —
+user-mode networking through gvproxy, whose maintainer says it "does not seem to handle ICMP well" (containers/podman
+discussion #24235; gvisor-tap-vsock's README limitations). Step 3.5's route from this Mac to the LB blocks needs Docker
+Desktop's bridge. SETUP Step 0.3 made the same call for the reason it could measure then (a 2 GiB Podman machine).
+
+Podman is for the other projects. CRC itself needs none of it — its VM is vfkit's and its presets are `openshift`, `okd`
+and `microshift` (`crc config set --help` on 2.49.0; the `podman` preset is gone) — but the dashboard's release path is
+Podman end to end: `local-development/release-crc.sh` in group-sync-dashboard is `podman build`, `podman run`,
+`podman login`, `podman tag`, `podman push` into CRC's internal registry.
+
+**One install path for Podman, never two.** Podman Desktop's macOS page recommends its own `.dmg` (it bundles the engine
+and the CLI under `/opt/podman`) and says of Homebrew: not recommended — and, if Podman is already Homebrew's, "Do not use
+the .dmg installer to install Podman Desktop. Instead, use Homebrew only." The Intel Mac is the state that page warns about: Homebrew's `podman` 5.5.2 first
+on `PATH`, the pkg's `/opt/podman/bin/podman` behind it, and a Podman Desktop that auto-updated from the 1.17.2 cask to
+1.26.2. The M5 takes Homebrew only, because everything else here is Homebrew and one `brew upgrade` moves them together:
 
 ```bash
-brew install podman                                        # 6.1.1 on 2026-09-15 (Podman Desktop: brew install --cask podman-desktop)
-podman machine init --cpus 4 --memory 8192 --disk-size 60  # its own VM; size it for the project that uses it
-podman machine start
-podman machine list                                         # one machine — the Intel Mac's lesson: stop the ones you are not using
+brew install podman                                        # gvproxy and vfkit come with the formula
+brew install --cask podman-desktop                         # finds Homebrew's podman; in its onboarding, skip "install Podman" — it is installed
+podman machine init --cpus 4 --memory 4096 --disk-size 60  # its own VM (applehv); the Intel Mac's 8 CPUs / 2 GiB / 100 GiB builds the dashboard image
+podman machine start && podman machine list
 ```
 
-`docker` stays `docker`: do not alias it to podman (kind's Docker provider reads Docker's socket and API).
+**CRC — what it needs**, from crc.dev (*Installing*, *Configuring*, *Administrative tasks*) and `crc config set --help`:
+
+| | The floor | The Intel Mac, measured 2026-09-15 (`crc config view`, `oc describe node`, `df` inside) | The M5 — a proposal from those measurements |
+|---|---|---|---|
+| macOS | 15 Sequoia or later | 15.7.9 | what the M5 ships with |
+| preset | `openshift` — 4 physical cores, 10.5 GB free memory, 35 GB of storage; `okd` is not on Apple silicon | openshift, 4.18.2 | openshift |
+| `cpus` | ≥ 4 | 5 → 4800m allocatable, **4792m requested (99 %)**: 2322m the platform, 2410m the operator's workloads | 8 (6 if `sysctl -n hw.ncpu` says fewer than 14) |
+| `memory` | ≥ 10752 MiB; **14336** "recommended for core functionality" once `enable-cluster-monitoring` is true | 16384 → 15540Mi allocatable (the kubelet keeps 843Mi), **13165Mi requested (85 %)** with monitoring off: 9457Mi the platform, 3708Mi the operator's | 20480 → ~19637Mi allocatable; today's 13165Mi + monitoring's ~3584Mi (the docs' 14336 less the 10752 default) = 16749Mi, ~2.8 GiB left to schedule. At 16384 that sum exceeds the 15540Mi allocatable: Pending pods the moment monitoring is on |
+| `disk-size` | ≥ 31 GiB | 60 → **50G used, 9.5G free (85 %)** in 17 months (the instance dates from 2025-04-18); `crc.img` fully allocated, 60 GB on disk | 100 — grow-only: a larger value is applied at the next `crc start` (crc v2.63.0 `pkg/crc/machine/start.go` → `setDiskSize` → the vfkit driver's `resize`: `os.Truncate`, then `growpart`), a smaller one is refused |
+| monitoring | off by default ("so that CRC can run on a typical notebook"); once on it cannot be turned off without `crc delete` | off (no Metrics API: `oc adm top` fails) | on — the dashboard's parked monitoring validation needs it; decide before the first start |
+
+```bash
+crc setup                                                                    # a password prompt: the helper and the network
+crc config set cpus 8; crc config set memory 20480; crc config set disk-size 100
+crc config set enable-cluster-monitoring true                                # the 14336 MiB floor above; cannot be undone without crc delete
+crc config set pull-secret-file ~/.crc/pull-secret.json                      # no prompt on any later start
+crc start                                                                    # "a minimum of four minutes"; then crc console --credentials
+eval "$(crc oc-env)"; oc get co                                              # the cluster's own oc
+```
+
+**The memory budget on 64 GB**, if the lab and CRC run at once: Docker Desktop 24 GB (§3, a cap; the lab's footprint
+measured 12.5 GB in CI) + CRC 20 GB + the Podman machine 4 GB = 48 GB in virtual machines, 16 GB for macOS, the
+browser and the two reviewers; 22 vCPUs over the host's threads, fine as threads, noisier for demo 06's throughput
+numbers while CRC is up. That sum is why the Intel Mac's 32 GB never ran the two together and why Docker Desktop stays
+quit there when CRC is up. `cpus`, `memory` and a larger `disk-size` change with `crc config set` then `crc stop` /
+`crc start`; only monitoring and a smaller disk need a fresh instance.
+
+**The socket, measured on the Intel Mac.** Podman Desktop's *Docker compatibility* installs `podman-mac-helper`, which points
+`/var/run/docker.sock` at the Podman machine; Docker Desktop's *Allow the default Docker socket to be used*
+(`enableDefaultDockerSocket`) names the same path and is on there. Today `/var/run/docker.sock →
+…/podman/machine/podman.sock` (2026-09-13 18:08, and still so after Docker Desktop's last run on the 14th), and the two
+coexist because the `docker` CLI is on its `desktop-linux` context (`~/.docker/run/docker.sock`) — that context is what
+kind talks to. The rules: `docker context show` prints `desktop-linux`;
+`DOCKER_HOST` is never exported (with it set, `docker context ls` moves the star to `default` at that endpoint — measured);
+`docker` is never aliased to podman, because then `docker -v` says `podman version` and kind stops seeing Docker.
 
 ## 3. Docker Desktop — the settings before any cluster (SETUP Step 2, gotcha #103)
 
 Launch Docker Desktop once from `/Applications` (it asks for your password to install its helpers, then migrates
 its settings file). Then quit it and set the VM from the file, because Docker Desktop reads the file at start and
-overwrites it while running (SETUP Step 2.4's rule). On 4.35+ the file is `settings-store.json`; read it first, change
-only what you read (the key names are what the file says, not what a guide remembers):
+overwrites it while running (SETUP Step 2.4's rule). Docker's documentation names the file `settings-store.json`; the
+Intel Mac's 4.91.0, upgraded in place from 4.27.2, still writes `settings.json` (its mtime moves on every change) and has
+no `settings-store.json` — so read whichever exists, and change only what you read (the key names are what the file
+says, not what a guide remembers):
 
 ```bash
 f="$HOME/Library/Group Containers/group.com.docker/settings-store.json"; [ -f "$f" ] || f="$HOME/Library/Group Containers/group.com.docker/settings.json"
