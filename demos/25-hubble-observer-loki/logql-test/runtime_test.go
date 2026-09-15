@@ -28,7 +28,7 @@ func pipelineOf(t *testing.T, id int) func(line string) (labels.Labels, bool) {
 	if err != nil { t.Fatal(err) }
 	if err := json.Unmarshal(b, &d); err != nil { t.Fatal(err) }
 	vars := map[string]string{"$hubbleobservernamespace": "hubble-observer", "$container": "hubble-observer", "$searchregex": ".", "$excluderegex": "a^",
-		"$logparser": "regexp `(?P<message>.+)` | line_format `{{.message}}` | json", "$sourcenamespace": ".*", "$destinationnamespace": ".*",
+		"$logparser": logparserOf(), "$sourcenamespace": ".*", "$destinationnamespace": ".*",
 		"$direction": ".*", "$ipversion": ".*", "$sourcecluster": ".*", "$destinationcluster": ".*"}
 	var expr string
 	for _, p := range d.Panels { if p.ID == id { expr = p.Targets[0].Expr } }

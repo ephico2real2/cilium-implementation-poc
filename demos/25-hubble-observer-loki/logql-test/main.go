@@ -9,6 +9,13 @@ import (
 	"github.com/grafana/loki/v3/pkg/logql/syntax"
 )
 
+func logparserOf() string { // the dashboard's own logparser variable, so the parse runs the parser the panels run
+	var d struct{ Templating struct{ List []struct{ Name, Query string } } }
+	b, _ := os.ReadFile(os.Args[1]); json.Unmarshal(b, &d)
+	for _, v := range d.Templating.List { if v.Name == "logparser" { return v.Query } }
+	return "json"
+}
+
 func main() {
 	var d struct {
 		Panels []struct {
@@ -20,7 +27,7 @@ func main() {
 	b, _ := os.ReadFile(os.Args[1])
 	if err := json.Unmarshal(b, &d); err != nil { panic(err) }
 	vars := map[string]string{"$hubbleobservernamespace": "hubble-observer", "$container": "hubble-observer", "$searchregex": ".", "$excluderegex": "a^",
-		"$logparser": "regexp `(?P<message>.+)` | line_format `{{.message}}` | json", "$sourcenamespace": ".*", "$destinationnamespace": ".*",
+		"$logparser": logparserOf(), "$sourcenamespace": ".*", "$destinationnamespace": ".*",
 		"$direction": ".*", "$ipversion": ".*", "$sourcecluster": ".*", "$destinationcluster": ".*", "$__range": "30m", "$__auto": "1m", "$__interval": "1m"}
 	bad := 0
 	for _, p := range d.Panels {
