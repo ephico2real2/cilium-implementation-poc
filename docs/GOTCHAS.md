@@ -2679,6 +2679,67 @@ the Bundle and for Kyverno's MutatingPolicy (12 tries, 5 s apart), and says at w
 **The lesson:** "the Deployment is Ready" and "the API server can reach its webhook" are two different moments; the
 second is the one a `kubectl apply` needs.
 
+## <a name="108"></a>108. Docker Desktop's settings file has two spellings, and a key it does not recognise is silently a default — the M5 booted an 8 GB VM after the guide's edit would have "worked"
+
+**Where:** the M5 Pro, Docker Desktop 4.91.0 installed fresh (2026-09-15). `docs/NEW-MAC.md` §3 said to set
+`cpus`, `memoryMiB` and `kernelForUDP` in the settings file, as the Intel Mac's file spells them. The M5's file:
+
+```text
+$ cat ~/Library/Group\ Containers/group.com.docker/settings-store.json
+{ "AutoStart": false, "DisplayedOnboarding": true, …, "RequireVmnetd": false, "SettingsVersion": 45,
+  "UseContainerdSnapshotter": true }                       # twelve keys, all PascalCase, none of the three
+$ docker info --format 'CPUs={{.NCPU}} Mem={{.MemTotal}}'
+CPUs=18 Mem=8317267968                                      # every core, Desktop's default 8 GB
+$ scripts/lab-preflight.sh
+  REQUIRED-FAIL memory for the nodes       7 GiB            # below 8 GiB two clusters do not fit
+```
+
+**What happened:** two files, two spellings. A Desktop upgraded in place from 4.27.2 (the Intel Mac) still writes
+the legacy `settings.json` in camelCase (`cpus`, `memoryMiB`, `kernelForUDP` — the runbook's measured diff). A
+Desktop installed fresh writes `settings-store.json` with its Go field names — `Cpus`, `MemoryMiB`, `SwapMiB`,
+`DiskSizeMiB`, `KernelForUDP`, `UseVirtualizationFramework`, read from the 4.91.0 backend binary
+(`strings com.docker.backend`). And the store writes **only non-default keys**, so the three the lab needs are simply
+absent on a fresh install: nothing to "read and change", and a guide that "remembers" a spelling has nothing in the
+file to contradict it. Also measured on the way: this Desktop was installed in user mode (`DockerBinInstallPath:
+user`, `RequireVmnetd: false`, the backend log's "vmnetd is not installed on this system") — and `KernelForUDP`
+still gave the VM `eth1 192.168.64.2` on a host bridge, so the privileged helper is not what the route needs.
+
+**The fix:** `scripts/bootstrap/macos.sh` picks the spelling by the file that exists, writes the three keys with
+Docker Desktop quit (it rewrites the file while running — SETUP Step 2.4), relaunches it and proves the result from
+the VM, not the file: `docker info` must answer the CPUs asked for and a MemTotal within 1.5 GiB of the setting, and
+the keys must survive Desktop's own rewrite (`Cpus=10 MemoryMiB=24576 KernelForUDP=true` after the relaunch — the
+M5, 2026-09-15). The guide's manual edit is gone; the script is the guide.
+
+**The lesson:** a settings file that omits defaults cannot tell you the names of the keys it accepts; read them from
+the program that reads the file, and verify the write where it takes effect.
+
+## <a name="109"></a>109. A kernel above netkit's version floor without `CONFIG_NETKIT` — Docker Desktop 4.91.0's `7.0.12-linuxkit` refuses netkit, and the version check said yes
+
+**Where:** the M5 Pro's first preflight (2026-09-15). Four documents (`NEW-MAC.md`, `DOCKER-DESKTOP-RUNBOOK.md`,
+`SETUP.md` Step 2, enhancement 004 phase 4) expected netkit from Docker Desktop ≥ 4.89.0 because its kernel,
+7.0.12, is above Cilium's 6.8 floor:
+
+```text
+  no   netkit (kernel 7.0.12-linuxkit)  ≥ 6.8 but no CONFIG_NETKIT exported and 'ip link add … type netkit' failed
+$ docker run --rm --privileged busybox:1.36 sh -c 'zcat /proc/config.gz | grep -n NETKIT'
+2033:# CONFIG_NETKIT is not set
+$ docker run --rm --privileged --net=host --entrypoint sh quay.io/cilium/cilium:v1.20.1 -c 'ip link add nk0 type netkit'
+Error: Attribute failed policy validation.                  # a veth pair from the same shell: created
+```
+
+**What happened:** Cilium's requirement is two-part — kernel ≥ 6.8 **and** `CONFIG_NETKIT` — and Docker Desktop's
+linuxkit kernel is built without the option. The Intel Mac's 4.91.0 had been installed but never launched when the
+expectation was written, so no 7.0.12 kernel had been read before this one; the version-only inference was mine, and
+it was wrong. The preflight's row was right all along because it measures the device, not the version.
+
+**The fix:** none needed for the lab — netkit is opt-in (`LAB_FEATURES=1`, `cilium/values-ci-features.yaml`) and every
+gated run is veth (`lab-observability.yaml`: `LAB_FEATURES: ""`); the only measured netkit is the runner's spike on
+its 6.17 kernel (`lab-spike-kind.yaml`, `kernel-features`). The four documents now say so, and `scripts/bootstrap/macos.sh`
+promises nothing about netkit.
+
+**The lesson:** a version floor is necessary, not sufficient — read the kernel's config (`/proc/config.gz`), or create
+the device, before writing "supported" anywhere.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**

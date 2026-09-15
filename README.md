@@ -153,7 +153,7 @@ unchanged, with BGP substituted for L2 in production.
    from the chain, not assumed), and that root put into the OS trust stores and every namespace of both
    clusters, so `--cacert` flags and in-pod curls to Gateway URLs stop being special cases.
 9. **[docs/POLICY-TEST-RESULTS.md](docs/POLICY-TEST-RESULTS.md)** is the one-page answer to "what was tested and what happened" for every generated network policy (demos 26–35) and for cf2cnp's own test layers.
-10. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 107 traps, each with the real error
+10. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 109 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -379,7 +379,9 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 The whole lab is also built, exercised and measured on a GitHub Actions runner (4 vCPU, 16 GB): the plan and
 every run's measurements are in **[enhancements/004-lab-in-ci.md](enhancements/004-lab-in-ci.md)**. Three
 `workflow_dispatch` workflows, each from the same scripts a MacBook uses (`scripts/lab-up.sh`, `lab-stack.sh`,
-`lab-images.sh`, `lab-apps.sh`, `lab-policies.sh`, `lab-report.sh`, `scripts/capture/`):
+`lab-images.sh`, `lab-apps.sh`, `lab-policies.sh`, `lab-report.sh`, `scripts/capture/`). The only per-host part is
+the bootstrap before them — `scripts/bootstrap/ubuntu.sh` on the runner, `scripts/bootstrap/macos.sh` on a Mac, the
+pins in `scripts/bootstrap/versions.env` — and both end in the same `scripts/lab-preflight.sh` table:
 
 | Workflow | What it proves |
 |---|---|
@@ -393,7 +395,7 @@ in the gotchas, #92 onward.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 107 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 109 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

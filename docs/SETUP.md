@@ -342,7 +342,9 @@ measured constraint, not a guess.
 > **That kernel is Docker Desktop's, not the Mac's — and it moved (2026-09-14).** The `6.6.12` above is
 > what Docker Desktop **4.27.2** (February 2024, the version on the 2019 Intel MacBook) shipped. Docker
 > Desktop 4.89.0 (August 2026) ships Linux kernel **v7.0.12** ([release notes](https://docs.docker.com/desktop/release-notes/)),
-> on Intel and on Apple silicon alike, so the netkit floor is a Desktop version, not a CPU. What stays
+> on Intel and on Apple silicon alike. **Measured on the M5 (2026-09-15, Desktop 4.91.0): that kernel is built without
+> `CONFIG_NETKIT`** (`/proc/config.gz`: `# CONFIG_NETKIT is not set`; `ip link add … type netkit` refused), so netkit
+> is unavailable on every Docker Desktop kernel read so far, above the version floor or not — gotcha #109. What stays
 > the same on ANY Mac, and on the runner: the bandwidth manager is off inside kind nodes, because the
 > sysctl it reads lives in the host's network namespace (gotcha #103); BIG TCP needs native routing and
 > the lab runs VXLAN (same gotcha). What is different on **Apple silicon**: the CPU is arm64 — the pinned

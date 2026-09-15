@@ -3,9 +3,11 @@
 Written 2026-09-15 for the operator's Apple M5 Pro (64 GB). Everything here is the toolchain this lab was built and
 verified with (`README.md` → *Versions*), the same scripts the CI job runs, the Docker Desktop settings that
 gotchas #103 and the runbook (`docs/DOCKER-DESKTOP-RUNBOOK.md`) were written for, and — because the same machine
-carries the other projects — Podman, Podman Desktop and CRC with their measured minimums (§2). Apple silicon changes two things
-against the Intel MacBook: Homebrew lives under `/opt/homebrew`, and Docker Desktop's default virtual machine is
-Docker VMM, on which the host route to the LB blocks (Step 3.5) is unmeasured — the preflight tells.
+carries the other projects — Podman, Podman Desktop and CRC with their measured minimums (§2). Apple silicon changes one thing
+against the Intel MacBook: Homebrew lives under `/opt/homebrew`. The rest was measured on the M5 on 2026-09-15 and is in
+§3 and §4: Docker Desktop 4.91.0's engine there is `linux/virtualization-framework` (its backend log), the host route to
+the LB blocks works on it, and the per-host preparation is a script — `scripts/bootstrap/macos.sh` here,
+`scripts/bootstrap/ubuntu.sh` on the runner — that ends in the same preflight table on both.
 
 ## 1. Homebrew, then the tools
 
@@ -18,7 +20,7 @@ brew --version
 | Tool | Install | Version the lab pins or was verified with | Used by |
 |---|---|---|---|
 | git, gh | `brew install git gh` then `gh auth login` | any | the repo, the runs, the PRs (`gh run download`, `gh workflow run`) |
-| Docker Desktop | `brew install --cask docker-desktop` | ≥ 4.89.0 (kernel 7.0.12 — netkit needs ≥ 6.8); 4.91.0 on the Intel Mac | kind's provider: the clusters, `scripts/lab-images.sh` |
+| Docker Desktop | `brew install --cask docker-desktop` | 4.91.0 on both Macs (kernel `7.0.12-linuxkit`, built **without** `CONFIG_NETKIT` — gotcha #109; the lab is veth on every Mac) | kind's provider: the clusters, `scripts/lab-images.sh` |
 | kind | `brew install kind` | **0.33.0** (the node image is pinned by digest, `kindest/node:v1.36.4@sha256:099e…`, an index with `linux/arm64`) | `scripts/lab-up.sh` |
 | kubectl | `brew install kubernetes-cli` | 1.31+ (the clusters are 1.36.4; within skew) | everything |
 | helm | `brew install helm` | 3.14+ | Cilium, cert-manager, trust-manager, Kyverno, the stacks |
@@ -36,14 +38,21 @@ brew --version
 | CRC (OpenShift Local) | not in Homebrew — the guided installer from console.redhat.com/openshift/create/local, a Red Hat account, the pull secret from the same page | v2.63.0 (2026-08-18); 2.49.0 / OpenShift 4.18.2 on the Intel Mac | the dashboard project's cluster — §2 has its minimums |
 | oc | `crc oc-env` (the cluster's own) or `brew install openshift-cli` | 4.22.12 (brew); 4.13.6 on the Intel Mac | CRC |
 
-One line for the lab's tools:
+One line for the lab's tools — or let `scripts/bootstrap/macos.sh` (§3) install the lab's formulae and the Docker Desktop
+cask; the reviewers, `go` and the docs' linter are yours:
 
 ```bash
 brew install git gh kind kubernetes-cli helm cilium-cli hubble jq node go
 brew install --cask docker-desktop codex
 curl https://cursor.com/install -fsS | bash && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc   # Cursor's CLI, `agent`; its installer puts it in ~/.local/bin
+npm i -g markdownlint-cli2                                                                            # scripts/mdfmt and the .claude hook (missing on the M5 until 2026-09-15)
 kind version; cilium version --client; hubble version; helm version --short; kubectl version --client; agent --version
 ```
+
+What Homebrew gives against the pins the Action runs green with (`scripts/bootstrap/versions.env`), measured on the M5
+on 2026-09-15: kind, cilium-cli and hubble at the pins; kubectl 1.37.0 against 1.36.4 (within the client skew); **helm
+4.3.0 against 3.21.4** — brew's stable is Helm 4, the lab has only been measured on 3; `brew install helm@3` is the same
+major, keg-only. `macos.sh` prints this table every time; it is the first line to read if `lab-up.sh` misbehaves here.
 
 ## 2. Podman, Podman Desktop and CRC — for the other projects
 
@@ -109,57 +118,66 @@ kind talks to. The rules: `docker context show` prints `desktop-linux`;
 `DOCKER_HOST` is never exported (with it set, `docker context ls` moves the star to `default` at that endpoint — measured);
 `docker` is never aliased to podman, because then `docker -v` says `podman version` and kind stops seeing Docker.
 
-## 3. Docker Desktop — the settings before any cluster (SETUP Step 2, gotcha #103)
+## 3. Docker Desktop — the VM, from its settings file, by the bootstrap (SETUP Step 2, gotchas #103, #108)
 
-Launch Docker Desktop once from `/Applications` (it asks for your password to install its helpers, then migrates
-its settings file). Then quit it and set the VM from the file, because Docker Desktop reads the file at start and
-overwrites it while running (SETUP Step 2.4's rule). Docker's documentation names the file `settings-store.json`; the
-Intel Mac's 4.91.0, upgraded in place from 4.27.2, still writes `settings.json` (its mtime moves on every change) and has
-no `settings-store.json` — so read whichever exists, and change only what you read (the key names are what the file
-says, not what a guide remembers):
+Launch Docker Desktop once from `/Applications` (it asks for your password to install its helpers and writes its settings
+file). Then, with the repository cloned (§4), one script does the rest of this section and hands over to the preflight:
 
 ```bash
-f="$HOME/Library/Group Containers/group.com.docker/settings-store.json"; [ -f "$f" ] || f="$HOME/Library/Group Containers/group.com.docker/settings.json"
-python3 - "$f" <<'PY'
-import json, sys
-d = json.load(open(sys.argv[1]))
-for k in sorted(d):
-    if any(s in k.lower() for s in ("cpu", "memory", "kernelforudp", "vmtype", "virtualization", "swap", "disk", "autostart")): print(f"  {k:40} {d[k]!r}")
-PY
+scripts/bootstrap/macos.sh                                       # Homebrew's formulae, the VM's size and the UDP bridge, the preflight table
+LAB_VM_CPUS=8 LAB_VM_MEMORY_MIB=16384 scripts/bootstrap/macos.sh # a smaller VM; LAB_VM_RESTART=0 reports and touches nothing
 ```
 
-The allocation for this machine — 64 GB is enough to run the full lab beside Podman: 10 CPUs and 24 GB (the CI
-lab used 12.5 GB with every stack and the petclinic up; the Intel Mac ran the seven-node lab on 16 GB):
+What it does, and why each step is the way it is — all of it measured on the M5 on 2026-09-15 (the script's header
+carries the same facts):
 
-```bash
-b="$f.before-$(date +%Y-%m-%d)"; cp -p "$f" "$b"
-python3 - "$f" <<'PY'
-import json, sys
-p = sys.argv[1]; d = json.load(open(p))
-before = {k: d.get(k) for k in ("cpus", "memoryMiB", "kernelForUDP")}
-d["cpus"] = 10; d["memoryMiB"] = 24576; d["kernelForUDP"] = True
-json.dump(d, open(p, "w"), indent=2); print(before, "->", {k: d[k] for k in before})
-PY
-diff <(python3 -m json.tool "$b") <(python3 -m json.tool "$f")      # the proof: only those lines changed
+- **The file and its spelling.** Docker Desktop reads its settings file at start and rewrites it while running (SETUP
+  Step 2.4), so the script quits Desktop before writing and relaunches it after — and refuses while any container runs,
+  because a quit stops them mid-flight. A Desktop installed fresh (4.91.0 on the M5) writes `settings-store.json` with
+  its Go field names, `Cpus`, `MemoryMiB`, `KernelForUDP`; one upgraded in place from 4.27.2 (the Intel Mac) still
+  writes the legacy `settings.json` in camelCase, `cpus`, `memoryMiB`, `kernelForUDP` (the runbook's diff). The store
+  writes **only non-default keys**, so on a fresh install the three are absent — an earlier version of this section
+  said "change only what you read" and then remembered the Intel spelling; gotcha #108 is that lesson. The script picks
+  the spelling by the file that exists.
+- **The allocation:** 10 CPUs and 24 GB on 64 GB — the CI lab used 12.5 GB with every stack and the petclinic up, the
+  Intel Mac ran the seven-node lab on 16 GB. Desktop's default is every core and 8 GB, and 8 GB fails the preflight
+  (`memory for the nodes 7 GiB REQUIRED-FAIL` — the M5's first table).
+- **`KernelForUDP`** is what puts the VM on a bridge the host can route to (Step 2.3b / 3.5: `open https://grafana.poc.local`
+  from this Mac). Measured on the M5: the VM got `eth1 192.168.64.2` **on a user-mode install with no vmnetd** (the
+  backend log: "vmnetd is not installed on this system", `RequireVmnetd: false`), so the privileged helper is not what
+  the route needs. Desktop's caveat on the switch: "may not be compatible with your VPN software".
+- **The proof is read from the VM, not the file:** `docker info` must answer the CPUs asked for and a MemTotal within
+  1.5 GiB of the setting (the kernel keeps some), and the keys must survive Desktop's own rewrite. The M5:
+
+```text
+written; the proof — only these lines differ from …/settings-store.json.before-2026-09-15T162750:
+>   "Cpus": 10,
+>   "MemoryMiB": 24576,
+>   "KernelForUDP": true
+the VM answers: CPUs=10 MemTotal=23994 MiB Kernel=7.0.12-linuxkit
+settings-store.json after the relaunch: Cpus=10 MemoryMiB=24576 KernelForUDP=true
+engine: linux/virtualization-framework
+  ok            memory for the nodes       23 GiB
+  ok            route to the LB blocks     the VM has eth1 192.168.64.2 on a host bridge
 ```
 
-`kernelForUDP` is what puts the VM on a bridge the host can route to (Step 2.3b / 3.5: `open https://grafana.poc.local`
-from this Mac). The virtual machine type (Docker VMM or the Apple Virtualization framework) is under Settings →
-General; the host route was measured only on the Virtualization framework. Launch Docker Desktop again, then:
-
-```bash
-docker info --format 'CPUs={{.NCPU}} Mem={{.MemTotal}} Kernel={{.KernelVersion}} Arch={{.Architecture}}'
-```
+The virtual machine type is under Settings → General; the M5's 4.91.0 runs `linux/virtualization-framework` (the
+backend log's "starting engine" line, which the script prints), the VMM the host route was measured on. Docker VMM
+remains unmeasured for the route. The kernel is `7.0.12-linuxkit` on both Macs and it is built without `CONFIG_NETKIT`
+(gotcha #109): the lab is veth here, as it is on every gated run.
 
 ## 4. The repository, the preflight, the lab
 
 ```bash
 git clone https://github.com/ephico2real2/cilium-implementation-poc.git ~/gitRepos/cilium-implementation-poc && cd ~/gitRepos/cilium-implementation-poc
-scripts/lab-preflight.sh          # the table: netkit on this kernel, Tetragon's symbol, the route to the LB blocks, IPv6, the node image's platform
+scripts/bootstrap/macos.sh        # §3; ends in the preflight table: netkit on this kernel, Tetragon's symbol, the route to the LB blocks, IPv6, the node image's platform
+scripts/lab-preflight.sh          # the table alone, any time — lab-up.sh runs it again, strictly
 ```
 
-Send the table before the bring-up: its netkit and route rows are the two things Apple silicon has not measured
-yet (enhancement 004, phase 4). Then the same path as the CI job, in order:
+Read the table before the bring-up. The two rows Apple silicon had never measured were measured on the M5 on
+2026-09-15 (enhancement 004, phase 4): **netkit `no`** — the kernel has no `CONFIG_NETKIT` (gotcha #109), which changes
+nothing for the lab; **route `ok`** — `eth1 192.168.64.2` on a host bridge once `KernelForUDP` is on (§3). Then the same
+path as the CI job, in order:
 
 ```bash
 LAB_TRUST_ROOT=1 scripts/lab-up.sh poc1 poc2     # the clusters, the mesh; the root into this Mac's keychain (a password prompt) and into every namespace (demo 36)

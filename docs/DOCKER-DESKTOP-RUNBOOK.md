@@ -226,10 +226,13 @@ python3 -c 'import json,glob; [print(f, {k:v for k,v in json.load(open(f)).items
 scripts/lab-preflight.sh                                                                 # the table: netkit, Tetragon's symbol, the host bridge, IPv6
 ```
 
-The preflight is the acceptance test: `netkit (kernel 7.0.x)` should read "≥ 6.8 and a netkit device
-was created", `route to the LB blocks` should name the VM's `eth1` address (kernelForUDP survived the
-migration), and `Tetragon base sensor` says whether demo 17 can run on this kernel. If `kernelForUDP`
-did not survive, Step 2.3b puts it back.
+The preflight is the acceptance test: `route to the LB blocks` should name the VM's `eth1` address (kernelForUDP
+survived the migration), and `Tetragon base sensor` says whether demo 17 can run on this kernel. If `kernelForUDP`
+did not survive, Step 2.3b puts it back. `netkit (kernel 7.0.12-linuxkit)` reads **no** on this kernel, and that is
+correct: 4.91.0's linuxkit kernel is built without `CONFIG_NETKIT` (measured on the M5, 2026-09-15 — gotcha #109);
+an earlier version of this paragraph expected "a netkit device was created" from the version alone. On a Desktop
+installed fresh the settings file is `settings-store.json` with PascalCase keys and the three the lab needs absent by
+default — `scripts/bootstrap/macos.sh` handles both files (gotcha #108).
 
 ## The numbers from this machine, for the record
 
