@@ -29,8 +29,16 @@ echo "== 4. an anonymous client is refused (GUIDE exercise 7): the agent image's
 k -n default delete pod anyone --ignore-not-found --wait=true >/dev/null 2>&1
 k -n default run anyone --image="quay.io/cilium/cilium:v${CILIUM_VERSION:-1.20.1}" --restart=Never --command -- sleep 300 >/dev/null 2>&1
 k -n default wait --for=condition=Ready pod/anyone --timeout=2m >/dev/null 2>&1 || echo "  (the anonymous pod did not become Ready)"
-printf '  %-28s %s\n' "TLS, no client certificate" "$(k -n default exec anyone -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 --tls --tls-allow-insecure 2>&1 | grep -oE 'certificate required|Connected Nodes: [0-9/]+|error.*' | head -1)"
-printf '  %-28s %s\n' "plaintext" "$(k -n default exec anyone -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 2>&1 | grep -oE 'Connected Nodes: [0-9/]+|error.*|failed.*' | head -1 | cut -c1-110)"
+# the refusal is the result: the relay's sentence is printed on its own, not the client's whole error line (run 34980519349's
+# report counted those "error" words as trouble; a refusal is what this part expects)
+a=$(k -n default exec anyone -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 --tls --tls-allow-insecure 2>&1 | tr '\n' ' ')
+case "$a" in *"certificate required"*) printf '  %-28s %s\n' "TLS, no client certificate" "refused — the relay answered: tls: certificate required";;
+  *"Connected Nodes"*) printf '  %-28s %s\n' "TLS, no client certificate" "ACCEPTED (the relay does not require client certificates): $(printf '%s' "$a" | grep -oE 'Connected Nodes: [0-9/]+')";;
+  *) printf '  %-28s %s\n' "TLS, no client certificate" "no verdict: $(printf '%s' "$a" | cut -c1-120)";; esac
+b=$(k -n default exec anyone -- hubble status --server hubble-relay.kube-system.svc.cluster.local:443 2>&1 | tr '\n' ' ')
+case "$b" in *"Connected Nodes"*) printf '  %-28s %s\n' "plaintext" "ACCEPTED in plaintext: $(printf '%s' "$b" | grep -oE 'Connected Nodes: [0-9/]+')";;
+  *"server preface"*|*"connection error"*) printf '  %-28s %s\n' "plaintext" "refused — no server preface in plaintext (the relay speaks TLS only)";;
+  *) printf '  %-28s %s\n' "plaintext" "no verdict: $(printf '%s' "$b" | cut -c1-120)";; esac
 k -n default delete pod anyone --wait=false >/dev/null 2>&1
 
 echo "== 5. what came through the mTLS stream: the observer's stdout and Loki, last 15 minutes"
