@@ -26,6 +26,8 @@
 #                                              in-cluster check runs from; the rig's node affinity dropped
 #   springboot springboot                 20    the petclinic: six Spring Boot services, their own spans     check.sh through the Gateway: owners,
 #                                              in Zipkin format to the collector; the memory measured        pets, vets, visits, a POST
+#   trust    trust                        36    a client that declares no mount and no flag, only the label  from the pod: https://bank.poc.local
+#                                              trust.poc.local/root=enterprise — Kyverno mounts the root     with no --cacert (SSL_CERT_FILE)
 #   rounds   every lab above              —     `rounds <minutes>`: every generator above, round after round — what a dashboard's rate windows need
 #   wait     —                            —     until Prometheus, Loki and Tempo (both clusters) hold what the dashboards read — or fail
 #   traffic  every lab above              —     `traffic <minutes>`: rounds, then wait
@@ -179,6 +181,14 @@ springboot() {
   petclinic_traffic
 }
 petclinic_traffic() { ROOT_CA="${ROOT_CA:-.tmp/root-ca.crt}" demos/20-springboot/check.sh 3 2>&1 | sed 's/^/  /' || true; }
+trust() {
+  say "demo 36 — trust/curl: a labelled client with no mount in its manifest; what admission added; a curl with no flag"
+  k get mutatingpolicy mount-enterprise-root >/dev/null 2>&1 || die "no MutatingPolicy mount-enterprise-root — scripts/lab-stack.sh kyverno first"
+  k apply -f demos/36-trust-everywhere/30-labelled-client.yaml >/dev/null
+  local _i; for _i in $(seq 1 15); do k -n trust get cm enterprise-root >/dev/null 2>&1 && break; sleep 2; done   # trust-manager fills a new namespace in seconds
+  ready trust
+  scripts/lab-trust.sh labelled-check "$CTX" trust curl "$(k -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}')" bank.poc.local
+}
 
 rounds() { # <minutes> — every generator, round after round: a dashboard's rate windows need minutes, not one burst
   local minutes="${1:-5}" end round=0; end=$(( $(date +%s) + minutes * 60 ))
@@ -232,14 +242,14 @@ wait_for_data() { # until Prometheus, Loki and Tempo hold what the dashboards re
 }
 traffic() { rounds "${1:-5}"; wait_for_data; }
 
-[ $# -ge 1 ] || { echo "usage: $0 all | lab26 lab27 lab30 lab32 lab35 app02 forensic bank dns springboot | rounds <minutes> | wait | traffic <minutes>"; exit 2; }
+[ $# -ge 1 ] || { echo "usage: $0 all | lab26 lab27 lab30 lab32 lab35 app02 forensic bank dns springboot trust | rounds <minutes> | wait | traffic <minutes>"; exit 2; }
 # LAB_APPS_SKIP=springboot (space-separated) leaves a lab out of `all` — the petclinic is the one that costs memory (demo 20's header)
 if [ "$1" = all ]; then
-  labs=(); for l in lab26 lab27 lab30 lab32 lab35 app02 forensic bank dns springboot; do case " ${LAB_APPS_SKIP:-} " in *" $l "*) ;; *) labs+=("$l");; esac; done; set -- "${labs[@]}"
+  labs=(); for l in lab26 lab27 lab30 lab32 lab35 app02 forensic bank dns springboot trust; do case " ${LAB_APPS_SKIP:-} " in *" $l "*) ;; *) labs+=("$l");; esac; done; set -- "${labs[@]}"
 fi
 while [ $# -gt 0 ]; do
   case "$1" in
-    lab26|lab27|lab30|lab32|lab35|app02|bank|dns|forensic|springboot) "$1"; shift;;
+    lab26|lab27|lab30|lab32|lab35|app02|bank|dns|forensic|springboot|trust) "$1"; shift;;
     rounds) rounds "${2:-5}"; shift 2;;
     wait) wait_for_data; shift;;
     traffic) traffic "${2:-5}"; shift 2;;

@@ -3,6 +3,9 @@
 # THIS host's trust store. The issuer and its Secret stay: they are demo 08's, and the mesh, the relay and the wildcard
 # are signed by them.
 set -uo pipefail; cd "$(dirname "$0")/../.."
+kubectl --context kind-poc1 delete -f demos/36-trust-everywhere/30-labelled-client.yaml --ignore-not-found --wait=false
+kubectl --context kind-poc1 delete -f demos/36-trust-everywhere/40-kyverno-mutatingpolicy.yaml --ignore-not-found
+helm uninstall kyverno -n kyverno --kube-context kind-poc1 2>/dev/null || true
 for c in kind-poc1 kind-poc2; do
   kubectl --context "$c" get nodes >/dev/null 2>&1 || continue
   kubectl --context "$c" delete bundle enterprise-root --ignore-not-found
@@ -12,4 +15,4 @@ case "$(uname -s)" in
   Linux)  sudo rm -f /usr/local/share/ca-certificates/cilium-lab-enterprise-root.crt && sudo update-ca-certificates 2>&1 | grep -E 'removed|done' ;;
   Darwin) [ -s .tmp/root-ca.crt ] && sudo security remove-trusted-cert -d .tmp/root-ca.crt && echo "removed from the System keychain" ;;
 esac
-echo "trust-manager and the Bundle removed; the host no longer trusts the root; demo 08's issuer untouched"
+echo "the labelled client, the policy and Kyverno gone from poc1; trust-manager and the Bundle removed; the host no longer trusts the root; demo 08's issuer untouched"

@@ -151,18 +151,18 @@ jobs:
           scripts/lab-images.sh poc1 poc2 2>&1 | tee images.log
 
       # The stacks, from the demos' own files, in dependency order (scripts/lab-stack.sh's table), on the meshed lab
-      - name: The observability stack — demos 09, 16, 21, 10/22/23, 25, 18, the CLI's certificate
+      - name: The observability stack — demos 09, 16, 21, 10/22/23, 25, 18, the CLI's certificate, demo 36's Kyverno
         run: |
           set -o pipefail
           steps="routes monitoring tempo collectors loki-observer"
           [ "${{ inputs.obi }}" = "true" ] && steps="$steps obi"
-          steps="$steps hubble-cli"
+          steps="$steps hubble-cli kyverno"
           scripts/lab-stack.sh $steps 2>&1 | tee stack.log
           echo "== what it costs with the stacks up"; free -m | head -2; docker stats --no-stream --format '  {{.Name}} {{.CPUPerc}} {{.MemUsage}}'
 
       # The sample applications of demos 26–35 with one round of their traffic, demo 11's forensic client (what demo 15's
       # in-cluster check runs from) and demo 20's petclinic (its memory measured) — so every dashboard has flows to show
-      - name: The labs of demos 26, 27, 30, 32, 35, the Star Wars app, the bank and the cell, the DNS-visibility policy, the forensic client, the petclinic
+      - name: The labs of demos 26, 27, 30, 32, 35, the Star Wars app, the bank and the cell, the DNS-visibility policy, the forensic client, the petclinic, the labelled client
         run: |
           set -o pipefail
           [ "${{ inputs.springboot }}" = "true" ] || export LAB_APPS_SKIP=springboot

@@ -20,6 +20,8 @@
 #   obi             demo 18     collectors; monitoring's PodMonitor CRD on poc1                         OpenTelemetry eBPF Instrumentation, both clusters
 #   hubble-cli      demo 25     cert-manager on poc1                                                    the operator certificate every demo script's
 #                               Part 5e                                                                 `hubble observe` presents (scripts/hubble-tls.sh)
+#   kyverno         demo 36     trust-manager's Bundle (lab-up.sh's root step)                          Kyverno v1.19.1 and the MutatingPolicy that mounts
+#                   Part 4                                                                             the root into every labelled pod, with SSL_CERT_FILE
 #
 # Route A only: the relay's mTLS client certificate (demo 25), the CLI's certificate and the Gateway's wildcard are
 # cert-manager Certificates from the enterprise root (demos 08 and 24). On route B (LAB_CERTMANAGER=0) the observer has
@@ -177,12 +179,18 @@ step_hubble_cli() {
   else echo "::warning::no hubble CLI on this host — the demo scripts that call it (26's verify.sh, 32's callers.sh) need it"; fi
 }
 
-[ $# -ge 1 ] || { echo "usage: $0 all | routes monitoring tempo collectors loki-observer obi hubble-cli"; exit 2; }
-[ "$1" = all ] && set -- routes monitoring tempo collectors loki-observer obi hubble-cli
+# ---------------------------------------------------------------- demo 36 Part 4 — Kyverno: the mount without asking
+step_kyverno() {
+  say "demo 36 — Kyverno on $C: MutatingPolicy mount-enterprise-root (the label trust.poc.local/root=enterprise → the root mounted, SSL_CERT_FILE set)"
+  scripts/lab-trust.sh kyverno "$CTX"
+}
+
+[ $# -ge 1 ] || { echo "usage: $0 all | routes monitoring tempo collectors loki-observer obi hubble-cli kyverno"; exit 2; }
+[ "$1" = all ] && set -- routes monitoring tempo collectors loki-observer obi hubble-cli kyverno
 for s in "$@"; do
   case "$s" in
     routes) step_routes;; monitoring) step_monitoring;; tempo) step_tempo;; collectors) step_collectors;;
-    loki-observer) step_loki_observer;; obi) step_obi;; hubble-cli) step_hubble_cli;;
+    loki-observer) step_loki_observer;; obi) step_obi;; hubble-cli) step_hubble_cli;; kyverno) step_kyverno;;
     *) die "unknown step $s";;
   esac
 done

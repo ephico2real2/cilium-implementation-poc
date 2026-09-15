@@ -2,7 +2,8 @@
 
 Run from the repo root with poc1 and poc2 up on route A (cert-manager's root: `scripts/lab-up.sh poc1 poc2`, or
 SETUP Step 9.3a) and demo 09's Gateway (`scripts/lab-stack.sh routes`). Exercise 0 reads; 1 writes to THIS host's
-trust store (a `sudo` prompt); 2 writes to both clusters; 3 needs demo 11's client pod; 4 is the CI job.
+trust store (a `sudo` prompt); 2 writes to both clusters; 3 needs demo 11's client pod; 4 installs Kyverno on poc1;
+5 is the CI job.
 
 ## Exercise 0 — read the chain before trusting anything
 
@@ -57,12 +58,36 @@ kubectl --context kind-poc1 -n forensic exec client -- sh -c 'SSL_CERT_FILE=/etc
 certificate cannot be authenticated — the image's bundle does not know this root, which is the point); and `200`
 with `SSL_CERT_FILE` set and no flag on the command.
 
-## Exercise 4 — the CI job
+## Exercise 4 — Kyverno: the mount without asking (writes: Kyverno on poc1, one policy, one pod)
+
+```bash
+scripts/lab-trust.sh kyverno kind-poc1                                          # Kyverno v1.19.1 (chart 3.9.1) + the MutatingPolicy
+kubectl --context kind-poc1 apply -f demos/36-trust-everywhere/30-labelled-client.yaml
+kubectl --context kind-poc1 -n trust wait --for=condition=Ready pod/curl --timeout=2m
+kubectl --context kind-poc1 -n trust get pod curl -o jsonpath='{.spec.volumes[*].name} | {.spec.containers[0].volumeMounts[*].mountPath} | {.spec.containers[0].env[*].name}{"\n"}'
+scripts/lab-trust.sh labelled-check kind-poc1 trust curl 172.18.255.240 bank.poc.local
+kubectl --context kind-poc1 -n trust get events --field-selector reason=PolicyApplied
+```
+
+*Expect:* the pod's spec carries `enterprise-root | /etc/enterprise-root | SSL_CERT_FILE` although
+`30-labelled-client.yaml` declares none of them; `curl https://bank.poc.local/` from inside with no flag: `http 200,
+ssl_verify_result 0`; a `PolicyApplied` event naming `mount-enterprise-root`. Remove the label from a copy of the
+pod and create it: nothing is added — the label is the contract.
+
+Offline first, the way the demo was built:
+
+```bash
+kyverno apply demos/36-trust-everywhere/40-kyverno-mutatingpolicy.yaml --resource <(kubectl create --dry-run=client -o yaml -f demos/36-trust-everywhere/30-labelled-client.yaml) -o /tmp/mutated
+grep -A3 -E 'volumes:|volumeMounts:|env:' /tmp/mutated/curl-mutated.yaml
+```
+
+## Exercise 5 — the CI job
 
 `.github/workflows/lab-observability.yaml` runs `scripts/lab-up.sh` with `LAB_TRUST_ROOT=1`, so the runner's OS
 store gets the root in the same step that copies it to poc2; it exports `ROOT_CA=/etc/ssl/certs/ca-certificates.crt`
-for every later check; `scripts/lab-stack.sh routes` proves the chain by name; the report carries this demo's
-`check.sh` (the chain, the host, both Bundles, the pod's two curls).
+for every later check; `scripts/lab-stack.sh routes` proves the chain by name; `scripts/lab-stack.sh kyverno` and
+`scripts/lab-apps.sh trust` do Exercise 4; the report carries this demo's `check.sh` (the chain, the host, both
+Bundles, the pod's two curls, the labelled pod).
 
 *Expect:* on the run page, `the OS store trusts the root`, `curl by name with no --cacert → http 404,
 ssl_verify_result 0`, `Bundle enterprise-root Synced=True; ConfigMap enterprise-root in N of N namespaces; distinct
@@ -74,4 +99,5 @@ fingerprints: 1` for both clusters, and the pod's `200` / `rc=60` pair.
 demos/36-trust-everywhere/cleanup.sh
 ```
 
-Removes the Bundle and trust-manager from both clusters and the root from this host's store; demo 08's issuer stays.
+Removes the labelled client, the MutatingPolicy and Kyverno from poc1, the Bundle and trust-manager from both
+clusters, and the root from this host's store; demo 08's issuer stays.

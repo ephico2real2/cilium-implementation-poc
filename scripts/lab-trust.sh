@@ -14,6 +14,11 @@
 #                                             ConfigMap (key ca.crt) in EVERY namespace, for pods to mount (demos/36-trust-everywhere/20-bundle.yaml)
 #   scripts/lab-trust.sh pod-check <ctx> <ns> <pod> [container] <gateway-ip> <host>
 #                                             from inside a pod with the bundle mounted: curl with the mounted root (200) and without (refused)
+#   scripts/lab-trust.sh kyverno <ctx>…       Kyverno (the version below) and the MutatingPolicy mount-enterprise-root: every pod labelled
+#                                             trust.poc.local/root=enterprise gets the ConfigMap mounted and SSL_CERT_FILE set in every
+#                                             container at admission — the mount without asking (demos/36-trust-everywhere/40-kyverno-mutatingpolicy.yaml)
+#   scripts/lab-trust.sh labelled-check <ctx> <ns> <pod> <gateway-ip> <host>
+#                                             a labelled pod declared without any mount: the mutation in its spec, then a curl with NO flag (SSL_CERT_FILE)
 #
 # The operator's rule (2026-09-15): the root is added to the MacBook's trust store and to the Ubuntu host in CI in the same
 # exercise that copies it between the clusters, and mounted into any pod that calls a Gateway URL — not carried as a
@@ -21,6 +26,7 @@
 set -euo pipefail; cd "$(dirname "$0")/.."
 CTX="${LAB_STACK_CTX:-kind-poc1}"; ROOT=.tmp/root-ca.crt; STORE_NAME=cilium-lab-enterprise-root
 TRUST_MANAGER_VERSION="${TRUST_MANAGER_VERSION:-v0.25.0}"   # jetstack/trust-manager; needs cert-manager for its own webhook certificate
+KYVERNO_CHART_VERSION="${KYVERNO_CHART_VERSION:-3.9.1}"      # kyverno/kyverno chart 3.9.1 = Kyverno v1.19.1 (released 2026-09-10, the latest on 2026-09-15)
 die() { echo "::error::$1" >&2; exit 1; }
 os() { uname -s; }
 
@@ -79,8 +85,32 @@ pod_check() { # <ctx> <ns> <pod> [container] <gateway-ip> <host> — inside a po
   case "$without" in *"rc=60"*|*"rc=77"*|*"rc=35"*) echo "  ✓ without the root the pod's curl is refused (curl exit ${without##*rc=}: the peer certificate cannot be authenticated) — the mount is what makes the call trusted";;
     *) die "without the root the pod's curl should have been refused, got '$without' — the image trusts something it should not";; esac
 }
+kyverno() { # <ctx>… — Kyverno and the MutatingPolicy on each cluster; ready when a policy object reports it
+  local ctx st _i; for ctx in "$@"; do
+    helm repo add kyverno https://kyverno.github.io/kyverno/ >/dev/null 2>&1 || true
+    helm upgrade --install kyverno kyverno/kyverno --version "$KYVERNO_CHART_VERSION" --namespace kyverno --create-namespace --kube-context "$ctx" --wait --timeout 5m >/dev/null
+    kubectl --context "$ctx" apply -f demos/36-trust-everywhere/40-kyverno-mutatingpolicy.yaml >/dev/null
+    # the policy's Ready condition (the CEL policy types report status.conditionStatus, the classic ones status.conditions)
+    for _i in $(seq 1 30); do
+      st=$(kubectl --context "$ctx" get mutatingpolicy mount-enterprise-root -o jsonpath='{.status.conditionStatus.ready}{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
+      case "$st" in *true*|*True*) break;; esac; sleep 2
+    done
+    echo "$ctx: Kyverno $(helm list -n kyverno --kube-context "$ctx" -o json | jq -r '.[0].app_version') (chart $KYVERNO_CHART_VERSION), MutatingPolicy mount-enterprise-root ready=${st:-unknown after 60 s}"
+  done
+}
+labelled_check() { # <ctx> <ns> <pod> <gateway-ip> <host> — what admission added, then the curl a process makes with no flag at all
+  local ctx="$1" ns="$2" pod="$3" gw="$4" host="$5" spec out
+  spec=$(kubectl --context "$ctx" -n "$ns" get pod "$pod" -o jsonpath='volumes={.spec.volumes[*].name} mounts={.spec.containers[*].volumeMounts[*].mountPath} env={.spec.containers[*].env[*].name}')
+  echo "  $ns/$pod as admitted: $spec"
+  case "$spec" in *enterprise-root*/etc/enterprise-root*SSL_CERT_FILE*) echo "  ✓ the mutation is in the spec: the volume, the mount, SSL_CERT_FILE — the manifest declared none of them";;
+    *) die "the labelled pod was not mutated (is Kyverno's policy ready? scripts/lab-trust.sh kyverno $ctx)";; esac
+  out=$(kubectl --context "$ctx" -n "$ns" exec "$pod" -- sh -c "curl -s -o /dev/null -m 8 --resolve $host:443:$gw -w '%{http_code} %{ssl_verify_result}' https://$host/ 2>/dev/null; echo \" rc=\$?\"" 2>/dev/null | tr -d '\n')
+  echo "  curl https://$host/ from the pod, no --cacert, no flag: http ${out%% *}, ssl_verify_result $(echo "$out" | awk '{print $2}'), ${out##* }"
+  case "$out" in 200\ 0*|301\ 0*|302\ 0*) echo "  ✓ verified through SSL_CERT_FILE alone";; *) die "the labelled pod's flagless curl did not verify ($out)";; esac
+  kubectl --context "$ctx" -n "$ns" get events --field-selector involvedObject.name="$pod",reason=PolicyApplied -o jsonpath='{range .items[*]}  event: {.reason} — {.message}{"\n"}{end}' 2>/dev/null | head -2 || true
+}
 
-[ $# -ge 1 ] || { sed -n 2,22p "$0"; exit 2; }
+[ $# -ge 1 ] || { sed -n 2,27p "$0"; exit 2; }
 cmd="$1"; shift
 case "$cmd" in
   export) export_root "$@";;
@@ -89,5 +119,7 @@ case "$cmd" in
   prove) prove "$@";;
   bundle) bundle "$@";;
   pod-check) pod_check "$@";;
+  kyverno) kyverno "$@";;
+  labelled-check) labelled_check "$@";;
   *) die "unknown command $cmd";;
 esac

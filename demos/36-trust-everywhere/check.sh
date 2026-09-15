@@ -34,3 +34,9 @@ if k -n forensic get pod client >/dev/null 2>&1 && [ -n "$GW" ]; then
   echo "  mounted: $(k -n forensic exec client -- sh -c 'ls -l /etc/enterprise-root/ 2>/dev/null | tail -1; openssl x509 -in /etc/enterprise-root/ca.crt -noout -subject 2>/dev/null' 2>/dev/null | tr '\n' ' ')"
   for host in bank.poc.local grafana.poc.local; do scripts/lab-trust.sh pod-check "$CTX" forensic client "$GW" "$host" 2>&1 || true; done
 else echo "  no forensic/client pod (scripts/lab-apps.sh forensic) or no Gateway address — the pod part not measured"; fi
+
+echo; echo "== 5. the mount without asking (Kyverno): a labelled pod that declared nothing, what admission added, a curl with no flag"
+if k get mutatingpolicy mount-enterprise-root >/dev/null 2>&1 && k -n trust get pod curl >/dev/null 2>&1 && [ -n "$GW" ]; then
+  echo "  Kyverno $(kubectl --context "$CTX" -n kyverno get deploy kyverno-admission-controller -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | sed 's/.*://'); MutatingPolicy mount-enterprise-root: $(k get mutatingpolicy mount-enterprise-root -o jsonpath='{.status.conditionStatus.ready}{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)"
+  scripts/lab-trust.sh labelled-check "$CTX" trust curl "$GW" bank.poc.local 2>&1 || true
+else echo "  no MutatingPolicy or no trust/curl pod (scripts/lab-stack.sh kyverno; scripts/lab-apps.sh trust) — the Kyverno part not measured"; fi

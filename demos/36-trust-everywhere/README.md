@@ -53,7 +53,35 @@ For a process that must not know about any of this, the mount plus one environme
 Demo 11's client pod (the rig's `client`, what demo 15's in-cluster check runs from) mounts the ConfigMap with
 `optional: true`, so the same file still schedules on a cluster without the Bundle (poc3, kindnet).
 
-## Part 3 — what the lab does with it
+## Part 3 — the mount without asking: Kyverno
+
+A mount and an environment variable in every manifest is still a thing to remember. The enterprise answer is a
+policy at admission: any pod that says, by one label, "I call the platform's HTTPS endpoints" gets the root
+mounted and `SSL_CERT_FILE` set in every container, and its manifest declares none of it. Kyverno v1.19.1 (chart
+3.9.1, the latest release on 2026-09-15, measured from the Helm repository and the GitHub releases) does it with a
+`MutatingPolicy` — the CEL policy type served at `policies.kyverno.io/v1`, the same language and shape as
+Kubernetes' own `MutatingAdmissionPolicy`:
+
+| Piece | What it says | File |
+|---|---|---|
+| `matchConstraints.resourceRules` | pods, on CREATE | `40-kyverno-mutatingpolicy.yaml` |
+| `matchConstraints.objectSelector` | the label `trust.poc.local/root: enterprise` — the whole contract | same |
+| `mutations[0]` | an **ApplyConfiguration**: the volume `enterprise-root` (the ConfigMap trust-manager keeps in the namespace), and for every container — `object.spec.containers.map(c, …)` — the mount at `/etc/enterprise-root` and `SSL_CERT_FILE=/etc/enterprise-root/ca.crt` | same |
+| `failurePolicy: Fail` | a labelled pod that cannot be mutated must not start unmounted, silently | same |
+| the client | a pod with the label and nothing else: no volume, no mount, no flag | `30-labelled-client.yaml` |
+
+An apply configuration is a server-side-apply merge: lists keyed by name, so a pod that already mounts something
+keeps it and gains the root. Measured offline with the Kyverno CLI 1.19.1 before any cluster saw it
+(`kyverno apply 40-kyverno-mutatingpolicy.yaml --resource <pod>`): the labelled pod gains the volume, the mount and
+the variable; a pod without the label is untouched; a pod with its own volume, mount and env keeps all three.
+
+Why the label and not a namespace-wide rule: the root is not a secret, but a mount is a contract — a container
+that verifies against a private root should say so where a reader looks (the manifest), and the label is one line.
+Why `SSL_CERT_FILE` and not only the mount: curl, Python's `ssl`, Go's `crypto/x509`, Node with
+`NODE_EXTRA_CA_CERTS` — every stack has an environment variable that takes a file, and this one is the OpenSSL
+family's; the demo's client uses curl with no flag at all.
+
+## Part 4 — what the lab does with it
 
 - `scripts/lab-trust.sh`: `export` (the certificate to `.tmp/root-ca.crt`), `install` / `verify` (this host),
   `prove <gateway-ip>` (the curl by name), `bundle <ctx>…` (trust-manager + the Bundle), `pod-check` (from inside a
@@ -63,7 +91,10 @@ Demo 11's client pod (the rig's `client`, what demo 15's in-cluster check runs f
 - `scripts/lab-stack.sh routes`: prints the wildcard's chain and, when the host trusts the root, proves it by name.
 - the CI job exports `ROOT_CA=/etc/ssl/certs/ca-certificates.crt` after the bring-up: every demo check that reads
   `ROOT_CA` verifies against the OS bundle from then on.
-- `check.sh` is the report's section for this demo: the chain, the host, both clusters' Bundles, the pod.
+- `scripts/lab-stack.sh kyverno`: Kyverno and the MutatingPolicy on poc1; `scripts/lab-apps.sh trust`: the labelled
+  client, what admission added to its spec, its flagless curl to `https://bank.poc.local/`.
+- `check.sh` is the report's section for this demo: the chain, the host, both clusters' Bundles, the pod with the
+  explicit mount, the labelled pod.
 
 ## Gotchas met here
 
@@ -73,6 +104,9 @@ Demo 11's client pod (the rig's `client`, what demo 15's in-cluster check runs f
   `ignoreHTTPSErrors` — the browser's trust is a separate exercise (`certutil -d sql:$HOME/.pki/nssdb`).
 - The trust namespace must exist before trust-manager is installed (it does: cert-manager's), and the Bundle's
   secret source must live there.
+- Kyverno's `MutatingPolicy` is the CEL type; the classic `ClusterPolicy` with `patchStrategicMerge` and the
+  `(name): "*"` anchor does the same job and is what most examples still show. Test a mutation offline with the CLI
+  (`kyverno apply … --resource …`) before it gates admission with `failurePolicy: Fail`.
 
 ## Evidence
 

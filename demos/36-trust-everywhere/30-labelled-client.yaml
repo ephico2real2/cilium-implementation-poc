@@ -1,0 +1,20 @@
+# Demo 36 Part 4 — a client that declares NOTHING about certificates: no volume, no mount, no flag. The label is the
+# whole contract; Kyverno's MutatingPolicy (40-kyverno-mutatingpolicy.yaml) adds the mount and SSL_CERT_FILE at
+# admission, and trust-manager's ConfigMap is already in the namespace when the pod lands.
+#   kubectl --context kind-poc1 apply -f demos/36-trust-everywhere/30-labelled-client.yaml
+#   kubectl --context kind-poc1 -n trust get pod curl -o jsonpath='{.spec.volumes[*].name} {.spec.containers[0].env[*].name}{"\n"}'
+apiVersion: v1
+kind: Namespace
+metadata: {name: trust}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: curl
+  namespace: trust
+  labels: {app: curl, trust.poc.local/root: enterprise}
+spec:
+  containers:
+    - name: curl
+      image: curlimages/curl:8.14.1
+      command: ["sleep", "infinity"]
