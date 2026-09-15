@@ -72,16 +72,20 @@ step_routes() {
   export_root; [ "${LAB_TRUST_ROOT:-0}" = 1 ] && trust_root "$a"
   return 0
 }
-export_root() { # this lab's root (the file in docs/ is the laptop's) — what every check's curl verifies the wildcard against
+export_root() { # the CA that SIGNS the Gateway's certificate: cert-manager's ClusterIssuer/ca-issuer signs with the Secret
+  # clustermesh-root-ca (demo 08's self-signed root — named for the mesh it was made for, and since then the one enterprise
+  # root behind the mesh's certificates on route A, the relay's and the CLI's mTLS certificates, and demo 09's wildcard).
+  # The mesh's own leaf certificates are not what a client verifies against; the root is. (The file in docs/ is the laptop's.)
   mkdir -p .tmp; k -n cert-manager get secret clustermesh-root-ca -o jsonpath='{.data.tls\.crt}' | base64 -d > .tmp/root-ca.crt
-  echo "root CA exported to .tmp/root-ca.crt ($(openssl x509 -in .tmp/root-ca.crt -noout -subject -fingerprint -sha256 | tr '\n' ' ' | cut -c1-140))"
+  echo "the issuer's root exported to .tmp/root-ca.crt ($(openssl x509 -in .tmp/root-ca.crt -noout -subject -fingerprint -sha256 | tr '\n' ' ' | cut -c1-140))"
+  echo "  it signed: $(k -n routes get secret wildcard-poc-local-tls -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d | openssl x509 -noout -issuer -subject 2>/dev/null | tr '\n' ' ')"
 }
 trust_root() { # <gateway address> — the root into the OS trust store, then a curl by name with NO --cacert as the proof
   local gw="$1" v
   case "$(uname -s)" in
     Linux)
       [ -d /usr/local/share/ca-certificates ] || die "no /usr/local/share/ca-certificates — not a Debian/Ubuntu trust store; add the root your OS's way"
-      sudo install -m 0644 .tmp/root-ca.crt /usr/local/share/ca-certificates/cilium-lab-root.crt
+      sudo install -m 0644 .tmp/root-ca.crt /usr/local/share/ca-certificates/cilium-lab-enterprise-root.crt
       sudo update-ca-certificates 2>&1 | grep -E 'added|removed|done' | sed 's/^/  /' ;;
     Darwin)
       sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain .tmp/root-ca.crt ;;   # demo 09's command; a password prompt
