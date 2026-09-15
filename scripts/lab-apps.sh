@@ -143,12 +143,15 @@ forensic() {
   # the rig pins its pods to <cluster>-worker2 (a node the CI clusters do not have: clusters/ci/poc1.yaml is one control
   # plane and one worker), so the Namespace and the client Pod are taken from the rig's file with the affinity removed —
   # the file stays the source (its image, its name), the lab states the one deviation
-  # kubectl prints one JSON object per document here, not a List: slurped into one (gotcha #106)
-  k create --dry-run=client -o json -f demos/11-kube-proxy-vs-cilium/00-rig.yaml \
-    | jq -s '{apiVersion: "v1", kind: "List", items: map(select(.kind == "Namespace" or (.kind == "Pod" and .metadata.name == "client")) | del(.spec.affinity))}' \
-    | k apply -f - >/dev/null
+  # kubectl prints one JSON object per document here, not a List: slurped into one (gotcha #106). The namespace first, then
+  # the pod once trust-manager has written the enterprise-root ConfigMap into it (demo 36) — the rig's client mounts it
+  local rig; rig=$(k create --dry-run=client -o json -f demos/11-kube-proxy-vs-cilium/00-rig.yaml | jq -s '{apiVersion: "v1", kind: "List", items: map(select(.kind == "Namespace" or (.kind == "Pod" and .metadata.name == "client")) | del(.spec.affinity))}')
+  printf '%s' "$rig" | jq '.items |= map(select(.kind == "Namespace"))' | k apply -f - >/dev/null
+  local _i; for _i in $(seq 1 15); do k -n forensic get cm enterprise-root >/dev/null 2>&1 && break; sleep 2; done
+  k -n forensic get cm enterprise-root >/dev/null 2>&1 || echo "  (no enterprise-root ConfigMap in forensic after 30 s — demo 36's Bundle not synced; the mount stays empty)"
+  printf '%s' "$rig" | jq '.items |= map(select(.kind == "Pod"))' | k apply -f - >/dev/null
   k -n forensic wait --for=condition=Ready pod/client --timeout=3m >/dev/null || { k -n forensic get pod client; die "forensic/client did not become Ready"; }
-  echo "  forensic/client Ready on $(k -n forensic get pod client -o jsonpath='{.spec.nodeName}'): $(k -n forensic exec client -- sh -c 'curl --version | head -1; jq --version' 2>/dev/null | tr '\n' ' ')"
+  echo "  forensic/client Ready on $(k -n forensic get pod client -o jsonpath='{.spec.nodeName}'): $(k -n forensic exec client -- sh -c 'curl --version | head -1; jq --version; ls /etc/enterprise-root/' 2>/dev/null | tr '\n' ' ')"
 }
 springboot() {
   say "demo 20 — the petclinic in springboot: six Spring Boot services (the collector's zipkin receiver takes their spans), the route, the memory"

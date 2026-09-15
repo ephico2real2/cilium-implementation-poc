@@ -25,12 +25,11 @@
 # cert-manager Certificates from the enterprise root (demos 08 and 24). On route B (LAB_CERTMANAGER=0) the observer has
 # no client certificate to present, and this script says so and stops.
 #
-# The root: `routes` exports this lab's enterprise root (the ClusterMesh section's clustermesh-root-ca, demo 08) to
-# .tmp/root-ca.crt, and with LAB_TRUST_ROOT=1 installs it in the host's trust store the way the OS does it — Ubuntu:
-# /usr/local/share/ca-certificates + update-ca-certificates; macOS: security add-trusted-cert (a password prompt, so
-# run it in a terminal) — then proves it with a curl by name WITHOUT --cacert. The demos' scripts read ROOT_CA; on a
-# host that trusts the root, ROOT_CA is the OS bundle (/etc/ssl/certs/ca-certificates.crt on Ubuntu) — the operator's
-# rule (2026-09-15): the root goes into the OS trust store, not into every script's flags.
+# The root (demo 36): lab-up.sh's root step put the ClusterIssuer's CA (clustermesh-root-ca, demo 08) into every
+# namespace as a ConfigMap (trust-manager) and, with LAB_TRUST_ROOT=1, into the host's trust store; `routes` proves the
+# host part end to end once the wildcard exists — a curl by name with NO --cacert (scripts/lab-trust.sh prove). The
+# demos' scripts read ROOT_CA; on a host that trusts the root, ROOT_CA is the OS bundle (/etc/ssl/certs/ca-certificates.crt
+# on Ubuntu) — the operator's rule (2026-09-15): the root goes into the trust stores, not into every script's flags.
 set -euo pipefail; cd "$(dirname "$0")/.."
 CTX="${LAB_STACK_CTX:-kind-poc1}"; C="${CTX#kind-}"; PEER_CTX="${LAB_STACK_PEER_CTX:-kind-poc2}"
 KPS_VERSION="${KPS_VERSION:-90.1.1}"        # demo 16: kube-prometheus-stack (operator v0.93.1)
@@ -69,33 +68,12 @@ step_routes() {
   local _i a=""; for _i in $(seq 1 30); do a=$(k -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}' 2>/dev/null); [ -n "$a" ] && break; sleep 4; done
   [ "$a" = "172.18.255.240" ] || die "routes-gw got '${a:-no address}', the demo pins 172.18.255.240 (gotcha #13; is the pool applied?)"
   echo "routes-gw $a, certificate wildcard-poc-local-tls Ready"
-  export_root; [ "${LAB_TRUST_ROOT:-0}" = 1 ] && trust_root "$a"
-  return 0
-}
-export_root() { # the CA that SIGNS the Gateway's certificate: cert-manager's ClusterIssuer/ca-issuer signs with the Secret
-  # clustermesh-root-ca (demo 08's self-signed root — named for the mesh it was made for, and since then the one enterprise
-  # root behind the mesh's certificates on route A, the relay's and the CLI's mTLS certificates, and demo 09's wildcard).
-  # The mesh's own leaf certificates are not what a client verifies against; the root is. (The file in docs/ is the laptop's.)
-  mkdir -p .tmp; k -n cert-manager get secret clustermesh-root-ca -o jsonpath='{.data.tls\.crt}' | base64 -d > .tmp/root-ca.crt
-  echo "the issuer's root exported to .tmp/root-ca.crt ($(openssl x509 -in .tmp/root-ca.crt -noout -subject -fingerprint -sha256 | tr '\n' ' ' | cut -c1-140))"
-  echo "  it signed: $(k -n routes get secret wildcard-poc-local-tls -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d | openssl x509 -noout -issuer -subject 2>/dev/null | tr '\n' ' ')"
-}
-trust_root() { # <gateway address> — the root into the OS trust store, then a curl by name with NO --cacert as the proof
-  local gw="$1" v
-  case "$(uname -s)" in
-    Linux)
-      [ -d /usr/local/share/ca-certificates ] || die "no /usr/local/share/ca-certificates — not a Debian/Ubuntu trust store; add the root your OS's way"
-      sudo install -m 0644 .tmp/root-ca.crt /usr/local/share/ca-certificates/cilium-lab-enterprise-root.crt
-      sudo update-ca-certificates 2>&1 | grep -E 'added|removed|done' | sed 's/^/  /' ;;
-    Darwin)
-      sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain .tmp/root-ca.crt ;;   # demo 09's command; a password prompt
-    *) die "LAB_TRUST_ROOT=1 on $(uname -s): no trust-store recipe here" ;;
-  esac
-  # the proof: the wildcard listener answers any *.poc.local name (a 404 from Envoy for one without a route) and curl's
-  # own verdict on the chain, ssl_verify_result, must be 0 — with no --cacert, the OS store is what verified it
-  v=$(curl -s -o /dev/null --resolve "trust-check.poc.local:443:$gw" -w '%{http_code} %{ssl_verify_result}' https://trust-check.poc.local/ || true)
-  [ "${v#* }" = 0 ] || die "the OS trust store does not verify the Gateway's certificate (curl: '${v:-no answer}')"
-  echo "  the OS trust store verifies the wildcard certificate: curl by name without --cacert → http ${v%% *}, ssl_verify_result ${v#* }"
+  # demo 36's proof on the host: the chain the OS store verifies, by name, with no --cacert — when the host trusts the
+  # root (lab-up.sh with LAB_TRUST_ROOT=1, or scripts/lab-trust.sh install); otherwise the checks carry ROOT_CA
+  [ -s .tmp/root-ca.crt ] || scripts/lab-trust.sh export "$CTX"
+  echo "  the wildcard's chain: $(k -n routes get secret wildcard-poc-local-tls -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -issuer -subject | tr '\n' ' ')"
+  if scripts/lab-trust.sh verify "$CTX" >/dev/null 2>&1; then scripts/lab-trust.sh prove "$a"
+  else echo "  the host does not trust the root (scripts/lab-trust.sh install); the checks use ROOT_CA=${ROOT_CA:-.tmp/root-ca.crt}"; fi
 }
 
 # ---------------------------------------------------------------- demo 16 — kube-prometheus-stack, the Cilium and Hubble metrics, the dashboards
@@ -171,7 +149,7 @@ step_loki_observer() {
     monitoring hubble-observer-flows hubble-observer-23862 Hubble | k apply -f - >/dev/null
   local _i acc; for _i in $(seq 1 24); do acc=$(k -n routes get httproute cf2cnp -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null || true); [ "$acc" = True ] && break; sleep 5; done
   echo "observer: $(k -n hubble-observer get deploy hubble-observer -o jsonpath='{.status.readyReplicas}')/1 ready; cf2cnp route: $(k -n routes get httproute cf2cnp -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null); Loki: $(k -n monitoring get sts loki -o jsonpath='{.status.readyReplicas}')/1"
-  [ -s .tmp/root-ca.crt ] || export_root   # this lab's root, for the check's curl (routes exports it; the file in docs/ is the laptop's)
+  [ -s .tmp/root-ca.crt ] || scripts/lab-trust.sh export "$CTX"   # this lab's root, for the check's curl (the file in docs/ is the laptop's)
   echo "the demo's own check (demos/25-hubble-observer-loki/check.sh 1):"
   ROOT_CA="${ROOT_CA:-.tmp/root-ca.crt}" demos/25-hubble-observer-loki/check.sh 1 2>&1 | sed 's/^/  /' | head -40 || true
 }

@@ -1,0 +1,19 @@
+# Demo 36 — the enterprise root as a ConfigMap in EVERY namespace, for pods to mount: trust-manager's Bundle reads the
+# CERTIFICATE (tls.crt) of the issuer's Secret in the trust namespace (cert-manager) and writes ConfigMap enterprise-root
+# with key ca.crt into every namespace, including the ones created later — which a hand copy would miss. The private
+# key never leaves the Secret: a Bundle source names one key of it. The same object in every cluster of the mesh
+# (the root was copied to each cluster's cert-manager in the mesh exercise, SETUP 9.3a / demo 08 Part 3).
+#   scripts/lab-trust.sh bundle kind-poc1 kind-poc2      # trust-manager, then this
+#   kubectl --context kind-poc1 get bundle enterprise-root; kubectl --context kind-poc1 get cm -A --field-selector metadata.name=enterprise-root
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: enterprise-root
+spec:
+  sources:
+    - secret:
+        name: clustermesh-root-ca   # the ClusterIssuer/ca-issuer's CA (demo 08): what signed the wildcard, the mesh, the relay
+        key: tls.crt                # the certificate only
+  target:
+    configMap:
+      key: ca.crt                   # → /etc/enterprise-root/ca.crt in a pod that mounts the ConfigMap

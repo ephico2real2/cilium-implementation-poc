@@ -65,10 +65,18 @@ kind: Pod
 metadata: {name: client, namespace: forensic}
 spec:
   affinity: {nodeAffinity: {requiredDuringSchedulingIgnoredDuringExecution: {nodeSelectorTerms: [{matchExpressions: [{key: kubernetes.io/hostname, operator: In, values: [poc1-worker2, poc3-worker2, poc4-worker2]}]}]}}}
+  # demo 36: the enterprise root, as trust-manager writes it into every namespace (ConfigMap enterprise-root/ca.crt), so a
+  # curl from this pod to any Gateway URL verifies the wildcard: `curl --cacert /etc/enterprise-root/ca.crt …`, or
+  # SSL_CERT_FILE=/etc/enterprise-root/ca.crt for a process that must not know. optional: poc3 (kindnet) has no bundle.
+  volumes:
+    - name: enterprise-root
+      configMap: {name: enterprise-root, optional: true}
   containers:
     - name: client
       image: nicolaka/netshoot:v0.14
       command: ["sleep", "infinity"]
+      volumeMounts:
+        - {name: enterprise-root, mountPath: /etc/enterprise-root, readOnly: true}
 ---
 apiVersion: v1
 kind: Pod

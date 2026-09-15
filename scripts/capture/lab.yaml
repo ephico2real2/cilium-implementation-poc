@@ -142,8 +142,11 @@ pages:
       - {fill: ["input[placeholder*='Filter namespaces']", bank]}
       - {wait: 800}
       - {click: bank}
-      - {wait: 12000}
-    expect: {text: [bank, api, payments, poc2]}   # poc2: the mesh — accounts answers from the other cluster
+      - {wait: 20000}
+    # poc2: the mesh — accounts answers from the other cluster. Not api/payments: they get requests only when a traffic
+    # round runs exercise.sh, and the map is what the relay streamed while the walker watched (run 34930321170: accounts,
+    # postgres and poc2 in the window, api not yet)
+    expect: {text: [bank, accounts, poc2]}
   - name: hubble-ui-shop-core
     evidence: text
     settle: false

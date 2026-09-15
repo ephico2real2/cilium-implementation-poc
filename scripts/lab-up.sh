@@ -231,6 +231,14 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "k
     fi
     kubectl --context "$ctx" wait clusterissuer/ca-issuer --for=condition=Ready --timeout=2m >/dev/null
     echo "root CA $(kubectl --context "$ctx" -n cert-manager get secret clustermesh-root-ca -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2 | cut -c1-23)… issuer Ready"
+    # demo 36 — the same root, everywhere, in the exercise that copies it: trust-manager's Bundle puts its certificate in
+    # every namespace of this cluster for pods to mount; on the first cluster the host gets it too (LAB_TRUST_ROOT=1: the
+    # OS trust store — Ubuntu's update-ca-certificates on the runner, the System keychain on a Mac — then verified)
+    scripts/lab-trust.sh bundle "$ctx"
+    if [ "$c" = "$first" ]; then
+      scripts/lab-trust.sh export "$ctx"
+      if [ "${LAB_TRUST_ROOT:-0}" = 1 ]; then scripts/lab-trust.sh install "$ctx"; else echo "  the host's trust store untouched (LAB_TRUST_ROOT=1 to add the root; the checks use ROOT_CA=.tmp/root-ca.crt)"; fi
+    fi
   fi
 
   # ---------------------------------------------------------------- Hubble (SETUP 5.4, demos 01/24/25) and the mesh apiserver (demo 24), on what now exists

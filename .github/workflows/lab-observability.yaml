@@ -94,6 +94,9 @@ jobs:
           # route A: the stack's certificates (the relay's mTLS client, the CLI's, the Gateway's wildcard) are cert-manager's
           scripts/lab-up.sh poc1 poc2 2>&1 | tee lab-up.log
           echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+          # demo 36: lab-up.sh (LAB_TRUST_ROOT=1) put the lab's root into the runner's OS trust store; from here every check's
+          # curl verifies against the OS bundle, not a file each script carries — the demos' scripts read ROOT_CA
+          echo "ROOT_CA=/etc/ssl/certs/ca-certificates.crt" >> "$GITHUB_ENV"
 
       - name: What it cost
         run: |
@@ -155,9 +158,6 @@ jobs:
           [ "${{ inputs.obi }}" = "true" ] && steps="$steps obi"
           steps="$steps hubble-cli"
           scripts/lab-stack.sh $steps 2>&1 | tee stack.log
-          # from here every check's curl verifies against the OS bundle, which now holds the lab's root (the operator's rule:
-          # the root goes into the OS trust store, not into every script's flags) — the demos' scripts read ROOT_CA
-          echo "ROOT_CA=/etc/ssl/certs/ca-certificates.crt" >> "$GITHUB_ENV"
           echo "== what it costs with the stacks up"; free -m | head -2; docker stats --no-stream --format '  {{.Name}} {{.CPUPerc}} {{.MemUsage}}'
 
       # The sample applications of demos 26–35 with one round of their traffic, demo 11's forensic client (what demo 15's
@@ -196,7 +196,7 @@ jobs:
 
       # The demos' own checks after the traffic, as ONE report on the run page (above the captures) and in the artifact:
       # what was installed, what was exercised, what each chapter's check saw
-      - name: The report — the demos' checks (16, 25, 18, 23, 15, 20, 19, the generated policies, 26, 30, 35), on the run page
+      - name: The report — the demos' checks (16, 25, 18, 23, 36, 15, 20, 19, the generated policies, 26, 30, 35), on the run page
         run: |
           mkdir -p captures
           TRAFFIC_MINUTES=${{ inputs.traffic_minutes }} scripts/lab-report.sh captures/report.md 2>&1 | tail -16

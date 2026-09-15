@@ -1532,6 +1532,18 @@ done
 The two fingerprints must be **identical**.
 
 ```bash
+# 4b. the same root, where the clients live (demo 36): this Mac's keychain (a password prompt), and every namespace
+#     of both clusters as a ConfigMap pods can mount (trust-manager's Bundle) — the Gateway's wildcard (Step 9.5b /
+#     demo 09), the mesh and the relay are all signed by this root, so a client verifies against it and nothing else
+scripts/lab-trust.sh install kind-poc1              # export .tmp/root-ca.crt, security add-trusted-cert, verify
+scripts/lab-trust.sh bundle kind-poc1 kind-poc2     # trust-manager + Bundle enterprise-root → ConfigMap enterprise-root/ca.crt everywhere
+```
+
+From here `curl https://grafana.poc.local/…` needs no `--cacert` on this Mac (demo 09's `docs/root-ca.crt` flag was
+this step done by hand, per script), and a pod mounts `configMap: enterprise-root` — demo 11's client does. The CI
+job does the Ubuntu equivalent (`update-ca-certificates`) with `LAB_TRUST_ROOT=1`.
+
+```bash
 # 5. point Cilium at the issuer, in BOTH clusters
 for ctx in kind-poc1 kind-poc2; do
   helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context "$ctx" --reuse-values \

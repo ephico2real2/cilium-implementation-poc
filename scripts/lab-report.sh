@@ -11,6 +11,9 @@
 #   25    demos/25-hubble-observer-loki/check.sh            observer → collector → Loki → Grafana → cf2cnp, sent_logs > 0 after the drops
 #   18    demos/18-obi/check.sh                             the requests OBI saw, with their trace ids, both clusters
 #   23    demos/23-collector-per-cluster/check.sh           the collector's local-only backends, its Tempo exporter counters, traces per cluster in Tempo
+#   36    demos/36-trust-everywhere/check.sh                one root everywhere: the chain (which CA signed the wildcard), the host's trust store and
+#                                                           a curl by name with no --cacert, trust-manager's Bundle in both clusters, a pod's curl
+#                                                           with the mounted root (answered) and without (refused)
 #   15    demos/15-bank/check.sh                            the bank ACROSS the mesh from inside (demo 11's forensic client): the merged service
 #                                                           maps, a payment's hops, active-active, two failovers, the page through the Gateway —
 #                                                           run by lab-apps.sh BEFORE demo 19's cell (the cell denies the forensic namespace),
@@ -30,8 +33,10 @@ k() { kubectl --context "$CTX" "$@"; }
 declare -a NAMES LINES FLAGS
 section() { # <name> <command…> — run (under the deadline), capture, append
   local name="$1"; shift; local out
-  if command -v timeout >/dev/null; then out=$(timeout "${SECTION_TIMEOUT:-10m}" "$@" 2>&1 | head -${SECTION_LINES:-80}) || true
-  else out=$("$@" 2>&1 | head -${SECTION_LINES:-80}) || true; fi
+  # `timeout` runs programs, not this shell's functions (run 34930321170: "failed to run command 'demo16'"): a function
+  # runs as it is — the two here are a handful of kubectl calls — and a script runs under the deadline
+  if declare -F "$1" >/dev/null 2>&1 || ! command -v timeout >/dev/null; then out=$("$@" 2>&1 | head -${SECTION_LINES:-80}) || true
+  else out=$(timeout "${SECTION_TIMEOUT:-10m}" "$@" 2>&1 | head -${SECTION_LINES:-80}) || true; fi
   # the words that mean trouble — `failed=0` and `fail=0` are counters at rest, not trouble (run 34918170151's table said 2 and 7)
   NAMES+=("$name"); LINES+=("$(printf '%s\n' "$out" | grep -c . )"); FLAGS+=("$(printf '%s\n' "$out" | grep -ciE '✗|error|not found|timed out|fail(ed|ure)?([^=a-z]|$)|fail(ed)?=[1-9]' || true)")
   { echo; echo "### $name"; echo; echo '```'; echo "\$ $*"; printf '%s\n' "$out"; echo '```'; } >> "$OUT.body"
@@ -57,6 +62,7 @@ section "demo 16 — Prometheus, the metric families the dashboards read" demo16
 section "demo 25 — the observer pipeline (demos/25-hubble-observer-loki/check.sh 1)" demos/25-hubble-observer-loki/check.sh 1
 section "demo 18 — OBI, the requests it saw with their trace ids (demos/18-obi/check.sh 20m)" demos/18-obi/check.sh 20m
 section "demo 23 — the collector per cluster and Tempo's traces per cluster (demos/23-collector-per-cluster/check.sh 20)" demos/23-collector-per-cluster/check.sh 20
+section "demo 36 — one root, everywhere: the chain, the host, both clusters' Bundles, a pod (demos/36-trust-everywhere/check.sh)" demos/36-trust-everywhere/check.sh
 if [ -s "${LAB_CHECKS_DIR:-captures/checks}/demo15-check.txt" ]; then SECTION_LINES=120 section "demo 15 — the bank across the mesh, from inside, with two failovers (demos/15-bank/check.sh, run before the cell by lab-apps.sh)" cat "${LAB_CHECKS_DIR:-captures/checks}/demo15-check.txt"
 else skipped "demo 15 — the bank across the mesh, from inside (demos/15-bank/check.sh)" "no saved output: the bank lab did not run with demo 11's forensic client (scripts/lab-apps.sh forensic bank)"; fi
 if k -n springboot get deploy api-gateway >/dev/null 2>&1; then section "demo 20 — the petclinic's API through the Gateway (demos/20-springboot/check.sh 5)" demos/20-springboot/check.sh 5
