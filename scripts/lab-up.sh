@@ -43,6 +43,14 @@ METRICS_SERVER_CHART="${METRICS_SERVER_CHART:-3.14.0}"  # metrics-server 0.9.0
 [ $# -ge 1 ] || { echo "usage: $0 poc1 [poc2 …]"; exit 2; }
 first="$1"; mesh=$([ $# -ge 2 ] && echo 1 || echo 0); certmanager="${LAB_CERTMANAGER:-1}"
 say() { printf '\n== %s  (%s)\n' "$1" "$(date +%H:%M:%S)"; }
+helm_r() { # helm, three tries: a chart repository's transient refusal (run 34988406087: `read: connection reset by peer` from
+  # charts.jetstack.io) is not the lab's failure; upgrade --install is idempotent, so a second try is safe
+  local i out; for i in 1 2 3; do
+    if out=$(helm "$@" 2>&1); then printf '%s\n' "$out"; return 0; fi
+    case "$out" in *"connection reset"*|*"TLS handshake timeout"*|*"i/o timeout"*|*"EOF"*|*"503"*|*"502"*) echo "  helm: transient ($(printf '%s' "$out" | tail -1 | cut -c1-90)) — try $((i+1)) of 3 in 15 s" >&2; sleep 15;;
+      *) printf '%s\n' "$out" >&2; return 1;; esac
+  done; printf '%s\n' "$out" >&2; return 1
+}
 die() { echo "::error::$1"; exit 1; }
 evidence() { # <ctx> — what to print when a Cilium layer fails
   kubectl --context "$1" -n kube-system get pods -o wide | grep -E 'cilium|hubble|clustermesh' || true
@@ -209,13 +217,13 @@ cluster_up() {
 
   # ---------------------------------------------------------------- metrics-server
   say "metrics-server $METRICS_SERVER_CHART on $c (kind's kubelets: --kubelet-insecure-tls)"
-  helm upgrade --install metrics-server metrics-server/metrics-server --version "$METRICS_SERVER_CHART" --namespace kube-system --kube-context "$ctx" \
+  helm_r upgrade --install metrics-server metrics-server/metrics-server --version "$METRICS_SERVER_CHART" --namespace kube-system --kube-context "$ctx" \
     --set 'args={--kubelet-insecure-tls}' --wait --timeout 5m >/dev/null
 
   # ---------------------------------------------------------------- SETUP Step 9.3a / demo 08 — cert-manager, the root once, the same issuer everywhere
   if [ "$certmanager" = "1" ]; then
     say "SETUP Step 9.3a / demo 08 — cert-manager $CERT_MANAGER_VERSION on $c$( [ "$c" = "$first" ] && echo ', the root' || echo ", the root copied from $first" ), ClusterIssuer/ca-issuer"
-    helm upgrade --install cert-manager jetstack/cert-manager --version "$CERT_MANAGER_VERSION" --namespace cert-manager --create-namespace \
+    helm_r upgrade --install cert-manager jetstack/cert-manager --version "$CERT_MANAGER_VERSION" --namespace cert-manager --create-namespace \
       --kube-context "$ctx" --set crds.enabled=true --wait --timeout 5m >/dev/null
     if [ "$c" = "$first" ]; then
       kubectl --context "$ctx" apply -f demos/08-certmanager-ca/01-root-ca-poc1.yaml >/dev/null
@@ -246,7 +254,7 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "k
   # the lab's values file carries relay, UI and metrics as the lab wants them (Step 5 had switched them off with the core)
   local snap; snap=$(agents_snapshot "$ctx")
   # shellcheck disable=SC2046
-  helm upgrade cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" --reuse-values \
+  helm_r upgrade cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" --reuse-values \
     -f "cilium/values-$c.yaml" --set hubble.enabled=true $( [ "$certmanager" = 1 ] && echo "-f cilium/values-ci-certmanager.yaml" ) --wait --timeout 10m >/dev/null \
     || { evidence "$ctx"; die "Helm could not enable Hubble on $c"; }
   [ "$certmanager" = 1 ] && kubectl --context "$ctx" -n kube-system wait certificate --all --for=condition=Ready --timeout=3m >/dev/null
@@ -269,7 +277,7 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "k
     if [ -r /proc/kallsyms ] && ! grep -q ' security_bprm_committing_creds$' /proc/kallsyms; then
       die "the kernel $(uname -r) has no security_bprm_committing_creds: Tetragon's base sensor cannot load (demo 17, blocker 1)"
     fi
-    helm upgrade --install tetragon cilium/tetragon --version "$TETRAGON_VERSION" --namespace kube-system --kube-context "$ctx" \
+    helm_r upgrade --install tetragon cilium/tetragon --version "$TETRAGON_VERSION" --namespace kube-system --kube-context "$ctx" \
       -f demos/17-tetragon/values-tetragon.yaml -f cilium/values-tetragon-ci.yaml --wait --timeout 5m >/dev/null
     kubectl --context "$ctx" -n kube-system rollout status ds/tetragon --timeout=5m >/dev/null || { kubectl --context "$ctx" -n kube-system logs ds/tetragon -c tetragon --tail=20; die "Tetragon's agents did not become ready on $c (demo 17)"; }
     kubectl --context "$ctx" -n kube-system exec ds/tetragon -c tetragon -- tetra status 2>/dev/null | head -3 || true
@@ -309,7 +317,7 @@ mesh_up() { # <cluster…> — SETUP Step 9.4 (demo 24's declarative form), then
   for c in "$@"; do
     snap=$(agents_snapshot "kind-$c")
     # shellcheck disable=SC2046
-    helm upgrade cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "kind-$c" --reuse-values \
+    helm_r upgrade cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "kind-$c" --reuse-values \
       -f "cilium/values-$c.yaml" $( [ "$certmanager" = 1 ] && echo "-f cilium/values-ci-certmanager.yaml" ) "${declared[@]}" --wait --timeout 10m >/dev/null \
       || { evidence "kind-$c"; die "Helm could not switch the mesh apiserver on in $c (SETUP Step 9.4)"; }
     [ "$certmanager" = 1 ] && kubectl --context "kind-$c" -n kube-system wait certificate --all --for=condition=Ready --timeout=3m >/dev/null
