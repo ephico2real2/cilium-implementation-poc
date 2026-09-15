@@ -107,6 +107,10 @@ step_collectors() {
     # stack, so the namespace exists there only for this Service (run 34888325967: "namespaces monitoring not found")
     kubectl --context "$PEER_CTX" create namespace monitoring --dry-run=client -o yaml | kubectl --context "$PEER_CTX" apply -f - >/dev/null
     kubectl --context "$PEER_CTX" apply -f demos/22-multicluster-observability/20-tempo-central-service.yaml >/dev/null
+    # demo 23's Service is per cluster: the SAME file in every cluster, no global annotation, so otel-collector.otel resolves
+    # to that cluster's own gateway (SETUP 23, the README's loop). Applied on the peer too — run 34918170151 had it on poc1
+    # only: `services "otel-collector" not found` on poc2, OBI there had nowhere to send, and Tempo held 0 traces from poc2
+    kubectl --context "$PEER_CTX" apply -f demos/23-collector-per-cluster/10-collector-service.yaml >/dev/null
     kubectl --context "$PEER_CTX" apply -f demos/23-collector-per-cluster/20-otel-collector-poc2.yaml >/dev/null
     kubectl --context "$PEER_CTX" -n otel rollout status deploy/otel-collector --timeout=5m >/dev/null   # demo 23: a Deployment, the cluster's gateway
     echo "$PEER_CTX: otel-collector up, exporting to tempo-central.monitoring (global, backends in $C)"
@@ -142,7 +146,9 @@ step_loki_observer() {
 # ---------------------------------------------------------------- demo 18 — OBI on both clusters
 step_obi() {
   say "demo 18 — OpenTelemetry eBPF Instrumentation on $C and $PEER_CTX"
-  k apply -f demos/18-obi/20-collector-service.yaml >/dev/null 2>&1 || true   # superseded by demo 23's per-cluster Service; apply keeps the namespace
+  # demo 18's own 20-collector-service.yaml (the global-annotated Service) is NOT applied: demo 23 superseded it with the
+  # per-cluster Service the collectors step applied in both clusters (gotcha #70), and applying 18's here put the global
+  # annotation back on poc1's Service (run 34918170151's report: `global=[true]` on poc1)
   demos/18-obi/deploy.sh "$C"
   if kubectl --context "$PEER_CTX" get nodes >/dev/null 2>&1; then demos/18-obi/deploy.sh "${PEER_CTX#kind-}"; fi
   demos/18-obi/check.sh 2>&1 | sed 's/^/  /' | head -20 || true

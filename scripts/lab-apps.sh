@@ -20,16 +20,22 @@
 #   bank     bank (both clusters)         15,   the bank: postgres + accounts + payments on poc2, redis +   exercise.sh through the Gateway; demo 19's
 #                                        19    payments + api + web on poc1, its routes; demo 19's cell     egress-test.sh: the DROPPED flows the
 #                                              (rendered policies) in both clusters                         observer, Loki and the verdict tiles show
-#   dns      cf2cnp-lab                   31    the chapter's generated DNS-visibility policy on pos, so    pos → example.com / cilium.io by name
-#                                              Hubble sees names (the DNS dashboard, toFQDNs later)
-#   traffic  every lab above              —     `traffic <minutes>`: every generator above, round after   what a dashboard needs: minutes of it
-#                                              round, then a wait until Prometheus and Loki hold it
+#   dns      cf2cnp-lab                   31    the chapter's recorded toFQDNs policy on pos, so Hubble     pos → example.com (443 allowed, 80 not),
+#                                              sees names (the DNS dashboard); chapter 31 regenerates it    cilium.io (not yet)
+#   forensic forensic                     11    the rig's client pod (netshoot: curl, jq) — what demo 15's  none: it is a tool for the checks
+#                                              in-cluster check runs from; the rig's node affinity dropped
+#   springboot springboot                 20    the petclinic: six Spring Boot services, their own spans     check.sh through the Gateway: owners,
+#                                              in Zipkin format to the collector; the memory measured        pets, vets, visits, a POST
+#   rounds   every lab above              —     `rounds <minutes>`: every generator above, round after round — what a dashboard's rate windows need
+#   wait     —                            —     until Prometheus, Loki and Tempo (both clusters) hold what the dashboards read — or fail
+#   traffic  every lab above              —     `traffic <minutes>`: rounds, then wait
 set -euo pipefail; cd "$(dirname "$0")/.."
 CTX="${LAB_STACK_CTX:-kind-poc1}"; PEER_CTX="${LAB_STACK_PEER_CTX:-kind-poc2}"
 say() { printf '\n== %s  (%s)\n' "$1" "$(date +%H:%M:%S)"; }
 die() { echo "::error::$1"; exit 1; }
 k() { kubectl --context "$CTX" "$@"; }
 ready() { k -n "$1" wait --for=condition=Ready pod --all --timeout=3m >/dev/null || { k -n "$1" get pods; die "pods in $1 did not become Ready"; }; }
+pod_ip() { k -n "$1" get pod -l "$2" -o jsonpath='{.items[0].status.podIP}' 2>/dev/null; }   # <ns> <label=value>
 hit() { # <ns> <pod> <container|-> <url> — one request, the status line the caller saw (a caller with no rule gets rc=1)
   local c=(); [ "$3" != "-" ] && c=(-c "$3")
   printf '  %-12s %-52s %s\n' "$2" "${4#http://}" "$(k -n "$1" exec "$2" "${c[@]}" -- sh -c "wget -S -qO- --timeout=3 '$4' 2>&1 | grep -m1 'HTTP/'; echo rc=\$?" 2>/dev/null | tr '\n' ' ')"
@@ -43,18 +49,27 @@ lab26() {
   hit cf2cnp-lab pos - http://shop.cf2cnp-lab/
   hit cf2cnp-lab stranger - http://shop.cf2cnp-lab/
   hit cf2cnp-lab pos - http://example.com/
+  # ICMP, measured once here (the rounds repeat it silently): busybox ping falls back to a datagram socket when raw is refused
+  printf '  %-12s %-52s %s\n' stranger "ping shop's pod $(pod_ip cf2cnp-lab app=shop) (ICMP echo)" "$(k -n cf2cnp-lab exec stranger -- ping -c 1 -W 2 "$(pod_ip cf2cnp-lab app=shop)" 2>&1 | tail -1)"
 }
 lab27() {
-  say "demo 27 — cf2cnp-lab27: the two-component shop, pos and the stranger; the default-deny (the release chapter enforces later)"
+  say "demo 27 — cf2cnp-lab27: the two-component shop, pos and the stranger; both components under audit, then the default-deny"
   k apply -f demos/27-cf2cnp-release/10-lab.yaml >/dev/null; ready cf2cnp-lab27
+  # audit mode on BOTH endpoints before the default-deny (demo 27 Exercise 1) — without it the default-deny enforces from the
+  # start: no AUDIT flows to generate from, and cf2cnp-lab27 was 83% of the observer's drops in run 34918170151
+  NS=cf2cnp-lab27 demos/26-cf2cnp-policy-from-flows/audit-mode.sh shop-frontend Enabled | tail -1 | sed 's/^/  /'
+  NS=cf2cnp-lab27 demos/26-cf2cnp-policy-from-flows/audit-mode.sh shop-backend Enabled | tail -1 | sed 's/^/  /'
   k apply -f demos/27-cf2cnp-release/20-shop-default-deny-ingress.yaml >/dev/null
   hit cf2cnp-lab27 pos client http://shop-frontend.cf2cnp-lab27/
   hit cf2cnp-lab27 stranger client http://shop-frontend.cf2cnp-lab27/
 }
 lab30() {
-  say "demo 30 — cf2cnp-lab30: the shop with real paths and HTTP visibility; the eight calls of calls.sh"
+  say "demo 30 — cf2cnp-lab30: the shop with real paths and HTTP visibility; what the proxy reports (Exercise 0)"
   k apply -f demos/30-l7-rules/10-lab.yaml -f demos/30-l7-rules/20-http-visibility.yaml >/dev/null; ready cf2cnp-lab30
-  demos/30-l7-rules/calls.sh 2>&1 | sed 's/^/  /'
+  # the observation is the pods' own loops (pos: / and /checkout; the frontend's caller: /api/orders; the stranger: /admin and
+  # the backend) — calls.sh is NOT run here: its pos → /admin would be observed, become a rule, and the chapter's 403 would
+  # be a 200 (demo 30's lesson: the rule is the intent, so the observation must be the intent); calls.sh is the enforced check
+  sleep 20; demos/30-l7-rules/l7-summary.sh cf2cnp-lab30 300 2>&1 | head -12 | sed 's/^/  /'
 }
 lab32() {
   say "demo 32 — the kiosk, a new caller of demo 27's storefront"
@@ -62,12 +77,14 @@ lab32() {
   hit cf2cnp-lab27 kiosk client http://shop-frontend.cf2cnp-lab27/
 }
 lab35() {
-  say "demo 35 — the shop platform: six namespaces; audit mode on every workload; the default-deny; probe.sh"
+  say "demo 35 — the shop platform: six namespaces; probe.sh before any policy (Exercise 0); then audit mode everywhere and the default-deny"
   k apply -f demos/35-shop-platform/10-platform.yaml >/dev/null
   for ns in shop-edge shop-core shop-payments shop-merchant shop-reviews shop-clients; do ready "$ns"; done
+  demos/35-shop-platform/probe.sh 2>&1 | sed 's/^/  /'
+  # the observation under audit is the platform's own loops; probe.sh's last line (the shopper straight at the catalog) is
+  # the call the chapter proves was never observed — so probe.sh runs before audit here, and in the rounds only once enforced
   demos/35-shop-platform/audit-all.sh Enabled 2>&1 | tail -2 | sed 's/^/  /'
   k apply -f demos/35-shop-platform/20-default-deny-ingress.yaml >/dev/null
-  demos/35-shop-platform/probe.sh 2>&1 | sed 's/^/  /'
 }
 
 app02() {
@@ -102,51 +119,108 @@ bank_traffic() { # demo 15's payments through the Gateway (CA: this lab's root, 
   demos/19-zero-trust-cell/egress-test.sh "${CTX#kind-}" 2>&1 | tail -4 | sed 's/^/  /' || true
 }
 dns() {
-  say "demo 31 — the chapter's generated DNS-visibility policy on cf2cnp-lab/pos (names in Hubble's flows and the DNS dashboard)"
-  k apply -f demos/31-dns-visibility/policies/cnp-pos-dns-visibility.yaml >/dev/null
-  hit cf2cnp-lab pos - http://example.com/; hit cf2cnp-lab pos - https://cilium.io/
+  say "demo 31 — the chapter's recorded toFQDNs policy on cf2cnp-lab/pos (the DNS proxy on: names in Hubble's flows and the DNS dashboard)"
+  # the chapter's END state, not its CIDR step: cnp-pos-dns-visibility.yaml pins example.com's address of the day it was recorded
+  # (toCIDR 104.20.23.154/32) and dropped every world flow of the last run (the observer's flows dashboard: example.com 39% of
+  # the drops); the toFQDNs file names example.com:443 and nothing else — port 80 and cilium.io stay dropped until chapter 31
+  # regenerates from what pos actually does (scripts/lab-policies.sh 31)
+  k apply -f demos/31-dns-visibility/policies/cnp-pos-fqdn.yaml >/dev/null
+  hit cf2cnp-lab pos - https://example.com/; hit cf2cnp-lab pos - http://example.com/; hit cf2cnp-lab pos - https://cilium.io/
 }
-traffic() { # <minutes> — every generator, round after round, then the wait for the metrics that the dashboards read
+forensic() {
+  say "demo 11 — the rig's client pod in forensic (netshoot: curl + jq), the pod demo 15's in-cluster check runs from"
+  # the rig pins its pods to <cluster>-worker2 (a node the CI clusters do not have: clusters/ci/poc1.yaml is one control
+  # plane and one worker), so the Namespace and the client Pod are taken from the rig's file with the affinity removed —
+  # the file stays the source (its image, its name), the lab states the one deviation
+  # kubectl prints one JSON object per document here, not a List: slurped into one (gotcha #106)
+  k create --dry-run=client -o json -f demos/11-kube-proxy-vs-cilium/00-rig.yaml \
+    | jq -s '{apiVersion: "v1", kind: "List", items: map(select(.kind == "Namespace" or (.kind == "Pod" and .metadata.name == "client")) | del(.spec.affinity))}' \
+    | k apply -f - >/dev/null
+  k -n forensic wait --for=condition=Ready pod/client --timeout=3m >/dev/null || { k -n forensic get pod client; die "forensic/client did not become Ready"; }
+  echo "  forensic/client Ready on $(k -n forensic get pod client -o jsonpath='{.spec.nodeName}'): $(k -n forensic exec client -- sh -c 'curl --version | head -1; jq --version' 2>/dev/null | tr '\n' ' ')"
+}
+springboot() {
+  say "demo 20 — the petclinic in springboot: six Spring Boot services (the collector's zipkin receiver takes their spans), the route, the memory"
+  local before_used; before_used=$(free -m 2>/dev/null | awk '/^Mem:/ {print $3}')
+  k apply -f demos/20-springboot/10-petclinic.yaml >/dev/null
+  # the order the init containers enforce: config-server, then discovery-server, then the four; 10 min per cold JVM
+  local d; for d in config-server discovery-server customers-service vets-service visits-service api-gateway; do
+    k -n springboot rollout status deploy/"$d" --timeout=10m >/dev/null || { k -n springboot get pods; die "springboot/$d did not roll out"; }
+  done
+  k apply -f demos/20-springboot/20-gateway.yaml >/dev/null
+  local _i; for _i in $(seq 1 30); do [ "$(k -n routes get httproute petclinic -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null)" = True ] && break; sleep 2; done
+  echo "  six Deployments rolled out; the route: Accepted=$(k -n routes get httproute petclinic -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}')"
+  # the measurement the operator asked for: what six JVMs cost this host — the runner's used memory before and after,
+  # and what the pods themselves use (metrics-server, installed by lab-up), against what the manifest requests and limits
+  sleep 20
+  echo "  memory: host used ${before_used:-?} MB → $(free -m 2>/dev/null | awk '/^Mem:/ {print $3}') MB; requests $(k -n springboot get pods -o jsonpath='{range .items[*].spec.containers[*]}{.resources.requests.memory}{"\n"}{end}' | sed 's/Mi//' | awk '{s+=$1} END {print s}') Mi, limits $(k -n springboot get pods -o jsonpath='{range .items[*].spec.containers[*]}{.resources.limits.memory}{"\n"}{end}' | sed 's/Mi//' | awk '{s+=$1} END {print s}') Mi"
+  k top pods -n springboot --no-headers 2>/dev/null | awk '{printf "    %-40s %s %s\n", $1, $2, $3}' || echo "    (kubectl top: no samples yet)"
+  petclinic_traffic
+}
+petclinic_traffic() { ROOT_CA="${ROOT_CA:-.tmp/root-ca.crt}" demos/20-springboot/check.sh 3 2>&1 | sed 's/^/  /' || true; }
+
+rounds() { # <minutes> — every generator, round after round: a dashboard's rate windows need minutes, not one burst
   local minutes="${1:-5}" end round=0; end=$(( $(date +%s) + minutes * 60 ))
-  say "traffic for $minutes minutes — every lab's generators, round after round (a dashboard's rate windows need minutes, not a burst)"
+  say "traffic for $minutes minutes — every lab's generators, round after round"
   while [ "$(date +%s)" -lt "$end" ]; do
     round=$((round + 1))
     { hit cf2cnp-lab pos - http://shop.cf2cnp-lab/; hit cf2cnp-lab stranger - http://shop.cf2cnp-lab/; hit cf2cnp-lab pos - http://example.com/
+      # what the verdicts dashboard's other rows read (demo 28): ICMP echo and a name that does not exist (an NXDOMAIN answer
+      # through pos's DNS proxy). The stranger pings the shop POD — a ClusterIP is L4 only, ICMP to it is no flow into the
+      # namespace — and it is the stranger, not pos: pos's egress flows are chapter 31's input, and an ICMP flow there would
+      # become a rule without a port. Under audit the echo is answered; once shop is enforced it is not (the "missing" panels)
+      k -n cf2cnp-lab exec stranger -- ping -c 1 -W 1 "$(pod_ip cf2cnp-lab app=shop)"; k -n cf2cnp-lab exec pos -- nslookup does-not-exist.example.invalid
       hit cf2cnp-lab27 pos client http://shop-frontend.cf2cnp-lab27/; hit cf2cnp-lab27 kiosk client http://shop-frontend.cf2cnp-lab27/
-      demos/30-l7-rules/calls.sh; demos/35-shop-platform/probe.sh
+      k -n cf2cnp-lab30 exec stranger -c client -- ping -c 1 -W 1 "$(pod_ip cf2cnp-lab30 app=shop-frontend)"
+      # the demos' full case lists (pos → /admin, the shopper straight at the catalog) only once the namespace is enforced —
+      # before that they would be observed and become rules; the pods' own loops are the observation
+      k -n cf2cnp-lab30 get cnp shop-default-deny-ingress >/dev/null 2>&1 && demos/30-l7-rules/calls.sh
+      k -n shop-core get cnp catalog >/dev/null 2>&1 && demos/35-shop-platform/probe.sh
       k get pod tiefighter >/dev/null 2>&1 && sw_traffic
       k -n bank get deploy api >/dev/null 2>&1 && bank_traffic
+      k -n springboot get deploy api-gateway >/dev/null 2>&1 && petclinic_traffic
     } >/dev/null 2>&1 || true
     printf '  round %d at %s\n' "$round" "$(date +%H:%M:%S)"; sleep 15
   done
-  say "waiting until Prometheus and Loki hold what the dashboards read"
-  local q _i n
-  for q in 'sum(rate(hubble_http_requests_total[5m]))' 'sum(hubble_dns_queries_total)' 'sum(hubble_policy_verdicts_total{action="dropped"})' 'sum(hubble_flows_processed_total)'; do
-    for _i in $(seq 1 30); do
-      n=$(k get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$q")" 2>/dev/null | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(r[0]["value"][1] if r else "")' 2>/dev/null || true)
-      [ -n "$n" ] && [ "$n" != "0" ] && break; sleep 10
-    done
-    printf '  %-56s %s\n' "$q" "${n:-nothing after 5 min}"
+}
+prom() { k get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$1")" 2>/dev/null | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(r[0]["value"][1] if r else "")' 2>/dev/null || true; }
+wait_for_data() { # until Prometheus, Loki and Tempo hold what the dashboards read — each a test: nothing after 5 minutes fails the step
+  say "waiting until Prometheus, Loki and Tempo hold what the dashboards read"
+  local q _i n missing=0
+  for q in 'sum(rate(hubble_http_requests_total[5m]))' 'sum(hubble_dns_queries_total)' 'sum(hubble_policy_verdicts_total{action="dropped"})' 'sum(hubble_flows_processed_total)' 'sum(hubble_icmp_total)'; do
+    for _i in $(seq 1 30); do n=$(prom "$q"); [ -n "$n" ] && [ "$n" != "0" ] && break; sleep 10; done
+    printf '  %-56s %s\n' "$q" "${n:-nothing after 5 min}"; [ -n "$n" ] && [ "$n" != "0" ] || missing=$((missing + 1))
   done
-  n=$(k get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query?query=$(python3 -c 'import urllib.parse; print(urllib.parse.quote("sum(count_over_time({namespace=\"hubble-observer\",container=\"hubble-observer\"}[15m]))"))')" 2>/dev/null | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(r[0]["value"][1] if r else "0")' 2>/dev/null || echo "?")
-  printf '  %-56s %s\n' "Loki: observer lines, last 15 min" "$n"
-  # Tempo: traces from each cluster (demo 23's query) — OBI on the bank and the collectors are the path; absent when Tempo is not installed
+  for _i in $(seq 1 30); do
+    n=$(k get --raw "/api/v1/namespaces/monitoring/services/loki:3100/proxy/loki/api/v1/query?query=$(python3 -c 'import urllib.parse; print(urllib.parse.quote("sum(count_over_time({namespace=\"hubble-observer\",container=\"hubble-observer\"}[15m]))"))')" 2>/dev/null | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(r[0]["value"][1] if r else "0")' 2>/dev/null || echo 0)
+    [ "${n:-0}" != "0" ] && break; sleep 10
+  done
+  printf '  %-56s %s\n' "Loki: observer lines, last 15 min" "${n:-0}"; [ "${n:-0}" != "0" ] || missing=$((missing + 1))
+  # Tempo: traces from EACH cluster (demo 23's query, the operator's "tempo-central shows data from both poc1 and poc2") — OBI on
+  # the bank in both clusters through each cluster's own collector; a cluster with none is a failure, not a line
   if k -n monitoring get svc tempo >/dev/null 2>&1; then
     local c t; for c in "${CTX#kind-}" "${PEER_CTX#kind-}"; do
       for _i in $(seq 1 30); do
         t=$(k get --raw "/api/v1/namespaces/monitoring/services/tempo:3200/proxy/api/search?q=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote("{ resource.k8s.cluster.name = \"" + sys.argv[1] + "\" }"))' "$c")&start=$(( $(date +%s) - 1200 ))&end=$(date +%s)&limit=200" 2>/dev/null | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("traces",[])))' 2>/dev/null || echo 0)
         [ "${t:-0}" -gt 0 ] && break; sleep 10
       done
-      printf '  %-56s %s\n' "Tempo: traces from $c, last 20 min" "${t:-0}"
+      printf '  %-56s %s\n' "Tempo: traces from $c, last 20 min" "${t:-0}"; [ "${t:-0}" -gt 0 ] || missing=$((missing + 1))
     done
-  fi
+  else echo "  Tempo: not installed, traces not checked"; fi
+  [ "$missing" -eq 0 ] || die "$missing of the stores the dashboards read hold nothing after the traffic (the lines above name them)"
 }
+traffic() { rounds "${1:-5}"; wait_for_data; }
 
-[ $# -ge 1 ] || { echo "usage: $0 all | lab26 lab27 lab30 lab32 lab35 app02 bank dns | traffic <minutes>"; exit 2; }
-[ "$1" = all ] && set -- lab26 lab27 lab30 lab32 lab35 app02 bank dns
+[ $# -ge 1 ] || { echo "usage: $0 all | lab26 lab27 lab30 lab32 lab35 app02 bank dns forensic springboot | rounds <minutes> | wait | traffic <minutes>"; exit 2; }
+# LAB_APPS_SKIP=springboot (space-separated) leaves a lab out of `all` — the petclinic is the one that costs memory (demo 20's header)
+if [ "$1" = all ]; then
+  labs=(); for l in lab26 lab27 lab30 lab32 lab35 app02 bank dns forensic springboot; do case " ${LAB_APPS_SKIP:-} " in *" $l "*) ;; *) labs+=("$l");; esac; done; set -- "${labs[@]}"
+fi
 while [ $# -gt 0 ]; do
   case "$1" in
-    lab26|lab27|lab30|lab32|lab35|app02|bank|dns) "$1"; shift;;
+    lab26|lab27|lab30|lab32|lab35|app02|bank|dns|forensic|springboot) "$1"; shift;;
+    rounds) rounds "${2:-5}"; shift 2;;
+    wait) wait_for_data; shift;;
     traffic) traffic "${2:-5}"; shift 2;;
     *) die "unknown lab $1";;
   esac

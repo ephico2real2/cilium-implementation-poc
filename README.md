@@ -145,7 +145,7 @@ unchanged, with BGP substituted for L2 in production.
    a fourth, a client namespace that must only go through the gateway — one request, six policies whose
    descriptions read like the architecture (cf2cnp 0.6.3).
 9. **[docs/POLICY-TEST-RESULTS.md](docs/POLICY-TEST-RESULTS.md)** is the one-page answer to "what was tested and what happened" for every generated network policy (demos 26–35) and for cf2cnp's own test layers.
-10. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 105 traps, each with the real error
+10. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 106 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -367,7 +367,7 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 105 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 106 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

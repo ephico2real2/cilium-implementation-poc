@@ -1,0 +1,171 @@
+# The lab's pages, for scripts/capture/walk.js: one entry per page, a PNG and an evidence line each, and the page's
+# expectations where the page is a test (the operator, 2026-09-15). A new endpoint is a new entry, not new code.
+# ${GW} is the Gateway's address, ${HUBBLE} the Hubble UI's LoadBalancer address (read from the cluster by the caller),
+# ${GRAFANA_PASSWORD} the stack's (demos/16-monitoring/values-kube-prometheus-stack.yaml). Chromium resolves the names
+# below itself from `resolve` — no /etc/hosts on the runner or the Mac.
+#
+# The pages are captured AFTER the cf2cnp chapters (scripts/lab-policies.sh) and the enforced traffic, so what the
+# verdict dashboards show is the enforced state: forwarded by a generated policy, dropped, and — for cf2cnp-lab — the
+# audit phase that came first. Every panel of a verdict dashboard must show data except the ones named under
+# noDataAllowed, each with its reason: the test is the list, and the run page names any other empty panel.
+viewport: {width: 1600, height: 1100}
+resolve:
+  grafana.poc.local: ${GW}
+  cf2cnp.poc.local: ${GW}
+  hubble.poc.local: ${GW}
+login:
+  url: https://grafana.poc.local/login
+  user: ["input[name=user]", admin]
+  password: ["input[name=password]", "${GRAFANA_PASSWORD}"]
+  submit: "button[type=submit]"
+
+pages:
+  # ---- Cilium's own Hubble dashboards (demo 16), filtered to the labs
+  - name: grafana-hubble-network-overview
+    evidence: panels
+    url: https://grafana.poc.local/d/nlsO8tYVz/hubble-network-overview-namespace?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-source_namespace=cf2cnp-lab30&var-destination_namespace=cf2cnp-lab30
+  - name: grafana-hubble-l7-http
+    evidence: panels
+    # reporter=server: the proxy sits on the destination's node (gotcha #57); with the client reporter 7 of 11 panels said "No data" (run 34909704970)
+    url: https://grafana.poc.local/d/3g264CZVz/hubble-l7-http-metrics-by-workload?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-destination_namespace=cf2cnp-lab30&var-destination_workload=shop-frontend&var-reporter=server&var-source_namespace=cf2cnp-lab30&var-source_workload=All
+  - name: grafana-hubble-dns
+    evidence: panels
+    url: https://grafana.poc.local/d/_f0DUpY4k/hubble-dns-overview-namespace?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-source_namespace=cf2cnp-lab&var-destination_namespace=All
+  - name: grafana-hubble-metrics
+    evidence: panels
+    url: https://grafana.poc.local/d/5HftnJAWz/hubble-metrics-and-monitoring?orgId=1&from=now-30m&to=now
+  - name: grafana-cilium-metrics
+    evidence: panels
+    url: https://grafana.poc.local/d/vtuWtdumz/cilium-metrics?orgId=1&from=now-30m&to=now
+
+  # ---- the policy verdicts dashboard (demo 28, the hubble-policy-verdicts chart), the test: every panel has data
+  - name: grafana-policy-verdicts
+    # demo 30's namespace after chapter 30: the L7 rules enforce, the proxy reports method+path, the stranger is dropped, the
+    # stranger's pings are dropped (the ICMP panels), the stranger's SYNs get no SYN-ACK
+    evidence: panels
+    url: https://grafana.poc.local/d/hubble-policy-verdicts/hubble-policy-verdicts-namespace?orgId=1&from=now-1h&to=now&var-cluster=poc1&var-namespace=cf2cnp-lab30
+    expect:
+      panelsMin: 40
+      noDataAllowed:
+        - Audited (policy evaluated, not enforced) — in range   # demo 30 has no audit phase: visibility, then enforcement
+        - "Still audited (last 5 min): source → destination pairs"   # by design empty once everything is enforced
+        - 5xx in range                                          # nothing in the shop answers 5xx
+        - Other reasons in range                                # the lab's only drops here are policy drops
+        - Queries in range                                      # the DNS row reads the DNS proxy, which only cf2cnp-lab/pos has (demo 31);
+        - Answered in range                                     #   lab30's pods resolve without a DNS rule, so Hubble sees no DNS here
+        - Missing answers in range
+        - Errors in range
+        - DNS queries per second, by record type
+        - DNS errors, by answer code
+        - "DNS: queries, answers, and the missing ones"
+        - Top 10 names asked (queries per minute)
+  - name: grafana-policy-verdicts-cf2cnp-lab
+    # demo 26's and 31's namespace: the audit phase, then the generated policy (pos forwarded by it, the stranger dropped),
+    # pos's DNS proxy (queries, an NXDOMAIN error), the stranger's dropped pings
+    evidence: panels
+    url: https://grafana.poc.local/d/hubble-policy-verdicts/hubble-policy-verdicts-namespace?orgId=1&from=now-1h&to=now&var-cluster=poc1&var-namespace=cf2cnp-lab
+    expect:
+      panelsMin: 40
+      noDataAllowed:
+        - "Still audited (last 5 min): source → destination pairs"   # by design empty once shop is enforced
+        - Other reasons in range                                # only policy drops here
+        - Requests in range                                     # the HTTP row reads the proxy; cf2cnp-lab has no L7 rule (demo 30's namespace has)
+        - 5xx in range
+        - p50 latency
+        - p99 latency
+        - Requests per second, by status
+        - Request duration p50 / p99, with trace exemplars
+        - Top 10 source → destination workloads (requests per second)
+        - Top 10 methods and status (requests per second)
+  - name: grafana-policy-verdicts-bank
+    evidence: panels
+    url: https://grafana.poc.local/d/hubble-policy-verdicts/hubble-policy-verdicts-namespace?orgId=1&from=now-1h&to=now&var-cluster=poc1&var-namespace=bank
+  - name: grafana-policy-verdicts-shop-core
+    # demo 35's catalog namespace after chapter 35: four callers from three namespaces forwarded by the generated policy, the stranger and the shopper dropped
+    evidence: panels
+    url: https://grafana.poc.local/d/hubble-policy-verdicts/hubble-policy-verdicts-namespace?orgId=1&from=now-1h&to=now&var-cluster=poc1&var-namespace=shop-core
+  - name: grafana-hubble-network-overview-bank
+    evidence: panels
+    url: https://grafana.poc.local/d/nlsO8tYVz/hubble-network-overview-namespace?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-source_namespace=bank&var-destination_namespace=bank
+
+  # ---- the observer's flows dashboard (demo 25; LogQL over Loki, slow to settle)
+  - name: grafana-hubble-observer-flows
+    evidence: panels
+    settleSeconds: 180
+    before: 8000
+    url: https://grafana.poc.local/d/hubble-observer-23862?orgId=1&from=now-30m&to=now
+
+  # ---- the Hubble UI: the namespace list, then a namespace's service map with its flows — "the Hubble UI shows traffic"
+  - name: hubble-ui-namespaces
+    evidence: text
+    settle: false
+    before: 4000
+    url: http://${HUBBLE}/
+    actions:   # the list is a dropdown: opened, so the capture and the text hold every namespace
+      - {click: Choose namespace}
+      - {wait: 2000}
+    expect: {text: [cf2cnp-lab, cf2cnp-lab27, cf2cnp-lab30, bank, shop-core, springboot]}
+  - name: hubble-ui-cf2cnp-lab30
+    evidence: text
+    settle: false
+    before: 2000
+    url: http://${HUBBLE}/
+    actions:
+      - {click: Choose namespace}
+      - {wait: 1500}
+      - {fill: ["input[placeholder*='Filter namespaces']", cf2cnp-lab30]}
+      - {wait: 800}
+      - {click: cf2cnp-lab30}
+      - {wait: 12000}
+    expect: {text: [cf2cnp-lab30, pos, shop, stranger]}   # the stranger's dropped flows are on the map too
+  - name: hubble-ui-cf2cnp-lab
+    evidence: text
+    settle: false
+    before: 2000
+    url: http://${HUBBLE}/
+    actions:
+      - {click: Choose namespace}
+      - {wait: 1500}
+      - {fill: ["input[placeholder*='Filter namespaces']", cf2cnp-lab]}
+      - {wait: 800}
+      - {click: cf2cnp-lab}   # exact text: cf2cnp-lab27 and cf2cnp-lab30 are in the filtered list too
+      - {wait: 12000}
+    expect: {text: [cf2cnp-lab, pos, shop, stranger]}
+  - name: hubble-ui-bank
+    evidence: text
+    settle: false
+    before: 2000
+    url: http://${HUBBLE}/
+    actions:
+      - {click: Choose namespace}
+      - {wait: 1500}
+      - {fill: ["input[placeholder*='Filter namespaces']", bank]}
+      - {wait: 800}
+      - {click: bank}
+      - {wait: 12000}
+    expect: {text: [bank, api, payments, poc2]}   # poc2: the mesh — accounts answers from the other cluster
+  - name: hubble-ui-shop-core
+    evidence: text
+    settle: false
+    before: 2000
+    url: http://${HUBBLE}/
+    actions:
+      - {click: Choose namespace}
+      - {wait: 1500}
+      - {fill: ["input[placeholder*='Filter namespaces']", shop-core]}
+      - {wait: 800}
+      - {click: shop-core}
+      - {wait: 12000}
+    expect: {text: [shop-core, catalog]}
+
+  # ---- cf2cnp's page (demo 25) and the traces (demo 21's explore-traces app over Tempo)
+  - name: cf2cnp
+    evidence: title
+    settle: false
+    before: 3000
+    url: https://cf2cnp.poc.local/
+  - name: grafana-traces-explore
+    evidence: text
+    settleSeconds: 60
+    before: 8000
+    url: https://grafana.poc.local/a/grafana-exploretraces-app/explore?from=now-30m&to=now&timezone=browser&var-ds=tempo&var-primarySignal=nestedSetParent%3C0&var-filters=&var-metric=rate&var-groupBy=resource.service.name&var-spanListColumns=&var-latencyThreshold=&var-partialLatencyThreshold=&var-durationPercentiles=0.9&actionView=breakdown

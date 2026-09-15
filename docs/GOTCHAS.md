@@ -2621,6 +2621,31 @@ build's output — an error is printed, not swallowed by `>/dev/null 2>&1` under
 **The lesson:** "works on my machine" for Helm often means "my `repositories.yaml`"; a script that builds
 dependencies adds the repositories it needs, and never sends a failing command's output to `/dev/null`.
 
+## <a name="106"></a>106. `kubectl create --dry-run=client -o json -f multi-doc.yaml` prints one JSON object per document, not a List
+
+**Where:** the CI lab's `forensic` entry (2026-09-15), taking demo 11's Namespace and client Pod out of the rig's
+multi-document file with `jq '.items |= map(…)'` after `kubectl create --dry-run=client -o json`:
+
+```text
+jq: error (at <stdin>:7): Cannot iterate over null (null)
+jq: error (at <stdin>:77): Cannot iterate over null (null)
+…
+```
+
+**What happened:** `kubectl get … -o json` wraps several objects in a `kind: List` with `items`; `kubectl create`
+(and `apply`) with `-o json` print the objects one after another — a stream of JSON documents, no `items`. The same
+shape holds for `kubectl apply -f multi.yaml -o json`. `jq` reads the stream one object at a time, so `.items` is
+null in every one of them.
+
+**The fix:** `jq -s` (slurp) turns the stream into an array — `jq -s '{apiVersion: "v1", kind: "List", items:
+map(select(…))}'` builds a List that `kubectl apply -f -` takes — or, when one line per object is what is wanted,
+plain `jq -r 'select(.kind == "CiliumNetworkPolicy") | .metadata.name'` on the stream. Both shapes are in
+`scripts/lab-apps.sh` (`forensic`) and `scripts/lab-policies.sh` (`apply_valid`). Note that `--dry-run=client`
+still asks the API server for the kind's REST mapping: a CRD kind fails with `no matches for kind` against a cluster
+without the CRD — the lab's clusters have Cilium's, a laptop pointed at another cluster does not.
+
+**The lesson:** `-o json` does not mean one document; read the first bytes of the output before writing the filter.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
