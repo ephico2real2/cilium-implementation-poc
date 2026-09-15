@@ -21,6 +21,8 @@ the files those commands use are in [`clusters/`](clusters/) (the kind cluster d
 
 A new Mac (Apple silicon included): **[docs/NEW-MAC.md](docs/NEW-MAC.md)** — the toolchain with the versions this lab pins, Podman beside Docker, the Docker Desktop settings from the file, then the preflight and the same scripts the CI job runs.
 
+A new session on a new machine: **[docs/HANDOVER.md](docs/HANDOVER.md)** — the operator's standing rules, where the lab, the upstream PRs and the forks stand, what is owed and in which order, the first commands.
+
 | Step | What | Where |
 |---|---|---|
 | 1 | the toolchain — `brew upgrade kind`, `brew install cilium-cli hubble`, versions verified | [Step 1 — install and verify the toolchain](docs/SETUP.md#step-1--install-and-verify-the-toolchain) |
