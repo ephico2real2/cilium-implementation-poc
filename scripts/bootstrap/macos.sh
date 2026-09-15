@@ -49,7 +49,7 @@ say "the tools, against scripts/bootstrap/versions.env"
 v_kind=$(kind version | awk '{print $2}')
 v_kubectl=$(kubectl version --client -o json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["clientVersion"]["gitVersion"])')
 # awk reads every line: a grep -m1 here closes the pipe on the first match, cilium dies of SIGPIPE (141) and pipefail ends the script
-v_helm=$(helm version --template '{{.Version}}'); v_cilium=$(cilium version --client 2>/dev/null | awk 'NR == 1 {print $2}'); v_hubble=$(hubble version | awk '{print $2}')
+v_helm=$(helm version --template '{{.Version}}'); v_cilium=$(cilium version --client 2>/dev/null | awk 'NR == 1 {print $2}'); v_hubble=$(hubble version | awk '{print $2}' | sed -E 's/^v//; s/@.*//')   # a release binary says v1.19.4@HEAD-…, brew's 1.19.4
 row() { printf '  %-12s %-12s %-12s %s\n' "$1" "$2" "$3" "$4"; }
 cmp() { if [ "$2" = "$3" ]; then row "$1" "$2" "$3" "="; else row "$1" "$2" "$3" "≠ — $4"; fi; }
 row TOOL HERE PIN NOTE
@@ -84,11 +84,14 @@ else
     n=$(docker ps -q | wc -l | tr -d ' ')
     [ "$n" = 0 ] || die "$n container(s) are running in the VM ($(docker ps --format '{{.Names}}' | tr '\n' ' '))— stop them (scripts/cluster-pause.sh, scripts/lab-down.sh) before the VM is resized"
   fi
-  if pgrep -xq 'Docker Desktop' || pgrep -xq com.docker.backend; then
+  # the GUI ("Docker Desktop") and the backend are both writers of the file: alive is either one (macOS pgrep -x matches
+  # the full 18-character name — measured; review C2 found the timeout guard checking only the backend)
+  desktop_running() { pgrep -xq 'Docker Desktop' || pgrep -xq com.docker.backend; }
+  if desktop_running; then
     echo "quitting Docker Desktop (the file is rewritten while it runs — SETUP Step 2.4)"
     osascript -e 'quit app "Docker Desktop"' >/dev/null 2>&1 || osascript -e 'quit app "Docker"' >/dev/null 2>&1 || true
-    for _ in $(seq 1 90); do pgrep -xq 'Docker Desktop' || pgrep -xq com.docker.backend || break; sleep 1; done
-    pgrep -xq com.docker.backend && die "Docker Desktop did not quit in 90 s — quit it from the menu bar and run this again"
+    for _ in $(seq 1 90); do desktop_running || break; sleep 1; done
+    desktop_running && die "Docker Desktop did not quit in 90 s — quit it from the menu bar and run this again"
   fi
   b="$sf.before-$(date +%Y-%m-%dT%H%M%S)"; cp -p "$sf" "$b"
   python3 - "$sf" "$K_CPUS" "$LAB_VM_CPUS" "$K_MEM" "$LAB_VM_MEMORY_MIB" "$K_UDP" <<'PY'
@@ -105,24 +108,35 @@ PY
   open -a Docker
   for _ in $(seq 1 240); do docker info >/dev/null 2>&1 && break; sleep 1; done
   docker info >/dev/null 2>&1 || die "the daemon did not answer within 240 s of the relaunch"
-  # read back from the VM, not from the file: the kernel keeps some of the memory, so MemTotal is a little under the setting
-  ncpu=$(docker info --format '{{.NCPU}}'); mem_mib=$(( $(docker info --format '{{.MemTotal}}') / 1048576 ))
-  echo "the VM answers: CPUs=$ncpu MemTotal=${mem_mib} MiB Kernel=$(docker info --format '{{.KernelVersion}}')"
-  [ "$ncpu" = "$LAB_VM_CPUS" ] || die "the VM has $ncpu CPUs, not $LAB_VM_CPUS — Desktop did not take $K_CPUS from $(basename "$sf")"
-  [ "$mem_mib" -ge $(( LAB_VM_MEMORY_MIB - 1536 )) ] && [ "$mem_mib" -le "$LAB_VM_MEMORY_MIB" ] \
-    || die "the VM has $mem_mib MiB, not about $LAB_VM_MEMORY_MIB — Desktop did not take $K_MEM from $(basename "$sf")"
-  # and the file after Desktop rewrote it: the keys survive only if they are the store's own names
+  # the proof is the file after Desktop rewrote it at start: a key it did not recognise is gone, one it took is kept
+  # with the value asked for (review C4: a MemTotal window alone would pass an old, nearby setting Desktop kept)
   read -r c2 m2 u2 < <(python3 - "$sf" "$K_CPUS" "$K_MEM" "$K_UDP" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1])); print(*(json.dumps(d.get(k)) for k in sys.argv[2:]))
 PY
 )
   echo "$(basename "$sf") after the relaunch: $K_CPUS=$c2 $K_MEM=$m2 $K_UDP=$u2"
+  [ "$c2" = "$LAB_VM_CPUS" ] || die "$K_CPUS did not survive Desktop's rewrite of $(basename "$sf"): wanted $LAB_VM_CPUS, found $c2"
+  [ "$m2" = "$LAB_VM_MEMORY_MIB" ] || die "$K_MEM did not survive Desktop's rewrite of $(basename "$sf"): wanted $LAB_VM_MEMORY_MIB, found $m2"
   [ "$u2" = true ] || echo "::warning::$K_UDP did not survive Desktop's rewrite — the preflight's route row says whether eth1 exists anyway"
+  # and the VM itself, as a coarse check: the kernel keeps some memory (582 MiB of 24576 on the M5), so a window, not equality
+  ncpu=$(docker info --format '{{.NCPU}}'); mem_mib=$(( $(docker info --format '{{.MemTotal}}') / 1048576 ))
+  echo "the VM answers: CPUs=$ncpu MemTotal=${mem_mib} MiB Kernel=$(docker info --format '{{.KernelVersion}}')"
+  [ "$ncpu" = "$LAB_VM_CPUS" ] || die "the VM has $ncpu CPUs, not $LAB_VM_CPUS — Desktop did not apply $K_CPUS"
+  [ "$mem_mib" -ge $(( LAB_VM_MEMORY_MIB * 3 / 4 )) ] && [ "$mem_mib" -le "$LAB_VM_MEMORY_MIB" ] \
+    || die "the VM has $mem_mib MiB for a $LAB_VM_MEMORY_MIB MiB setting — Desktop did not apply a plausible memory limit"
 fi
 # which virtual machine the engine runs on — the host route to the LB blocks was measured on the Virtualization framework only
 L="$HOME/Library/Containers/com.docker.docker/Data/log/host/com.docker.backend.log"
 [ -r "$L" ] && echo "engine: $(grep -oE 'starting engine linux/[a-z0-9-]+' "$L" | tail -1 | sed 's/starting engine //')  (com.docker.backend.log; the route was measured on linux/virtualization-framework)"
+
+# the file can already be right with Desktop quit (AutoStart is false by default): the bootstrap still owes a daemon
+# that answers, or the preflight's first row is REQUIRED-FAIL for a reason nobody has to fix by hand (review C12)
+if [ "$LAB_VM_RESTART" = 1 ] && ! docker info >/dev/null 2>&1; then
+  echo "Docker Desktop is not answering; launching it"; open -a Docker
+  for _ in $(seq 1 240); do docker info >/dev/null 2>&1 && break; sleep 1; done
+  docker info >/dev/null 2>&1 || die "the daemon did not answer within 240 s of the launch"
+fi
 
 # ---------------------------------------------------------------- hand over to the one path: the preflight, the table every host prints
 scripts/lab-preflight.sh

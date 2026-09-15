@@ -11,10 +11,11 @@
 # The pins are installed from the projects' own releases with the checksum each publishes verified, into /usr/local/bin
 # — the same binaries the two actions fetched. A tool already at its pin is kept; one at another version is replaced.
 # Measured on the runner (run 34998586044, 2026-09-15): Ubuntu 24.04.5, kernel 6.17.0-azure, docker 28.0.4 and helm
-# v3.21.4 preinstalled. An Ubuntu laptop takes the same steps; the two things a runner has and a laptop may not — docker
-# and helm — are installed here when absent (helm from get.helm.sh at HELM_VERSION, checksum verified; docker from
-# Ubuntu's archive, docker.io). The install path was measured in an ubuntu:24.04 container on arm64 (2026-09-15); the
-# docker.io path on a real laptop has not been, and the runner never takes it.
+# v3.21.4 preinstalled. An Ubuntu laptop takes the same steps: helm is a pin like the others (get.helm.sh at HELM_VERSION,
+# checksum verified — a Homebrew helm 4 on Linux is replaced), docker is installed from Ubuntu's archive (docker.io) when
+# absent, and a shell that just gained the docker group stops with the instruction to log in again. The install path was
+# measured in an ubuntu:24.04 container on arm64 (2026-09-15, twice: the second run downloads nothing); the docker.io
+# path on a real laptop has not been, and the runner never takes it.
 set -euo pipefail; cd "$(dirname "$0")/../.." || exit 1
 . scripts/bootstrap/versions.env
 say() { printf '\n== %s\n' "$*"; }; die() { echo "ERROR: $*" >&2; exit 1; }
@@ -56,7 +57,7 @@ if [ "$have" = "$KUBECTL_VERSION" ]; then echo "  at the pin: kubectl $have"; el
   put "$T/kubectl" kubectl version --client; fi
 
 say "cilium-cli $CILIUM_CLI_VERSION (cilium/cilium-cli releases)"
-if [ "$(cilium version --client 2>/dev/null | awk 'NR == 1 {print $2}')" = "$CILIUM_CLI_VERSION" ]; then echo "  at the pin: $(cilium version --client | head -1)"; else
+if [ "$(cilium version --client 2>/dev/null | awk 'NR == 1 {print $2}')" = "$CILIUM_CLI_VERSION" ]; then echo "  at the pin: $(cilium version --client 2>/dev/null | awk 'NR == 1')"; else
   fetch "$T/cilium.tgz" "https://github.com/cilium/cilium-cli/releases/download/$CILIUM_CLI_VERSION/cilium-linux-$ARCH.tar.gz"
   verify "$T/cilium.tgz" "https://github.com/cilium/cilium-cli/releases/download/$CILIUM_CLI_VERSION/cilium-linux-$ARCH.tar.gz.sha256sum"
   tar -C "$T" -xzf "$T/cilium.tgz" cilium; put "$T/cilium" cilium version --client; fi
@@ -69,9 +70,9 @@ if [ "$(hubble_have)" = "$HUBBLE_CLI_VERSION" ]; then echo "  at the pin: $(hubb
   verify "$T/hubble.tgz" "https://github.com/cilium/hubble/releases/download/v$HUBBLE_CLI_VERSION/hubble-linux-$ARCH.tar.gz.sha256sum"
   tar -C "$T" -xzf "$T/hubble.tgz" hubble; put "$T/hubble" hubble version; fi
 
-# helm and docker: the runner has both preinstalled (helm's is the version the lab was measured with); a laptop may not
-say "helm — $HELM_VERSION when absent (the runner's preinstalled version; the lab was measured with it)"
-if command -v helm >/dev/null; then echo "  present: $(helm version --short) (kept; $HELM_VERSION is the measured one)"; else
+# helm and docker: the runner has both preinstalled (helm's IS the pin); a laptop may have neither, or Homebrew's helm 4
+say "helm $HELM_VERSION (get.helm.sh — the runner's preinstalled version, the one the lab was measured with)"
+if [ "$(helm version --template '{{.Version}}' 2>/dev/null || true)" = "$HELM_VERSION" ]; then echo "  at the pin: $(helm version --short)"; else
   fetch "$T/helm.tgz" "https://get.helm.sh/helm-$HELM_VERSION-linux-$ARCH.tar.gz"
   verify "$T/helm.tgz" "https://get.helm.sh/helm-$HELM_VERSION-linux-$ARCH.tar.gz.sha256sum"
   tar -C "$T" -xzf "$T/helm.tgz" "linux-$ARCH/helm"; put "$T/linux-$ARCH/helm" helm version --short; fi
@@ -80,8 +81,13 @@ say "docker — Ubuntu's docker.io when absent (kind's provider)"
 if command -v docker >/dev/null; then echo "  present: $(docker --version), engine $(docker version --format '{{.Server.Version}}' 2>/dev/null | awk 'NF {print; f = 1} END {if (!f) print "not answering"}') (kept)"; else
   apt_install docker.io
   if command -v systemctl >/dev/null && [ -d /run/systemd/system ]; then $SUDO systemctl enable --now docker; fi
-  if [ -n "$SUDO" ] && ! id -nG | grep -qw docker; then $SUDO usermod -aG docker "$USER"; echo "  $USER added to the docker group — log in again before lab-up.sh (or run it with sudo -g docker)"; fi
-  echo "  installed: $(docker --version)"; fi
+  echo "  installed: $(docker --version)"
+  # a new supplementary group reaches only a new login: this shell cannot talk to the daemon yet, and the preflight would
+  # say "the daemon is not answering" for a reason the operator has to know — so stop here, with the instruction (review)
+  if [ -n "$SUDO" ]; then case " $(id -nG) " in *" docker "*) ;; *)
+    $SUDO usermod -aG docker "$USER"
+    die "$USER was added to the docker group, but this shell does not have it yet — log in again, then run scripts/bootstrap/ubuntu.sh once more" ;;
+  esac; fi; fi
 
 # ---------------------------------------------------------------- the kernel: BBR (demo 06's congestion control) is a module on Ubuntu
 # a kind node shares the host kernel and cannot load it, so the host must — the preflight and gotcha #103 say what stays off anyway
