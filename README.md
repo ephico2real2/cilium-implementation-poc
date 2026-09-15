@@ -18,6 +18,8 @@ Everything is installed by hand and documented one command at a time in **[docs/
 the files those commands use are in [`clusters/`](clusters/) (the kind cluster definitions) and
 [`cilium/`](cilium/) (the Helm values). In order:
 
+A new Mac (Apple silicon included): **[docs/NEW-MAC.md](docs/NEW-MAC.md)** — the toolchain with the versions this lab pins, Podman beside Docker, the Docker Desktop settings from the file, then the preflight and the same scripts the CI job runs.
+
 | Step | What | Where |
 |---|---|---|
 | 1 | the toolchain — `brew upgrade kind`, `brew install cilium-cli hubble`, versions verified | [Step 1 — install and verify the toolchain](docs/SETUP.md#step-1--install-and-verify-the-toolchain) |
