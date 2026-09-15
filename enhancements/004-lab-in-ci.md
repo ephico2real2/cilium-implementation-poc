@@ -61,6 +61,7 @@ second consumer of the same scripts, not a second lab.
 | `lab-route-b.yaml` as one job (the operator: no base entry there), the demo 07 client as the guide has it — one pod, waited for, warmed, `exec`'d for both parts | the missing two of twenty were the client's own start-up, not the mesh: a pod created per measurement answered 18 of 20 in Part 4 AND Part 5 (run 34879584075, 8/10 then 18) even with poc1's EndpointSlice measured empty; with one warmed pod: spread **10 / 10**, failover **20 of 20 by poc2** — the guide's numbers, on the runner | [run 34879584075](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/34879584075) (87/87, 1263 s), [run 34882806257](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/34882806257) (bring-up 490 s) |
 | **`lab-observability.yaml`, first green run** — the stack on the meshed lab, the labs, the summaries, the captures | bring-up 481 s (route A); the stack: demo 09's Gateway with its wildcard certificate; demo 16: 15 ServiceMonitors, 31 dashboards provisioned, 18–29 Prometheus targets up within 2 min; Tempo ready; the collectors up in both clusters (poc2's exporting to the `tempo-central` global Service); Loki 1/1, the observer 1/1 from the fork's `develop` (200dcd3: cf2cnp 0.7.0, hubble-policy-verdicts 0.4.0 as subcharts), the cf2cnp route Accepted; OBI 2/2 on both clusters; **memory with everything up: 8,002 MB used of 15,989** (poc1's nodes 3.1 GB each, poc2's 1.7–2.0 GB); the labs: every call answered as the chapters expect (the kiosk dropped by demo 27's enforced default-deny, `rc=1`); demo 26's verify: `pos → shop :80 AUDIT 9`, `stranger → shop :80 AUDIT 7` beside the forwarded DNS and world flows; demo 30's l7-summary: the method+path pairs with their 200s; captures: Cilium Metrics 75 panels / 0 "No data", Hubble Metrics 33 / 0, the verdicts dashboard 45 / 0, the observer's flows 8 / 2, network overview 8 / 1, L7 HTTP 11 / 7 (two minutes of traffic), DNS 4 / 4 (no DNS visibility policy yet — demo 31's chapter), the Hubble UI's service map of cf2cnp-lab30 at 81.5 flows/s, cf2cnp's page | [run 34891888521](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/34891888521); the three runs before it found the certificate wait, the peer's namespace and gotcha #105 |
 | the pipeline with the images step, the traffic loop and the wait, the captures on the run page | `scripts/lab-images.sh`: `bankdemo:local` built in 41 s (21 MB) and `routedemo:local` in 28 s, both loaded into both clusters before any manifest; the labs plus demo 02's Star Wars app (`Ship landed`, the exhaust port `403`, the xwing dropped), the bank in both clusters with demo 19's seven cell policies (four egress probes DENIED as the chapter records), demo 31's DNS-visibility policy; six rounds of every generator, then the wait: **HTTP 1.75 req/s, 2,819 DNS queries, 973 dropped verdicts, 132k flows, 1,942 observer lines in Loki**; captures: L7 HTTP **11 panels / 1 "No data"** (was 7 with the `client` reporter default; the policy sits on the servers), DNS 4 / 1, the observer's flows 8 / 0, both verdict dashboards 45 / 0, the Hubble UI's service maps of cf2cnp-lab30 (160 flows/s) and of the bank; published to the `ci-captures` branch under a time-and-job folder and shown on the run page (a summary strips data: URIs, discussion #35932); 8.0 GB of 16 with everything up | [run 34909704970](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/34909704970); the three runs before it found the bank's image (built on the laptop, never on a runner), gotcha #93 a second time, and the L7 reporter |
+| the report on the run page (`scripts/lab-report.sh`: the demos' own checks after the traffic), the metrics wait extended to Tempo per cluster | run 34918170151, green: HTTP 1.69 req/s, 2,534 DNS queries, 917 dropped verdicts, 123,663 flows, 1,827 observer lines; **Tempo: 200 traces from poc1, 0 from poc2** — the report's demo 23 section said why: `services "otel-collector" not found` on poc2 (the stack applied demo 23's per-cluster Service on poc1 only, so OBI there had nowhere to send) and `global=[true]` on poc1's Service (the OBI step re-applied demo 18's global-annotated Service over demo 23's — gotcha #70's shape); the trouble-word column counted `failed=0` (2 and 7); the observer's flows dashboard showed cf2cnp-lab27 as 83% of the DROPPED flows (the lab never put demo 27's components under audit — its default-deny enforced from the start) and `example.com` as 39% (the recorded DNS-visibility policy pins the address example.com resolved to on its day). All four fixed in `c271ff2` | [run 34918170151](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/34918170151) |
 
 ## 3. Decision: kind for the clusters, minikube where one cluster is enough
 
@@ -150,7 +151,7 @@ Two more rules from the same principle, added 2026-09-14 after runs 12 and 13:
 |---|---|
 | 0 — the spike | **done and green**: kind, two clusters, dependency order, the mesh phase, Cilium's own multi-cluster connectivity test `All 87 tests successful` on both matrix jobs; question 1 below is answered by measurement (kind; minikube cannot mesh two profiles) |
 | 1 — the scripts | `lab-up.sh`, `lab-down.sh`, `lab-route.sh`, `gateway-api-crds.sh`, and now **`lab-stack.sh`** (demos 09, 16, 21, 10/22/23, 25, 18, the CLI's certificate), **`lab-apps.sh`** (the labs of 26, 27, 30, 32, 35 with their traffic), **`lab-capture.sh`** with `scripts/capture/walk.js` (a JSON spec of pages) — measured green in run 34891888521 |
-| 2 — the workflow per demo group | **started**: `lab-observability.yaml` = the clusters and the mesh, the whole stack, the labs and their traffic, the demos' own summaries (26 verify, 30 l7-summary, 35 verdicts, 25 check), ten captures through the reusable `browser-walk` action — green end to end in run 34891888521 (the operator's two 2026-09-14 asks: route B end to end, then the stack and the captures on top) |
+| 2 — the workflow per demo group | **built, being measured**: `lab-observability.yaml` = the clusters and the mesh, the images built and loaded, the whole stack, the labs (26–35, the Star Wars app, the bank and the cell, demo 11's forensic client, demo 20's petclinic), traffic under audit, the cf2cnp chapters of 26/27/32/30/31/35 (`scripts/lab-policies.sh`: raw flows kept, policies generated through the API, validated three ways, applied, re-tested), the enforced traffic with a strict wait (Prometheus, Loki, Tempo from both clusters), the demos' own checks as a report on the run page, the pages captured with their expectations measured (every verdict-dashboard panel has data but the ones named with a reason; the Hubble UI shows the labs). Green through the report and the captures in runs 34891888521, 34909704970 and 34918170151 on the earlier shape; the chapters and the page tests first ran in 34922062949 (§2.1) |
 | 3 — the images and charts under test | **not started** (cf2cnp and hubble-policy-verdicts still test only themselves) |
 | 4 — the MacBook | pending phase 2 |
 | the review pass on the bring-up | **not done**: `scripts/lab-up.sh`, the workflow and the per-cluster address plan have had no Codex/Cursor pass; they get one before phase 2 builds on them |
@@ -164,7 +165,7 @@ Two corrections to the plan below from what phase 0 measured: Tetragon is IN sco
 |---|---|---|---|
 | 1 | The review pass on the bring-up: `scripts/lab-up.sh` (`mesh_up`, the DNS probe, reruns, a third cluster), the address plan, `scripts/lab-preflight.sh`, `scripts/lab-route.sh`, the workflow — ten claims, both reviewers on copies | Codex + Cursor | **done and measured** (route A and route B green on the fixed head): `docs/REVIEW_ENH-004.md` — ten claims, eight accepted findings (the masked connectivity step, the doubled MAC, the empty Docker fields, reruns resetting the release, route B's `connect`, the macOS route check, the watcher-based agent restart, the temp file), measured by the two runs after it |
 | 2 | Phase 1: `scripts/lab-stack.sh` from demos 09, 16, 21, 10/22/23, 25, 18 — deadline-guarded, measured on the runner beside the two clusters: 8 GB of 16 with everything up | the runner | **done** (run 34891888521) |
-| 3 | Phase 2: one job per demo group — `lab-route-b.yaml` (SETUP 9.3b/9.5, demo 07) and `lab-observability.yaml` (the stack, the labs of 26–35, their summaries, the captures) are the first two; next: the chapters themselves (the policies of 26–35 generated and applied, with their captures) | the runner | **started** |
+| 3 | Phase 2: one job per demo group — `lab-route-b.yaml` (SETUP 9.3b/9.5, demo 07) and `lab-observability.yaml` (the stack, the labs, the chapters of 26–35 generated and applied, the report, the captures as tests) are the first two; next: the per-demo self-description (`demos/<nn>/lab.yaml`: needs, apply, wait, traffic, check, pages — so adding a demo is adding paths, the operator's goal) and a generic runner over it | the runner | **the two jobs built**; the self-description not started |
 | 4 | hubble-policy-verdicts follow-up: source before destination in the top-10 workloads table (chart 0.4.x, held by `hack/check-dashboard.py`) | the chart repo | not started |
 | 5 | The 0.4.0 "top" capture with the who-talked-to-whom table populated | the laptop clusters resumed, or task 3's observability group | waits |
 | 6 | Phase 3: `cf2cnp_ref` / `hpv_ref` inputs — build the image on the runner, `kind load`, vendor the chart | task 3 | not started |
@@ -195,7 +196,33 @@ groups, each job: checkout → `lab-up.sh` → the group's stacks → the group'
 | policy-tools | minikube | observer, cf2cnp | 26 (API and page), 32 (the policy-PR template), 35 (regenerate and `cf2cnp validate`) |
 
 Out of scope for CI, said so in the README: demo 06 / 11 / 14 (performance numbers on a shared runner mean
-nothing), 13 (ztunnel), 17 (Tetragon needs the host's `/proc`), 20 (six JVMs), 22 (a third cluster).
+nothing — demo 11's client pod is used, not its measurements), 13 (ztunnel), 22 (a third cluster). Back in scope
+by measurement: 17 (Tetragon runs with the `/procHost` mount) and 20 (the six JVMs fit: 8 GB of 16 were free with
+every stack up in run 34909704970; the observability job deploys the petclinic behind the `springboot` input and
+measures its memory).
+
+### Phase 2b — every demo describes itself (the operator's goal, 2026-09-14: "identify the path of the yamls and add it")
+
+Today the observability job knows the demos through three scripts' function bodies (`lab-apps.sh` deploys and
+exercises, `lab-policies.sh` runs a chapter, `lab-report.sh` names a check) and one spec of pages. The shape to
+grow into, so that adding a demo is adding paths and not editing three scripts: one `demos/<nn>-<name>/lab.yaml`
+per demo, YAML because a person edits it —
+
+```yaml
+needs: [routes, monitoring, hubble-cli]        # the stacks (lab-stack.sh's steps) this demo reads
+apply:   [10-lab.yaml, 20-http-visibility.yaml] # in order, `kubectl apply` on the context
+ready:   [cf2cnp-lab30]                         # namespaces whose pods must be Ready
+setup:   [demos/26-cf2cnp-policy-from-flows/audit-mode.sh shop Enabled]   # commands, in order
+traffic: [demos/30-l7-rules/calls.sh]           # the round's generators (the observation is the pods' own loops)
+chapter: 30                                     # a lab-policies.sh chapter to run once the traffic exists
+check:   [demos/30-l7-rules/l7-summary.sh cf2cnp-lab30 300]   # the report's section(s)
+pages:   [grafana-policy-verdicts, hubble-ui-cf2cnp-lab30]     # entries of scripts/capture/lab.yaml
+```
+
+and a generic runner (`scripts/lab-demo.sh <nn> apply|traffic|check`) that `lab-apps.sh`, the report and the
+capture step read instead of their own tables. The chapters keep their own code (a chapter is a sequence with
+measured lines, not a list of files), named from the descriptor. Not started; the three scripts are the reference
+for what the descriptor must express, and every demo they run today is a test of the migration.
 
 ### Phase 3 — the images and charts under test
 

@@ -365,6 +365,23 @@ Two notes on reading it. It is **read-only** apart from HTTP requests to the dem
 is exactly what an L3 policy denial looks like, and it is recorded as `[exit code: 28]` rather than
 hidden. It is an evidence report, not a pass/fail gate; read the output.
 
+## The lab in CI — the same scripts on a GitHub-hosted runner
+
+The whole lab is also built, exercised and measured on a GitHub Actions runner (4 vCPU, 16 GB): the plan and
+every run's measurements are in **[enhancements/004-lab-in-ci.md](enhancements/004-lab-in-ci.md)**. Three
+`workflow_dispatch` workflows, each from the same scripts a MacBook uses (`scripts/lab-up.sh`, `lab-stack.sh`,
+`lab-images.sh`, `lab-apps.sh`, `lab-policies.sh`, `lab-report.sh`, `scripts/capture/`):
+
+| Workflow | What it proves |
+|---|---|
+| `lab-spike-kind.yaml` | two kind clusters, each complete and independent, then the mesh (route A: cert-manager's root); Cilium's own multi-cluster connectivity test, 87/87 |
+| `lab-route-b.yaml` | the same on Helm certificates (SETUP 9.3b), the mesh checks of 9.5 and demo 07's global service and failover, with the guide's numbers |
+| `lab-observability.yaml` | the lab's images built and loaded first, the stacks of demos 09/16/21/10–23/25/18, the labs of 26–35 with the bank, the cell, demo 11's client and demo 20's petclinic; traffic under audit; the cf2cnp chapters (raw flows kept, policies generated through the API, validated three ways, applied, the applications re-tested); the enforced traffic with a strict wait on Prometheus, Loki and Tempo from both clusters; the demos' own checks as a report on the run page; the pages captured with expectations — every verdict-dashboard panel has data but the ones named with a reason, the Hubble UI shows the labs — and published to the `ci-captures` branch, so the pictures are on the run page |
+
+A run's page holds the report and the captures; its artifact holds every log, the raw flows and the generated
+policies. What the runner refused (netkit before its kernel, BIG TCP under VXLAN, the bandwidth manager in kind) is
+in the gotchas, #92 onward.
+
 ## Every gotcha, in one place
 
 **[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 106 traps this build actually hit — not things that

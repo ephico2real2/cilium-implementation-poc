@@ -2621,10 +2621,10 @@ build's output — an error is printed, not swallowed by `>/dev/null 2>&1` under
 **The lesson:** "works on my machine" for Helm often means "my `repositories.yaml`"; a script that builds
 dependencies adds the repositories it needs, and never sends a failing command's output to `/dev/null`.
 
-## <a name="106"></a>106. `kubectl create --dry-run=client -o json -f multi-doc.yaml` prints one JSON object per document, not a List
+## <a name="106"></a>106. `kubectl … -o json` on a multi-document file is a stream of objects from one verb and a `List` from another
 
-**Where:** the CI lab's `forensic` entry (2026-09-15), taking demo 11's Namespace and client Pod out of the rig's
-multi-document file with `jq '.items |= map(…)'` after `kubectl create --dry-run=client -o json`:
+**Where:** the CI lab, twice on 2026-09-15. First `kubectl create --dry-run=client -o json` on demo 11's rig file
+(kubectl 1.31 on the laptop), filtered with `jq '.items |= map(…)'`:
 
 ```text
 jq: error (at <stdin>:7): Cannot iterate over null (null)
@@ -2632,19 +2632,26 @@ jq: error (at <stdin>:77): Cannot iterate over null (null)
 …
 ```
 
-**What happened:** `kubectl get … -o json` wraps several objects in a `kind: List` with `items`; `kubectl create`
-(and `apply`) with `-o json` print the objects one after another — a stream of JSON documents, no `items`. The same
-shape holds for `kubectl apply -f multi.yaml -o json`. `jq` reads the stream one object at a time, so `.items` is
-null in every one of them.
+— one JSON object per document, no `items`. Then, with the filter rewritten for a stream
+(`jq -r 'select(.kind == "CiliumNetworkPolicy") | …'`), `kubectl apply -f <two policies> -o json` on the runner
+(kubectl 1.36, run 34922062949) matched nothing: chapter 27's two policies were applied and their Valid condition
+never checked, silently — `apply` had printed one `kind: List` with the two objects under `items`.
 
-**The fix:** `jq -s` (slurp) turns the stream into an array — `jq -s '{apiVersion: "v1", kind: "List", items:
-map(select(…))}'` builds a List that `kubectl apply -f -` takes — or, when one line per object is what is wanted,
-plain `jq -r 'select(.kind == "CiliumNetworkPolicy") | .metadata.name'` on the stream. Both shapes are in
-`scripts/lab-apps.sh` (`forensic`) and `scripts/lab-policies.sh` (`apply_valid`). Note that `--dry-run=client`
-still asks the API server for the kind's REST mapping: a CRD kind fails with `no matches for kind` against a cluster
-without the CRD — the lab's clusters have Cilium's, a laptop pointed at another cluster does not.
+**What happened:** `kubectl get -o json` always wraps several objects in a `List`; for `create` and `apply` the
+shape depends on the verb, the count and the version — a single object for one document, a stream or a `List` for
+several. A filter written for one shape reads nothing from the other, and `jq` reports nothing when `select`
+matches no object.
 
-**The lesson:** `-o json` does not mean one document; read the first bytes of the output before writing the filter.
+**The fix:** a filter that takes both shapes — `jq -r 'if .kind == "List" then .items[] else . end | select(…)'` —
+and, where a List is what the next command wants, `jq -s` (slurp) on a stream builds one:
+`jq -s '{apiVersion: "v1", kind: "List", items: map(select(…))}'`. Then a guard: the script dies when the filter
+yields no names, so an unrecognised shape is an error and not a skipped check. All three are in `scripts/lab-apps.sh`
+(`forensic`), `scripts/lab-policies.sh` (`apply_valid`) and `scripts/lab-report.sh` (`policies`). Note that
+`--dry-run=client` still asks the API server for the kind's REST mapping: a CRD kind fails with `no matches for kind`
+against a cluster without the CRD — the lab's clusters have Cilium's, a laptop pointed at another cluster does not.
+
+**The lesson:** `-o json` does not mean one shape; read the first bytes of the output before writing the filter, and
+make the filter fail loudly when it finds nothing.
 
 ## The meta-lesson
 

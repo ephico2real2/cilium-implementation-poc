@@ -72,8 +72,11 @@ validate() { # <file…> — the three validations that must pass before a gener
 apply_valid() { # <file…> — apply, then every policy in the file must reach Valid=True (the agent's own verdict on the rule)
   local f names n ns name st _i
   for f in "$@"; do
-    # the names from the apply's own output — one JSON object per document, not a List (gotcha #106)
-    names=$(k apply -f "$f" -o json | jq -r 'select(.kind == "CiliumNetworkPolicy") | "\(.metadata.namespace)/\(.metadata.name)"')
+    # the names from the apply's own output: ONE object for a one-document file, a `kind: List` for two or more (kubectl
+    # 1.36, run 34922062949 — chapter 27's two policies got no Valid check) — both shapes taken (gotcha #106)
+    names=$(k apply -f "$f" -o json | jq -r 'if .kind == "List" then .items[] else . end | select(.kind == "CiliumNetworkPolicy") | "\(.metadata.namespace)/\(.metadata.name)"')
+    [ -n "$names" ] || die "no CiliumNetworkPolicy in $f's apply output"
+
     for n in $names; do ns=${n%%/*}; name=${n##*/}
       for _i in $(seq 1 30); do st=$(k -n "$ns" get cnp "$name" -o jsonpath='{.status.conditions[?(@.type=="Valid")].status}' 2>/dev/null || true); [ "$st" = True ] && break; sleep 1; done
       [ "$st" = True ] || { k -n "$ns" get cnp "$name" -o jsonpath='{.status.conditions}'; echo; die "$n is not Valid after 30 s (gotcha #80)"; }
@@ -128,8 +131,12 @@ c32() {
   say "chapter 32 — the operator loop: the kiosk's DROPPED flows merged into the frontend's policy with cf2cnp merge"
   mkdir -p "$D/32"; local b; b=$(cf2cnp_bin)
   [ -s "$D/27/cnp-shop.yaml" ] || die "chapter 27's policy file is missing — run chapter 27 first"
-  hubble observe -P --kube-context "$CTX" --from-pod cf2cnp-lab27/kiosk --to-pod cf2cnp-lab27/shop-frontend --last 40 -o json 2>/dev/null > "$D/32/flows-kiosk.ndjson" || true
+  # the INGRESS side only — the flows the frontend's node reports. Both sides (run 34922062949: 34 flows) make cf2cnp see
+  # two workloads (an egress policy for the kiosk, an ingress one for the frontend) and `merge` refuses two targets; the
+  # demo's recorded capture is 18 INGRESS DROPPED flows, the same shape
+  hubble observe -P --kube-context "$CTX" --from-pod cf2cnp-lab27/kiosk --to-pod cf2cnp-lab27/shop-frontend --traffic-direction ingress --last 40 -o json 2>/dev/null > "$D/32/flows-kiosk.ndjson" || true
   echo "  captured: $D/32/flows-kiosk.ndjson ($(count_flows "$D/32/flows-kiosk.ndjson") flows, verdicts: $(python3 -c 'import json,sys,collections; print(dict(collections.Counter(json.loads(l)["flow"]["verdict"] for l in open(sys.argv[1]) if l.strip())))' "$D/32/flows-kiosk.ndjson"))"
+  [ "$(count_flows "$D/32/flows-kiosk.ndjson")" -gt 0 ] || die "no ingress flows kiosk → shop-frontend in the relay"
   # merge takes ONE policy for ONE workload (demo 32 Exercise 3): the frontend's document out of chapter 27's two
   python3 - "$D/27/cnp-shop.yaml" "$D/32/shop-frontend.yaml" <<'PY'
 import sys,re

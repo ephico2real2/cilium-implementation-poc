@@ -110,6 +110,15 @@ bank() {
   k apply -f demos/15-bank/20-poc1.yaml >/dev/null; sleep 2; k apply -f demos/15-bank/20-poc1.yaml >/dev/null
   k -n bank rollout status sts/redis deploy/payments deploy/api deploy/web --timeout=5m >/dev/null
   k apply -f demos/15-bank/30-gateway.yaml >/dev/null
+  # demo 15's in-cluster check runs HERE, before demo 19's cell — the demos' own order. The cell denies every namespace
+  # but its own, so a check from forensic after it hangs on curls with no timeout (run 34922062949: the report step sat
+  # 94 minutes on it). Its output is kept for the report; a run without the forensic client notes that instead.
+  mkdir -p "${LAB_CHECKS_DIR:-captures/checks}"
+  if k -n forensic get pod client >/dev/null 2>&1; then
+    say "demo 15 — the bank across the mesh, from inside (demos/15-bank/check.sh from forensic/client), before the cell"
+    ( command -v timeout >/dev/null && exec timeout 15m demos/15-bank/check.sh || exec demos/15-bank/check.sh ) > "${LAB_CHECKS_DIR:-captures/checks}/demo15-check.txt" 2>&1 || echo "  check.sh exited $? (the output is kept)"
+    grep -E '^== |served|TOTAL|payments backends|https://bank' "${LAB_CHECKS_DIR:-captures/checks}/demo15-check.txt" | head -24 | sed 's/^/  /'
+  else echo "  demo 15's in-cluster check skipped: no forensic/client (scripts/lab-apps.sh forensic first)" | tee "${LAB_CHECKS_DIR:-captures/checks}/demo15-check.txt"; fi
   for c in "$CTX" "$PEER_CTX"; do kubectl --context "$c" apply -f demos/19-zero-trust-cell/10-platform-baseline.yaml -f demos/19-zero-trust-cell/rendered/cell-policies.yaml >/dev/null; done
   echo "bank up in both clusters; $(k -n bank get cnp --no-headers | wc -l | tr -d ' ') cell policies in poc1, $(kubectl --context "$PEER_CTX" -n bank get cnp --no-headers | wc -l | tr -d ' ') in poc2"
   bank_traffic
@@ -150,9 +159,16 @@ springboot() {
   k apply -f demos/20-springboot/20-gateway.yaml >/dev/null
   local _i; for _i in $(seq 1 30); do [ "$(k -n routes get httproute petclinic -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}' 2>/dev/null)" = True ] && break; sleep 2; done
   echo "  six Deployments rolled out; the route: Accepted=$(k -n routes get httproute petclinic -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}')"
+  # Ready is not registered: the gateway routes through Eureka (lb://…), whose client-side cache refreshes every 30 s
+  # (gotcha #65) — the first check straight after the rollouts saw 405, 500 and "failed" (run 34922062949). Wait until
+  # Eureka lists the four applications UP, then the cache window.
+  local apps _j; for _j in $(seq 1 36); do
+    apps=$(k -n springboot exec deploy/discovery-server -c discovery-server -- curl -s -m 5 -H accept:application/json http://localhost:8761/eureka/apps 2>/dev/null | python3 -c 'import json,sys; print(sum(1 for a in json.load(sys.stdin)["applications"]["application"] if a["instance"][0]["status"]=="UP"))' 2>/dev/null || echo 0)
+    [ "${apps:-0}" -ge 4 ] && break; sleep 5
+  done
+  echo "  Eureka: ${apps:-0} applications UP after $(( _j * 5 )) s; the gateway's 30 s cache next"; sleep 35
   # the measurement the operator asked for: what six JVMs cost this host — the runner's used memory before and after,
   # and what the pods themselves use (metrics-server, installed by lab-up), against what the manifest requests and limits
-  sleep 20
   echo "  memory: host used ${before_used:-?} MB → $(free -m 2>/dev/null | awk '/^Mem:/ {print $3}') MB; requests $(k -n springboot get pods -o jsonpath='{range .items[*].spec.containers[*]}{.resources.requests.memory}{"\n"}{end}' | sed 's/Mi//' | awk '{s+=$1} END {print s}') Mi, limits $(k -n springboot get pods -o jsonpath='{range .items[*].spec.containers[*]}{.resources.limits.memory}{"\n"}{end}' | sed 's/Mi//' | awk '{s+=$1} END {print s}') Mi"
   k top pods -n springboot --no-headers 2>/dev/null | awk '{printf "    %-40s %s %s\n", $1, $2, $3}' || echo "    (kubectl top: no samples yet)"
   petclinic_traffic
@@ -211,10 +227,10 @@ wait_for_data() { # until Prometheus, Loki and Tempo hold what the dashboards re
 }
 traffic() { rounds "${1:-5}"; wait_for_data; }
 
-[ $# -ge 1 ] || { echo "usage: $0 all | lab26 lab27 lab30 lab32 lab35 app02 bank dns forensic springboot | rounds <minutes> | wait | traffic <minutes>"; exit 2; }
+[ $# -ge 1 ] || { echo "usage: $0 all | lab26 lab27 lab30 lab32 lab35 app02 forensic bank dns springboot | rounds <minutes> | wait | traffic <minutes>"; exit 2; }
 # LAB_APPS_SKIP=springboot (space-separated) leaves a lab out of `all` — the petclinic is the one that costs memory (demo 20's header)
 if [ "$1" = all ]; then
-  labs=(); for l in lab26 lab27 lab30 lab32 lab35 app02 bank dns forensic springboot; do case " ${LAB_APPS_SKIP:-} " in *" $l "*) ;; *) labs+=("$l");; esac; done; set -- "${labs[@]}"
+  labs=(); for l in lab26 lab27 lab30 lab32 lab35 app02 forensic bank dns springboot; do case " ${LAB_APPS_SKIP:-} " in *" $l "*) ;; *) labs+=("$l");; esac; done; set -- "${labs[@]}"
 fi
 while [ $# -gt 0 ]; do
   case "$1" in
