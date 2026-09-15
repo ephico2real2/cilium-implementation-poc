@@ -208,6 +208,13 @@ jobs:
       # (scripts/capture/lab.yaml) with their expectations — every panel of the verdict dashboards has data but the ones
       # named with a reason, the Hubble UI shows the labs' traffic — a new endpoint is a new entry. The addresses come
       # from the cluster, the names resolve inside Chromium. The captures publish first; then a failed page fails the step.
+      # the observer's own stdout for the last half hour — the raw flow lines the dashboards read from Loki — kept in the artifact so the
+      # dashboard can be iterated without a cluster (demos/25-hubble-observer-loki/local-loop replays them into a local Loki)
+      - name: The observer's flow lines, for the local loop
+        run: |
+          kubectl --context kind-poc1 -n hubble-observer logs deploy/hubble-observer -c hubble-observer --since=40m > captures/observer-flows.ndjson 2>/dev/null || true
+          echo "observer lines kept: $(grep -c '"flow"' captures/observer-flows.ndjson || true)"
+
       - name: The addresses the pages live at
         id: addr
         run: |

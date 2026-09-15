@@ -1,0 +1,23 @@
+# The dashboard loop without a cluster: Loki and Grafana at the lab's versions (the loki chart 7.3.0 runs Loki 3.6.12,
+# kube-prometheus-stack 90.1.1 runs Grafana 13.2.1), the observer's dashboard provisioned from a file, and the observer's
+# flow lines replayed into Loki by replay.py — a query change is a page reload, not an eighty-minute run. Not the lab:
+# no relay, no mTLS, no cf2cnp behind a Gateway (the Generate action's URL points nowhere here).
+services:
+  loki:
+    image: grafana/loki:3.6.12
+    command: ["-config.file=/etc/loki/config.yaml"]
+    ports: ["3100:3100"]
+    volumes: ["./loki-config.yaml:/etc/loki/config.yaml:ro", "loki-data:/loki"]
+  grafana:
+    image: grafana/grafana:13.2.1
+    ports: ["3000:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: poc-grafana        # the lab's (demos/16-monitoring/values-kube-prometheus-stack.yaml)
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [loki]
+volumes:
+  loki-data: {}
