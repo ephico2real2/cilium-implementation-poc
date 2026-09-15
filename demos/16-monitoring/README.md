@@ -191,7 +191,7 @@ Same pattern as demos 09 and 15: a script that prints **its own delimited block*
 without touching the other demos' blocks. Scripts in this repo never write `/etc/hosts` themselves.
 
 ```bash
-cd /Users/olasumbo/gitRepos/cilium-kind-poc
+cd /Users/olasumbo/gitRepos/cilium-implementation-poc
 demos/16-monitoring/hosts-entries.sh                                  # review first
 sudo sh -c 'demos/16-monitoring/hosts-entries.sh >> /etc/hosts'      # you run this
 grep -c 'grafana.poc.local' /etc/hosts                                # expect 1
@@ -616,7 +616,7 @@ count by (cluster) ({__name__=~"(hubble|cilium)_.+"})      1.16e+04  cluster=poc
 After Part 3's hosts block is in place. Every line is something you run on the Mac:
 
 ```bash
-cd /Users/olasumbo/gitRepos/cilium-kind-poc
+cd /Users/olasumbo/gitRepos/cilium-implementation-poc
 demos/16-monitoring/hosts-entries.sh                                  # 1. review the block first
 sudo sh -c 'demos/16-monitoring/hosts-entries.sh >> /etc/hosts'      #    add it (you run this)
 grep -c 'grafana.poc.local' /etc/hosts                                #    expect 1

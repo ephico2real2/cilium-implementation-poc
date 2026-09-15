@@ -2,8 +2,9 @@
 
 A reproducible proof-of-concept that demonstrates what **Cilium** and **Hubble** give you over a
 stock CNI + kube-proxy Kubernetes cluster — measured, not quoted — built from nothing on
-[kind](https://kind.sigs.k8s.io/) on a laptop. (The working directory and the git history still
-carry the lab's original name, `cilium-kind-poc`.)
+[kind](https://kind.sigs.k8s.io/) on a laptop. (The lab's original name, `cilium-kind-poc`, survives in the git
+history and as the marker of the `/etc/hosts` blocks the `hosts-entries.sh` scripts write — `scripts/lab-route.sh`
+removes those blocks by that marker; the working directory was renamed to the repository's name on 2026-09-15.)
 
 **Setup guide: [docs/SETUP.md](docs/SETUP.md)** — the kind clusters and the Cilium installation, every command
 with its recorded output. The other documents: [OBSERVABILITY-ARCHITECTURE.md](OBSERVABILITY-ARCHITECTURE.md)

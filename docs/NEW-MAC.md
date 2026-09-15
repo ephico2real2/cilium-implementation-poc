@@ -153,7 +153,7 @@ docker info --format 'CPUs={{.NCPU}} Mem={{.MemTotal}} Kernel={{.KernelVersion}}
 ## 4. The repository, the preflight, the lab
 
 ```bash
-git clone https://github.com/ephico2real2/cilium-implementation-poc.git ~/gitRepos/cilium-kind-poc && cd ~/gitRepos/cilium-kind-poc
+git clone https://github.com/ephico2real2/cilium-implementation-poc.git ~/gitRepos/cilium-implementation-poc && cd ~/gitRepos/cilium-implementation-poc
 scripts/lab-preflight.sh          # the table: netkit on this kernel, Tetragon's symbol, the route to the LB blocks, IPv6, the node image's platform
 ```
 

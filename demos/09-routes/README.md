@@ -494,7 +494,7 @@ The script **never writes to `/etc/hosts` itself**. Review the block, then add i
 `sudo`, so run it in a real Terminal. Either form works; they differ in *who runs the script*:
 
 ```bash
-cd /Users/olasumbo/gitRepos/cilium-kind-poc
+cd /Users/olasumbo/gitRepos/cilium-implementation-poc
 sudo sh -c 'scripts/hosts-entries.sh >> /etc/hosts'      # script AND its kubectl run as root
 #   works because macOS sudo keeps HOME (env_keep), so root reads your ~/.kube/config
 scripts/hosts-entries.sh | sudo tee -a /etc/hosts        # script runs as you; only the write is root
@@ -762,7 +762,7 @@ almost always means step 1 was skipped.
 **1. Rebuild from the fixed source** (a binary built before commit `b44d5d7` has none of this):
 
 ```bash
-cd /Users/olasumbo/gitRepos/cilium-kind-poc/demos/09-routes/app
+cd /Users/olasumbo/gitRepos/cilium-implementation-poc/demos/09-routes/app
 git log --oneline -1 -- main.go        # b44d5d7 or later
 go build -o routedemo .
 ls -l routedemo                        # timestamp must be now
@@ -786,14 +786,14 @@ FAILED CHECKS: 0
 **3. From the repo root — the path exists as given, so no `using CA` line:**
 
 ```bash
-cd /Users/olasumbo/gitRepos/cilium-kind-poc
+cd /Users/olasumbo/gitRepos/cilium-implementation-poc
 demos/09-routes/app/routedemo -mode client -only grpc -target 172.18.255.240; echo "exit=$?"   # exit=0
 ```
 
 **4. Outside the repo — must fail and say what to pass:**
 
 ```bash
-cd /tmp && /Users/olasumbo/gitRepos/cilium-kind-poc/demos/09-routes/app/routedemo -mode client -only grpc -target 172.18.255.240; echo "exit=$?"
+cd /tmp && /Users/olasumbo/gitRepos/cilium-implementation-poc/demos/09-routes/app/routedemo -mode client -only grpc -target 172.18.255.240; echo "exit=$?"
 ```
 
 ```
@@ -805,7 +805,7 @@ exit=1
 **5. A wrong explicit path is never "fixed" — you typed it, so it is your intent:**
 
 ```bash
-cd /Users/olasumbo/gitRepos/cilium-kind-poc/demos/09-routes/app
+cd /Users/olasumbo/gitRepos/cilium-implementation-poc/demos/09-routes/app
 ./routedemo -mode client -only grpc -target 172.18.255.240 -ca nope.crt; echo "exit=$?"     # same error + hint, exit=1
 ```
 

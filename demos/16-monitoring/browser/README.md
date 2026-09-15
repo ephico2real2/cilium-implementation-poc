@@ -2,8 +2,8 @@
 
 ```bash
 cd /tmp && mkdir -p pw && cd pw && npm init -y >/dev/null && npm i playwright@1.63.0 && npx playwright install chromium
-S=/tmp/pw node /Users/olasumbo/gitRepos/cilium-kind-poc/demos/16-monitoring/browser/hubble-ui-walk.js      # Hubble UI: namespace, service map, flow table, DOM search, screenshots
-S=/tmp/pw node /Users/olasumbo/gitRepos/cilium-kind-poc/demos/16-monitoring/browser/grafana-dashboards.js  # Grafana: form login, three dashboards, panel titles, screenshots
+S=/tmp/pw node /Users/olasumbo/gitRepos/cilium-implementation-poc/demos/16-monitoring/browser/hubble-ui-walk.js      # Hubble UI: namespace, service map, flow table, DOM search, screenshots
+S=/tmp/pw node /Users/olasumbo/gitRepos/cilium-implementation-poc/demos/16-monitoring/browser/grafana-dashboards.js  # Grafana: form login, three dashboards, panel titles, screenshots
 ```
 
 Both use `ignoreHTTPSErrors` (the lab CA is not in Chromium's store) and need the hosts entries for

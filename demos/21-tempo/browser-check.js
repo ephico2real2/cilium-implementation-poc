@@ -1,6 +1,6 @@
-const { chromium } = require('playwright'); const fs = require('fs');
+const { chromium } = require('playwright'); const fs = require('fs'); const path = require('path');
 (async () => {
-  const S = process.env.S; const id = fs.readFileSync('/Users/olasumbo/gitRepos/cilium-kind-poc/.tmp/exemplar-ids.txt','utf8').split('\n')[0].trim();
+  const S = process.env.S; const id = fs.readFileSync(path.resolve(__dirname, '../../.tmp/exemplar-ids.txt'),'utf8').split('\n')[0].trim();   // the repo's .tmp, wherever the checkout lives
   const b = await chromium.launch(); const ctx = await b.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1500, height: 1000 } }); const p = await ctx.newPage();
   await p.goto('https://grafana.poc.local/login', { waitUntil: 'load' }); await p.fill('input[name=user]', 'admin'); await p.fill('input[name=password]', 'poc-grafana'); await p.click('button[type=submit]'); await p.waitForTimeout(3000);
   await p.goto('https://grafana.poc.local/d/3g264CZVz/hubble-l7-http-metrics-by-workload?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-destination_namespace=springboot&var-destination_workload=api-gateway&var-reporter=server&var-source_namespace=All&var-source_workload=All', { waitUntil: 'load' }); await p.waitForTimeout(20000);

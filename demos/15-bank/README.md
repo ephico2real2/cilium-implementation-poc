@@ -175,7 +175,7 @@ demos/15-bank/hosts-entries.sh
 Add it, verify one layer at a time, then use the names — the `sudo` lines are yours to run:
 
 ```bash
-cd /Users/olasumbo/gitRepos/cilium-kind-poc
+cd /Users/olasumbo/gitRepos/cilium-implementation-poc
 demos/15-bank/hosts-entries.sh                                  # review first
 sudo sh -c 'demos/15-bank/hosts-entries.sh >> /etc/hosts'      # you run this
 grep -c 'bankapi.poc.local' /etc/hosts                          # expect 1
