@@ -27,6 +27,18 @@ shared a container name, so in Loki they would have been one stream. Part 1 meas
 | the question | `loki-verdicts.sh`: two streams, one raw verdict, "which policy allowed it" | Part 2 |
 | the page | the Loki row on the verdict dashboard (chart 0.2.0), the cf2cnp action from it | Part 3 |
 
+## Since upstream 2.7.0 — `containerName`, removed there, kept on the fork with its proper home
+
+On 2026-09-15 the chart's author merged this demo's second-release layout (PR #13, through his #15) and, while
+merging, removed the `containerName` value: every panel of the Cilium Flows dashboard hard-coded
+`container="hubble-observer"`, so a release that named its container anything else emptied the dashboard without a
+word ("would broke the dashboard", commit `a1b6f47`). The value is what this demo needs — Part 1 measured the two
+releases sharing one stream without it — so the fork's `develop` keeps it and gives it the home it lacked: the
+dashboard's **Container** variable (a textbox, default `hubble-observer`) used by all eleven selectors. The default
+release looks as before; this demo's verdict stream is viewed by typing `hubble-observer-verdicts` into it; a
+misnamed main release is one visible variable away from its data instead of silently blank. Offered upstream as
+the follow-up to the dashboard PR. The transcript below is from the fork before that change and reads the same.
+
 ## Part 0 — the collector tails the second pod
 
 ```bash
