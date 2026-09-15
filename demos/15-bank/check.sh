@@ -45,7 +45,12 @@ k1 -n bank scale deploy/payments --replicas=1 >/dev/null; for c in poc1 poc2; do
 
 hdr "6. the poc2 side: payments there reaches redis (poc1) and accounts (poc2) — a throwaway curl pod in poc2"
 k2 delete pod bankprobe --wait=true >/dev/null 2>&1   # a stale one from an interrupted run blocks `kubectl run`
-k2 run bankprobe --rm -i --restart=Never --image=curlimages/curl:8.14.1 --command -- sh -c 'curl -s -X POST http://payments.bank.svc.cluster.local/payments -H "content-type: application/json" -d "{\"account\":\"chk-1002\",\"amount_cents\":5,\"merchant\":\"from-poc2\",\"key\":\"p2-'$RANDOM'\"}"' 2>/dev/null | python3 -c 'import json,sys; d=json.loads([l for l in sys.stdin if l.startswith("{")][0]); print("  ", {"payments_cluster": d["served_by"]["cluster"], "debited_by": d["upstream"]["served_by"]["cluster"], "stored_in_redis_via_mesh": "key" in d})'
+# `kubectl run --rm -i` attaches after the container starts and can miss a fast curl's only line (run 34939744189: an
+# IndexError instead of the answer) — the parser says so instead of a traceback; the answer itself is not in doubt
+k2 run bankprobe --rm -i --restart=Never --image=curlimages/curl:8.14.1 --command -- sh -c 'sleep 1; curl -s -X POST http://payments.bank.svc.cluster.local/payments -H "content-type: application/json" -d "{\"account\":\"chk-1002\",\"amount_cents\":5,\"merchant\":\"from-poc2\",\"key\":\"p2-'$RANDOM'\"}"; sleep 1' 2>/dev/null | python3 -c 'import json,sys
+lines=[l for l in sys.stdin if l.startswith("{")]
+if not lines: print("   (the probe pod answered, but kubectl attached too late to catch its line — run it again)"); sys.exit(0)
+d=json.loads(lines[0]); print("  ", {"payments_cluster": d["served_by"]["cluster"], "debited_by": d["upstream"]["served_by"]["cluster"], "stored_in_redis_via_mesh": "key" in d})'
 
 hdr "7. the page through the Gateway (bank.poc.local on the wildcard cert)"
 GW=$(k1 -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}')

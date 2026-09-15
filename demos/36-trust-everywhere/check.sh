@@ -25,8 +25,14 @@ for c in "$CTX" "$PEER"; do
   synced=$(kubectl --context "$c" get bundle enterprise-root -o jsonpath='{.status.conditions[?(@.type=="Synced")].status}' 2>/dev/null || echo "?")
   cms=$(kubectl --context "$c" get cm -A --field-selector metadata.name=enterprise-root -o json 2>/dev/null)
   n=$(printf '%s' "$cms" | jq '.items | length' 2>/dev/null || echo 0); nss=$(kubectl --context "$c" get ns --no-headers 2>/dev/null | wc -l | tr -d ' ')
-  fps=$(printf '%s' "$cms" | jq -r '.items[].data["ca.crt"] | @base64' 2>/dev/null | while read -r b; do printf '%s' "$b" | base64 -d | openssl x509 -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2; done | sort -u | wc -l | tr -d ' ')
-  echo "  $c: Bundle enterprise-root Synced=$synced; ConfigMap enterprise-root in $n of $nss namespaces; distinct fingerprints: $fps"
+  # one bundle everywhere: the sha256 of each ConfigMap's ca.crt (the whole file — `openssl x509` reads only the first
+  # certificate of a bundle and closes the pipe, which printed "Broken pipe" 24 times in run 34939744189), the number of
+  # certificates in it, and whether OUR root is among them (a line of the root's PEM, looked up in the bundle)
+  distinct=$(printf '%s' "$cms" | jq -c '.items[].data["ca.crt"]' 2>/dev/null | sort -u | wc -l | tr -d ' ')   # each bundle as one JSON string per line
+  certs=$(printf '%s' "$cms" | jq -r '.items[0].data["ca.crt"] // ""' 2>/dev/null | grep -c 'BEGIN CERTIFICATE' || true)
+  rootline=$(sed -n 2p .tmp/root-ca.crt 2>/dev/null || kubectl --context "$CTX" -n cert-manager get secret clustermesh-root-ca -o jsonpath='{.data.tls\.crt}' | base64 -d | sed -n 2p)
+  withroot=$(printf '%s' "$cms" | jq -r '.items[].data["ca.crt"]' 2>/dev/null | grep -c -- "$rootline" || true)
+  echo "  $c: Bundle enterprise-root Synced=$synced; ConfigMap enterprise-root in $n of $nss namespaces; $certs certificates per bundle; distinct bundles: $distinct; bundles carrying our root: $withroot of $n"
 done
 
 echo; echo "== 4. a pod with the bundle mounted (forensic/client, demo 11's rig): the Gateway with the mounted root, and without"
