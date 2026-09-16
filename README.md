@@ -57,7 +57,7 @@ each one from this host; `scripts/hosts-entries.sh` prints the block from live s
 
 | Page | URL | Notes |
 |---|---|---|
-| Grafana — Cilium, Hubble, the verdicts, the observer and DNS dashboards (demos 16, 25, 28, 31) | `https://grafana.poc.local` | `admin` / `poc-grafana`; through the Gateway `routes-gw` (`172.18.255.240`) on the lab's wildcard certificate |
+| Grafana — Cilium, Hubble, the verdicts, the observer and DNS dashboards (demos 16, 25, 28, 31) | `https://grafana.poc.local` | `admin` / `poc-grafana`; through the Gateway `routes-gw` (`172.18.255.240`) on the lab's wildcard certificate; `http://` answers a 301 to `https://` (gotcha #114) |
 | Hubble UI — the service map, both clusters' flows | `http://hubble-direct.poc.local` (= `http://172.18.255.201`) | its own LoadBalancer address from poc1's block |
 | cf2cnp — the observer's policy generator, the API the chapters call (demo 25) | `https://cf2cnp.poc.local` | |
 | The bank across the mesh — web and api (demos 15, 19) | `https://bank.poc.local`, `https://bankapi.poc.local` | poc1's web/api/payments, poc2's accounts/postgres |
@@ -183,7 +183,7 @@ unchanged, with BGP substituted for L2 in production.
    from the chain, not assumed), and that root put into the OS trust stores and every namespace of both
    clusters, so `--cacert` flags and in-pod curls to Gateway URLs stop being special cases.
 9. **[docs/POLICY-TEST-RESULTS.md](docs/POLICY-TEST-RESULTS.md)** is the one-page answer to "what was tested and what happened" for every generated network policy (demos 26–35) and for cf2cnp's own test layers.
-10. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 113 traps, each with the real error
+10. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 114 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -425,7 +425,7 @@ in the gotchas, #92 onward.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 113 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 114 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 

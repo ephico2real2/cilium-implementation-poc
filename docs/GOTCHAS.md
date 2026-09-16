@@ -2893,6 +2893,40 @@ docker save --platform linux/arm64 -o .tmp/img.tar <image:tag>; kind load image-
 **The lesson:** "load it to be safe" is a step, and a step can fail. The node's `imageID` already says where the image
 came from; read it before adding a hand-off the cluster does not need.
 
+## <a name="114"></a>114. A Gateway API route without `sectionName` serves on every listener — Grafana answered on `:80` too, and an `http://` bookmark broke the dashboard's cf2cnp action with "An error has occurred"
+
+**Where:** the M5, 2026-09-16 08:1x–09:2x. The operator's Grafana bookmark began with `http://`; the hubble-observer
+dashboard's *Generate CiliumNetworkPolicy from Flow* showed Grafana's toast, and cf2cnp's log had nothing. Everything
+server-side measured clean (names, the root in the keychain, the API replayed with curl → 200, the same action from an
+`https://` page → 200). Then the operator pasted the URL:
+
+```text
+$ curl -sS -o /dev/null -w '%{http_code}\n' http://grafana.poc.local/login
+200                                                     # Grafana served on the plain-HTTP listener
+$ curl -sS -D - -X OPTIONS https://cf2cnp.poc.local/generate -H 'Origin: http://grafana.poc.local' \
+    -H 'Access-Control-Request-Method: POST' | grep -i allow-origin
+                                                        # nothing: the allow-list holds https://grafana.poc.local (demo 33)
+Playwright, strict TLS, from the operator's exact URL:
+  POST https://cf2cnp.poc.local/generate FAILED IN THE BROWSER: net::ERR_FAILED
+```
+
+**What happened:** `routes/grafana` had `parentRefs: [{name: routes-gw}]` and no `sectionName`, so it attached to **every**
+listener of the Gateway whose hostname allowed it — the HTTPS wildcard *and* the HTTP one. A page loaded over `http://`
+has the origin `http://grafana.poc.local`; the action's `fetch` to `https://cf2cnp.poc.local` is cross-origin, the
+preflight for that origin gets no `access-control-allow-origin`, and Chrome drops the POST before it is sent — so the
+server cannot log what it never received (cf2cnp 0.9.0 logs every refusal now; this one is not the server's).
+
+**The fix** (`demos/16-monitoring/10-gateway.yaml`): the Gateway API pattern for TLS-only — the serving route pinned to the
+HTTPS listener (`sectionName: https-wildcard`) and a second `HTTPRoute` on the HTTP listener (`sectionName: http`) with
+one `RequestRedirect` filter, `{scheme: https, statusCode: 301}`. Measured: `http://grafana.poc.local/d/…?from=…` →
+`301`, `location: https://grafana.poc.local:443/d/…?from=…` (Cilium writes the explicit port; the browser normalises
+it away — the landed URL and the origin have no `:443`), and the operator's `http://` URL now runs the action to
+`POST /generate → 200`. The other hostnames are untouched (their routes still attach to both listeners; cf2cnp's own
+route is issue #14's business).
+
+**The lesson:** "attached to the Gateway" is not "attached to the TLS listener". A route that must be TLS-only says which
+listener it means, and the plain-HTTP listener gets a redirect, not silence — silence is what a bookmark finds.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
