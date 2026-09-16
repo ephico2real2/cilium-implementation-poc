@@ -180,3 +180,31 @@ Outcome in one line: **…**
   volunteered finding), the card's "the first time this unfolds" was not what the code did (Codex refuted / Cursor
   "intended": a text fix). Behind the Gateway, the tests-with-fixes-reverted and curl users: confirmed. Cursor implemented
   the four from a brief; measured on the rebuilt binary (404, the cleared panel, the hidden link). `1be56f1`, pushed.
+
+## Part 4 — cf2cnp 0.8.0: the release the merge did not make, and the lab on it (2026-09-16, 05:40 → 06:45)
+
+- **The operator merged fork PR #3** (05:40:30Z, `349c32a`) and asked why no image and no chart followed. Measured from
+  the workflow triggers: a push to `develop` runs `ci.yml` only (run 35060458490, success); `docker-publish`,
+  `helm-publish` and `binary-release` fire on a **tag** (or `main`, which the fork never uses), `chart-releaser` on a
+  `develop` push touching `helm/**` — PR #3 touched `internal/server/*` only. That is how 0.7.0 was cut on 2026-09-13
+  (`d3819ca` bumped `Chart.yaml`, tag `v0.7.0` at `3144152`). **The operator:** "i am okay with public release 0.8.0".
+- **The release** — Cursor from a brief: `Chart.yaml` 0.7.0 → 0.8.0 and the `## 0.8.0 — 2026-09-16` changelog entry;
+  one number corrected by measurement (my brief said 27 goldens; `ls internal/testdata/golden` and `go test -run Golden`
+  both say 14). `f00b9c6` + tag `v0.8.0` pushed → image (run 35061570383, linux/amd64 + arm64), OCI chart
+  (35061570406, `oci://ghcr.io/ephico2real2/helm-charts/cf2cnp:0.8.0`, digest `b748391…`), gh-pages index
+  (35061568941, `created 2026-09-16T05:57:05Z`, `a088437`), binaries + checksums (35061570394, 05:58:52Z), CI green.
+  The gh-pages README (`8bdd196`) records the five workflows, their triggers and each artefact's path with 0.8.0's proof
+  — the operator asked for the table there; the v0.8.0 release notes carry the changelog entry and the same table
+  (`gh release edit`, on the operator's word).
+- **The lab on 0.8.0** — `values-hubble-observer.yaml` `tag: "0.8.0"`, `lab-policies.sh` `CF2CNP_VERSION` 0.8.0 (the
+  binary downloaded and its checksum verified on the M5: `cf2cnp 0.8.0`, spec Cilium v1.20.1); `chart-from-fork.sh
+  develop` → release revision 3, the cf2cnp pod on `:0.8.0`. Measured through the Gateway (172.18.255.240, http and
+  https): title and badge `v0.8.0`, three cards, `/health` OK, `/download/a/b` 404; in Chromium the `/health` panel
+  answered `HTTP 200 · 15 ms · text/plain`. `9587a64`.
+- **Gotcha #113 — my wrong step, the operator's rule.** I `kind load`ed the pulled image first; it failed
+  (`ctr: content digest … not found`: under Docker's containerd image store the tag is a multi-platform index and the
+  import asks for the amd64 manifest never fetched, kind #4224/#3795), and the `docker save --platform` archive route
+  worked — but the step was unnecessary: 0.7.0's pod carries a ghcr `repoDigest`, the nodes pull the public package
+  themselves. **The operator:** "kind can pull public images, we only need load if this image was built locally".
+  The gotcha is written that way round; the values comment that had claimed the package was private is corrected.
+  113 traps in README.
