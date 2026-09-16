@@ -16,29 +16,46 @@ cluster](#kind-versus-a-real-cluster) · [Blocked and parked](#blocked-and-parke
 
 ## Quick start
 
-The whole lab — both clusters, every stack, the eleven labs, the six cf2cnp chapters, the report — comes up from four
-commands on a Mac (measured on an Apple M5 Pro, 2026-09-15: the bring-up in 9 min 34 s, everything after it in
-9 min 5 s):
+Four commands bring up the whole lab on a Mac — both clusters, every stack, the eleven labs, the six cf2cnp chapters,
+the report (measured on an Apple M5 Pro, 2026-09-15: the bring-up in 9 min 34 s, everything after it in 9 min 5 s).
 
-```bash
-scripts/bootstrap/macos.sh            # Homebrew, Homebrew's bash and coreutils (requirements), the tools, the Docker Desktop VM, the preflight
-scripts/lab-up.sh poc1 poc2           # both clusters, each complete on its own, then the mesh
-scripts/lab-all.sh                    # everything after: 1 min of audit traffic, the policies, the report — no long waits
-                                      # LAB_AUDIT_MINUTES=3 LAB_TRAFFIC_MINUTES=6 for the Action's windows; LAB_CAPTURE=1 for the page walk
-scripts/lab-trust.sh install kind-poc1; scripts/lab-route.sh kind-poc1; scripts/hosts-entries.sh | sudo tee -a /etc/hosts   # three sudo steps: the root, the route, the names
-```
+1. **Bootstrap** — Homebrew, Homebrew's bash and coreutils (requirements), the pinned tools, the Docker Desktop VM,
+   then the preflight table:
 
-A new Mac starts at **[docs/NEW-MAC.md](docs/NEW-MAC.md)** (the toolchain, Docker Desktop from its settings file, the
-preflight). To build it **by hand, one command at a time** with the recorded output beside each — the kind clusters,
-the API endpoint by DNS name, the Cilium install, LB IPAM, the second cluster and the mesh — follow
-**[docs/SETUP.md](docs/SETUP.md)** Steps 1–9 with [NETWORKING_DESIGN.md](NETWORKING_DESIGN.md) open (the addressing
-plan every later address comes from) and [docs/TUNING.md](docs/TUNING.md) at Step 5 (the day-1 datapath values that are
-an outage to change later). Steps 10 onward install what each demo adds.
+   ```bash
+   scripts/bootstrap/macos.sh
+   ```
 
-The same scripts run on a GitHub-hosted runner (4 vCPU, 16 GB) as three `workflow_dispatch` workflows; only the
-bootstrap differs (`scripts/bootstrap/ubuntu.sh` there, `macos.sh` here, both ending in the same
-`scripts/lab-preflight.sh` table). The plan and every run's measurements:
-[enhancements/004-lab-in-ci.md](enhancements/004-lab-in-ci.md).
+2. **The clusters** — each complete on its own, then the mesh:
+
+   ```bash
+   scripts/lab-up.sh poc1 poc2
+   ```
+
+3. **Everything else** — the stacks, the labs, one minute of audit traffic, the policies, the report. No long waits;
+   the Action's windows are knobs (`LAB_AUDIT_MINUTES=3 LAB_TRAFFIC_MINUTES=6`), `LAB_CAPTURE=1` adds the page walk:
+
+   ```bash
+   scripts/lab-all.sh
+   ```
+
+4. **The three `sudo` steps** — the lab's root into the System keychain, the route into the Docker VM, the names:
+
+   ```bash
+   scripts/lab-trust.sh install kind-poc1
+   scripts/lab-route.sh kind-poc1
+   scripts/hosts-entries.sh | sudo tee -a /etc/hosts
+   ```
+
+A new Mac starts at [docs/NEW-MAC.md](docs/NEW-MAC.md); to build the same thing **by hand, one command at a time**
+with its recorded output, follow [docs/SETUP.md](docs/SETUP.md) Steps 1–9 with [NETWORKING_DESIGN.md](NETWORKING_DESIGN.md)
+and [docs/TUNING.md](docs/TUNING.md) beside it — Steps 10 onward install what each demo adds.
+
+### The same lab in CI
+
+The scripts above run unchanged on a GitHub-hosted runner (4 vCPU, 16 GB) as three `workflow_dispatch` workflows; only
+the bootstrap differs (`scripts/bootstrap/ubuntu.sh` there, `macos.sh` here, both ending in the same preflight table).
+The plan and every run's measurements: [enhancements/004-lab-in-ci.md](enhancements/004-lab-in-ci.md).
 
 | Workflow | What it proves |
 |---|---|
@@ -49,7 +66,9 @@ bootstrap differs (`scripts/bootstrap/ubuntu.sh` there, `macos.sh` here, both en
 A run's page holds the report and the captures; its artifact every log, the raw flows and the generated policies. What the
 runner refused (netkit before its kernel, BIG TCP under VXLAN, the bandwidth manager in kind) is in the gotchas, #92 onward.
 
-**The pages**, once the names are in `/etc/hosts` (`scripts/lab-route.sh kind-poc1` prints the live addresses and
+### The pages
+
+Once the names are in `/etc/hosts` (`scripts/lab-route.sh kind-poc1` prints the live addresses and
 checks each from this host; `scripts/hosts-entries.sh` prints the block and never edits the file):
 
 | Page | URL | Notes |
