@@ -1,5 +1,13 @@
-# Grafana on the demo 09 Gateway as https://grafana.poc.local (the wildcard certificate covers it).
-# The route lives in `routes` (with the Gateway); the ReferenceGrant is monitoring's consent (gotcha #32).
+# Grafana on the demo 09 Gateway as https://grafana.poc.local — THE HAND-WRITTEN FORM, kept as the worked example.
+#
+# NOT APPLIED BY THE LAB SINCE 2026-09-16. kube-prometheus-stack's Grafana subchart (13.2.3 in 90.1.1) renders these two
+# routes itself from `grafana.route` in demos/16-monitoring/values-kube-prometheus-stack.yaml — `main` on the TLS listener,
+# `redirect` with `httpsRedirect: true` on the HTTP one — into Grafana's own namespace, and the shared Gateway admits that
+# namespace by label (`gateway-access: routes-gw`, demos/09-routes/01-gateway.yaml). That is the Gateway API's second
+# ownership model: the app owns its route, the Gateway owner decides which namespaces may attach. This file shows the
+# first model — the Gateway's namespace (`routes`) owns the route and the app namespace consents to the backend with a
+# ReferenceGrant (gotcha #32) — which the other demos (bank, petclinic, cf2cnp) still use. Apply it only on a cluster
+# where the chart's routes are off (`grafana.route.main.enabled=false`), or the two would compete for the hostname.
 #   kubectl --context kind-poc1 apply -f demos/16-monitoring/10-gateway.yaml
 #
 # Two routes for one hostname, the Gateway API's own pattern for "TLS only": the serving route attaches to the HTTPS
@@ -7,7 +15,7 @@
 # https://. Before this (2026-09-16) the serving route had no sectionName, so it attached to BOTH listeners and Grafana
 # was served on :80 too — a browser at http://grafana.poc.local then sent Origin: http://grafana.poc.local to cf2cnp,
 # which allows https://grafana.poc.local only (demo 33), the preflight failed and the dashboard's Generate action died
-# in the browser with "An error has occurred" (issue #14). The redirect gives the lab one Grafana origin.
+# in the browser with "An error has occurred" (issue #14, gotcha #114). The redirect gives the lab one Grafana origin.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata: {name: grafana, namespace: routes}

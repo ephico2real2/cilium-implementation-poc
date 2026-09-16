@@ -157,10 +157,21 @@ certificate from the cert-manager CA of demo 08, so a new hostname costs one `HT
 lives in `routes` with the Gateway; the backend `Service` is in `monitoring`, and Gateway API
 refuses a cross-namespace backend unless the *target* namespace consents with a `ReferenceGrant`
 (gotcha #32, same as the bank's `allow-routes-to-bank`). Both in
-[`10-gateway.yaml`](10-gateway.yaml):
+[`10-gateway.yaml`](10-gateway.yaml) — **kept as the worked example of that model, no longer what the lab applies.**
+
+**Since 2026-09-16 the chart renders Grafana's routes** (kube-prometheus-stack's Grafana subchart 13.2.3 has
+`route.<name>` values — an HTTPRoute per key, `httpsRedirect: true` for a 301 route): `grafana.route.main` on the
+`https-wildcard` listener and `grafana.route.redirect` on `http` in
+[`values-kube-prometheus-stack.yaml`](values-kube-prometheus-stack.yaml), rendered as `monitoring/monitoring-grafana`
+and `monitoring/monitoring-grafana-redirect` in Grafana's **own** namespace. That is the Gateway API's other ownership
+model — the app owns its route, the Gateway admits namespaces by label: `routes-gw`'s HTTP(S) listeners now say
+`allowedRoutes.namespaces.from: Selector` with `gateway-access: routes-gw`, `monitoring` and `routes` carry the label,
+and no ReferenceGrant is needed because route and Service share a namespace. Measured: both routes `Accepted`, the
+`routes`-namespace routes still admitted, an unlabelled namespace's route refused with `NotAllowedByListeners`, and
+`http://grafana.poc.local/…` → `301 https://…` (gotcha #114). To study the hand-written form instead:
 
 ```bash
-kubectl --context kind-poc1 apply -f demos/16-monitoring/10-gateway.yaml
+kubectl --context kind-poc1 apply -f demos/16-monitoring/10-gateway.yaml     # only with grafana.route.*.enabled=false
 kubectl --context kind-poc1 -n routes get httproute grafana \
   -o custom-columns='ROUTE:.metadata.name,HOSTS:.spec.hostnames,ACCEPTED:.status.parents[0].conditions[?(@.type=="Accepted")].status,RESOLVED:.status.parents[0].conditions[?(@.type=="ResolvedRefs")].status'
 ```
@@ -232,7 +243,7 @@ Uninstall, if ever needed (CRDs are deliberately left by helm; the second line r
 ```bash
 helm uninstall monitoring -n monitoring --kube-context kind-poc1
 kubectl --context kind-poc1 get crd -o name | grep monitoring.coreos.com | xargs kubectl --context kind-poc1 delete
-kubectl --context kind-poc1 delete -f demos/16-monitoring/10-gateway.yaml
+kubectl --context kind-poc1 delete -f demos/16-monitoring/10-gateway.yaml   # only if the hand-written form was applied
 ```
 
 ---

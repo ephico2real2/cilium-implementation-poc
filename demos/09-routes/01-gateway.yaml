@@ -56,7 +56,15 @@ spec:
           - kind: Secret
             name: wildcard-poc-local-tls      # cert-manager creates this
       allowedRoutes:
-        namespaces: {from: Same}
+        # Two ways to attach a route to a shared Gateway, both in the Gateway API: (1) the Gateway's namespace owns the
+        # route and the app namespace consents to the backend with a ReferenceGrant (demo 09, 16, 25 — `from: Same`);
+        # (2) the app namespace owns its route and the Gateway admits the namespace by label. Since 2026-09-16 both
+        # HTTP(S) wildcard listeners admit any namespace carrying `gateway-access: routes-gw`: `routes` itself (so
+        # model 1 keeps working) and `monitoring` (the kube-prometheus-stack chart renders Grafana's own HTTPRoute,
+        # demo 16 `grafana.route`). A namespace without the label is not a route source, whatever it declares.
+        namespaces:
+          from: Selector
+          selector: {matchLabels: {gateway-access: routes-gw}}
 
     # --- HTTPS, exact-name certificate -------------------------------------------------------
     - name: https-exact
@@ -78,7 +86,9 @@ spec:
       protocol: HTTP
       port: 80
       allowedRoutes:
-        namespaces: {from: Same}
+        namespaces:
+          from: Selector                      # the same labelled namespaces as https-wildcard (a redirect route lives here)
+          selector: {matchLabels: {gateway-access: routes-gw}}
 
     # --- raw TCP --------------------------------------------------------------------------
     # A TCP listener has no hostname and no HTTP semantics; it forwards bytes. The route kind must
