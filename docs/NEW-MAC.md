@@ -9,16 +9,38 @@ against the Intel MacBook: Homebrew lives under `/opt/homebrew`. The rest was me
 the LB blocks works on it, and the per-host preparation is a script — `scripts/bootstrap/macos.sh` here,
 `scripts/bootstrap/ubuntu.sh` on the runner — that ends in the same preflight table on both.
 
-## 1. Homebrew, then the tools
+## 1. Homebrew and Homebrew's bash — requirements — then the tools
+
+**Two requirements on a Mac, both installed by `scripts/bootstrap/macos.sh` when absent** (the operator, 2026-09-15: "make
+installing homebrew … and then install bash from homebrew part of the setup of this lab on macbook and say it is a
+requirement"):
+
+1. **Homebrew.** Every lab tool comes from it. The bootstrap runs its installer in Homebrew's documented unattended mode
+   (`NONINTERACTIVE=1`: no RETURN prompt) after `sudo -v` — the installer aborts without cached sudo credentials, so your
+   password is asked once — and adds `brew shellenv` to `~/.zprofile`. That is why the bootstrap runs from a Terminal; a
+   shell that cannot prompt stops with the two lines to run yourself.
+2. **bash ≥ 4.4, Homebrew's.** macOS ships `/bin/bash` 3.2.57, and the lab's scripts were measured on the runner's 5.2:
+   they use `declare -A` (`demos/15-bank/exercise.sh`) and `"${a[@]}"` on an empty array under `set -u` (an error before
+   4.4, `scripts/lab-apps.sh`). On the M5's first deploy the bank, the DNS lab and the petclinic died of exactly that
+   (gotcha #111). `/opt/homebrew/bin` precedes `/bin` on PATH, so `#!/usr/bin/env bash` finds Homebrew's 5.3; the
+   preflight has a `bash (env bash)` row that is REQUIRED-FAIL below 4.4, and `macos.sh`'s tools table leads with it.
+3. **GNU coreutils, Homebrew's** — for `gtimeout`: the labs bound their in-cluster checks with a 15-minute ceiling
+   (`scripts/lab-apps.sh`'s `deadline`), which is GNU `timeout` on the runner and does not exist on macOS; without it the
+   bank's check sat 36 minutes on the M5 (gotcha #112). `macos.sh` installs the formula; with neither tool the check runs
+   unguarded and prints a warning saying so.
+
+By hand, the same two:
 
 ```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+sudo -v && NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile && eval "$(/opt/homebrew/bin/brew shellenv)"
-brew --version
+brew install bash coreutils && bash --version | head -1 && gtimeout --version | head -1   # 5.3.x at /opt/homebrew/bin/bash; gtimeout (GNU coreutils)
 ```
 
 | Tool | Install | Version the lab pins or was verified with | Used by |
 |---|---|---|---|
+| bash | `brew install bash` — **a requirement** (above) | **≥ 4.4**; 5.3.20 on the M5, 5.2 on the runner; macOS's 3.2 fails the labs (gotcha #111) | every script's `#!/usr/bin/env bash` |
+| coreutils | `brew install coreutils` — **a requirement** (above) | any (`gtimeout`) | `scripts/lab-apps.sh`'s `deadline` on the in-cluster checks (gotcha #112) |
 | git, gh | `brew install git gh` then `gh auth login` | any | the repo, the runs, the PRs (`gh run download`, `gh workflow run`) |
 | Docker Desktop | `brew install --cask docker-desktop` | 4.91.0 on both Macs (kernel `7.0.12-linuxkit`, built **without** `CONFIG_NETKIT` — gotcha #109; the lab is veth on every Mac) | kind's provider: the clusters, `scripts/lab-images.sh` |
 | kind | `brew install kind` | **0.33.0** (the node image is pinned by digest, `kindest/node:v1.36.4@sha256:099e…`, an index with `linux/arm64`) | `scripts/lab-up.sh` |
@@ -42,7 +64,7 @@ One line for the lab's tools — or let `scripts/bootstrap/macos.sh` (§3) insta
 cask; the reviewers, `go` and the docs' linter are yours:
 
 ```bash
-brew install git gh kind kubernetes-cli helm cilium-cli hubble jq node go
+brew install bash coreutils git gh kind kubernetes-cli helm cilium-cli hubble jq node go
 brew install --cask docker-desktop codex
 curl https://cursor.com/install -fsS | bash && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc   # Cursor's CLI, `agent`; its installer puts it in ~/.local/bin
 npm i -g markdownlint-cli2                                                                            # scripts/mdfmt and the .claude hook (missing on the M5 until 2026-09-15)

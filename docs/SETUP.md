@@ -149,6 +149,14 @@ build only cluster `poc1` and skip Phase 4 (ClusterMesh).
 
 ## Step 1 — install and verify the toolchain
 
+> **Two requirements first, on any Mac (2026-09-15): Homebrew, and Homebrew's bash (≥ 4.4).** macOS ships
+> `/bin/bash` 3.2.57; the lab's scripts were measured on bash 5 and use `declare -A` and `"${a[@]}"` on empty
+> arrays under `set -u`, both of which 3.2 refuses — on the M5 the bank, the DNS lab and the petclinic died of it
+> (gotcha #111). `scripts/bootstrap/macos.sh` installs both when absent and its table leads with the bash it found;
+> `scripts/lab-preflight.sh` has a `bash (env bash)` row that is REQUIRED-FAIL below 4.4. By hand:
+> `brew install bash coreutils`, then `which -a bash` must list `/opt/homebrew/bin/bash` before `/bin/bash`, and
+> `gtimeout` must exist (the labs' 15-minute ceiling on their in-cluster checks — gotcha #112).
+
 Four sub-steps, each run and verified on its own. Resist the urge to chain them with `&&`: when a
 chain fails you have to work out *which* link broke, and Homebrew in particular prints a lot of
 noise around the one line that matters.

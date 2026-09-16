@@ -22,24 +22,46 @@
 #   - kernelForUDP is what gives the VM eth1 on a bridge the host can route to — the next hop of the route to the LB blocks
 #     (SETUP Step 3.5, scripts/lab-route.sh), measured on the Apple Virtualization framework. Desktop's own caveat on the
 #     switch: "may not be compatible with your VPN software".
-# What stays the operator's, on purpose: Homebrew's installer and Docker Desktop's first launch (both ask for a password),
-# the logins (gh, codex, agent), Podman and CRC (NEW-MAC §2, other projects), and Docker Desktop's privileged helper
-# (vmnetd — a system-mode install; this Desktop was installed in user mode, "vmnetd is not installed on this system").
+# REQUIREMENTS this script installs when absent (the operator, 2026-09-15: "make installing homebrew … and then install
+# bash from homebrew part of the setup of this lab on macbook and say it is a requirement"):
+#   - Homebrew — every lab tool comes from it. Its installer needs your password once (sudo) and, run unattended
+#     (NONINTERACTIVE=1, Homebrew's documented mode), never prompts for a RETURN; it aborts if sudo has no cached
+#     credentials, so this script runs `sudo -v` first — which is why it must run from a Terminal, not from a shell that
+#     cannot prompt (an agent's: it stops with the two lines to run yourself).
+#   - bash ≥ 4.4, from Homebrew — the lab's scripts were measured on the runner's bash 5.2 and use what macOS's /bin/bash
+#     3.2 lacks (declare -A in demos/15-bank/exercise.sh; "${a[@]}" on an empty array under set -u, an error before 4.4);
+#     on the M5 the labs died of both (gotcha #111). /opt/homebrew/bin precedes /bin on PATH, so `#!/usr/bin/env bash`
+#     finds Homebrew's; the preflight has a row for it.
+# What stays the operator's, on purpose: Docker Desktop's first launch (a password for its helpers), the logins (gh,
+# codex, agent), Podman and CRC (NEW-MAC §2, other projects), and Docker Desktop's privileged helper (vmnetd — a
+# system-mode install; this Desktop was installed in user mode, "vmnetd is not installed on this system").
 set -euo pipefail; cd "$(dirname "$0")/../.." || exit 1
 . scripts/bootstrap/versions.env
 LAB_VM_CPUS="${LAB_VM_CPUS:-10}"; LAB_VM_MEMORY_MIB="${LAB_VM_MEMORY_MIB:-24576}"; LAB_VM_RESTART="${LAB_VM_RESTART:-1}"
 say() { printf '\n== %s\n' "$*"; }; die() { echo "ERROR: $*" >&2; exit 1; }
+ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }   # ver_ge 5.3.20 4.4 → true (BSD sort has -V)
 [ "$(uname -s)" = Darwin ] || die "this is $(uname -s), not macOS — scripts/bootstrap/ubuntu.sh is the Linux bootstrap"
 # the pins here and lab-up.sh's own defaults must agree — one source, checked rather than trusted
 grep -q "KIND_VERSION_WANT:-${KIND_VERSION#v}}" scripts/lab-up.sh && grep -q "CILIUM_VERSION:-$CILIUM_VERSION}" scripts/lab-up.sh \
   || die "scripts/bootstrap/versions.env and scripts/lab-up.sh disagree on a pin (KIND_VERSION_WANT / CILIUM_VERSION)"
 
-# ---------------------------------------------------------------- Homebrew and the tools (NEW-MAC §1)
+# ---------------------------------------------------------------- Homebrew (a requirement) and the tools (NEW-MAC §1)
 say "the host: macOS $(sw_vers -productVersion) on $(uname -m), $(sysctl -n hw.ncpu) CPUs, $(( $(sysctl -n hw.memsize) / 1073741824 )) GiB"
-command -v brew >/dev/null || die 'Homebrew is not installed; its installer asks for your password, so it is yours to run: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" — then run this again (NEW-MAC §1)'
-FORMULAE="kind kubernetes-cli helm cilium-cli hubble jq node"     # NEW-MAC §1's line; go is optional (demo 25's logql-test) and left out
+brew_env() { local p; for p in /opt/homebrew/bin/brew /usr/local/bin/brew; do [ -x "$p" ] && { eval "$("$p" shellenv)"; return 0; }; done; return 1; }
+command -v brew >/dev/null || brew_env || true                     # installed (Apple silicon or Intel prefix) but not on this shell's PATH yet
+if ! command -v brew >/dev/null; then
+  say "Homebrew is a requirement of this lab and is not installed — installing it (Homebrew's unattended mode; sudo asks for your password once)"
+  [ -t 0 ] || die 'no terminal for the password prompt — in a Terminal run:  sudo -v && NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"  then this script again'
+  sudo -v || die "sudo did not accept the password (Homebrew needs an Administrator account on macOS)"
+  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || die "Homebrew's installer failed — its output above says why"
+  brew_env || die "Homebrew installed, but neither /opt/homebrew/bin/brew nor /usr/local/bin/brew exists"
+  grep -qs 'brew shellenv' "$HOME/.zprofile" || { printf 'eval "$(%s shellenv)"\n' "$(command -v brew)" >> "$HOME/.zprofile"; echo "  ~/.zprofile: brew shellenv added (new Terminals find brew)"; }
+  echo "  $(brew --version | head -1) at $(command -v brew)"
+fi
+FORMULAE="bash coreutils kind kubernetes-cli helm cilium-cli hubble jq node"   # NEW-MAC §1's line; bash ≥ 4.4 (gotcha #111) and coreutils' gtimeout (gotcha #112) are requirements; go is optional and left out
 missing=""; for f in $FORMULAE; do brew list --formula --versions "$f" >/dev/null 2>&1 || missing="$missing $f"; done
-if [ -n "$missing" ]; then say "brew install$missing"; brew install $missing; else say "Homebrew: every formula present ($FORMULAE)"; fi
+if [ -n "$missing" ]; then say "brew install$missing"; brew install $missing; hash -r; else say "Homebrew: every formula present ($FORMULAE)"; fi
+ver_ge "$(bash -c 'echo "${BASH_VERSION%%(*}"')" 4.4 || die "bash $(bash -c 'echo "$BASH_VERSION"') is what env finds ($(command -v bash)) — the lab needs ≥ 4.4; is $(brew --prefix)/bin before /bin on PATH? (gotcha #111)"
 [ -d /Applications/Docker.app ] || { say "brew install --cask docker-desktop"; brew install --cask docker-desktop; }
 
 # the versions Homebrew gave against the pins the Action runs green with — brew cannot pin, so this is a report: kind must
@@ -53,6 +75,8 @@ v_helm=$(helm version --template '{{.Version}}'); v_cilium=$(cilium version --cl
 row() { printf '  %-12s %-12s %-12s %s\n' "$1" "$2" "$3" "$4"; }
 cmp() { if [ "$2" = "$3" ]; then row "$1" "$2" "$3" "="; else row "$1" "$2" "$3" "≠ — $4"; fi; }
 row TOOL HERE PIN NOTE
+v_bash=$(bash -c 'echo "${BASH_VERSION%%(*}"'); bash_at=$(command -v bash)   # the bash `env` finds, which is the one every lab script runs in
+if ver_ge "$v_bash" 4.4; then row bash "$v_bash" "≥ 4.4" "= at $bash_at (the runner: 5.2)"; else row bash "$v_bash" "≥ 4.4" "≠ — REQUIRED: brew install bash put Homebrew's first on PATH? ($bash_at; gotcha #111)"; fi
 cmp kind "$v_kind" "$KIND_VERSION" "the node image is pinned for $KIND_VERSION; lab-up.sh warns (brew has no kind@$KIND_VERSION: kubernetes-sigs/kind releases)"
 cmp kubectl "$v_kubectl" "$KUBECTL_VERSION" "the clusters are $KUBECTL_VERSION; one minor either way is within the client skew"
 cmp helm "$v_helm" "$HELM_VERSION" "the lab was measured with $HELM_VERSION (the runner's); brew install helm@3 is the same major, keg-only"

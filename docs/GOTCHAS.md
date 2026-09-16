@@ -2740,6 +2740,120 @@ promises nothing about netkit.
 **The lesson:** a version floor is necessary, not sufficient — read the kernel's config (`/proc/config.gz`), or create
 the device, before writing "supported" anywhere.
 
+## <a name="110"></a>110. A `python3` one-liner that imports `yaml` runs on GitHub's Ubuntu image and dies on macOS — and under `set -e` it took the rest of the stack and half the labs with it
+
+**Where:** the M5's first full deploy (2026-09-15 18:14), `scripts/lab-stack.sh loki-observer`, at the observer's
+dashboard ConfigMap:
+
+```text
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+ModuleNotFoundError: No module named 'yaml'
+error: no objects passed to apply
+::error::the stack (lab-stack.sh)
+…
+== demo 30 — cf2cnp-lab30: the shop with real paths and HTTP visibility; what the proxy reports (Exercise 0)
+::error::the labs (lab-apps.sh all)
+```
+
+**What happened:** `demos/25-hubble-observer-loki/dashboard-from-file.sh` built the ConfigMap in Python and printed it
+with `yaml.safe_dump` — PyYAML. GitHub's `ubuntu-24.04` image ships `python3-yaml`, so every green run had it for
+free; macOS's `/usr/bin/python3` (3.9.6, Command Line Tools) has the standard library only. `set -e` ended
+`lab-stack.sh` there, so OBI, the Hubble CLI's client certificate and Kyverno never installed; then demo 30's
+`hubble observe` in `lab-apps.sh` had no certificate, `set -e` ended that too, and labs 32, 35, the Star Wars app, the
+bank, the DNS policy, the forensic client, the petclinic and the trust client never deployed. One undeclared module,
+one cascade — and nothing in CI could have shown it, because the runner is the platform that has the module.
+
+**The fix:** print JSON. `kubectl apply -f -` reads JSON as it reads YAML, and the ConfigMap is a `dict` either way:
+`print(json.dumps(cm, indent=1))` in `dashboard-from-file.sh` and in its parent, `demos/16-monitoring/dashboard-configmap.sh`
+— no dependency at all. Proven with a client-side dry run on the same dashboard file: `configmap/hubble-observer-flows
+created (dry run)`, uid pinned, 13 panels, `__inputs` dropped, the cf2cnp URL substituted. `demos/19-zero-trust-cell/render.py`
+genuinely *parses* YAML and stays on PyYAML: it is run only by `scripts/verify.sh` and its output is committed
+(`pip3 install pyyaml` on a Mac before that one).
+
+**The lesson:** "it runs in CI" proves the code on the runner's image, modules included. The standard library is the
+only Python a lab script may assume; when a script must write a Kubernetes object from Python, write JSON.
+
+## <a name="111"></a>111. macOS's `/bin/bash` is 3.2 — `declare -A` and an empty array under `set -u` fail, and three labs died of it on the M5 while the runner's bash 5 never noticed
+
+**Where:** the M5's first full deploy (2026-09-15, `scripts/lab-apps.sh all` from `scripts/lab-all.sh`), with no Homebrew
+bash on the machine:
+
+```text
+demos/15-bank/exercise.sh: line 46: declare: -A: invalid option
+declare: usage: declare [-afFirtx] [-p] [name[=value] ...]
+demos/15-bank/exercise.sh: line 59: poc2: unbound variable
+  world by IP: 1.1.1.1:443                                   DENIED (rc=1)
+  a Service IP on a port that is not a Service port: api.bank:8080 DENIED (rc=143)
+== demo 31 — the chapter's recorded toFQDNs policy on cf2cnp-lab/pos …
+scripts/lab-apps.sh: line 43: c[@]: unbound variable
+== demo 20 — the petclinic in springboot …
+::error::the labs (scripts/lab-apps.sh all)
+```
+
+The bank step took 11 min 20 s against the runner's 2 min 38 s (run 35028933940): the broken exercise left the egress
+test waiting out its timeouts.
+
+**What happened:** every script starts `#!/usr/bin/env bash`, and `env` found `/bin/bash` — macOS's 3.2.57 (2007; Apple
+stopped at the last GPLv2 release). Associative arrays (`declare -A`) arrived in bash 4.0; `"${a[@]}"` on an empty array
+under `set -u` was an "unbound variable" error until 4.4. GitHub's Ubuntu image has bash 5.2, and so did the Intel Mac
+through Homebrew — the scripts were written and measured on 5 without anyone naming the requirement. The petclinic step
+printed nothing after its header: `set -e` ended `lab-apps.sh` on the same class.
+
+**The fix:** the requirement, stated and installed, not eleven rewrites. `brew install bash` (5.3.20 on the M5);
+`/opt/homebrew/bin` precedes `/bin` on PATH, so `env bash` becomes Homebrew's — measured: `declare -A` and the
+empty-array expansion both work, and the re-run of the labs passed. `scripts/bootstrap/macos.sh` installs the formula
+(and Homebrew itself when absent — the operator's rule, 2026-09-15: "say it is a requirement"), its tools table leads
+with the bash `env` finds, and `scripts/lab-preflight.sh` has a `bash (env bash)` row that is REQUIRED-FAIL below 4.4 on
+any host, so the next machine learns this in the first table, not in the eleventh lab. `docs/NEW-MAC.md` §1 and
+`docs/SETUP.md` Step 1 name both requirements.
+
+**The lesson:** the interpreter is a dependency like any other. "Works in CI" measured the scripts on the runner's
+bash; a `#!/usr/bin/env bash` promises nothing about the version — the preflight has to read it.
+
+## <a name="112"></a>112. A lab that is only ever run once is not idempotent — the bank's "before the cell" check ran under the cell on the M5's second pass and hung 36 minutes, because macOS has no `timeout`
+
+**Where:** the M5, 2026-09-15 18:37 → 19:13, `scripts/lab-all.sh` re-running `scripts/lab-apps.sh all` after the bash fix
+(gotcha #111). `demos/15-bank/check.sh` printed its header and nothing else; the agent's own flow log said why:
+
+```text
+forensic/client:40494 (ID:72564) <> bank/api-6d44c9dd88-768q9:8080 (ID:122117) policy-verdict:none INGRESS DENIED (TCP Flags: SYN)
+forensic/client:40494 (ID:72564) <> bank/api-6d44c9dd88-768q9:8080 (ID:122117) Policy denied DROPPED (TCP Flags: SYN)
+$ kubectl --context kind-poc1 -n bank get cnp
+cell-accounts  cell-api  cell-payments  cell-postgres  cell-postgres-standby  cell-redis  cell-web    # 23:28:04Z — the FIRST pass
+```
+
+**What happened:** two things, both invisible on the runner. (1) `lab-apps.sh`'s bank lab runs demo 15's in-cluster check
+*before* applying demo 19's cell — the demos' own order, and the lab's comment says the cell "denies every namespace but its
+own, so a check from forensic after it hangs". True on a fresh cluster. On a re-run the cell from the previous pass is
+already there, the check runs under it, and every curl's SYN is dropped — no RST, so `curl` without `--max-time` waits for
+TCP to give up, forty times in step 3. The runner creates its clusters fresh every run and never met this. (2) The
+guard written for exactly this hang after run 34922062949 (94 minutes) — `command -v timeout && exec timeout 15m … ||
+exec …` — falls through *silently* where `timeout` does not exist, and macOS has no `timeout`: it is GNU coreutils'. So
+the ceiling that made the runner's failure a 15-minute one made the Mac's an open-ended one.
+
+**The fix:** (1) the bank lab removes the cell before the check when a previous pass left it — the
+`CiliumClusterwideNetworkPolicy` `bank-cell-baseline` and the `CiliumNetworkPolicies` labelled `rendered-from=intent.yaml`
+(`demos/19-zero-trust-cell/render.py` puts the label on every rendered policy), in both clusters — and re-applies it after,
+as before; on a first run there is nothing to remove. (2) a `deadline` helper: GNU `timeout` where it exists, Homebrew
+coreutils' `gtimeout` on a Mac, and with neither the command runs unguarded *and prints a warning naming the missing
+ceiling*. `coreutils` joins `scripts/bootstrap/macos.sh`'s formulae as a requirement. Measured: `deadline 1 sleep 5`
+exits 124 with coreutils; without it, the warning.
+
+**The same face, twice more on the M5's third pass:** chapter 26 died with `no AUDIT flow pos → shop in the relay` —
+the lab had re-enabled audit on `shop`, but the previous pass's generated allow-policy (`shop`, labelled
+`app.kubernetes.io/managed-by: cf2cnp`) still forwarded pos → shop, so the relay saw FORWARDED, never AUDIT, and cf2cnp
+had nothing to generate from. And the petclinic lab died at its header with nothing printed: `before_used=$(free -m
+2>/dev/null | awk …)` — `free` is Linux's, a Mac has none, the failed pipeline's status is the assignment's under
+`pipefail`, and `set -e` ended the lab with stderr already discarded. **Fixed the same way:** each chapter's lab calls
+`reset_chapter <namespaces>` (delete the cf2cnp-managed CiliumNetworkPolicies; lab30 also removes chapter 30's
+replacement default-deny) so the lab starts where the demo starts; the memory measurement became optional — `used_mb()`
+cannot fail the assignment and prints `?(no free on this host)` where it has nothing to say.
+
+**The lesson:** "idempotent" has to be measured by running twice — the runner's fresh clusters hide every second-run
+assumption. A guard that checks for a tool and quietly does without it is not a guard; the fall-through must speak. And
+a Linux-only command behind `2>/dev/null` inside `$( )` under `set -euo pipefail` is a silent exit waiting for a Mac.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
