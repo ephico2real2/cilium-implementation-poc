@@ -26,14 +26,14 @@
 #                                                                                       (one request)   rc=1 — the stranger twice, the shopper
 #                                                                                                       straight at the catalog (never observed)
 #
-# The three validations, in order, each fatal: `cf2cnp validate` (the 0.7.0 binary, offline, against the embedded CRD and
+# The three validations, in order, each fatal: `cf2cnp validate` (the pinned binary, CF2CNP_VERSION, offline, against the embedded CRD and
 # Cilium's own Sanitize — enhancement 003), `kubectl apply --dry-run=server` (the API server's schema), and after the apply
 # the policy's own status condition Valid=True from the agent (gotcha #80: an accepted object can still protect nothing).
 # Every flow file and every generated policy lands under $LAB_POLICIES_DIR (captures/policies) — the artifact holds the
 # raw material, not only the conclusion.
 set -euo pipefail; cd "$(dirname "$0")/.."
 CTX="${LAB_STACK_CTX:-kind-poc1}"; D="${LAB_POLICIES_DIR:-captures/policies}"; export ROOT_CA="${ROOT_CA:-.tmp/root-ca.crt}"
-CF2CNP_VERSION="${CF2CNP_VERSION:-0.7.0}"   # the binary; the observer's server is the chart's (demo 25) — both read the same Cilium spec
+CF2CNP_VERSION="${CF2CNP_VERSION:-0.8.0}"   # the binary; the observer's server is the chart's (demo 25) — both read the same Cilium spec
 G=demos/26-cf2cnp-policy-from-flows/generate.sh; F=demos/26-cf2cnp-policy-from-flows/get-flow.sh
 say() { printf '\n== %s  (%s)\n' "$1" "$(date +%H:%M:%S)"; }
 die() { echo "::error::$1" >&2; exit 1; }   # stderr: a die inside $(…) must not vanish into the variable

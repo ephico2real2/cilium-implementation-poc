@@ -150,7 +150,7 @@ jobs:
           scripts/lab-apps.sh rounds ${{ inputs.audit_minutes }} 2>&1 | tee audit-traffic.log
 
       # The cf2cnp chapters (scripts/lab-policies.sh): per demo, the raw flows captured and kept, the policy generated
-      # through cf2cnp's API, validated by the 0.7.0 binary, by the API server's dry run and by the agent's Valid condition,
+      # through cf2cnp's API, validated by the pinned cf2cnp binary, by the API server's dry run and by the agent's Valid condition,
       # applied, the audit flag dropped, the application tested again with the demo's own check — every promised line measured
       # A failed chapter or an empty store is recorded and the run goes on to the report and the captures — the evidence of
       # what state the lab was left in — and "The verdict" fails the job at the end (a failure here would otherwise skip them)

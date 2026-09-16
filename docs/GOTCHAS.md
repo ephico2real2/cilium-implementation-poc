@@ -2854,6 +2854,45 @@ cannot fail the assignment and prints `?(no free on this host)` where it has not
 assumption. A guard that checks for a tool and quietly does without it is not a guard; the fall-through must speak. And
 a Linux-only command behind `2>/dev/null` inside `$( )` under `set -euo pipefail` is a silent exit waiting for a Mac.
 
+## <a name="113"></a>113. A registry image needs no `kind load` — the node pulls it — and loading one anyway fails under Docker's containerd image store: `ctr: content digest sha256:…: not found`
+
+**Where:** the M5, 2026-09-16 06:2x, the observer upgrade to cf2cnp 0.8.0. The values file's comment said the fork's
+image was "loaded into poc1 with `kind load` as well, so the nodes need no ghcr pull (a personal ghcr package starts
+private)", so the release was pulled and loaded first:
+
+```text
+$ docker pull -q --platform linux/arm64 ghcr.io/ephico2real2/cf2cnp:0.8.0
+$ kind load docker-image ghcr.io/ephico2real2/cf2cnp:0.8.0 --name poc1
+Command Output: ctr: content digest sha256:425c72aeda273ce1790ccc070b71234532a8a4dfe22fe7237852dc6a96be5cb9: not found
+$ docker info --format '{{.DriverStatus}}'
+[[driver-type io.containerd.snapshotter.v1]]                       # Docker Desktop 4.91.0's default image store
+$ kubectl --context kind-poc1 -n hubble-observer get pod -l app.kubernetes.io/name=cf2cnp -o jsonpath='{.items[0].status.containerStatuses[0].imageID}'
+ghcr.io/ephico2real2/cf2cnp@sha256:153e430d1ed8922847bf4f7a8f549d8f6b0e1711e13153293ccc648db43b8770   # 0.7.0's pod: PULLED
+```
+
+**What happened:** two things. (1) The step was unnecessary — the operator's rule, and the last line above is its proof:
+the running 0.7.0 pod's `imageID` is a ghcr digest, so poc1's nodes pull the fork's package themselves; it is public.
+`kind load` is for an image that exists only in the host's Docker (`scripts/lab-images.sh`'s locally built ones) and
+for nothing else. (2) The load then failed for a reason of its own: with the containerd image store the tag keeps its
+*index* identity (the multi-platform manifest list) while only arm64 was materialised; `kind load docker-image` streams
+`docker save` into each node's `ctr images import --all-platforms --digests`, which walks the index and asks for the
+amd64 manifest the host never fetched — `425c72ae…` is that manifest (kind [#4224](https://github.com/kubernetes-sigs/kind/issues/4224),
+[#3795](https://github.com/kubernetes-sigs/kind/issues/3795); kind v0.33.0 here). The classic image store writes a
+single-platform archive and never showed this.
+
+**The fix:** for a registry image, nothing — let the node pull. The 0.8.0 pod that the upgrade produced runs the image
+this session had already loaded (`imageID docker.io/library/import-2026-09-16@sha256:a556b73a…`, gotcha #38's face); the
+next fresh bring-up pulls `ghcr.io/ephico2real2/cf2cnp:0.8.0` like every run before it. The values comment now says
+so. If a *locally built* multi-platform image ever has to be loaded on a Mac with the containerd store, save the one
+platform the nodes run and load the archive — the import then sees a plain image, not an index:
+
+```bash
+docker save --platform linux/arm64 -o .tmp/img.tar <image:tag>; kind load image-archive .tmp/img.tar --name poc1
+```
+
+**The lesson:** "load it to be safe" is a step, and a step can fail. The node's `imageID` already says where the image
+came from; read it before adding a hand-off the cluster does not need.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
