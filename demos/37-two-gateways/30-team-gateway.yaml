@@ -1,0 +1,60 @@
+# Model B: team-b owns Gateway/team-b-gw in its namespace. The zone is `*.team-b.poc.local` because TLS wildcards are
+# single-label (RFC 6125): routes-gw's `*.poc.local` leaf cannot cover `shop.team-b.poc.local` (measured). Gateway API
+# wildcards are multi-label, so a route for that name still attaches to routes-gw — attachment is not the boundary;
+# the admission policy in 50- is. One address (.243), one wildcard certificate cert-manager issues from the listener
+# hostname, N /etc/hosts lines (hosts has no wildcards).
+#
+#   kubectl --context kind-poc1 apply -f demos/37-two-gateways/30-team-gateway.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: team-b-gw
+  namespace: team-b
+  annotations:
+    cert-manager.io/cluster-issuer: ca-issuer    # one Certificate per listener hostname, issued into this namespace
+spec:
+  infrastructure:
+    annotations:
+      lbipam.cilium.io/ips: "172.18.255.243"    # gateway-pool; .240 routes-gw, .241 sw-gateway, .242 reserved by 002
+  gatewayClassName: cilium
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.team-b.poc.local"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: wildcard-team-b-poc-local-tls  # cert-manager creates this
+      allowedRoutes:
+        namespaces: {from: Same}                 # the team door admits its own namespace only
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces: {from: Same}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: shop, namespace: team-b}
+spec:
+  parentRefs: [{name: team-b-gw, sectionName: https}]
+  hostnames: ["shop.team-b.poc.local"]
+  rules:
+    - backendRefs: [{name: shop, port: 8080}]
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier: {set: [{name: X-Door, value: team-b-gw}]}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: shop-redirect, namespace: team-b}
+spec:
+  parentRefs: [{name: team-b-gw, sectionName: http}]
+  hostnames: ["*.team-b.poc.local"]            # the whole zone: every name this door serves redirects (the first run had one
+                                               # name here and http://shop-a.team-b.poc.local answered 404 — check.sh caught it)
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect: {scheme: https, statusCode: 301}

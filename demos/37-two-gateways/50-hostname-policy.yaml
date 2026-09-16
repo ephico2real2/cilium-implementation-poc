@@ -1,0 +1,52 @@
+# A namespace may claim only its own zone on the platform door. Scoped (namespaceSelector) to namespaces labelled
+# `gateway-access: routes-gw` — routes-gw's tenants. CEL: every hostname ends with `.poc.local` and is either a flat
+# name (exactly one label before `poc.local`) or `*.<ns>.poc.local` / `<x>.<ns>.poc.local` with <ns> == this object's
+# namespace. Kubernetes v1.36: ValidatingAdmissionPolicy is GA (admissionregistration.k8s.io/v1).
+#
+# HONEST LIMIT: a team claiming another team's FLAT name (e.g. team-a claiming shop-b.poc.local) is not preventable
+# by naming alone — that is the hijack the demo shows first. This policy's job is the zoned names.
+#
+# Applied by check.sh's negative section and left applied; not in the first apply pass.
+#   kubectl --context kind-poc1 apply -f demos/37-two-gateways/50-hostname-policy.yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: {name: httproute-own-zone}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [gateway.networking.k8s.io]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [httproutes]
+    namespaceSelector:                            # the platform door's TENANTS: labelled namespaces other than the Gateway
+      matchExpressions:                           # owner's own (`routes` carries demo 09's exact.example.test and enhancement
+        - {key: gateway-access, operator: In, values: [routes-gw]}   # 002's deeper names — the owner is not a tenant of its policy)
+        - {key: kubernetes.io/metadata.name, operator: NotIn, values: [routes]}
+  validations:
+    - expression: >-
+        object.spec.?hostnames.orValue([]).all(h,
+          h.endsWith('.poc.local') && (
+            h.split('.').size() == 3 ||
+            (h.split('.').size() == 4 && h.split('.')[1] == object.metadata.namespace)
+          ))
+      message: "a namespace may claim only its own zone (flat <name>.poc.local, or *.<ns>.poc.local)"
+      messageExpression: >-
+        "hostname " + object.spec.?hostnames.orValue([]).filter(h,
+          !(h.endsWith('.poc.local') && (
+            h.split('.').size() == 3 ||
+            (h.split('.').size() == 4 && h.split('.')[1] == object.metadata.namespace)
+          ))
+        ).join(", ") + " is not this namespace's zone"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: {name: httproute-own-zone}
+spec:
+  policyName: httproute-own-zone
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - {key: gateway-access, operator: In, values: [routes-gw]}
+        - {key: kubernetes.io/metadata.name, operator: NotIn, values: [routes]}

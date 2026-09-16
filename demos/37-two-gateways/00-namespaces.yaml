@@ -1,0 +1,15 @@
+# Two ownership models. team-a is labelled `gateway-access: routes-gw`, so the platform's shared Gateway admits
+# its routes. team-b is not: it brings its own door — Gateway/team-b-gw in its namespace, its own address
+# and certificate.
+#
+#   kubectl --context kind-poc1 apply -f demos/37-two-gateways/00-namespaces.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-a
+  labels: {gateway-access: routes-gw}            # the platform admits this namespace to routes-gw
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-b                                   # no gateway-access label: it is not a tenant of routes-gw
