@@ -4,7 +4,7 @@ Adversarial second-opinion pass, 2026-09-15, on the 11-claim brief for commit `9
 PR #12's second batch: what the M5's four passes found). Codex (gpt-5.6-sol, xhigh) had a shell, PyYAML and both sorts;
 Cursor (Grok 4.6 high fast, ask mode) had every shell call rejected and traced from source, marking the rest PLAUSIBLE.
 Each reviewer worked on its own `git archive` export; every verdict was re-checked here. The fixes are commit `c6f2d97`;
-the runner measured the batch in run 35040355665 (`93441ff`) and the fixed head in run `<run>`.
+the runner measured the batch in run 35040355665 (`93441ff`) and the fixed head in run `35041617666`.
 
 ## Verdicts
 
@@ -74,4 +74,4 @@ its exit and leaves no process behind.
 Eleven claims: two refuted (C1 by both, C8 by Codex), two PLAUSIBLE risks accepted (C4 the warning's destination, C8 the
 sudo timestamp), Cursor's C1 fix rejected on what the lab actually applies, three "not asked" findings, all applied.
 Re-validated: the reworked blocks against fakes (Intel guard, failing installer, keep-alive cleanup by pid, the peer knob,
-the warning's placement); the runner's gate on `93441ff` (run 35040355665) and on the fixed head (run `<run>`).
+the warning's placement); the runner's gate on `93441ff` (run 35040355665) and on the fixed head (run `35041617666`).
