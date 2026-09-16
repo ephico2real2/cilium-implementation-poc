@@ -47,12 +47,18 @@ func TestWriteJSONNegotiation(t *testing.T) {
 		if ct := res.Header.Get("Content-Type"); ct != "text/html; charset=utf-8" {
 			t.Fatalf("Content-Type = %q, want text/html; charset=utf-8", ct)
 		}
-		if !strings.Contains(body, "<pre>") {
-			t.Fatalf("want <pre> in body, got %s", body)
-		}
-		if !strings.Contains(html.UnescapeString(body), `"account"`) {
-			t.Fatalf("want indented key \"account\", got %s", body)
-		}
+			if !strings.Contains(body, "<pre>") {
+				t.Fatalf("want <pre> in body, got %s", body)
+			}
+			if !strings.Contains(body, `<span class="k">`) {
+				t.Fatalf("want syntax-coloured keys, got %s", body)
+			}
+			if !strings.Contains(body, "GET /api/balance/chk-1001") {
+				t.Fatalf("want method and path in header, got %s", body)
+			}
+			if !strings.Contains(html.UnescapeString(body), `"account"`) {
+				t.Fatalf("want indented key \"account\", got %s", body)
+			}
 		if res.StatusCode != http.StatusOK {
 			t.Fatalf("status = %d, want 200", res.StatusCode)
 		}

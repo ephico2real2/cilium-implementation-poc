@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -103,7 +104,56 @@ func jsonTitle(v any) string {
 	return "bank"
 }
 
-func writeJSONHTML(w http.ResponseWriter, code int, compact []byte, title string) {
+var (
+	jsonHTMLKeyRe  = regexp.MustCompile(`^(\s*)(&#34;[^&]*?&#34;|"[^"]*")(:)`)
+	jsonHTMLStrRe  = regexp.MustCompile(`&#34;.*?&#34;|"[^"]*"`)
+	jsonHTMLBoolRe = regexp.MustCompile(`true|false|null`)
+	jsonHTMLNumRe  = regexp.MustCompile(`-?\d+(\.\d+)?([eE][-+]?\d+)?`)
+)
+
+func colorJSON(pretty string) string {
+	wrap := func(s string, re *regexp.Regexp, class string) (string, bool) {
+		loc := re.FindStringIndex(s)
+		if loc == nil {
+			return s, false
+		}
+		return s[:loc[0]] + `<span class="` + class + `">` + s[loc[0]:loc[1]] + `</span>` + s[loc[1]:], true
+	}
+	var b strings.Builder
+	for i, line := range strings.Split(pretty, "\n") {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		esc := html.EscapeString(line)
+		m := jsonHTMLKeyRe.FindStringSubmatchIndex(esc)
+		if m == nil {
+			b.WriteString(esc)
+			continue
+		}
+		b.WriteString(esc[m[2]:m[3]])
+		b.WriteString(`<span class="k">`)
+		b.WriteString(esc[m[4]:m[5]])
+		b.WriteString(`</span>`)
+		b.WriteString(esc[m[6]:m[7]])
+		rest := esc[m[1]:]
+		if r, ok := wrap(rest, jsonHTMLStrRe, "s"); ok {
+			b.WriteString(r)
+			continue
+		}
+		if r, ok := wrap(rest, jsonHTMLBoolRe, "b"); ok {
+			b.WriteString(r)
+			continue
+		}
+		if r, ok := wrap(rest, jsonHTMLNumRe, "n"); ok {
+			b.WriteString(r)
+			continue
+		}
+		b.WriteString(rest)
+	}
+	return b.String()
+}
+
+func writeJSONHTML(w http.ResponseWriter, code int, compact []byte, title, method, path string) {
 	var pretty bytes.Buffer
 	if err := json.Indent(&pretty, compact, "", "  "); err != nil {
 		pretty.Reset()
@@ -112,22 +162,39 @@ func writeJSONHTML(w http.ResponseWriter, code int, compact []byte, title string
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)
 	fmt.Fprintf(w, `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>%s</title>
 <style>
-body{background:#0f172a;margin:0}
-pre{font-family:monospace;font-size:14px;color:#e2e8f0;padding:1.5rem}
-.note{color:#94a3b8;padding:0 1.5rem 1.5rem;font-size:14px}
+body{background:#f6f8fa;margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1f2328}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 24px;background:#ffffff;border-bottom:1px solid #d0d7de}
+header .name{font-weight:600;font-size:15px}
+header .req{color:#57606a;font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+main{max-width:880px;margin:24px auto;padding:0 16px}
+.card{background:#ffffff;border:1px solid #d0d7de;border-radius:8px;box-shadow:0 1px 3px rgba(27,31,36,.06)}
+pre{margin:0;padding:18px 20px;font:13.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#1f2328;white-space:pre-wrap;word-break:break-word;overflow-x:hidden}
+.k{color:#0550ae}.s{color:#0a3069}.n,.b{color:#8250df}
+.note{color:#57606a;font-size:12.5px}
 </style>
-<pre>%s</pre>
-<p class="note">curl gets the same JSON, compact — this page is the browser's view (Accept: text/html)</p>
-`, html.EscapeString(title), html.EscapeString(pretty.String()))
+</head>
+<body>
+<header><span class="name">%s</span><span class="req">%s %s</span></header>
+<main>
+<div class="card"><pre>%s</pre></div>
+<p class="note">Browsers get this page (Accept: text/html); curl and scripts get the same JSON, compact.</p>
+</main>
+</body>
+</html>
+`, html.EscapeString(title), html.EscapeString(title), html.EscapeString(method), html.EscapeString(path), colorJSON(pretty.String()))
 }
 
 func writeJSON(w http.ResponseWriter, r *http.Request, code int, v any) {
 	b, _ := json.Marshal(v)
 	b = append(b, '\n')
 	if wantsHTML(r) {
-		writeJSONHTML(w, code, b, jsonTitle(v))
+			writeJSONHTML(w, code, b, jsonTitle(v), r.Method, r.URL.Path)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
