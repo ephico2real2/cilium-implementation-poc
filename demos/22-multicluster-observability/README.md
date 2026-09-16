@@ -26,6 +26,33 @@ from the Hub to the Spokes". The standard it follows, per signal:
 Everything below is recorded in [`output/transcript.txt`](output/transcript.txt); the captures are
 in [`output/screenshots/`](output/screenshots/).
 
+**One Grafana, on the hub; the spoke is a data source, not a UI** — deliberate, not an omission. What runs where, and
+what crosses the mesh (the full picture of every signal is [OBSERVABILITY-ARCHITECTURE.md](../../OBSERVABILITY-ARCHITECTURE.md)):
+
+```text
+            poc1 — the HUB                                            poc2 — a SPOKE
+ ┌───────────────────────────────────────────┐             ┌──────────────────────────────────────────┐
+ │  browser ──▶ https://grafana.poc.local    │             │  (no Grafana, no Alertmanager, no route) │
+ │              Grafana  (release monitoring)│             │                                          │
+ │                 │ reads                   │             │  Prometheus  (release edge)              │
+ │                 ▼                         │  remote_write│   scrapes poc2: kubelet, kube-state,     │
+ │  Prometheus (hub) ◀───────────────────────┼─────────────┼── node-exporter, Cilium, Hubble, Envoy    │
+ │   every series carries cluster=poc1|poc2  │  over the   │   external_labels: cluster=poc2           │
+ │   dashboards filter on the `cluster` var  │  ClusterMesh│   6 h local copy: answers on its own     │
+ │                                           │             │   when the hub is unreachable            │
+ │  Service prometheus-remote-write          │             │  Service prometheus-remote-write          │
+ │   service.cilium.io/global: "true"        │◀─ the same ─│   global: "true", NO local backends —    │
+ │   selector = the hub's Prometheus pod     │   name      │   its ClusterIP resolves to poc1's pod   │
+ └───────────────────────────────────────────┘             └──────────────────────────────────────────┘
+        one UI, one set of dashboards, one place for data sources and users
+```
+
+Why this shape: dashboards, provisioning and users live once; the `cluster` variable is how you look at any spoke; a
+spoke's job is to keep collecting when the hub is down (the 6 h copy), not to be browsed. What it gives up — and the
+values file says so — is *local paging*: an on-call for poc2 alone would want an Alertmanager there, and perhaps a
+small Grafana on the local Prometheus for the hours the mesh is down. That "standalone spoke" is a different design,
+not this one.
+
 > **The rule this demo settled on (Part 2c).** Application HA across clusters is the *application's*
 > declaration: its own Service carries `service.cilium.io/global: "true"` (and `affinity` / `shared`
 > where the topology needs them) in every cluster — the bank has done that since demo 15, and the
