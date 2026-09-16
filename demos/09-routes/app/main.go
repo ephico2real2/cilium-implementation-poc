@@ -156,15 +156,15 @@ func writeJSONHTML(w http.ResponseWriter, code int, compact []byte, title, metho
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>%s</title>
 <style>
-body{background:#f6f8fa;margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1f2328}
-header{display:flex;justify-content:space-between;align-items:center;padding:14px 24px;background:#ffffff;border-bottom:1px solid #d0d7de}
+body{background:#dde3ea;margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#2a3441}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 24px;background:#3a4a5c;border-bottom:1px solid #2f3d4d;color:#e6ebf0}
 header .name{font-weight:600;font-size:15px}
-header .req{color:#57606a;font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+header .req{color:#b9c4d0;font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 main{max-width:880px;margin:24px auto;padding:0 16px}
-.card{background:#ffffff;border:1px solid #d0d7de;border-radius:8px;box-shadow:0 1px 3px rgba(27,31,36,.06)}
-pre{margin:0;padding:18px 20px;font:13.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#1f2328;white-space:pre-wrap;word-break:break-word;overflow-x:hidden}
-.k{color:#0550ae}.s{color:#0a3069}.n,.b{color:#8250df}
-.note{color:#57606a;font-size:12.5px}
+.card{background:#faf8f4;border:1px solid #c5ccd5;border-radius:8px;box-shadow:0 1px 3px rgba(27,31,36,.06)}
+pre{margin:0;padding:18px 20px;font:13.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#2a3441;white-space:pre-wrap;word-break:break-word;overflow-x:hidden}
+.k{color:#2f5d8a}.s{color:#5c7a4a}.n,.b{color:#8a5a86}
+.note{color:#5b6875;font-size:12.5px}
 </style>
 </head>
 <body>
