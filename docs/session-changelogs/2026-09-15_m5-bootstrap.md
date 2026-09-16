@@ -240,3 +240,41 @@ Outcome in one line: **…**
   replacement emptied it). Ten minutes of every lab's traffic (`scripts/lab-apps.sh rounds 10`), a fresh flow
   `b5145c22…` → a live `download_url` (HTTP 200 at 07:52:20Z). "do we need to persist data?" — no: the YAML is in the
   JSON answer; persistence is the file in git.
+
+## Part 6 — the Grafana action's real cause, the Gateway's two models, the spoke (2026-09-16, 08:10 → 11:20)
+
+- **"An error has occurred" on the dashboard's Generate action — found.** Every server-side layer measured clean (the
+  API replayed with curl → 200, the same action from an `https://` page → 200, the root in the keychain, CORS for the
+  https origin); the operator's pasted URL began with **`http://`**. Reproduced from that exact URL in strict-TLS
+  Chromium: `POST https://cf2cnp.poc.local/generate FAILED IN THE BROWSER: net::ERR_FAILED` — the preflight for
+  `Origin: http://grafana.poc.local` has no allow-origin. Along the way, two claims retracted in words: "your click never
+  reached cf2cnp" (cf2cnp logged no refusals at all — the gap PR #6 closed) and my own `:8080` probe of the Service
+  (the Service is `:80`; the SYN went out as `(world) to-network`).
+- **cf2cnp 0.9.0 — structured logging** (fork PR #6, `docs/REVIEW_LOGGING.md`): `log/slog`, `--log-format`/`--log-level`,
+  one `request` line per call with a request id (Envoy's `X-Request-Id` kept), every refusal a `refused` line with a
+  reason, `/download` 404 / 410 / 200. Two reviewers refuted three claims (the raw query logged, a panic skipped the
+  line, 24 h tombstones) — fixed with tests that fail on regression. Tagged `v0.9.0` and redeployed (lab PR #15); the
+  live log then narrated the operator's own Download-before-Generate as `reason=download_unknown`. Left: the observer
+  fork's `Chart.lock` pins the cf2cnp subchart at 0.7.0, so 0.9.0 logs in text — a dependency bump when wanted.
+- **"Grafana needs the CA? use the Service name?"** — measured, no and no: the Grafana *server* never calls cf2cnp; a
+  browser cannot call `http://…svc` from an `https://` page (`mixed-content`) and cf2cnp's own policy drops in-cluster
+  callers (`Policy denied DROPPED`). Grafana 13.2.1's data-source proxy refuses arbitrary POSTs. The same-origin
+  Gateway route is the way to make it internal — **issue #14**, step 0 done below.
+- **The Gateway, TLS-only and two ownership models** (PRs #16, #17; gotcha #114; demo 09 Part 2's *Listeners and
+  `sectionName`*): the Grafana route had no `sectionName` and so served on `:80`; the serving route pinned to
+  `https-wildcard`, a 301 route on `http`. Then the kube-prometheus-stack chart's own `grafana.route.*` values render
+  both routes into `monitoring`, and `routes-gw` admits namespaces by label (`gateway-access: routes-gw`) — the Gateway
+  API's second model beside the ReferenceGrant one; `10-gateway.yaml` kept as the hand-written example, marked not
+  applied. Measured: an unlabelled namespace's route → `NotAllowedByListeners`; a wrong `sectionName` → `NoMatchingParent`.
+- **The README** (PR #13 rebased over a conflict, PR #18 the Quick start as a list — the operator's screenshot showed
+  the comment column overflowing); **the models table** in the review skill with the two Claude Fable 5 reviewers and
+  the ZDR trade (group-sync-dashboard PR #137, memory `cursor-fable-reviewer`).
+- **Both clusters on one dashboard** — the Hubble UI already did (`?namespace=bank`, mesh-wide relay 4/4); Grafana
+  showed poc1 only because demo 22's spoke was not in `lab-stack`. New `spoke` step (PR #19): poc2's Prometheus
+  remote-writing to the hub, Cilium metrics on poc2, the step proving itself from the hub. M5: 41 s; runner (run
+  35085443771, green): 51 s, +0.9 GB (9,705 MB used after the stack vs 8,783). `LAB_SPOKE=1` default. No Grafana on
+  poc2 by design (a data source, not a UI) — a standalone-spoke variant noted for demo 37's isolation theme.
+- **Demo 37 groundwork, measured before the plan:** on Cilium 1.20 a Gateway is a Service + listeners on the shared
+  per-node `cilium-envoy` DaemonSet — not its own proxy — so a namespaced Gateway buys address, listeners, certificates
+  and ownership, not CPU isolation; the noisy-neighbour test will be a real measurement. `gateway-pool` selects any
+  Gateway-owned Service, whatever the namespace. Next: the issue and `enhancements/005`.
