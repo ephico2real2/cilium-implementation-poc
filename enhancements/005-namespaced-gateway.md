@@ -25,6 +25,7 @@ listener set and upgrade cycle. Demo 37 deploys one application both ways and me
 | `routes-gw`'s HTTP(S) listeners admit routes from namespaces labelled `gateway-access: routes-gw`; an unlabelled namespace's route is refused `NotAllowedByListeners`; a route with an unknown `sectionName` is `NoMatchingParent` | PR #17, demo 09 Part 2 | the shared side of the demo is already built and measured; the ownership boundary can be shown from both directions |
 | cert-manager's `ClusterIssuer/ca-issuer` issues into the Gateway's namespace; Cilium (`enable-gateway-api-secrets-sync=true`) copies the referenced Secret into `cilium-secrets` under the name **`cilium-sync-secret-<sha256>`** — a search by the original name finds nothing; match by `tls.crt` content | phase 0 in `gw-probe`: `Certificate Ready=True`, the copy's `tls.crt` byte-identical, the listener `ResolvedRefs=True`, a TLS handshake to `.250` presenting `issuer=CN=clustermesh-root-ca, SAN probe.poc.local`, Envoy's 404 for the routeless host; on delete the copy and the lease vanish | one annotation gives a team Gateway its certificate; **gotcha**: the hashed name |
 | The built-in `edit` ClusterRole does **not** cover `gateway.networking.k8s.io`, and the Gateway API CRDs ship no `aggregate-to-edit` role | `kubectl auth can-i create httproutes --as=system:serviceaccount:gw-probe:probe-editor` → **no**; `gateways` → **no** | "the team owns its Gateway" is a **Role the platform grants**, not a default; the demo states it |
+| **Two wildcard rules disagree.** Gateway API hostname matching is multi-label: a route for `shop.team-b.poc.local` attaches to the `*.poc.local` listener (`Accepted=True`). TLS matching is single-label (RFC 6125): the `*.poc.local` certificate's SAN does not cover `shop.team-b.poc.local` (`curl … ssl_verify=1`), while it does cover `shop-b.poc.local` (`ssl_verify=0` — served, the hijack) | measured on `routes-gw` with a throwaway route, 2026-09-16 | **each team Gateway gets its own zone and wildcard certificate, `*.<team>.poc.local`** (the operator's question): a hijack through the shared door then fails certificate validation for any honest client — a second wall; attachment still succeeds, so the admission policy stays the control |
 | The lab's clusters on the M5 and the runner are 1 control plane + 1 worker per cluster (`clusters/ci`) | `kubectl get nodes` → 2 | Envoy runs on both nodes; a Gateway's listeners exist on every node, whatever namespace owns it |
 | The demo 09 route-app (`routedemo:local`, built by `lab-images.sh`) answers HTTP, gRPC and TCP and **echoes the Host, the path, the protocol and whether TLS terminated** in every response | `demos/09-routes/app/main.go` | the same image behind both doors identifies the *request*; which **door** answered is proven by the address the client used, the leaf certificate presented, and a `ResponseHeaderModifier` filter on each route stamping `X-Door: routes-gw` / `X-Door: team-b-gw` — no new application needed |
 | The Gateway API's role model: infrastructure provider → `GatewayClass`, cluster operator → `Gateway`, application developer → `Route`; a shared Gateway admits namespaces by selector; teams "with special networking needs can deploy their own dedicated Gateway in their namespace" | [API overview](https://gateway-api.sigs.k8s.io/docs/concepts/api-overview/), [Cross-namespace routing](https://gateway-api.sigs.k8s.io/guides/multiple-ns/), [kgateway: Shared Gateways](https://kgateway.dev/blog/shared-gateways/), [Teknews: considerations for a shared Gateway](https://blog.teknews.cloud/kubernetes/2025/08/20/Considerations_for_Shared_Gateway_API.html) | the two modes are the API's own, not this lab's invention |
@@ -35,12 +36,14 @@ Demo 37 is **one image, two front doors, measured side by side** on poc1 — one
 identical backends for the performance one:
 
 - **Mode A — the platform's shared Gateway.** Namespace `team-a` (label `gateway-access: routes-gw`) owns an
-  `HTTPRoute` for `shop-a.poc.local` on `routes-gw`'s `https-wildcard` listener (and the 301 route on `http`), backend
+  `HTTPRoute` for `shop-a.poc.local` (a platform-zone name, under the shared wildcard certificate) on `routes-gw`'s `https-wildcard` listener (and the 301 route on `http`), backend
   the route-app. Nothing new on the Gateway: this is PR #17's model, exercised by a team.
 - **Mode B — the team's own Gateway.** Namespace `team-b` owns `Gateway/team-b-gw` (`gatewayClassName: cilium`,
   `allowedRoutes: {namespaces: {from: Same}}`, address pinned to `172.18.255.243` from `gateway-pool` — `.242` is
-  enhancement 002's — one HTTPS listener for `shop-b.poc.local` with a cert-manager certificate from `ca-issuer`, one
-  HTTP listener carrying the 301 route), its own `HTTPRoute`, the same route-app image. A `Role` in `team-b` granting
+  enhancement 002's — one HTTPS listener for **`*.team-b.poc.local`** with a cert-manager **wildcard** certificate from
+  `ca-issuer` (the team's own zone: `shop.team-b.poc.local`, and any later name, one certificate, one DNS wildcard
+  record to `.243`), one HTTP listener carrying the 301 route), its own `HTTPRoute`, the same route-app image. The
+  convention the demo sets: platform pages at `<name>.poc.local` on `routes-gw`; team doors at `*.<team>.poc.local`. A `Role` in `team-b` granting
   `gateways`/`httproutes` (the platform's explicit grant, §2) bound to the team's ServiceAccount.
 - **The functional "two doors on one app"**: `team-b-gw`'s route also points at `team-a`'s Service through a
   `ReferenceGrant` in `team-a` — literally one backend behind both doors, the response header saying which.
@@ -77,7 +80,8 @@ nothing measurable here).
 - `35-team-rbac.yaml` — the `Role` (`gateways`, `httproutes`: get/list/watch/create/update/patch/delete — no `status`)
   and its binding for `team-b`'s ServiceAccount; `40-one-app-two-doors.yaml` — `team-b-gw`'s route to `team-a`'s Service
   with the `ReferenceGrant` in `team-a`.
-- `hosts-entries.sh` — the two names (`shop-a` → `.240`, `shop-b` → `.243`), printed, never written (README's rule).
+- `hosts-entries.sh` — `shop-a.poc.local` → `.240`, `shop.team-b.poc.local` → `.243` (`/etc/hosts` has no wildcards; a
+  real zone gets `*.team-b.poc.local`), printed, never written (README's rule).
   **Note:** `scripts/hosts-entries.sh` maps every hostname it finds on `routes-gw` to `routes-gw`'s address — the
   hijack row below shows what that means.
 - `check.sh` — every assertion of phase 3 as a script with recorded output, the lab's idiom (`demos/*/check.sh`).
@@ -88,7 +92,7 @@ nothing measurable here).
 |---|---|---|
 | `team-b` attaches a route to `routes-gw` | `Accepted=False NotAllowedByListeners` | an unlabelled team cannot use the platform door |
 | `team-a` attaches a route to `team-b-gw` | refused (`from: Same`) | the team door admits its own namespace only |
-| `team-a`'s route claims `shop-b.poc.local` on `routes-gw` | **attached** (`shop-b.poc.local` intersects `*.poc.local`; the Gateway API reserves no hostname across Gateways) — and `curl --resolve shop-b.poc.local:443:172.18.255.240` answers from `team-a`'s backend with `routes-gw`'s wildcard leaf: **a hostname hijack** on any client whose DNS sends `*.poc.local` to `.240` (the lab's own `hosts-entries.sh` would); `--resolve …:.243` still answers from `team-b`. Then the control: a `ValidatingAdmissionPolicy` on `HTTPRoute.spec.hostnames` (a team may claim only `*-<team>.poc.local`) — the route refused at admission, recorded | a shared Gateway needs a hostname policy; the address is not the boundary |
+| `team-a`'s route claims a team-b name on `routes-gw` — twice: `shop-b.poc.local` (flat) and `shop.team-b.poc.local` (the team's zone) | both **attach** (Gateway API wildcards are multi-label; no hostname is reserved across Gateways). At `.240` the flat name is **served with a valid certificate** — the hijack, complete; the zoned name is served too but under the `*.poc.local` leaf, which does not cover it — every honest client fails TLS (`ssl_verify=1`, measured). `--resolve …:.243` answers from `team-b` with its own leaf either way. Then the control: a `ValidatingAdmissionPolicy` on `HTTPRoute.spec.hostnames` (a namespace may claim only its own zone) — the route refused at admission, recorded | a shared Gateway needs a hostname policy; the team's own zone and certificate are the second wall; the address is not the boundary |
 | the same app answers on both: `curl https://shop-a…` and `https://shop-b…` | `X-Door: routes-gw` with the `*.poc.local` leaf at `.240`; `X-Door: team-b-gw` with the `shop-b.poc.local` leaf at `.243`; both chains to the one root; `serial`/`SAN` differ | one root, two certificates, two addresses, and the door named in the response |
 
 ### Phase 3 — the measurements
