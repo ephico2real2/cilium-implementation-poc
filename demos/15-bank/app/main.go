@@ -31,6 +31,8 @@ import (
 	"syscall"
 	"time"
 
+	"jsonview"
+
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/redis/go-redis/v9"
 )
@@ -55,10 +57,26 @@ func env(k, def string) string {
 	return def
 }
 
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+func jsonTitle(v any) string {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return "bank"
+	}
+	switch sb := m["served_by"].(type) {
+	case servedBy:
+		if sb.Role != "" {
+			return sb.Role
+		}
+	case map[string]any:
+		if role, _ := sb["role"].(string); role != "" {
+			return role
+		}
+	}
+	return "bank"
+}
+
+func writeJSON(w http.ResponseWriter, r *http.Request, code int, v any) {
+	jsonview.WriteValue(w, r, code, v, jsonTitle(v))
 }
 
 // One TCP connection per request, on purpose. Go's default client keeps connections alive, so a
@@ -194,14 +212,14 @@ INSERT INTO accounts (id, owner, balance_cents) VALUES ('chk-1001','Ada Lovelace
 			err = standby.QueryRowContext(ctx2, `SELECT owner, balance_cents FROM accounts WHERE id=$1`, r.PathValue("id")).Scan(&owner, &bal)
 		}
 		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, 404, map[string]any{"error": "no such account", "served_by": me("accounts")})
+			writeJSON(w, r, 404, map[string]any{"error": "no such account", "served_by": me("accounts")})
 			return
 		}
 		if err != nil {
-			writeJSON(w, 503, map[string]any{"error": err.Error(), "served_by": me("accounts"), "db": source})
+			writeJSON(w, r, 503, map[string]any{"error": err.Error(), "served_by": me("accounts"), "db": source})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"account": r.PathValue("id"), "owner": owner, "balance_cents": bal, "served_by": me("accounts"), "db": source})
+		writeJSON(w, r, 200, map[string]any{"account": r.PathValue("id"), "owner": owner, "balance_cents": bal, "served_by": me("accounts"), "db": source})
 	})
 	// debit is the money-moving call: one UPDATE guarded by the balance, so two concurrent debits
 	// cannot overdraw — the database is the arbiter, not the caller.
@@ -211,20 +229,20 @@ INSERT INTO accounts (id, owner, balance_cents) VALUES ('chk-1001','Ada Lovelace
 			Ref         string `json:"ref"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.AmountCents <= 0 {
-			writeJSON(w, 400, map[string]any{"error": "amount_cents must be > 0", "served_by": me("accounts")})
+			writeJSON(w, r, 400, map[string]any{"error": "amount_cents must be > 0", "served_by": me("accounts")})
 			return
 		}
 		var bal int64
 		err := db.QueryRowContext(r.Context(), `UPDATE accounts SET balance_cents = balance_cents - $2 WHERE id=$1 AND balance_cents >= $2 RETURNING balance_cents`, r.PathValue("id"), in.AmountCents).Scan(&bal)
 		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, 409, map[string]any{"error": "insufficient funds or no such account", "served_by": me("accounts")})
+			writeJSON(w, r, 409, map[string]any{"error": "insufficient funds or no such account", "served_by": me("accounts")})
 			return
 		}
 		if err != nil {
-			writeJSON(w, 500, map[string]any{"error": err.Error(), "served_by": me("accounts")})
+			writeJSON(w, r, 500, map[string]any{"error": err.Error(), "served_by": me("accounts")})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"account": r.PathValue("id"), "debited_cents": in.AmountCents, "ref": in.Ref, "balance_cents": bal, "served_by": me("accounts")})
+		writeJSON(w, r, 200, map[string]any{"account": r.PathValue("id"), "debited_cents": in.AmountCents, "ref": in.Ref, "balance_cents": bal, "served_by": me("accounts")})
 	})
 	mux.HandleFunc("POST /accounts/{id}/credit", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -232,20 +250,20 @@ INSERT INTO accounts (id, owner, balance_cents) VALUES ('chk-1001','Ada Lovelace
 			Ref         string `json:"ref"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.AmountCents <= 0 {
-			writeJSON(w, 400, map[string]any{"error": "amount_cents must be > 0", "served_by": me("accounts")})
+			writeJSON(w, r, 400, map[string]any{"error": "amount_cents must be > 0", "served_by": me("accounts")})
 			return
 		}
 		var bal int64
 		err := db.QueryRowContext(r.Context(), `UPDATE accounts SET balance_cents = balance_cents + $2 WHERE id=$1 RETURNING balance_cents`, r.PathValue("id"), in.AmountCents).Scan(&bal)
 		if errors.Is(err, sql.ErrNoRows) {
-			writeJSON(w, 404, map[string]any{"error": "no such account", "served_by": me("accounts")})
+			writeJSON(w, r, 404, map[string]any{"error": "no such account", "served_by": me("accounts")})
 			return
 		}
 		if err != nil {
-			writeJSON(w, 500, map[string]any{"error": err.Error(), "served_by": me("accounts")})
+			writeJSON(w, r, 500, map[string]any{"error": err.Error(), "served_by": me("accounts")})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"account": r.PathValue("id"), "credited_cents": in.AmountCents, "ref": in.Ref, "balance_cents": bal, "served_by": me("accounts")})
+		writeJSON(w, r, 200, map[string]any{"account": r.PathValue("id"), "credited_cents": in.AmountCents, "ref": in.Ref, "balance_cents": bal, "served_by": me("accounts")})
 	})
 	serve("accounts", addr, mux)
 }
@@ -265,7 +283,7 @@ func servePayments(addr string) {
 			Key         string `json:"key"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Account == "" || in.AmountCents <= 0 || in.Key == "" {
-			writeJSON(w, 400, map[string]any{"error": "account, amount_cents>0 and key are required", "served_by": me("payments")})
+			writeJSON(w, r, 400, map[string]any{"error": "account, amount_cents>0 and key are required", "served_by": me("payments")})
 			return
 		}
 		ctx := r.Context()
@@ -273,7 +291,7 @@ func servePayments(addr string) {
 		// stored result and never debits twice — the property a card network actually needs.
 		claimed, err := rdb.SetNX(ctx, "pay:"+in.Key, "pending", 24*time.Hour).Result()
 		if err != nil {
-			writeJSON(w, 503, map[string]any{"error": "redis: " + err.Error(), "served_by": me("payments")})
+			writeJSON(w, r, 503, map[string]any{"error": "redis: " + err.Error(), "served_by": me("payments")})
 			return
 		}
 		if !claimed {
@@ -281,7 +299,7 @@ func servePayments(addr string) {
 			out := map[string]any{"replay": true, "served_by": me("payments")}
 			_ = json.Unmarshal([]byte(prev), &out)
 			out["replay"], out["served_by"] = true, me("payments")
-			writeJSON(w, 200, out)
+			writeJSON(w, r, 200, out)
 			return
 		}
 		up, code, err := call(ctx, "POST", accountsURL+"/accounts/"+in.Account+"/debit", map[string]any{"amount_cents": in.AmountCents, "ref": "card:" + in.Merchant})
@@ -290,7 +308,7 @@ func servePayments(addr string) {
 			if code == 0 {
 				code = 502
 			}
-			writeJSON(w, code, map[string]any{"error": err.Error(), "upstream": up, "served_by": me("payments")})
+			writeJSON(w, r, code, map[string]any{"error": err.Error(), "upstream": up, "served_by": me("payments")})
 			return
 		}
 		rec := map[string]any{"key": in.Key, "account": in.Account, "amount_cents": in.AmountCents, "merchant": in.Merchant, "at": time.Now().UTC().Format(time.RFC3339), "served_by": me("payments"), "upstream": up}
@@ -298,12 +316,12 @@ func servePayments(addr string) {
 		rdb.Set(ctx, "pay:"+in.Key, b, 24*time.Hour)
 		rdb.LPush(ctx, "payments:"+in.Account, b)
 		rdb.LTrim(ctx, "payments:"+in.Account, 0, 49)
-		writeJSON(w, 201, rec)
+		writeJSON(w, r, 201, rec)
 	})
 	mux.HandleFunc("GET /payments/{account}", func(w http.ResponseWriter, r *http.Request) {
 		items, err := rdb.LRange(r.Context(), "payments:"+r.PathValue("account"), 0, 19).Result()
 		if err != nil {
-			writeJSON(w, 503, map[string]any{"error": "redis: " + err.Error(), "served_by": me("payments")})
+			writeJSON(w, r, 503, map[string]any{"error": "redis: " + err.Error(), "served_by": me("payments")})
 			return
 		}
 		list := make([]map[string]any, 0, len(items))
@@ -312,7 +330,7 @@ func servePayments(addr string) {
 			_ = json.Unmarshal([]byte(it), &m)
 			list = append(list, m)
 		}
-		writeJSON(w, 200, map[string]any{"account": r.PathValue("account"), "payments": list, "served_by": me("payments")})
+		writeJSON(w, r, 200, map[string]any{"account": r.PathValue("account"), "payments": list, "served_by": me("payments")})
 	})
 	serve("payments", addr, mux)
 }
@@ -330,15 +348,15 @@ func serveAPI(addr string) {
 			if code == 0 {
 				code = 502
 			}
-			writeJSON(w, code, map[string]any{"error": err.Error(), "upstream": up, "served_by": me("api")})
+			writeJSON(w, r, code, map[string]any{"error": err.Error(), "upstream": up, "served_by": me("api")})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"account": r.PathValue("id"), "balance_cents": up["balance_cents"], "owner": up["owner"], "served_by": me("api"), "upstream": up})
+		writeJSON(w, r, 200, map[string]any{"account": r.PathValue("id"), "balance_cents": up["balance_cents"], "owner": up["owner"], "served_by": me("api"), "upstream": up})
 	})
 	mux.HandleFunc("POST /api/pay", func(w http.ResponseWriter, r *http.Request) {
 		in := map[string]any{}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeJSON(w, 400, map[string]any{"error": "bad json", "served_by": me("api")})
+			writeJSON(w, r, 400, map[string]any{"error": "bad json", "served_by": me("api")})
 			return
 		}
 		if k, _ := in["key"].(string); k == "" {
@@ -349,10 +367,10 @@ func serveAPI(addr string) {
 			if code == 0 {
 				code = 502
 			}
-			writeJSON(w, code, map[string]any{"error": err.Error(), "upstream": up, "served_by": me("api")})
+			writeJSON(w, r, code, map[string]any{"error": err.Error(), "upstream": up, "served_by": me("api")})
 			return
 		}
-		writeJSON(w, code, map[string]any{"payment": up, "served_by": me("api")})
+		writeJSON(w, r, code, map[string]any{"payment": up, "served_by": me("api")})
 	})
 	mux.HandleFunc("GET /api/statement/{id}", func(w http.ResponseWriter, r *http.Request) {
 		bal, _, err1 := call(r.Context(), "GET", accountsURL+"/accounts/"+r.PathValue("id"), nil)
@@ -360,10 +378,10 @@ func serveAPI(addr string) {
 		out := map[string]any{"account": r.PathValue("id"), "served_by": me("api"), "balance": bal, "statement": pays}
 		if err1 != nil || err2 != nil {
 			out["errors"] = map[string]any{"accounts": errStr(err1), "payments": errStr(err2)}
-			writeJSON(w, 502, out)
+			writeJSON(w, r, 502, out)
 			return
 		}
-		writeJSON(w, 200, out)
+		writeJSON(w, r, 200, out)
 	})
 	// A deposit, for the exercise script to top an account up; the demo's only way to add money.
 	mux.HandleFunc("POST /api/credit/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -374,10 +392,10 @@ func serveAPI(addr string) {
 			if code == 0 {
 				code = 502
 			}
-			writeJSON(w, code, map[string]any{"error": err.Error(), "upstream": up, "served_by": me("api")})
+			writeJSON(w, r, code, map[string]any{"error": err.Error(), "upstream": up, "served_by": me("api")})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"account": r.PathValue("id"), "balance_cents": up["balance_cents"], "served_by": me("api"), "upstream": up})
+		writeJSON(w, r, 200, map[string]any{"account": r.PathValue("id"), "balance_cents": up["balance_cents"], "served_by": me("api"), "upstream": up})
 	})
 	serve("api", addr, mux)
 }

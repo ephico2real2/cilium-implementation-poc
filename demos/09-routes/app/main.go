@@ -42,6 +42,8 @@ import (
 	"strings"
 	"time"
 
+	"jsonview"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -59,16 +61,18 @@ func name() string {
 	return "unnamed"
 }
 
+func handleRoot(w http.ResponseWriter, r *http.Request) {
+	// Echoing Host and X-Forwarded-* proves which listener and hostname the Gateway matched,
+	// which is the whole point of the wildcard-vs-exact demo.
+	compact := fmt.Sprintf(`{"app":%q,"mode":"http","path":%q,"host":%q,"method":%q,"proto":%q,"tls":%v}`+"\n",
+		name(), r.URL.Path, r.Host, r.Method, r.Proto,
+		strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"))
+	jsonview.Write(w, r, http.StatusOK, []byte(compact), name())
+}
+
 func serveHTTP(addr string) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Echoing Host and X-Forwarded-* proves which listener and hostname the Gateway matched,
-		// which is the whole point of the wildcard-vs-exact demo.
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"app":%q,"mode":"http","path":%q,"host":%q,"method":%q,"proto":%q,"tls":%v}`+"\n",
-			name(), r.URL.Path, r.Host, r.Method, r.Proto,
-			strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"))
-	})
+	mux.HandleFunc("/", handleRoot)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintln(w, "ok") })
 	log.Printf("%s: HTTP on %s", name(), addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
