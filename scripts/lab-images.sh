@@ -11,6 +11,8 @@
 #
 # Idempotent: an image already in the host's Docker is not rebuilt (LAB_IMAGES_REBUILD=1 forces it); `kind load` is a
 # copy and is repeated — a node that already has the image takes seconds. Add an image: one line in IMAGES below.
+# docker build context is demos/ (parent of both apps and of shared/) so the Containerfiles can COPY the shared
+# jsonview module; -f still points at the app's Containerfile.
 set -euo pipefail; cd "$(dirname "$0")/.."
 IMAGES=(
   "bankdemo:local=demos/15-bank/app"
@@ -28,7 +30,7 @@ for spec in "${IMAGES[@]}"; do
     echo "  $img: present ($(docker image inspect "$img" --format '{{.Size}}' | awk '{printf "%.0f MB", $1/1048576}')), not rebuilt"
   else
     start=$(date +%s)
-    docker build -q -t "$img" -f "$dir/Containerfile" "$dir" >/dev/null || die "docker build of $img from $dir failed"
+    docker build -q -t "$img" -f "$dir/Containerfile" demos >/dev/null || die "docker build of $img from $dir failed"
     echo "  $img: built from $dir in $(( $(date +%s) - start )) s ($(docker image inspect "$img" --format '{{.Size}}' | awk '{printf "%.0f MB", $1/1048576}'))"
   fi
   for c in "${clusters[@]}"; do

@@ -2,7 +2,12 @@ module routedemo
 
 go 1.24.0
 
-require google.golang.org/grpc v1.76.0
+require (
+	google.golang.org/grpc v1.76.0
+	jsonview v0.0.0
+)
+
+replace jsonview => ../../shared/jsonview
 
 require (
 	golang.org/x/net v0.42.0 // indirect

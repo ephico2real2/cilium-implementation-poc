@@ -28,23 +28,21 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"html"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
+
+	"jsonview"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -63,133 +61,13 @@ func name() string {
 	return "unnamed"
 }
 
-// wantsHTML is true when Accept lists text/html and does not list application/json before it.
-// q-values and parameters are ignored; the first of the two media types that appears decides.
-func wantsHTML(r *http.Request) bool {
-	htmlIdx, jsonIdx := -1, -1
-	for i, raw := range strings.Split(r.Header.Get("Accept"), ",") {
-		media := strings.TrimSpace(raw)
-		if j := strings.IndexByte(media, ';'); j >= 0 {
-			media = strings.TrimSpace(media[:j])
-		}
-		switch media {
-		case "text/html":
-			if htmlIdx < 0 {
-				htmlIdx = i
-			}
-		case "application/json":
-			if jsonIdx < 0 {
-				jsonIdx = i
-			}
-		}
-	}
-	if htmlIdx < 0 {
-		return false
-	}
-	if jsonIdx >= 0 && jsonIdx < htmlIdx {
-		return false
-	}
-	return true
-}
-
-var (
-	jsonHTMLKeyRe  = regexp.MustCompile(`^(\s*)(&#34;[^&]*?&#34;|"[^"]*")(:)`)
-	jsonHTMLStrRe  = regexp.MustCompile(`&#34;.*?&#34;|"[^"]*"`)
-	jsonHTMLBoolRe = regexp.MustCompile(`true|false|null`)
-	jsonHTMLNumRe  = regexp.MustCompile(`-?\d+(\.\d+)?([eE][-+]?\d+)?`)
-)
-
-func colorJSON(pretty string) string {
-	wrap := func(s string, re *regexp.Regexp, class string) (string, bool) {
-		loc := re.FindStringIndex(s)
-		if loc == nil {
-			return s, false
-		}
-		return s[:loc[0]] + `<span class="` + class + `">` + s[loc[0]:loc[1]] + `</span>` + s[loc[1]:], true
-	}
-	var b strings.Builder
-	for i, line := range strings.Split(pretty, "\n") {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		esc := html.EscapeString(line)
-		m := jsonHTMLKeyRe.FindStringSubmatchIndex(esc)
-		if m == nil {
-			b.WriteString(esc)
-			continue
-		}
-		b.WriteString(esc[m[2]:m[3]])
-		b.WriteString(`<span class="k">`)
-		b.WriteString(esc[m[4]:m[5]])
-		b.WriteString(`</span>`)
-		b.WriteString(esc[m[6]:m[7]])
-		rest := esc[m[1]:]
-		if r, ok := wrap(rest, jsonHTMLStrRe, "s"); ok {
-			b.WriteString(r)
-			continue
-		}
-		if r, ok := wrap(rest, jsonHTMLBoolRe, "b"); ok {
-			b.WriteString(r)
-			continue
-		}
-		if r, ok := wrap(rest, jsonHTMLNumRe, "n"); ok {
-			b.WriteString(r)
-			continue
-		}
-		b.WriteString(rest)
-	}
-	return b.String()
-}
-
-func writeJSONHTML(w http.ResponseWriter, code int, compact []byte, title, method, path string) {
-	var pretty bytes.Buffer
-	if err := json.Indent(&pretty, compact, "", "  "); err != nil {
-		pretty.Reset()
-		pretty.Write(compact)
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(code)
-	fmt.Fprintf(w, `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>%s</title>
-<style>
-body{background:#dde3ea;margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#2a3441}
-header{display:flex;justify-content:space-between;align-items:center;padding:14px 24px;background:#3a4a5c;border-bottom:1px solid #2f3d4d;color:#e6ebf0}
-header .name{font-weight:600;font-size:15px}
-header .req{color:#b9c4d0;font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-main{max-width:880px;margin:24px auto;padding:0 16px}
-.card{background:#faf8f4;border:1px solid #c5ccd5;border-radius:8px;box-shadow:0 1px 3px rgba(27,31,36,.06)}
-pre{margin:0;padding:18px 20px;font:13.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#2a3441;white-space:pre-wrap;word-break:break-word;overflow-x:hidden}
-.k{color:#2f5d8a}.s{color:#5c7a4a}.n,.b{color:#8a5a86}
-.note{color:#5b6875;font-size:12.5px}
-</style>
-</head>
-<body>
-<header><span class="name">%s</span><span class="req">%s %s</span></header>
-<main>
-<div class="card"><pre>%s</pre></div>
-<p class="note">Browsers get this page (Accept: text/html); curl and scripts get the same JSON, compact.</p>
-</main>
-</body>
-</html>
-`, html.EscapeString(title), html.EscapeString(title), html.EscapeString(method), html.EscapeString(path), colorJSON(pretty.String()))
-}
-
 func handleRoot(w http.ResponseWriter, r *http.Request) {
 	// Echoing Host and X-Forwarded-* proves which listener and hostname the Gateway matched,
 	// which is the whole point of the wildcard-vs-exact demo.
 	compact := fmt.Sprintf(`{"app":%q,"mode":"http","path":%q,"host":%q,"method":%q,"proto":%q,"tls":%v}`+"\n",
 		name(), r.URL.Path, r.Host, r.Method, r.Proto,
 		strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"))
-	if wantsHTML(r) {
-			writeJSONHTML(w, http.StatusOK, []byte(compact), name(), r.Method, r.URL.Path)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprint(w, compact)
+	jsonview.Write(w, r, http.StatusOK, []byte(compact), name())
 }
 
 func serveHTTP(addr string) {
