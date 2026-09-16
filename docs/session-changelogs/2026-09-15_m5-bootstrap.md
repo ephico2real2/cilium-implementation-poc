@@ -169,3 +169,14 @@ Outcome in one line: **…**
   shapes compile to the same eight BPF policy-map entries (`cilium-dbg bpf policy get 1946`: `Allow Ingress 112713 80/TCP`,
   `Allow Ingress 81702 80/TCP`), so "BPF map efficiency" is refuted; the per-peer rule is what lets peers differ in ports
   and L7 rules and what `merge` and 27 goldens depend on. **The operator:** "don't add it" — no `--compact`, no README line.
+- **Swagger UI + ReDoc for cf2cnp** — proposed the group-sync-dashboard way (vendored, npm-integrity-checked, a drift
+  test); **the operator:** "is this worth it?" — no: three endpoints already documented with Try-it-out, a hand-kept spec
+  would be a fourth description, ~2.5 MB of JavaScript; "park this idea" → README *Parked* and the fork's issue #4
+  (the plan verbatim, the condition to revisit), cross-linked.
+- **The fork's PR #3** (`feat/api-page-try-it-out` → `develop`) opened on the operator's word; the review skill's **second
+  pass** on `1cbfabd` (9 claims; the record's second section): **refuted** — `/download/a/b` still reached `cache["a/b"]`
+  in `handleDownload` (Codex), a second generate left the previous download's status and body on the panel (Codex),
+  "open in a new tab" 401s on a token-guarded server — a navigation carries no bearer header (Codex, and Cursor's
+  volunteered finding), the card's "the first time this unfolds" was not what the code did (Codex refuted / Cursor
+  "intended": a text fix). Behind the Gateway, the tests-with-fixes-reverted and curl users: confirmed. Cursor implemented
+  the four from a brief; measured on the rebuilt binary (404, the cleared panel, the hidden link). `1be56f1`, pushed.
