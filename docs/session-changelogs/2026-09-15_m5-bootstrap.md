@@ -208,3 +208,35 @@ Outcome in one line: **…**
   themselves. **The operator:** "kind can pull public images, we only need load if this image was built locally".
   The gotcha is written that way round; the values comment that had claimed the package was private is corrected.
   113 traps in README.
+
+## Part 5 — the two READMEs (2026-09-16, 07:10 → 08:10)
+
+- **cf2cnp's README (fork PR #5, `docs/readme-0.8.0-web-ui`)** — six Playwright screenshots of the deployed 0.8.0 page
+  in a *The web UI* section (the page; 24 of demo 30's flows pasted with L7 on → `24 flow(s) → 2 policies`; `/download`
+  by the filled-in id, `HTTP 200 · 17 ms`; `/health`; a refusal — the only real one the page can show, a name over two
+  policies, HTTP 400). Cursor from a brief did the edits; one number in my brief corrected (14 goldens, not 27). The
+  review of the README itself: versions to 0.8.0, the merge paragraphs back under 1b (scattered under fromCIDR with a
+  duplicate block and an empty fence), `serve`'s two missing flags, `/generate`'s five query parameters, the output
+  examples regenerated with the 0.8.0 binary (names, `managed-by`, the description, `ANY/53`), one CSS selector so the
+  download and health panels wrap like the generate result. **The operator:** "it is forked project so i cannot use my
+  own link here … it needs to reflect the upstream project once we opened a PR" — the Fork note and the running-test
+  captures paragraph (both on `develop` before this PR) removed, the clone and binaries URLs name onzack/cf2cnp, the fork's
+  artefacts moved to the gh-pages README's *Testing the fork* (`1ba227a`). Flagged in the PR: `CHANGELOG.md` and the spec
+  table's fork versions are on `develop` too.
+- **"No contributors" on the fork** — measured: the sidebar says so on both forks (cf2cnp, hubble-observer) and shows
+  names on both non-forks; the API lists `ephico2real2 53, R-Studio 6, lucatr 1`; GitHub populates the widget for the
+  parent only. Nothing to fix.
+- **This repository's README (branch `readme-restructure`, PR pending)** — **the operator:** "this is not well
+  structured — it can be better, summarize where appropriate, put Cilium documentation as references for features that
+  were tested"; chose the full restructure. Measured first: 26.4 screens, 9,692 words, 0 images, the demos enumerated
+  four times, "All ten demos" and "14 sections" stale. Rewritten to ten sections (12.8 screens before the review's
+  additions; 4,532 words; one image; one demo table 01→36 in six groups with the evidence beside each; a *Cilium docs*
+  column, every URL fetched — `security/policy/language/` is a 200-status redirect stub, the real page is
+  `security/policy/`). My own second pass restored six things the condensing dropped; Cursor and Codex (read-only, own
+  scratch copies) refuted all three claims and were re-checked: six facts restored, three deliberate corrections kept,
+  four docs rows fixed, one Cursor claim refuted by the pages (the audit-mode anchor is on `policy-creation/`, not
+  `lifecycle/`). Record: `docs/REVIEW_README.md`. SETUP's link into the removed *Findings* anchor repointed.
+- **The lab, on request** — "does flow expire?": no; the download entry does (10 min, in-memory, and the 06:30 pod
+  replacement emptied it). Ten minutes of every lab's traffic (`scripts/lab-apps.sh rounds 10`), a fresh flow
+  `b5145c22…` → a live `download_url` (HTTP 200 at 07:52:20Z). "do we need to persist data?" — no: the YAML is in the
+  JSON answer; persistence is the file in git.
