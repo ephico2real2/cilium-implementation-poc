@@ -128,7 +128,7 @@ jobs:
       - name: The observability stack — demos 09, 16, 21, 10/22/23, 25, 18, the CLI's certificate, demo 36's Kyverno
         run: |
           set -o pipefail
-          steps="routes monitoring tempo collectors loki-observer"
+          steps="routes monitoring spoke tempo collectors loki-observer"   # spoke: demo 22, poc2's Prometheus remote-writing to the hub
           [ "${{ inputs.obi }}" = "true" ] && steps="$steps obi"
           steps="$steps hubble-cli kyverno"
           scripts/lab-stack.sh $steps 2>&1 | tee stack.log

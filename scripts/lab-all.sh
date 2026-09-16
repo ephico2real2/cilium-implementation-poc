@@ -13,7 +13,8 @@
 #               scripts/lab-route.sh, every LoadBalancer address answered
 #   images      scripts/lab-images.sh poc1 poc2                              "The lab's images — built, loaded into every cluster"
 #   stack       scripts/lab-stack.sh routes monitoring tempo collectors       "The observability stack — demos 09, 16, 21, 10/22/23, 25, 18 …"
-#               loki-observer [obi] hubble-cli kyverno                        (LAB_OBI=0 leaves demo 18 out, the heaviest stack)
+#               [spoke] tempo collectors loki-observer [obi] hubble-cli kyverno   (LAB_OBI=0 leaves demo 18 out, the heaviest stack;
+#                                                                                LAB_SPOKE=0 leaves demo 22's poc2 Prometheus out)
 #   apps        scripts/lab-apps.sh all — every lab, exercised once           "The labs of demos 26, 27, 30, 32, 35, …"
 #   audit       scripts/lab-apps.sh rounds $LAB_AUDIT_MINUTES                 "Traffic under audit for N minutes" — CI: 3; here: 1
 #   policies    scripts/lab-policies.sh all — flows → policies → applied      "The cf2cnp chapters …"
@@ -34,7 +35,7 @@
 # the host route's sudo (scripts/lab-route.sh warns and goes on) — run them once in a Terminal (docs/NEW-MAC.md §4).
 set -uo pipefail; cd "$(dirname "$0")/.."
 LAB_AUDIT_MINUTES="${LAB_AUDIT_MINUTES:-1}"; LAB_TRAFFIC_MINUTES="${LAB_TRAFFIC_MINUTES:-0}"
-LAB_CAPTURE="${LAB_CAPTURE:-0}"; LAB_OBI="${LAB_OBI:-1}"; LAB_SKIP="${LAB_SKIP:-}"
+LAB_CAPTURE="${LAB_CAPTURE:-0}"; LAB_OBI="${LAB_OBI:-1}"; LAB_SPOKE="${LAB_SPOKE:-1}"; LAB_SKIP="${LAB_SKIP:-}"   # LAB_SPOKE=0: no poc2 Prometheus (demo 22)
 CTX="${LAB_STACK_CTX:-kind-poc1}"; PEER="${LAB_STACK_PEER_CTX:-kind-poc2}"   # the same two knobs lab-stack.sh and lab-apps.sh read (review)
 export ROOT_CA="${ROOT_CA:-.tmp/root-ca.crt}"        # the checks' trust anchor; lab-up.sh wrote it (a host that trusts the root works too)
 mkdir -p .tmp captures; : > .tmp/failed-steps; T0=$(date +%s)
@@ -76,7 +77,7 @@ skip images || scripts/lab-images.sh poc1 poc2 || fail "the images (scripts/lab-
 
 say "stack — demos 09, 16, 21, 10/22/23, 25, 18, the CLI's certificate, demo 36's Kyverno"
 if ! skip stack; then
-  steps="routes monitoring tempo collectors loki-observer"; [ "$LAB_OBI" = 1 ] && steps="$steps obi"; steps="$steps hubble-cli kyverno"
+  steps="routes monitoring"; [ "$LAB_SPOKE" = 1 ] && steps="$steps spoke"; steps="$steps tempo collectors loki-observer"; [ "$LAB_OBI" = 1 ] && steps="$steps obi"; steps="$steps hubble-cli kyverno"
   scripts/lab-stack.sh $steps || fail "the stack (scripts/lab-stack.sh)"
   echo "== what it costs with the stacks up"; docker stats --no-stream --format '  {{.Name}} {{.CPUPerc}} {{.MemUsage}}' 2>/dev/null || true
 fi
