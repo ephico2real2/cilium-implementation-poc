@@ -37,9 +37,17 @@ an outage to change later). Steps 10 onward install what each demo adds.
 
 The same scripts run on a GitHub-hosted runner (4 vCPU, 16 GB) as three `workflow_dispatch` workflows; only the
 bootstrap differs (`scripts/bootstrap/ubuntu.sh` there, `macos.sh` here, both ending in the same
-`scripts/lab-preflight.sh` table). `lab-observability.yaml` is the gate: the stacks, the labs, traffic under audit, the
-cf2cnp chapters, the report and a Playwright walk of every page with its expectations as tests. The plan and every
-run's measurements: [enhancements/004-lab-in-ci.md](enhancements/004-lab-in-ci.md).
+`scripts/lab-preflight.sh` table). The plan and every run's measurements:
+[enhancements/004-lab-in-ci.md](enhancements/004-lab-in-ci.md).
+
+| Workflow | What it proves |
+|---|---|
+| `lab-spike-kind.yaml` | two kind clusters, each complete and independent, then the mesh on cert-manager's root (route A); Cilium's own multi-cluster connectivity test, 87/87 |
+| `lab-route-b.yaml` | the same on Helm certificates (SETUP 9.3b), the mesh checks of 9.5, demo 07's global service and failover with the guide's numbers |
+| `lab-observability.yaml` | **the gate**: the images built and loaded, the stacks (demos 09/16/21/10–23/25/18), the labs of 26–35 with the bank, the cell, demo 11's client and demo 20's petclinic; traffic under audit; the cf2cnp chapters (flows kept, policies generated through the API, validated three ways, re-tested under enforcement); the report; a Playwright walk of every page with its expectations as tests |
+
+A run's page holds the report and the captures; its artifact every log, the raw flows and the generated policies. What the
+runner refused (netkit before its kernel, BIG TCP under VXLAN, the bandwidth manager in kind) is in the gotchas, #92 onward.
 
 **The pages**, once the names are in `/etc/hosts` (`scripts/lab-route.sh kind-poc1` prints the live addresses and
 checks each from this host; `scripts/hosts-entries.sh` prints the block and never edits the file):
@@ -64,6 +72,9 @@ The certificate is the lab's wildcard `*.poc.local`, issued by cert-manager from
 | `poc1` | 3 control-plane + 2 worker | `10.10.0.0/16` | `10.11.0.0/16` | 1 |
 | `poc2` | 1 control-plane + 1 worker | `10.20.0.0/16` | `10.21.0.0/16` | 2 |
 
+The kind definitions are in [`clusters/`](clusters/) ([`poc1.yaml`](clusters/poc1.yaml): `disableDefaultCNI: true`,
+`kubeProxyMode: none`, the node image pinned by digest), the Cilium Helm values and the LB IPAM pool in
+[`cilium/`](cilium/) ([`values-poc1.yaml`](cilium/values-poc1.yaml), [`lb-ippool-poc1.yaml`](cilium/lb-ippool-poc1.yaml)).
 `poc1` has three control planes so etcd keeps a real majority and a control-plane failure can be demonstrated; `poc2`
 is the far side of the mesh, deliberately minimal; the CIDRs do not overlap because ClusterMesh requires it. Both run
 with **no kube-proxy** (`kubeProxyMode: none`) and **no default CNI** (`disableDefaultCNI: true`), with **eBPF
@@ -80,6 +91,7 @@ poc1 runs: [SETUP Step 5.4](docs/SETUP.md#step-54--is-the-service-mesh-on--what-
 | cert-manager | v1.21.1 (chart; GitHub had v1.21.2 the same day — gotcha #26) |
 | Gateway API CRDs | v1.6.1 standard, plus experimental `TCPRoute` |
 | OpenTelemetry Collector | contrib 0.160.0 |
+| kube-prometheus-stack | 90.1.1 (demo 16) |
 | cf2cnp (the fork) | 0.8.0 — `ghcr.io/ephico2real2/cf2cnp`, the chart from `https://ephico2real2.github.io/cf2cnp` |
 
 The pins the scripts install are in [`scripts/bootstrap/versions.env`](scripts/bootstrap/versions.env).
@@ -111,27 +123,27 @@ feature, so a claim here can be read against its source. The full list of source
 
 One `README.md` per demo under [`demos/`](demos/), each with a *Summary context*, the commands, the recorded
 `output/transcript.txt`, and an **Evidence** section — the dashboards and UIs as the browser saw them under traffic
-(`scripts/evidence/capture.js`), the pods in both clusters and the Cilium command that proves the claim
-(`scripts/evidence/collect.sh`). Demos whose workload the lab keeps scaled down or that the VM kernel blocks have a
+([`scripts/evidence/capture.js`](scripts/evidence/capture.js)), the pods in both clusters and the Cilium command that
+proves the claim ([`collect.sh`](scripts/evidence/collect.sh)). Demos whose workload the lab keeps scaled down or that the VM kernel blocks have a
 row in [missing-captures.md](missing-captures.md) instead. Read them in order the first time; from 26 on, each builds
 on the one before.
 
 | # | Demo | What it proves | Evidence |
 |---|---|---|---|
-| **Foundations** — poc1 alone | | | |
+| | **Foundations** — poc1 alone | | |
 | 01 | [Hubble flows + UI](demos/01-hubble/README.md) | per-flow, identity-aware visibility that iptables cannot produce | [1 capture](demos/01-hubble/README.md#evidence) |
 | 02 | [L7 HTTP policy](demos/02-l7-policy/README.md) | allow `POST /v1/request-landing`, deny `PUT /v1/exhaust-port` between the *same* two pods | [2 captures](demos/02-l7-policy/README.md#evidence) |
 | 03 | [kube-proxy free](demos/03-kube-proxy-free/README.md) | Services load-balanced in eBPF; no kube-proxy DaemonSet exists at all | [pods + output](demos/03-kube-proxy-free/README.md#evidence) |
 | 04 | [WireGuard](demos/04-wireguard/README.md) | node-to-node encryption on with one Helm value, verified on the wire, then switched off on purpose | [pods + output](demos/04-wireguard/README.md#evidence) |
 | 05 | [Gateway API](demos/05-gateway-api/README.md) | Cilium as the Gateway controller, its address from Cilium's own LB IPAM | [2 captures](demos/05-gateway-api/README.md#evidence) |
 | 06 | [Performance](demos/06-perf/README.md) | iperf3 across nodes with 25–38 % run-to-run noise measured honestly; netkit, BBR and BIG TCP each proven absent on this VM kernel | [pending](missing-captures.md) |
-| **Multi-cluster and PKI** | | | |
+| | **Multi-cluster and PKI** | | |
 | 07 | [ClusterMesh](demos/07-clustermesh/README.md) | a global Service backed by pods in the second cluster, with failover | [1 capture](demos/07-clustermesh/README.md#evidence) |
 | 08 | [Enterprise CA](demos/08-certmanager-ca/README.md) | a cert-manager root in poc1 issuing every cluster's mesh certificates; trust before the join | [pods + output](demos/08-certmanager-ca/README.md#evidence) |
 | 09 | [Wildcard TLS + three route types](demos/09-routes/README.md) | wildcard and exact certificates on one Gateway; `HTTPRoute`, `GRPCRoute`, `TCPRoute` from one image, a Go client that tests all three (how the missing-ALPN gotcha #33 was found) | [3 captures](demos/09-routes/README.md#evidence) |
 | 24 | [ClusterMesh the enterprise way](demos/24-clustermesh-enterprise/README.md) | Hubble joins the mesh on the one cert-manager root (`7/7` nodes, zero handshake failures); the mesh declared the guide's way; the 3.5-minute outage a wrong order costs | [1 capture](demos/24-clustermesh-enterprise/README.md#evidence) |
 | 36 | [One root, everywhere](demos/36-trust-everywhere/README.md) | the Gateway's wildcard was cert-manager's all along (read from the chain); that root into the OS trust stores and every namespace of both clusters, so `--cacert` stops being a special case | in the demo |
-| **Observability** — hub on poc1, poc2 a spoke | | | |
+| | **Observability** — hub on poc1, poc2 a spoke | | |
 | 10 | [Flow export → OpenTelemetry](demos/10-tracing/README.md) | Hubble's dynamic exporter per node tailed by a Collector into OTLP; every flow persistent and queryable — events, not spans (gotcha #30) | [pods + output](demos/10-tracing/README.md#evidence) |
 | 16 | [Prometheus + Grafana, then Hubble on dashboards](demos/16-monitoring/README.md) | kube-prometheus-stack, then one Cilium Helm change: 6 ServiceMonitors, 6 dashboards, 52/52 targets, exemplars proven with a `traceparent` | [11 captures](demos/16-monitoring/README.md#evidence) |
 | 18 | [OBI: zero-code traces across the mesh](demos/18-obi/README.md) | eBPF instrumentation on both clusters: one payment as a 16-span tree poc1 → poc2 → Postgres/Redis, RED metrics per route | [2 captures](demos/18-obi/README.md#evidence) |
@@ -139,15 +151,15 @@ on the one before.
 | 22 | [One Grafana for the mesh](demos/22-multicluster-observability/README.md) | poc2 remote-writes across the mesh through a role-named global Service; the `cluster` dropdown lists both | [9 captures](demos/22-multicluster-observability/README.md#evidence) |
 | 23 | [A collector per cluster](demos/23-collector-per-cluster/README.md) | the gateway is a per-cluster Service, never global (the wrong cluster stamp measured); HA with a persistent queue proven by killing the collectors with the hub down | [pods + output](demos/23-collector-per-cluster/README.md#evidence) |
 | 25 | [Historical flows, the open-source way](demos/25-hubble-observer-loki/README.md) | hubble-observer streams flows from the mesh-wide relay → Collector → Loki → a Grafana dashboard: what Timescape does, from parts | [8 captures](demos/25-hubble-observer-loki/README.md#evidence) |
-| **Applications** | | | |
+| | **Applications** | | |
 | 15 | [A bank across two clusters](demos/15-bank/README.md) | five components + Postgres/Redis split across poc1 and poc2 over global Services: active-active, zero failed requests through a scale-to-0 outage, a hot standby streaming through the mesh with promotion and failback | [4 captures](demos/15-bank/README.md#evidence) |
 | 19 | [A zero-trust cell across the mesh](demos/19-zero-trust-cell/README.md) | `intent.yaml` → `render.py` → 7 policies + 1 clusterwide baseline; the bank runs default-deny on both clusters — the standing posture | [2 captures](demos/19-zero-trust-cell/README.md#evidence) |
 | 20 | [Spring Boot + Java observability](demos/20-springboot/README.md) | spring-petclinic-microservices (6 JVMs) on the Gateway, the app's and the Java agent's spans in the demo 10 collector; three measured fixes | [pending](missing-captures.md) |
-| **Forensics** — a third cluster, throwaway clusters | | | |
+| | **Forensics** — a third cluster, throwaway clusters | | |
 | 11 | [kube-proxy vs Cilium](demos/11-kube-proxy-vs-cilium/README.md) | `poc3` (kindnet + iptables) against poc1: 48 vs 11,078 iptables rules at 1,000 Services, ~2× faster programming — and the default Cilium install losing on throughput until three causes were found | [pending](missing-captures.md) |
 | 13 | [ztunnel mTLS](demos/13-ztunnel/README.md) | real mTLS on the wire on a throwaway cluster; incompatible with any `cluster.id`, breaks L4/L7 policy on enrolled traffic, −73 % throughput — not the standard | [pending](missing-captures.md) |
 | 14 | [TCP_CRR tuning blog, tested](demos/14-tcp-crr-tuning/README.md) | bigger maps, shorter timeouts, socket LB, client sysctls — none moved the connection rate; this rig's ceiling is Hubble | [pending](missing-captures.md) |
-| **Policy from observed flows** — cf2cnp, the fork, enhancement 001 | | | |
+| | **Policy from observed flows** — cf2cnp, the fork, enhancement 001 | | |
 | 26 | [Policy from flows, three ways](demos/26-cf2cnp-policy-from-flows/README.md) | the foundational skill: a Hubble flow JSON from four sources (relay, Loki, observer log, export file — byte-identical policies) → cf2cnp by API, UI, Grafana action → audit → enforce | [5 + 7 captures](demos/26-cf2cnp-policy-from-flows/README.md#evidence) |
 | 27 | [cf2cnp 0.5.0 from the fork](demos/27-cf2cnp-release/README.md) | the fork's release (Helm repo, image) deployed as the observer chart's dependency; two components, one request, two names that cannot collide | [4 + 7 captures](demos/27-cf2cnp-release/README.md#evidence) |
 | 28 | [The verdicts dashboard as a product](demos/28-policy-verdicts-chart/README.md) | [hubble-policy-verdicts](https://github.com/ephico2real2/hubble-policy-verdicts): its own chart (sidecar ConfigMap or Grafana Operator CR), released, a dependency of the observer chart, offered upstream | [2 + 3 captures](demos/28-policy-verdicts-chart/README.md#evidence) |
@@ -178,6 +190,7 @@ instead of a real network. Everything from demo 06 onward is meant to move to a 
 | the mesh API server as a NodePort on a control-plane container IP | a LoadBalancer or a DNS name per cluster, the shared CA provisioned before the join (demos 08, 24) |
 | the Docker VM kernel (6.6-linuxkit, no `CONFIG_SECURITY`, no `CONFIG_NETKIT`) and its memory ceiling: **Tetragon**, **OBI's generic tracer**, **netkit**, the **bandwidth manager with BBR** and **BIG TCP** cannot run (gotchas #60, #66, demo 06 Part 4) | the kernel and the RAM you chose; none of those gotchas apply |
 | one VM for seven kind nodes, two Cilium installs and the whole observability stack: control-plane restarts under load, the hub Prometheus OOM-killed, petclinic and poc3 kept scaled down or paused (gotchas #66, #77) | real nodes with their own memory |
+| the Docker VM's DNS upstream unreachable from pods: CoreDNS forwards to `1.1.1.1` / `8.8.8.8` (gotcha #63) | the site resolvers |
 | open-source Hubble UI: no time range, no history, no cluster picker | the same — this lab builds the flow store with Loki instead (demo 25) |
 
 **The networking design in one sentence:** one Gateway with one LoadBalancer address, one wildcard DNS record and one
@@ -193,8 +206,8 @@ server, and the checklist for the network team: [NETWORKING_DESIGN.md](NETWORKIN
 Everything in the demo table runs today except where its row says *pending*. What does not, and why — each measured,
 each with its record:
 
-- **Tetragon (demo 17)** — every agent crash-loops on a Docker Desktop kernel without `CONFIG_SECURITY` (fixed in
-  Docker Desktop 4.30), and kind nodes need a creation-time `/procHost` mount (now in `clusters/poc*.yaml`) —
+- **Tetragon (demo 17)** — every agent crash-loops on the Docker Desktop 4.27.2 kernel, which has no `CONFIG_SECURITY`
+  (restored in 4.30.0), and kind nodes need a creation-time `/procHost` mount (now in `clusters/poc*.yaml`) —
   [demos/17-tetragon](demos/17-tetragon/README.md), [Tetragon docs](https://tetragon.io/docs/).
 - **netkit, bandwidth manager with BBR, BIG TCP** — absent from the linuxkit kernel; demo 06 Part 4 proves each
   ([netkit](https://docs.cilium.io/en/stable/operations/performance/tuning/#netkit-device-mode),
@@ -226,7 +239,7 @@ each with its record:
 | [docs/FINDINGS.md](docs/FINDINGS.md), [docs/REFERENCES.md](docs/REFERENCES.md) | the measurements; every external source with what it was used for |
 | [docs/POLICY-TEST-RESULTS.md](docs/POLICY-TEST-RESULTS.md) | every generated policy's test and outcome (demos 26–35), and cf2cnp's own test layers |
 | [docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md) | 1,024 lines of real console output in 23 sections, from the toolchain to the flow store, regenerable with `scripts/verify.sh` |
-| [enhancements/](enhancements/README.md) | proposals that grew out of the demos, each with its measurement, issue, reviewed plan and proving demo: 001 policy from flows (issue [#11](https://github.com/ephico2real2/cilium-implementation-poc/issues/11)), 002 the shop platform, 003 cf2cnp on Cilium's policy API, 004 the lab in CI |
+| [enhancements/](enhancements/README.md) | proposals that grew out of the demos, each with its measurement, issue, reviewed plan and proving demo: 001 policy from flows (issue [#11](https://github.com/ephico2real2/cilium-implementation-poc/issues/11)), 002 the shop platform, 003 cf2cnp on Cilium's policy API, 004 the lab in CI — [001](enhancements/001-policy-from-flows-enterprise.md) is the one the demos from 29 on prove |
 | [docs/session-changelogs/](docs/session-changelogs/), `docs/REVIEW_*.md` | what each working session changed and measured; the adversarial review records (Codex and Cursor) behind the substantial changes |
 
 The lab's original name, `cilium-kind-poc`, survives in the git history and as the marker of the `/etc/hosts` blocks
@@ -239,7 +252,7 @@ repository's name on 2026-09-15.
   snapshot from someone else's laptop (`scripts/verify.sh > docs/VERIFICATION_RUN.md`). It is read-only apart from HTTP
   requests to the demo apps and **always exits 0**, deliberately: a `curl` that times out is what an L3 denial looks
   like, and it is recorded as `[exit code: 28]` rather than hidden. It is an evidence report, not a gate.
-- **`scripts/evidence/capture.js`** and **`collect.sh`** take each demo's Evidence section (one Playwright runner, one
+- **[`scripts/evidence/capture.js`](scripts/evidence/capture.js)** and **[`collect.sh`](scripts/evidence/collect.sh)** take each demo's Evidence section (one Playwright runner, one
   `evidence.json` per demo; one table); **`scripts/check-routes.sh`** is demo 09's external-access proof;
   **`scripts/hubble-tls.sh --configure kind-poc1 kind-poc2`** configures the Hubble CLI once for the relays' mutual TLS,
   after which every `hubble …` command in the demos works as written (gotcha #75).
