@@ -79,3 +79,49 @@ Outcome in one line: **…**
   root `F4:FD:F8:B7…` identical in both; ClusterMesh `OK` both ways, `2/2 connected`, KVStoreMesh `1/1`. Gotcha #107's
   race hit (the Bundle at attempt 2). The first bring-up under Helm 4.3.0.
 - Owed to the operator's Terminal: `scripts/lab-trust.sh install kind-poc1`, `scripts/lab-route.sh kind-poc1`.
+
+---
+
+## Part 2 — the labs on the M5, the same as CI, without the waits (2026-09-15, 18:05 → 19:45)
+
+### Four passes to green — commits `93441ff`, `2c7e64b`, `92d7612`
+
+- **The operator:** "so let deploy all the lab examples here — the same ones that we can ran in the github ci", then "we don't
+  need the crazy wait time … make the wait time parameterizable such that we can pass what we want and override it".
+  `scripts/lab-all.sh`: the Action's steps after `lab-up.sh`, with `LAB_AUDIT_MINUTES` (1; CI 3) and `LAB_TRAFFIC_MINUTES`
+  (0 = skipped; CI 6) as knobs, `LAB_CAPTURE`, `LAB_OBI`, `LAB_SKIP`. The facts behind the defaults: `lab-apps.sh all`
+  already exercises every lab once; the chapters need only flows that exist; `rounds`/`traffic` feed the dashboards'
+  5-minute panels and CI's strict data wait.
+- **Pass 1 (CI-shaped driver, 18:09 → stopped at the audit step 18:16).** The Gateway (`172.18.255.241`, HTTP 500 before
+  routes — the runner's line too), the Hubble UI 200, poc2's `rebel-base-lb 172.18.255.136` 200 from this Mac; images in
+  24 s. **Found by the Mac:** `ModuleNotFoundError: No module named 'yaml'` — `dashboard-from-file.sh` printed its
+  ConfigMap with PyYAML, which GitHub's image has and macOS's python3 does not; under `set -e` the stack stopped there
+  (OBI, the CLI certificate, Kyverno never ran) and demo 30's `hubble observe` ended the labs. **Fixed:** JSON out
+  (`kubectl` reads both; proven with a client-side dry run: uid pinned, 13 panels, `__inputs` dropped); gotcha #110.
+- **Pass 2 (18:36 → stopped 19:13).** **Found by the Mac:** `declare: -A: invalid option`, `c[@]: unbound variable`, the
+  petclinic silent — macOS's `/bin/bash` 3.2.57; the runner has 5.2. **The operator:** "make installing homebrew … and
+  then install bash from homebrew part of the setup of this lab on macbook and say it is a requirement." **Fixed:**
+  `brew install bash` (5.3.20; `/opt/homebrew/bin` precedes `/bin`), `macos.sh` installs Homebrew itself (the
+  installer's unattended mode after `sudo -v`, read from its source) and the formula, a `bash (env bash)` preflight row
+  (REQUIRED-FAIL < 4.4), NEW-MAC §1 and SETUP Step 1 state the requirement; gotcha #111. Then the bank's check sat 36
+  minutes: **found by the agent's flow log** — `forensic/client → bank/api Policy denied DROPPED`; the cell from pass 1
+  was still there and the check runs "before the cell"; and the `timeout 15m` guard (written after the runner's own
+  94-minute hang) is GNU coreutils' — absent on macOS, the guard fell through silently. **Fixed:** the bank lab removes
+  the cell (the CCNP and the `rendered-from=intent.yaml` policies) before the check; a `deadline` helper
+  (`timeout`/`gtimeout`/a spoken warning); `coreutils` a requirement; gotcha #112.
+- **Pass 3 (19:14 → 19:20, 5 min 43 s).** The bank check **`TOTAL ok=282 fail=0 poc1=83 poc2=199`** in 1 min 55 s (the
+  runner: 2 min 38 s). **Found by the Mac:** the petclinic died at its header — `free -m` is Linux's, the failed pipeline's
+  status was the assignment's; chapter 26 found `no AUDIT flow pos → shop` — pass 1's generated allow still forwarded it.
+  **Found by me, my own doing:** a `syntax error` in `rounds` — I had patched `lab-apps.sh` while it was executing.
+  **Fixed:** `used_mb()` optional; `reset_chapter` (delete the `app.kubernetes.io/managed-by=cf2cnp` policies; lab30 also
+  chapter 30's default-deny) in labs 26, 27, 30, 35.
+- **Pass 4 (19:21 → 19:30, 9 min 5 s): every step passed.** Labs 3 min 27 s (the bank `ok=281 fail=0`, the petclinic's
+  Eureka 4 UP, `memory: host used ?(no free on this host)`), one audit minute, six chapters regenerated on reset
+  namespaces, the report's 13 checks with 0 trouble words each — the runner's rows, one for one (run 35028933940 had 1
+  in demo 25 Part 5).
+- **Adversarial review** (`docs/REVIEW_LABS-ON-MAC.md`): 11 claims. **Accepted:** C1 the label also selects demo 31's
+  recorded policy (both; a comment), C4 the ceiling warning was redirected into the check's file (Cursor), C8 the
+  installer refuses Intel macOS (Codex, read in the source) and sudo's timestamp can expire mid-install (Cursor); not
+  asked: `LAB_STACK_PEER_CTX` (Codex), the JSON header (Cursor). **Rejected:** Cursor's name-based delete and re-labelling
+  of the committed demo-26 examples — the lab applies only what cf2cnp 0.7.0 generates, and it labels. Verified against
+  fakes; the gate on `93441ff` (run 35040355665) and on `2c7e64b` (run 35041617666).
