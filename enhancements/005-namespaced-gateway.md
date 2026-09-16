@@ -105,7 +105,11 @@ nothing measurable here).
   second Gateway address, path precedence); README's demo table row; `docs/POLICY-TEST-RESULTS.md` if any policy is
   generated for the two namespaces (cf2cnp on the route-app's flows would be a natural chapter 37).
 
-## 5. Questions for the operator
+## 5. Questions for the operator — answered 2026-09-16: "yes to all"
+
+The route-app; fortio in-cluster; the isolating variant built in the same demo (phase 3.1's last question becomes a
+part: `shop-b` on poc2 behind enhancement 002's Gateway, load on poc1 — a separate data plane, measured beside the
+same-cluster team Gateway). The review pass runs on Grok (ZDR), the operator's choice.
 
 1. **The app.** The demo 09 route-app (HTTP + gRPC + TCP, echoes host/listener/TLS) or a new one? The plan assumes the
    route-app — it already proves *which door answered*, and gRPC/TCP listeners on the team Gateway come free.
