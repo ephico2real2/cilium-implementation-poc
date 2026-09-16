@@ -1,0 +1,31 @@
+# Measured: the built-in `edit` ClusterRole cannot create gateways or httproutes (`kubectl auth can-i` → no),
+# and the Gateway API CRDs ship no aggregate-to-edit role. "The team owns its Gateway" is this Role, granted
+# by the platform.
+#
+#   kubectl --context kind-poc1 apply -f demos/37-two-gateways/35-team-rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: team-b-dev, namespace: team-b}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: gateway-owner, namespace: team-b}
+rules:
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [gateways, httproutes]                          # no status subresource: the controller owns status
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [services, pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: gateway-owner, namespace: team-b}
+subjects: [{kind: ServiceAccount, name: team-b-dev, namespace: team-b}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: gateway-owner}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: team-b-dev-edit, namespace: team-b}
+subjects: [{kind: ServiceAccount, name: team-b-dev, namespace: team-b}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: edit}

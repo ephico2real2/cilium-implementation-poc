@@ -1,0 +1,69 @@
+== 1. the two doors: addresses, Programmed, every route, the shared Envoy, the L2 leases
+  routes/routes-gw: address=172.18.255.240 Programmed=True  (pinned .240)
+  team-b/team-b-gw: address=172.18.255.243 Programmed=True  (pinned .243)
+  routes (team-a and team-b):
+team-a   shop            [shop-a.poc.local]   True   Accepted   True
+team-a   shop-redirect   [shop-a.poc.local]   True   Accepted   True
+team-b   shop                [shop.team-b.poc.local]     True   Accepted   True
+team-b   shop-a-via-team-b   [shop-a.team-b.poc.local]   True   Accepted   True
+team-b   shop-redirect       [*.team-b.poc.local]        True   Accepted   True
+  cilium-dbg envoy admin listeners on each agent, grep cilium-gateway (the shared Envoy)
+  poc1-control-plane (cilium-hzpkv):
+    default/cilium-gateway-sw-gateway/listener::127.0.0.1:19308
+    routes/cilium-gateway-routes-gw/listener::127.0.0.1:14386
+    team-b/cilium-gateway-team-b-gw/listener::127.0.0.1:11806
+  poc1-worker (cilium-tbcch):
+    default/cilium-gateway-sw-gateway/listener::127.0.0.1:15333
+    routes/cilium-gateway-routes-gw/listener::127.0.0.1:12589
+    team-b/cilium-gateway-team-b-gw/listener::127.0.0.1:12285
+  L2 lease holders:
+    cilium-l2announce-default-cilium-gateway-sw-gateway   poc1-control-plane                                                              14h
+    cilium-l2announce-kube-system-hubble-ui               poc1-control-plane                                                              14h
+    cilium-l2announce-routes-cilium-gateway-routes-gw     poc1-control-plane                                                              13h
+    cilium-l2announce-team-b-cilium-gateway-team-b-gw     poc1-worker                                                                     52s
+
+== 2. the certificates: issuer + SAN from the handshake, verified against .tmp/root-ca.crt
+  shop-a.poc.local @172.18.255.240: issuer=CN=clustermesh-root-ca X509v3 Subject Alternative Name: critical     DNS:*.poc.local 
+  shop.team-b.poc.local @172.18.255.243: issuer=CN=clustermesh-root-ca X509v3 Subject Alternative Name: critical     DNS:*.team-b.poc.local 
+
+== 3. the answers: X-Door and the JSON's app; the http:// 301 for each
+  https://shop-a.poc.local @172.18.255.240: HTTP 200 X-Door=routes-gw app=shop-a
+  https://shop.team-b.poc.local @172.18.255.243: HTTP 200 X-Door=team-b-gw app=shop-b
+  https://shop-a.team-b.poc.local @172.18.255.243: HTTP 200 X-Door=team-b-gw app=shop-a
+  http://shop-a.poc.local @172.18.255.240: HTTP 301 Location=https://shop-a.poc.local:443/  (want 301 to https)
+  http://shop.team-b.poc.local @172.18.255.243: HTTP 301 Location=https://shop.team-b.poc.local:443/  (want 301 to https)
+  http://shop-a.team-b.poc.local @172.18.255.243: HTTP 301 Location=https://shop-a.team-b.poc.local:443/  (want 301 to https)
+
+== 4. the negatives: attachment, the flat hijack, the zoned name, then the admission policy
+  -- team-b route on routes-gw (unlabelled namespace; want Accepted reason NotAllowedByListeners)
+  team-b/demo37-tb-on-rgw: Accepted=False reason=NotAllowedByListeners ResolvedRefs=True  HTTPRoute is not allowed to attach to this Gateway due to namespace restrictions
+  -- team-a route on team-b-gw (from: Same; want refused)
+The httproutes "demo37-ta-on-tbgw" is invalid: : ValidatingAdmissionPolicy 'httproute-own-zone' with binding 'httproute-own-zone' denied request: hostname probe-ta.team-b.poc.local is not this namespace's zone
+  team-a/demo37-ta-on-tbgw: Accepted=? reason=? ResolvedRefs=?  
+  -- team-a claims shop-b.poc.local on routes-gw (flat-name hijack: naming cannot stop this)
+  team-a/demo37-hijack-flat: Accepted=True reason=Accepted ResolvedRefs=True  Accepted HTTPRoute
+  https://shop-b.poc.local @172.18.255.240: HTTP 200 X-Door=routes-gw app=shop-a
+  (the hijack, served with a valid *.poc.local certificate at routes-gw)
+  -- team-a claims shop.team-b.poc.local on routes-gw (zoned; attaches, TLS at .240 fails, .243 answers)
+  team-a/demo37-hijack-zoned: Accepted=True reason=Accepted ResolvedRefs=True  Accepted HTTPRoute
+  shop.team-b.poc.local @172.18.255.240: curl: (60) SSL: no alternative certificate subject name matches target host name 'shop.team-b.poc.local'
+More details here: https://curl.se/docs/sslcerts.html
+
+curl failed to verify the legitimacy of the server and therefore could not
+establish a secure connection to it. To learn more about this situation and
+how to fix it, please visit the web page mentioned above.
+ssl_verify_result=1 http=000  (the *.poc.local leaf does not cover a team name)
+  https://shop.team-b.poc.local @172.18.255.243: HTTP 200 X-Door=team-b-gw app=shop-b
+  -- admission policy applied; re-try the zoned hijack (want refusal naming the hostname)
+  admission: The httproutes "demo37-hijack-zoned" is invalid: : ValidatingAdmissionPolicy 'httproute-own-zone' with binding 'httproute-own-zone' denied request: hostname shop.team-b.poc.local is not this namespace's zone
+  ValidatingAdmissionPolicy httproute-own-zone left applied
+
+== 5. RBAC: the platform's Role vs edit-only
+  --as=system:serviceaccount:team-b:team-b-dev create gateways in team-b: yes
+  --as=system:serviceaccount:team-b:team-b-dev create httproutes in team-b: yes
+  --as=system:serviceaccount:team-b:team-b-dev create gateways in routes: no
+  --as=system:serviceaccount:team-b:team-b-dev create httproutes in routes: no
+  throwaway RoleBinding team-b-edit-only → ClusterRole edit (no gateway-owner):
+  --as=system:serviceaccount:team-b:team-b-edit-only create gateways in team-b: no
+  --as=system:serviceaccount:team-b:team-b-edit-only create httproutes in team-b: no
+  throwaway team-b-edit-only deleted

@@ -1,0 +1,52 @@
+# The same image behind both doors: routedemo:local (demo 09), APP_NAME shop-a / shop-b. The JSON identifies the
+# request (app, host, path, tls). The door is the address the client used, the leaf presented, and the X-Door header
+# each route stamps — not a field the app invents.
+#
+#   kubectl --context kind-poc1 apply -f demos/37-two-gateways/10-app.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: shop, namespace: team-a}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: shop}}
+  template:
+    metadata: {labels: {app: shop}}
+    spec:
+      containers:
+        - name: app
+          image: routedemo:local
+          imagePullPolicy: Never
+          args: ["-mode", "http", "-addr", ":8080"]
+          env: [{name: APP_NAME, value: shop-a}]
+          ports: [{containerPort: 8080}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: shop, namespace: team-a}
+spec:
+  selector: {app: shop}
+  ports: [{port: 8080, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: shop, namespace: team-b}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: shop}}
+  template:
+    metadata: {labels: {app: shop}}
+    spec:
+      containers:
+        - name: app
+          image: routedemo:local
+          imagePullPolicy: Never
+          args: ["-mode", "http", "-addr", ":8080"]
+          env: [{name: APP_NAME, value: shop-b}]
+          ports: [{containerPort: 8080}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: shop, namespace: team-b}
+spec:
+  selector: {app: shop}
+  ports: [{port: 8080, targetPort: 8080}]
