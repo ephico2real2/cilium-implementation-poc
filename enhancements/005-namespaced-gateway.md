@@ -1,6 +1,7 @@
 # Enhancement 005 — two ways to deploy a Gateway: the platform's shared Gateway and a team's own, in its namespace
 
-Status: **plan, measured 2026-09-16** — issue [#21](https://github.com/ephico2real2/cilium-implementation-poc/issues/21); the review pass next, then demo 37.
+Status: **plan, measured 2026-09-16, reviewed** ([docs/REVIEW_ENH-005.md](../docs/REVIEW_ENH-005.md): five refutations accepted, each
+checked on the lab) — issue [#21](https://github.com/ephico2real2/cilium-implementation-poc/issues/21); phase 0 done; phase 1 next.
 
 ## 1. Why, in one paragraph
 
@@ -17,26 +18,32 @@ listener set and upgrade cycle. Demo 37 deploys one application both ways and me
 
 | Fact | Source | Consequence |
 |---|---|---|
-| A Cilium Gateway creates **one Service** (`cilium-gateway-<name>`, LoadBalancer) and nothing else — no Deployment, no pods | `kubectl -n routes get svc,deploy,pods -l io.cilium.gateway/owning-gateway=routes-gw` → the Service only | the data plane is not per Gateway |
-| The data plane is the **per-node `cilium-envoy` DaemonSet** (2/2 on poc1), shared by every Gateway and every L7 policy on the node | `kubectl -n kube-system get ds cilium-envoy` | a second Gateway is another set of listeners in the same Envoy process: **its own address, listeners, certificates, ownership — not its own CPU**. kgateway, Envoy Gateway and Istio deploy a proxy per Gateway; Cilium does not. The noisy-neighbour measurement is therefore a real question, not a demonstration of a known answer |
-| `gateway-pool` (`172.18.255.240–250`) selects Services with `io.cilium.gateway/owning-gateway` **in any namespace**; 9 of 11 addresses free (`.240` routes-gw, `.241` sw-gateway) | `CiliumLoadBalancerIPPool` status | a team's Gateway gets its address from the same reserved range, pinned with `infrastructure.annotations` as demo 09 does |
+| A Cilium Gateway creates a **Service** (`cilium-gateway-<name>`, LoadBalancer) and a **`CiliumEnvoyConfig`** of the same name — configuration, no Deployment, no pods | `kubectl -n gw-probe get svc,ciliumenvoyconfig` on the phase 0 probe → one of each; `get deploy,pods` → none | the data plane is not per Gateway |
+| The data plane is the **per-node `cilium-envoy` DaemonSet** (2/2 on poc1), shared by every Gateway and every L7 policy on the node; a Gateway's listener is programmed into **every** node's Envoy | `kubectl -n kube-system get ds cilium-envoy`; phase 0: `cilium-dbg envoy admin listeners` on both agents lists `routes/cilium-gateway-routes-gw`, `default/cilium-gateway-sw-gateway` and `gw-probe/cilium-gateway-probe-gw` on **both** nodes | a second Gateway is another set of listeners in the same Envoy process: **its own address, listeners, certificates, ownership — not its own CPU**. kgateway, Envoy Gateway and Istio deploy a proxy per Gateway; Cilium does not. The noisy-neighbour measurement is therefore a real question, not a demonstration of a known answer |
+| `gateway-pool` (`172.18.255.240–250`) selects Services with `io.cilium.gateway/owning-gateway` **in any namespace**; `.240` routes-gw, `.241` sw-gateway, **`.242` is claimed by enhancement 002** (the shop platform's `shop-gw`) | `CiliumLoadBalancerIPPool` status; phase 0: the probe in `gw-probe` got its pinned `.250`; `002-shop-platform-clustermesh.md` line 61 | a team's Gateway gets its address from the same range, pinned with `infrastructure.annotations`; demo 37 takes **`.243`** |
+| **Every LoadBalancer Service has its own L2 lease and its own leader**; at the time of measuring, `routes-gw`'s VIP was announced by `poc1-control-plane` and the probe's by `poc1-worker` — two Gateways, two nodes, two Envoy processes, by chance | `kubectl -n kube-system get leases` (`cilium-l2announce-<ns>-<svc>` → `holderIdentity`) | the noisy-neighbour measurement must **record and control the lease holders**, or a lucky split reads as isolation |
 | `routes-gw`'s HTTP(S) listeners admit routes from namespaces labelled `gateway-access: routes-gw`; an unlabelled namespace's route is refused `NotAllowedByListeners`; a route with an unknown `sectionName` is `NoMatchingParent` | PR #17, demo 09 Part 2 | the shared side of the demo is already built and measured; the ownership boundary can be shown from both directions |
-| cert-manager's `ClusterIssuer/ca-issuer` issues from the lab's root into any namespace; Cilium syncs a Gateway's referenced TLS Secrets into `cilium-secrets` (`gateway-api-secrets-namespace: cilium-secrets`) | `kubectl get clusterissuer`; `cilium-config` | a team Gateway's certificate is one annotation, as on routes-gw; the sync path for a non-`routes` namespace is a thing to **verify**, not assume |
+| cert-manager's `ClusterIssuer/ca-issuer` issues into the Gateway's namespace; Cilium (`enable-gateway-api-secrets-sync=true`) copies the referenced Secret into `cilium-secrets` under the name **`cilium-sync-secret-<sha256>`** — a search by the original name finds nothing; match by `tls.crt` content | phase 0 in `gw-probe`: `Certificate Ready=True`, the copy's `tls.crt` byte-identical, the listener `ResolvedRefs=True`, a TLS handshake to `.250` presenting `issuer=CN=clustermesh-root-ca, SAN probe.poc.local`, Envoy's 404 for the routeless host; on delete the copy and the lease vanish | one annotation gives a team Gateway its certificate; **gotcha**: the hashed name |
+| The built-in `edit` ClusterRole does **not** cover `gateway.networking.k8s.io`, and the Gateway API CRDs ship no `aggregate-to-edit` role | `kubectl auth can-i create httproutes --as=system:serviceaccount:gw-probe:probe-editor` → **no**; `gateways` → **no** | "the team owns its Gateway" is a **Role the platform grants**, not a default; the demo states it |
 | The lab's clusters on the M5 and the runner are 1 control plane + 1 worker per cluster (`clusters/ci`) | `kubectl get nodes` → 2 | Envoy runs on both nodes; a Gateway's listeners exist on every node, whatever namespace owns it |
-| The demo 09 route-app (`routedemo:local`, built by `lab-images.sh`) answers HTTP, gRPC and TCP and **echoes the Host, the path, the protocol and whether TLS terminated** in every response | `demos/09-routes/app/main.go` | the same image behind both Gateways says *which* Gateway and listener answered — no new application needed |
+| The demo 09 route-app (`routedemo:local`, built by `lab-images.sh`) answers HTTP, gRPC and TCP and **echoes the Host, the path, the protocol and whether TLS terminated** in every response | `demos/09-routes/app/main.go` | the same image behind both doors identifies the *request*; which **door** answered is proven by the address the client used, the leaf certificate presented, and a `ResponseHeaderModifier` filter on each route stamping `X-Door: routes-gw` / `X-Door: team-b-gw` — no new application needed |
 | The Gateway API's role model: infrastructure provider → `GatewayClass`, cluster operator → `Gateway`, application developer → `Route`; a shared Gateway admits namespaces by selector; teams "with special networking needs can deploy their own dedicated Gateway in their namespace" | [API overview](https://gateway-api.sigs.k8s.io/docs/concepts/api-overview/), [Cross-namespace routing](https://gateway-api.sigs.k8s.io/guides/multiple-ns/), [kgateway: Shared Gateways](https://kgateway.dev/blog/shared-gateways/), [Teknews: considerations for a shared Gateway](https://blog.teknews.cloud/kubernetes/2025/08/20/Considerations_for_Shared_Gateway_API.html) | the two modes are the API's own, not this lab's invention |
 
 ## 3. Decision
 
-Demo 37 is **one application, two front doors, measured side by side** on poc1:
+Demo 37 is **one image, two front doors, measured side by side** on poc1 — one backend for the functional proof, two
+identical backends for the performance one:
 
 - **Mode A — the platform's shared Gateway.** Namespace `team-a` (label `gateway-access: routes-gw`) owns an
   `HTTPRoute` for `shop-a.poc.local` on `routes-gw`'s `https-wildcard` listener (and the 301 route on `http`), backend
   the route-app. Nothing new on the Gateway: this is PR #17's model, exercised by a team.
 - **Mode B — the team's own Gateway.** Namespace `team-b` owns `Gateway/team-b-gw` (`gatewayClassName: cilium`,
-  `allowedRoutes: {namespaces: {from: Same}}`, address pinned to `172.18.255.242` from `gateway-pool`, one HTTPS
-  listener for `shop-b.poc.local` with a cert-manager certificate from `ca-issuer`, one HTTP listener carrying the 301
-  route), its own `HTTPRoute`, the same route-app image.
+  `allowedRoutes: {namespaces: {from: Same}}`, address pinned to `172.18.255.243` from `gateway-pool` — `.242` is
+  enhancement 002's — one HTTPS listener for `shop-b.poc.local` with a cert-manager certificate from `ca-issuer`, one
+  HTTP listener carrying the 301 route), its own `HTTPRoute`, the same route-app image. A `Role` in `team-b` granting
+  `gateways`/`httproutes` (the platform's explicit grant, §2) bound to the team's ServiceAccount.
+- **The functional "two doors on one app"**: `team-b-gw`'s route also points at `team-a`'s Service through a
+  `ReferenceGrant` in `team-a` — literally one backend behind both doors, the response header saying which.
 - **What is measured** (§4 phase 3), in the lab's own tools: ownership from both directions, the address and certificate
   boundary, the noisy-neighbour effect under load — with the Cilium data-plane fact stated up front so the numbers are
   read for what they are — and the cost of the second door.
@@ -47,13 +54,15 @@ nothing measurable here).
 
 ## 4. The plan
 
-### Phase 0 — verify the two facts the design leans on (a morning)
+### Phase 0 — verify the facts the design leans on — **done 2026-09-16**, results in §2
 
-1. **A Gateway in a non-`routes` namespace gets its certificate and its address**: apply a throwaway `Gateway` in a
-   scratch namespace with the `cert-manager.io/cluster-issuer` annotation and a pinned `.250`; measure the Certificate
-   `Ready`, the Secret synced into `cilium-secrets`, the Service's `EXTERNAL-IP`, `Programmed=True`. Delete it.
-2. **Where a Gateway's listeners live**: `cilium-dbg envoy` / the Envoy admin `listeners` on both nodes before and
-   after — the shared-Envoy fact from §2 made visible, with the listener names.
+1. A throwaway `Gateway` in `gw-probe` with the `cert-manager.io/cluster-issuer` annotation and a pinned `.250`, checked
+   **in order**: the Gateway and its Service exist with `.250` → the `Certificate` `Ready` and its Secret in `gw-probe` →
+   the copy in `cilium-secrets` (hashed name, `tls.crt` identical) → the **listener** `ResolvedRefs=True`,
+   `Accepted=True`, `Programmed=True` (the Gateway's own `Programmed` can precede TLS) → a TLS handshake to `.250`
+   presenting the leaf → deletion removes Service, `CiliumEnvoyConfig`, the synced copy, the lease and the allocation.
+2. `cilium-dbg envoy admin listeners` on both agents: the probe's listener on **both** nodes beside `routes-gw`'s and
+   `sw-gateway`'s; the L2 leases showing two Gateways announced from two different nodes.
 
 ### Phase 1 — the two namespaces and the two doors (`demos/37-two-gateways/`)
 
@@ -62,9 +71,15 @@ nothing measurable here).
   `routedemo:local`.
 - `20-shared-route.yaml` — `team-a`'s serving route (`sectionName: https-wildcard`) and redirect route (`http`) on
   `routes-gw`, `shop-a.poc.local`.
-- `30-team-gateway.yaml` — `team-b-gw` with its two listeners, the pinned address, the cert-manager annotation, and
-  `team-b`'s two routes attached to it by `sectionName`.
-- `hosts-entries.sh` — the two names (`shop-a` → `.240`, `shop-b` → `.242`), printed, never written (README's rule).
+- `30-team-gateway.yaml` — `team-b-gw` with its two listeners, the pinned `.243`, the cert-manager annotation, and
+  `team-b`'s two routes attached to it by `sectionName`; every serving route carries a `ResponseHeaderModifier`
+  (`X-Door`), so a response names the door that answered.
+- `35-team-rbac.yaml` — the `Role` (`gateways`, `httproutes`: get/list/watch/create/update/patch/delete — no `status`)
+  and its binding for `team-b`'s ServiceAccount; `40-one-app-two-doors.yaml` — `team-b-gw`'s route to `team-a`'s Service
+  with the `ReferenceGrant` in `team-a`.
+- `hosts-entries.sh` — the two names (`shop-a` → `.240`, `shop-b` → `.243`), printed, never written (README's rule).
+  **Note:** `scripts/hosts-entries.sh` maps every hostname it finds on `routes-gw` to `routes-gw`'s address — the
+  hijack row below shows what that means.
 - `check.sh` — every assertion of phase 3 as a script with recorded output, the lab's idiom (`demos/*/check.sh`).
 
 ### Phase 2 — the negatives that prove the boundary
@@ -73,25 +88,32 @@ nothing measurable here).
 |---|---|---|
 | `team-b` attaches a route to `routes-gw` | `Accepted=False NotAllowedByListeners` | an unlabelled team cannot use the platform door |
 | `team-a` attaches a route to `team-b-gw` | refused (`from: Same`) | the team door admits its own namespace only |
-| `team-a`'s route claims `shop-b.poc.local` on `routes-gw` | attached, but `shop-b` resolves to `.242` — the request never reaches `routes-gw` | a hostname is claimed at the *address*, not the Gateway: two doors cannot collide on a name that is not theirs |
-| the same app answers on both: `curl https://shop-a…` and `https://shop-b…` | `{"app":"shop-a","tls":true}` / `{"app":"shop-b","tls":true}`, chains verified against the one root, different leaf certificates (`subject`, `SAN`) | one root, two certificates, two addresses |
+| `team-a`'s route claims `shop-b.poc.local` on `routes-gw` | **attached** (`shop-b.poc.local` intersects `*.poc.local`; the Gateway API reserves no hostname across Gateways) — and `curl --resolve shop-b.poc.local:443:172.18.255.240` answers from `team-a`'s backend with `routes-gw`'s wildcard leaf: **a hostname hijack** on any client whose DNS sends `*.poc.local` to `.240` (the lab's own `hosts-entries.sh` would); `--resolve …:.243` still answers from `team-b`. Then the control: a `ValidatingAdmissionPolicy` on `HTTPRoute.spec.hostnames` (a team may claim only `*-<team>.poc.local`) — the route refused at admission, recorded | a shared Gateway needs a hostname policy; the address is not the boundary |
+| the same app answers on both: `curl https://shop-a…` and `https://shop-b…` | `X-Door: routes-gw` with the `*.poc.local` leaf at `.240`; `X-Door: team-b-gw` with the `shop-b.poc.local` leaf at `.243`; both chains to the one root; `serial`/`SAN` differ | one root, two certificates, two addresses, and the door named in the response |
 
 ### Phase 3 — the measurements
 
-1. **Noisy neighbour.** `fortio`/`hey` at a fixed high rate against `shop-a` through `routes-gw` (the shared door),
-   while a low-rate probe measures p50/p99 latency of (a) a sibling on the shared door (the bank's `bankapi`), and (b)
-   `shop-b` through the team door; then the load moved to `shop-b`, the probes repeated. Read with the Cilium fact in
-   hand: both Gateways are listeners in the same per-node Envoy, so the expectation is that the team door **shares** the
-   degradation; whatever the numbers say is the finding, and the write-up names what *does* isolate on Cilium (a node
-   pool with `nodeSelector`-placed workloads and a Gateway whose Service uses `externalTrafficPolicy: Local`? a second
-   cluster? — to be measured in the same section, not asserted).
-   Metrics: `cilium-envoy` ServiceMonitor (demo 16) per node — `envoy_cluster_upstream_rq_time`,
-   `envoy_listener_downstream_cx_active` by listener name; Hubble L7 flows by `destination_workload`.
-2. **Ownership and blast radius.** RBAC: a `team-b` ServiceAccount with `edit` on its namespace can create/change
-   `team-b-gw` and its routes but cannot touch `routes-gw` (`kubectl auth can-i`, recorded). Change: `team-b` adds a
-   listener (a second hostname) — `routes-gw`'s status untouched, its `attachedRoutes` unchanged.
-3. **Cost.** Two Services with two LB-IPAM addresses, N+M listeners in Envoy, the certificate count — measured; and
-   what a per-Gateway-proxy implementation would have added (a Deployment per Gateway) stated from its documentation.
+1. **Noisy neighbour — a controlled experiment, not one run.** fortio in-cluster, load and probe in **separate pods
+   with fixed placement and resources**, targets addressed by `EXTERNAL-IP` + `Host`/SNI (in-cluster DNS knows no
+   `*.poc.local`). The backends are **the same image, same replicas, same requests** (`shop-a`, `shop-b`; not the bank).
+   Runs, each three times, order randomised, every result read as the change from that run's idle baseline:
+   (0) idle baseline; (1) load on `shop-a` via `routes-gw`, probe `shop-a`; (2) probe a same-image sibling on the **same**
+   door; (3) probe `shop-b` via the **team** door; (4) the control that bypasses Envoy — load and probe **direct to the
+   Service**, which measures backend and node contention alone; (5) saturate the **listener**, not the app (a path that
+   404s at Envoy), so Envoy is the bottleneck under test. Recorded with every run: the **L2 lease holder of each VIP**
+   (`kubectl -n kube-system get leases`), pod placement, achieved RPS and errors, `cilium-envoy` process CPU per node
+   and per-listener stats (`envoy_listener_downstream_cx_active`, `envoy_http_downstream_rq_time` by listener),
+   node CPU throttling. One deliberate run with both VIPs announced by the **same** node and one with them split, since
+   §2 measured the split happening by chance. `externalTrafficPolicy: Local` is **not** a variant: Cilium documents it
+   as incompatible with L2 announcements. The finding is what the numbers show; the Cilium fact from §2 is the
+   architecture they are read against, not a number they can overturn.
+2. **Ownership — configuration scope, stated as such.** `edit` alone → `can-i create gateways/httproutes` = **no**
+   (measured); with the platform's `Role` (phase 1) → yes in `team-b`, still no in `routes`. Change: `team-b` adds a
+   listener — `routes-gw`'s status and `attachedRoutes` untouched. What this is **not**: runtime blast radius — an Envoy
+   crash, resource exhaustion or a proxy upgrade is per node, shared by every Gateway; the write-up says so.
+3. **Cost.** Two Services with two LB-IPAM addresses and two L2 leases, N+M listeners in every node's Envoy, two
+   `CiliumEnvoyConfig`s, the certificate count — measured; per-Gateway CPU is **not measurable** on Cilium (one process);
+   what a per-Gateway-proxy implementation adds (a Deployment per Gateway) is stated from its documentation, marked so.
 4. **Evidence.** Hubble UI on `team-a`/`team-b`; the verdicts dashboard; the L7 dashboard by workload; the `Gateway`
    statuses; the route-app's own JSON answers. Captured by `scripts/evidence/`, walked by `scripts/capture/` in the
    Action (a `lab-apps.sh` lab `two-gateways`, its traffic in `rounds`).
@@ -107,12 +129,16 @@ nothing measurable here).
 
 ## 5. Questions for the operator — answered 2026-09-16: "yes to all"
 
-The route-app; fortio in-cluster; the isolating variant built in the same demo (phase 3.1's last question becomes a
-part: `shop-b` on poc2 behind enhancement 002's Gateway, load on poc1 — a separate data plane, measured beside the
-same-cluster team Gateway). The review pass runs on Grok (ZDR), the operator's choice.
+The route-app; fortio in-cluster; the isolating variant built in the same demo — **as its own Gateway and its own
+route-app on poc2** (enhancement 002 is an unbuilt plan and its Gateway is the shop platform's, not this app's): the
+same image, replicas, TLS and load shape; the probe client **on the serving cluster**; `shop-b`'s address the poc2
+Gateway's own, no global Service or mesh hop in the path. A second cluster is a second `cilium-envoy` — a separate data
+plane — but on one 4-vCPU host it is not separate CPU; the runner's result is read with that said. The review pass
+ran on Grok (ZDR), the operator's choice.
 
 1. **The app.** The demo 09 route-app (HTTP + gRPC + TCP, echoes host/listener/TLS) or a new one? The plan assumes the
-   route-app — it already proves *which door answered*, and gRPC/TCP listeners on the team Gateway come free.
+   route-app — with the `X-Door` header, the address and the leaf certificate it proves *which door answered*; gRPC and TCP
+   are out of demo 37's scope (a TCP door needs its own listener, Service port and `TCPRoute` — demo 09 has that).
 2. **Load tool.** `fortio` (a pod in the cluster, reports p50/p99 as JSON, the lab can keep the report) or `hey` from
    the Mac (simpler, but the Mac's route into the VM is then part of the measurement). The plan assumes fortio in-cluster.
 3. **How far to take isolation.** Measure the noisy-neighbour effect and *name* what isolates on Cilium (§4 phase 3.1),
@@ -124,10 +150,16 @@ same-cluster team Gateway). The review pass runs on Grok (ZDR), the operator's c
 - **The Secret sync for a Gateway outside `routes`** (§4 phase 0.1) — if Cilium's operator does not pick up a
   Secret in `team-b`, the listener stays `ResolvedRefs=False`; the fix is documented (`gatewayAPI.secretsNamespace.sync`),
   measured first.
-- **A second L2-announced address**: `.242` on the same interface — demo 09 Part 7b measured one; two is the same
-  mechanism, but `kind-l2-announce` selects `loadBalancerIPs: true` for every Service, so nothing to change — verify
-  from the Mac with `arp -a` before and after.
+- **A second L2-announced address** (`.243`): the same mechanism, but **one lease and one leader per Service** — the
+  two VIPs may be announced by different nodes (measured: they were), which is the noisy-neighbour confounder of phase
+  3.1. Record `cilium-l2announce-*` holders in every run; `arp -a` on the Mac shows the VM's edge, not the leader.
+  `externalTrafficPolicy: Local` is incompatible with L2 announcements — not a knob here.
+- **The hostname hijack is real on a shared Gateway** (phase 2, row 3): the demo shows it and its control; until the
+  admission policy exists, `scripts/hosts-entries.sh` maps any hostname found on `routes-gw` to `.240`.
+- **`edit` does not own Gateway API objects**: without the phase 1 `Role` the ownership claim is false; with it, the
+  claim is "the platform grants the team its Gateway" — the honest form.
 - **The noisy-neighbour numbers on a laptop** are noisy themselves (demo 06 measured 25–38 % run-to-run); the
   measurement is repeated (three runs, the spread reported) and read as a shape, not a decimal.
-- **The runner's memory**: fortio and two more route-app pods are small; the load itself is the risk on 4 vCPU — the
-  Action runs the measurement at a lower rate than the M5 and reports both.
+- **The runner's CPU**: both clusters, four Envoy pods, fortio and the apps share 4 vCPU — load on poc1 can degrade poc2
+  with separate data planes; the Action runs at a rate below host saturation, records node throttling, and reports
+  the M5's numbers beside its own.
