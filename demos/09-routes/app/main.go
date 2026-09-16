@@ -28,11 +28,14 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net"
@@ -59,16 +62,72 @@ func name() string {
 	return "unnamed"
 }
 
+// wantsHTML is true when Accept lists text/html and does not list application/json before it.
+// q-values and parameters are ignored; the first of the two media types that appears decides.
+func wantsHTML(r *http.Request) bool {
+	htmlIdx, jsonIdx := -1, -1
+	for i, raw := range strings.Split(r.Header.Get("Accept"), ",") {
+		media := strings.TrimSpace(raw)
+		if j := strings.IndexByte(media, ';'); j >= 0 {
+			media = strings.TrimSpace(media[:j])
+		}
+		switch media {
+		case "text/html":
+			if htmlIdx < 0 {
+				htmlIdx = i
+			}
+		case "application/json":
+			if jsonIdx < 0 {
+				jsonIdx = i
+			}
+		}
+	}
+	if htmlIdx < 0 {
+		return false
+	}
+	if jsonIdx >= 0 && jsonIdx < htmlIdx {
+		return false
+	}
+	return true
+}
+
+func writeJSONHTML(w http.ResponseWriter, code int, compact []byte, title string) {
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, compact, "", "  "); err != nil {
+		pretty.Reset()
+		pretty.Write(compact)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(code)
+	fmt.Fprintf(w, `<!doctype html>
+<title>%s</title>
+<style>
+body{background:#0f172a;margin:0}
+pre{font-family:monospace;font-size:14px;color:#e2e8f0;padding:1.5rem}
+.note{color:#94a3b8;padding:0 1.5rem 1.5rem;font-size:14px}
+</style>
+<pre>%s</pre>
+<p class="note">curl gets the same JSON, compact — this page is the browser's view (Accept: text/html)</p>
+`, html.EscapeString(title), html.EscapeString(pretty.String()))
+}
+
+func handleRoot(w http.ResponseWriter, r *http.Request) {
+	// Echoing Host and X-Forwarded-* proves which listener and hostname the Gateway matched,
+	// which is the whole point of the wildcard-vs-exact demo.
+	compact := fmt.Sprintf(`{"app":%q,"mode":"http","path":%q,"host":%q,"method":%q,"proto":%q,"tls":%v}`+"\n",
+		name(), r.URL.Path, r.Host, r.Method, r.Proto,
+		strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"))
+	if wantsHTML(r) {
+		writeJSONHTML(w, http.StatusOK, []byte(compact), name())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprint(w, compact)
+}
+
 func serveHTTP(addr string) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Echoing Host and X-Forwarded-* proves which listener and hostname the Gateway matched,
-		// which is the whole point of the wildcard-vs-exact demo.
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"app":%q,"mode":"http","path":%q,"host":%q,"method":%q,"proto":%q,"tls":%v}`+"\n",
-			name(), r.URL.Path, r.Host, r.Method, r.Proto,
-			strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"))
-	})
+	mux.HandleFunc("/", handleRoot)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprintln(w, "ok") })
 	log.Printf("%s: HTTP on %s", name(), addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
