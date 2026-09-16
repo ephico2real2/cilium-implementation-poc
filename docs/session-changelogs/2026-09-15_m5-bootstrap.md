@@ -125,3 +125,47 @@ Outcome in one line: **…**
   asked: `LAB_STACK_PEER_CTX` (Codex), the JSON header (Cursor). **Rejected:** Cursor's name-based delete and re-labelling
   of the committed demo-26 examples — the lab applies only what cf2cnp 0.7.0 generates, and it labels. Verified against
   fakes; the gate on `93441ff` (run 35040355665) and on `2c7e64b` (run 35041617666).
+
+---
+
+## Part 3 — cf2cnp's API page (2026-09-15, 19:55 → 20:50) — the fork, branch `feat/api-page-try-it-out`, `fb81ce6`, `ae0664a`
+
+- **The operator:** three concerns on `cf2cnp.poc.local` — the endpoint cards not clickable, the version not shown near
+  the logo, "Try it out" a separate section rather than Swagger-like under each endpoint, pre-populated. Then: "make sure
+  to push this to remote feat/api-page-try-it-out after fixing any gotcha … I need you to use cursor more for agentic
+  coding and you claude code orchestration"; then "you are still gonna use our skills" (both saved as the memory note
+  *cursor-does-the-coding-claude-orchestrates*).
+- **What changed** (`internal/server/server.go`, `server_test.go`, `cmd/cf2cnp/main.go`): `main.version` reaches the
+  server (`Options.Version`; `displayVersion` for the three build shapes) and shows as a badge beside the logo and in the
+  title; each endpoint a native `<details>` card; a Try-it-out panel under each — `/generate` with the unchanged form and
+  the example loaded on first unfold, `/download/{id}` pre-filled from the last generate's `download_url`, `/health` —
+  each answering `HTTP status · ms · content-type` and the body. **Cursor (agent mode, from a brief naming lines, change,
+  constraints, tests):** the checkboxes inline with their labels (the `.controls input` rule had made them full-width
+  blocks — on the live page too), the curl examples on `baseURL(r)` instead of `localhost:8080`, two tests. **Me:** the
+  plumbing, the cards, the panels, the tests, and what the browser exposed.
+- **Measured in Chromium (Playwright, the lab's own install):** the badge rendered as an **empty pill** — the `h1`'s
+  `-webkit-text-fill-color: transparent` inherited; fixed. A flex label wrapped "Layer-7 rules" onto two lines; fixed
+  (inline flow). Then: three cards, none open at load; `/generate` unfolds and pre-fills 1,150 chars; generate → a
+  policy, the download id populated; `/download/{id}` Send → `HTTP 200 OK · 14 ms · application/x-yaml`; `/health` →
+  `HTTP 200 OK · 15 ms`; a second click folds the card. At 390 px: no horizontal overflow; Tab reaches each card, Enter
+  unfolds it. **Found by me, my own doing:** `pkill -f cf2cnp-tryout` matched the compound command that was about to
+  restart the server, so the served page was the old binary for one capture — restarted by pid thereafter.
+- **`frontend-design`** (installed on the M5 with `npx skills add mager/frontend-design`): the restyle path — a 200 ms
+  border/glow transition on hover and `:focus-within`, a `:focus-visible` ring on the summary, the brief wrapping under
+  the path at phone width (`ae0664a`).
+- The live comparison the operator asked for: `http://cf2cnp.poc.local/` (image `ghcr.io/ephico2real2/cf2cnp:0.7.0`)
+  captured with Playwright — the same form controls as the new page, element for element; both captures sent.
+- Pushed to the fork's `origin`; `develop` and upstream PR #3 untouched; no PR opened (the operator's word). The lab still
+  serves 0.7.0 — the dev deploy to `cf2cnp.poc.local` awaits the operator's call.
+- **Adversarial review** (the fork's `docs/REVIEW_API-PAGE.md`; Codex + Cursor, 8 claims): **C3 refuted by both** — the
+  branch's own line put `baseURL(r)` into the HTML unescaped and `validHost` lets `<>"` through: a reflected XSS via
+  `X-Forwarded-Host` (measured before: `<svg>` served raw; after: `https://&lt;svg&gt;/generate`); **C4** (Codex) — a flow's
+  `uuid` is the cache key, so `..` made `download_url` end in `/download/..` (`validDownloadID` now); **C5** (Codex) —
+  whitespace-only text overwritten by the example; **not asked** (Codex) — the card said "an hour", `cleanupCache` says 10
+  minutes: my text, unread. **Rejected:** Cursor's tightening of `validHost` (changes `download_url` for every caller —
+  wrong layer), Codex's release-workflow change for a `vnext` tag (not a version). Cursor implemented the four fixes from
+  a brief; the diff read, the suite green, both security fixes measured on the rebuilt binary. `1cbfabd`, pushed.
+- **The operator:** Google AI's consolidated-ingress suggestion — **measured on poc1** in a scratch namespace: both YAML
+  shapes compile to the same eight BPF policy-map entries (`cilium-dbg bpf policy get 1946`: `Allow Ingress 112713 80/TCP`,
+  `Allow Ingress 81702 80/TCP`), so "BPF map efficiency" is refuted; the per-peer rule is what lets peers differ in ports
+  and L7 rules and what `merge` and 27 goldens depend on. **The operator:** "don't add it" — no `--compact`, no README line.
