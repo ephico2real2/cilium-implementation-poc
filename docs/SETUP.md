@@ -13,8 +13,8 @@ output**, then **Check**. If a Check fails, stop and read the Troubleshooting no
 rather than continuing — later steps assume earlier ones succeeded.
 
 **Read these three first — each one costs an hour if you meet it cold.** They are documented in
-place below, and summarised together in the [README](../README.md#findings-worth-your-attention)
-and [FINDINGS.md](FINDINGS.md):
+place below, named in the [README's Documents table](../README.md#documents) and measured in
+[FINDINGS.md](FINDINGS.md):
 
 1. **The macOS host bridge is `bridge100` here, not the `bridge101` guides name.** macOS assigns
    the number; identify the interface by its `vmenet` member instead. → Step 3.5
