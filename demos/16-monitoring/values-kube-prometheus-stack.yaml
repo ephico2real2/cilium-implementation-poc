@@ -51,6 +51,16 @@ prometheus:
 
 grafana:
   adminPassword: poc-grafana         # a lab; change it the moment this leaves the laptop
+  route:                             # the Grafana subchart (13.2.3 in kps 90.1.1) renders Gateway API routes itself — one per key,
+    main:                            # in Grafana's namespace; routes-gw admits `monitoring` by label (demos/09-routes/01-gateway.yaml).
+      enabled: true                  # Replaces demos/16-monitoring/10-gateway.yaml's hand-written route + ReferenceGrant (2026-09-16).
+      hostnames: [grafana.poc.local]
+      parentRefs: [{name: routes-gw, namespace: routes, sectionName: https-wildcard}]   # the TLS listener only
+    redirect:                        # renders monitoring-grafana-redirect: http:// answers 301 https:// (gotcha #114)
+      enabled: true
+      hostnames: [grafana.poc.local]
+      parentRefs: [{name: routes-gw, namespace: routes, sectionName: http}]
+      httpsRedirect: true
   grafana.ini:
     server:
       root_url: https://grafana.poc.local   # so links Grafana renders point at the Gateway name, not localhost

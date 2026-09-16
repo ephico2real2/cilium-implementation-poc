@@ -62,6 +62,7 @@ step_routes() {
   # cert-manager watches Gateways only with this setting (demo 09 Part 2); --reuse-values keeps crds.enabled
   helm upgrade cert-manager jetstack/cert-manager -n cert-manager --kube-context "$CTX" --reuse-values --set config.gatewayAPI.enabled=true --wait --timeout 5m >/dev/null
   k apply -f demos/09-routes/01-gateway.yaml >/dev/null
+  k label namespace routes gateway-access=routes-gw --overwrite >/dev/null   # the listeners admit routes from labelled namespaces (01-gateway.yaml)
   # cert-manager's gateway shim creates the Certificates from the listeners' hostnames a few seconds after the Gateway
   # exists; `kubectl wait` on an object that is not there yet fails at once (run 34887012554), so: exist first, then Ready
   local _i; for _i in $(seq 1 30); do k -n routes get certificate wildcard-poc-local-tls >/dev/null 2>&1 && break; sleep 4; done
@@ -83,6 +84,9 @@ step_monitoring() {
   say "demo 16 — kube-prometheus-stack $KPS_VERSION on $C, Cilium + Hubble metrics, the dashboards, Grafana behind the Gateway"
   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null 2>&1 || true
   helm repo update prometheus-community >/dev/null
+  # the namespace first, labelled: the chart renders Grafana's HTTPRoutes (values: grafana.route) and routes-gw admits routes from
+  # labelled namespaces only (demos/09-routes/01-gateway.yaml) — labelled before the routes exist, they are accepted at once
+  k create namespace monitoring --dry-run=client -o yaml | k apply -f - >/dev/null; k label namespace monitoring gateway-access=routes-gw --overwrite >/dev/null
   # the lab's values: the Prometheus liveness patch (gotcha #91), the Loki and Tempo data sources, the sidecar over ALL namespaces
   helm upgrade --install monitoring prometheus-community/kube-prometheus-stack --version "$KPS_VERSION" -n monitoring --create-namespace \
     --kube-context "$CTX" -f demos/16-monitoring/values-kube-prometheus-stack.yaml --wait --timeout 15m >/dev/null \
@@ -93,7 +97,6 @@ step_monitoring() {
   helm upgrade cilium cilium/cilium --version "$CILIUM_VERSION" -n kube-system --kube-context "$CTX" --reuse-values -f demos/16-monitoring/values-cilium-metrics.yaml >/dev/null
   agents_after_upgrade "$cm" "$gen"
   k -n kube-system rollout status deploy/hubble-relay --timeout=5m >/dev/null
-  k apply -f demos/16-monitoring/10-gateway.yaml >/dev/null   # grafana.poc.local on routes-gw
   local sm dash; sm=$(k get servicemonitor -A --no-headers 2>/dev/null | wc -l | tr -d ' '); dash=$(k get cm -A -l grafana_dashboard=1 --no-headers | wc -l | tr -d ' ')
   echo "ServiceMonitors: $sm; Grafana dashboards provisioned: $dash (Cilium's, Hubble's, the stack's)"
   local _i t=0; for _i in $(seq 1 24); do t=$(k get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/targets?state=active" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(sum(1 for x in d["data"]["activeTargets"] if x["health"]=="up"))' 2>/dev/null || echo 0); [ "${t:-0}" -ge 8 ] && break; sleep 10; done

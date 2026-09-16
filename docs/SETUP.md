@@ -1777,7 +1777,7 @@ exist (gotcha #57):
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts && helm repo update prometheus-community
 helm install monitoring prometheus-community/kube-prometheus-stack --version 90.1.1 -n monitoring --create-namespace \
   --kube-context kind-poc1 -f demos/16-monitoring/values-kube-prometheus-stack.yaml --wait --timeout 10m   # Section A
-kubectl --context kind-poc1 apply -f demos/16-monitoring/10-gateway.yaml                                    # https://grafana.poc.local
+kubectl --context kind-poc1 label namespace monitoring gateway-access=routes-gw --overwrite   # the chart renders the routes (grafana.route), the Gateway admits the namespace by label; 10-gateway.yaml is the hand-written example — https://grafana.poc.local
 sudo sh -c 'demos/16-monitoring/hosts-entries.sh >> /etc/hosts'                                              # you run this
 helm get values cilium -n kube-system --kube-context kind-poc1 -o yaml > .tmp/poc1-values-before-demo16.yaml
 helm upgrade cilium cilium/cilium --version 1.20.1 -n kube-system --kube-context kind-poc1 \

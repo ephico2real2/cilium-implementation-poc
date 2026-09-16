@@ -23,7 +23,8 @@ kubectl --context kind-poc1 get --raw "/api/v1/namespaces/monitoring/services/mo
 ## Exercise 2 — Grafana on the Gateway, and the hosts block (Parts 2–3)
 
 ```bash
-kubectl --context kind-poc1 apply -f demos/16-monitoring/10-gateway.yaml
+# Grafana's routes are rendered by the chart (values: grafana.route); 10-gateway.yaml is the hand-written example, not applied
+kubectl --context kind-poc1 label namespace monitoring gateway-access=routes-gw --overwrite
 demos/16-monitoring/hosts-entries.sh
 sudo sh -c 'demos/16-monitoring/hosts-entries.sh >> /etc/hosts'
 dscacheutil -flushcache; sudo killall -HUP mDNSResponder

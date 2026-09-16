@@ -2916,7 +2916,9 @@ has the origin `http://grafana.poc.local`; the action's `fetch` to `https://cf2c
 preflight for that origin gets no `access-control-allow-origin`, and Chrome drops the POST before it is sent — so the
 server cannot log what it never received (cf2cnp 0.9.0 logs every refusal now; this one is not the server's).
 
-**The fix** (`demos/16-monitoring/10-gateway.yaml`): the Gateway API pattern for TLS-only — the serving route pinned to the
+**The fix** (first hand-written in `demos/16-monitoring/10-gateway.yaml`, kept as the example; since the same day rendered by
+the chart from `grafana.route` in `values-kube-prometheus-stack.yaml`, the Gateway admitting `monitoring` by label): the
+Gateway API pattern for TLS-only — the serving route pinned to the
 HTTPS listener (`sectionName: https-wildcard`) and a second `HTTPRoute` on the HTTP listener (`sectionName: http`) with
 one `RequestRedirect` filter, `{scheme: https, statusCode: 301}`. Measured: `http://grafana.poc.local/d/…?from=…` →
 `301`, `location: https://grafana.poc.local:443/d/…?from=…` (Cilium writes the explicit port; the browser normalises
