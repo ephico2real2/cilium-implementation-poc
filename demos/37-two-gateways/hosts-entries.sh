@@ -8,9 +8,11 @@
 set -uo pipefail
 CTX="${CTX:-kind-poc1}"
 k() { kubectl --context "$CTX" "$@"; }
+# the hostnames of a namespace's HTTPRoutes, once each, without wildcards: /etc/hosts has no wildcards, and the zone's
+# redirect route names *.team-b.poc.local
 uniq_hosts() { python3 -c 'import json,sys; names=[]
 for r in json.load(sys.stdin).get("items",[]):
-    names += r.get("spec",{}).get("hostnames",[])
+    names += [h for h in r.get("spec",{}).get("hostnames",[]) if "*" not in h]
 print(" ".join(dict.fromkeys(names)))'; }
 
 RGW=$(k -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
