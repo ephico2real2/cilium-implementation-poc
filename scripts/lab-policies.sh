@@ -33,7 +33,7 @@
 # raw material, not only the conclusion.
 set -euo pipefail; cd "$(dirname "$0")/.."
 CTX="${LAB_STACK_CTX:-kind-poc1}"; D="${LAB_POLICIES_DIR:-captures/policies}"; export ROOT_CA="${ROOT_CA:-.tmp/root-ca.crt}"
-CF2CNP_VERSION="${CF2CNP_VERSION:-0.8.0}"   # the binary; the observer's server is the chart's (demo 25) — both read the same Cilium spec
+CF2CNP_VERSION="${CF2CNP_VERSION:-0.9.0}"   # the binary; the observer's server is the chart's (demo 25) — both read the same Cilium spec
 G=demos/26-cf2cnp-policy-from-flows/generate.sh; F=demos/26-cf2cnp-policy-from-flows/get-flow.sh
 say() { printf '\n== %s  (%s)\n' "$1" "$(date +%H:%M:%S)"; }
 die() { echo "::error::$1" >&2; exit 1; }   # stderr: a die inside $(…) must not vanish into the variable
