@@ -93,6 +93,47 @@ certificates.
 **`exact.example.test` is deliberately outside `poc.local`.** If the "exact" listener had been
 `api.poc.local` it would *also* be matched by the wildcard and the demo would prove nothing.
 
+### Listeners and `sectionName` — how a route says which door it means
+
+A listener's `name` is the handle a route uses. A route's `parentRefs` names the Gateway; the optional `sectionName`
+names **one listener** of it, and the value must equal that listener's `name` exactly (the CRD only allows lowercase
+DNS-label characters — `https-wildcarD` is refused at admission before any controller sees it). Three cases, all
+measured on this Gateway:
+
+| `parentRefs` | Attaches to | Used by |
+|---|---|---|
+| `[{name: routes-gw}]` — no `sectionName` | **every** listener whose protocol and hostname allow the route: for an HTTPRoute with `hostnames: [x.poc.local]`, `https-wildcard` *and* `http` | the bank, petclinic and cf2cnp routes (`03-routes.yaml`'s `web`/`grpc` too) — served over TLS **and** on plain `:80` |
+| `[{name: routes-gw, sectionName: https-wildcard}]` | the TLS listener only | Grafana's serving route (demo 16, from the chart): a TLS-only page |
+| `[{name: routes-gw, sectionName: http}]` | the plain-HTTP listener only | Grafana's redirect route: one `RequestRedirect {scheme: https, statusCode: 301}` filter — the Gateway API's pattern for "TLS only" is exactly this pair, one hostname, two routes, two listeners |
+| `[{name: routes-gw, sectionName: tcp-echo}]` | the TCP listener; a TCPRoute has no hostname or path, so the name is the *only* way to bind it | Part 6 |
+
+The default is the trap: "attached to the Gateway" is not "attached to the TLS listener". Until 2026-09-16 Grafana's
+route had no `sectionName`, so `http://grafana.poc.local` served Grafana too; a page on that origin sent
+`Origin: http://grafana.poc.local` to cf2cnp, whose allow-list holds the `https` origin only, and the dashboard's
+Generate action died in the browser (gotcha #114). A `sectionName` that matches no listener leaves the route
+unattached and says so — `Accepted=False NoMatchingParent: No matching listener with sectionName https-wildcards`.
+
+The Gateway's status counts what attached to each listener, which is how to check the intent landed:
+
+```bash
+kubectl -n routes get gateway routes-gw -o jsonpath='{range .status.listeners[*]}{.name}{"\t"}{.attachedRoutes}{"\n"}{end}'
+```
+
+```
+https-wildcard 5        # bank, bank-api, cf2cnp, petclinic (no sectionName) + monitoring-grafana (pinned here)
+https-exact 0
+http 5                # the same four (no sectionName) + monitoring-grafana-redirect (pinned here)
+tcp-echo 0            # the TCPRoute of Part 6 was not applied on this bring-up
+```
+
+**Who may attach at all** is the listener's other half, `allowedRoutes.namespaces`: `from: Same` (the Gateway's own
+namespace owns every route, an app namespace consents to the backend with a `ReferenceGrant` — Part 7, gotcha #32) or
+`from: Selector` (the app namespace owns its route, the Gateway admits namespaces by label — `gateway-access: routes-gw`
+on `routes` and `monitoring` since 2026-09-16, demo 16). A route from an unlabelled namespace is refused with
+`NotAllowedByListeners: HTTPRoute is not allowed to attach to this Gateway due to namespace restrictions`. Both are the
+Gateway API's models for a **shared** Gateway; a team's **own** Gateway in its namespace (`from: Same`, its own address
+and certificates, its own Envoy) is the third arrangement — the subject of demo 37.
+
 cert-manager needs one setting to watch Gateways (no feature gate since 1.15):
 
 ```bash
