@@ -61,7 +61,7 @@ The plan and every run's measurements: [enhancements/004-lab-in-ci.md](enhanceme
 |---|---|
 | `lab-spike-kind.yaml` | two kind clusters, each complete and independent, then the mesh on cert-manager's root (route A); Cilium's own multi-cluster connectivity test, 87/87 |
 | `lab-route-b.yaml` | the same on Helm certificates (SETUP 9.3b), the mesh checks of 9.5, demo 07's global service and failover with the guide's numbers |
-| `lab-observability.yaml` | **the gate**: the images built and loaded, the stacks (demos 09/16/21/10–23/25/18), the labs of 26–35 with the bank, the cell, demo 11's client and demo 20's petclinic; traffic under audit; the cf2cnp chapters (flows kept, policies generated through the API, validated three ways, re-tested under enforcement); the report; a Playwright walk of every page with its expectations as tests |
+| `lab-observability.yaml` | **the gate**: the images built and loaded, the stacks (demos 09/16/22/21/10–23/25/18), the labs of 26–35 with the bank, the cell, demo 11's client and demo 20's petclinic; traffic under audit; the cf2cnp chapters (flows kept, policies generated through the API, validated three ways, re-tested under enforcement); the report; a Playwright walk of every page with its expectations as tests |
 
 A run's page holds the report and the captures; its artifact every log, the raw flows and the generated policies. What the
 runner refused (netkit before its kernel, BIG TCP under VXLAN, the bandwidth manager in kind) is in the gotchas, #92 onward.
@@ -73,8 +73,8 @@ checks each from this host; `scripts/hosts-entries.sh` prints the block and neve
 
 | Page | URL | Notes |
 |---|---|---|
-| Grafana — Cilium, Hubble, the verdicts, the observer and DNS dashboards (demos 16, 25, 28, 31) | `https://grafana.poc.local` | `admin` / `poc-grafana`; through the Gateway `routes-gw` (`172.18.255.240`) on the lab's wildcard certificate; `http://` answers a 301 to `https://` (gotcha #114) |
-| Hubble UI — the service map, both clusters' flows | `http://hubble-direct.poc.local` (= `http://172.18.255.201`) | its own LoadBalancer address from poc1's block |
+| Grafana — Cilium, Hubble, the verdicts, the observer and DNS dashboards (demos 16, 25, 28, 31), **both clusters** in the `cluster` dropdown (demo 22: poc2's Prometheus remote-writes to the hub) | `https://grafana.poc.local` | `admin` / `poc-grafana`; through the Gateway `routes-gw` (`172.18.255.240`) on the lab's wildcard certificate; `http://` answers a 301 to `https://` (gotcha #114) |
+| Hubble UI — the service map, both clusters' flows (the bank across the mesh: `?namespace=bank`) | `http://hubble-direct.poc.local` (= `http://172.18.255.201`) | its own LoadBalancer address from poc1's block; the relay is mesh-wide (demo 24) |
 | cf2cnp — the policy generator the chapters call (demo 25) | `https://cf2cnp.poc.local` | |
 | The bank across the mesh — web and api (demos 15, 19) | `https://bank.poc.local`, `https://bankapi.poc.local` | poc1's web/api/payments, poc2's accounts/postgres |
 | The petclinic — six Spring Boot services (demo 20) | `https://petclinic.poc.local` | |

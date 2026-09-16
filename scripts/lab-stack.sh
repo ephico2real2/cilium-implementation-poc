@@ -11,6 +11,9 @@
 #                                                                                                       *.poc.local certificate, HTTPS for every app
 #   monitoring      demo 16     the CNI; the Hubble metrics values need a Cilium restart (gotcha #42)     kube-prometheus-stack, Cilium + Hubble metrics,
 #                                                                                                       the dashboards, Grafana at grafana.poc.local
+#   spoke           demo 22     monitoring (the hub's Prometheus is the remote-write target); poc2     poc2 as a spoke of the hub: a full Prometheus
+#                               in the mesh (the target is a global Service)                            (release edge) remote-writing across the mesh,
+#                                                                                                       Cilium + Hubble metrics on poc2 with cluster=poc2
 #   tempo           demo 21     monitoring (the namespace, the Grafana data source)                     Tempo (traces) for the collectors
 #   collectors      demos 10,   tempo; poc2 in the mesh (demo 22's tempo-central is a global Service)   the OTel collector per cluster: the Loki shipper
 #                   22, 23                                                                              on poc1 (demo 25), traces from both clusters
@@ -103,6 +106,36 @@ step_monitoring() {
   echo "Prometheus targets up: $t"
 }
 
+# ---------------------------------------------------------------- demo 22 — poc2 as a spoke of the observability hub
+step_spoke() {
+  say "demo 22 — $PEER_CTX as a spoke of the hub: a full Prometheus (release edge) remote-writing to $C across the mesh, Cilium + Hubble metrics on $PEER_CTX"
+  kubectl --context "$PEER_CTX" get nodes >/dev/null 2>&1 || { echo "  no peer cluster: nothing to do"; return 0; }
+  # the role-named global Service in BOTH clusters — the same name in the same namespace is the global-service contract
+  # (demo 22): on poc2 it has no local backends, so its ClusterIP resolves to poc1's Prometheus through the mesh
+  k apply -f demos/22-multicluster-observability/10-remote-write-service.yaml >/dev/null
+  kubectl --context "$PEER_CTX" apply -f demos/22-multicluster-observability/10-remote-write-service.yaml >/dev/null
+  # a FULL Prometheus on the spoke (scrapes, a 6 h local copy, externalLabels cluster=poc2), no Grafana, no Alertmanager:
+  # this cluster is a data source, not a UI (values-prometheus-poc2.yaml). The chart's ServiceMonitors need the selector
+  # fix of gotcha #57 because Cilium's carry no release label
+  helm upgrade --install edge prometheus-community/kube-prometheus-stack --version "$KPS_VERSION" -n monitoring --create-namespace \
+    --kube-context "$PEER_CTX" -f demos/22-multicluster-observability/values-prometheus-poc2.yaml --wait --timeout 15m >/dev/null \
+    || { kubectl --context "$PEER_CTX" -n monitoring get pods; die "the spoke Prometheus did not become ready (demo 22)"; }
+  # Cilium's metrics on the spoke: the demo 16 values with every cluster label rewritten to poc2, no dashboard ConfigMaps
+  # (no Grafana there); one agent rollout on poc2 (prometheus.enabled adds a port). The script names kind-poc2 itself.
+  demos/22-multicluster-observability/apply-poc2.sh 2>&1 | sed 's/^/  /'
+  # the proof, from the hub: series stamped cluster=poc2 arrive within the scrape interval plus the remote-write queue
+  local i n=0; for i in $(seq 1 24); do
+    n=$(prom_scalar 'count(up{cluster="poc2"})'); [ "${n:-0}" -gt 0 ] && break; sleep 5
+  done
+  [ "${n:-0}" -gt 0 ] || die "demo 22: no series with cluster=poc2 reached the hub in 2 minutes (the remote-write Service, the mesh, gotcha #69)"
+  echo "$C's Prometheus: up series with cluster=poc2: $n; Cilium ServiceMonitors on $PEER_CTX: $(kubectl --context "$PEER_CTX" -n kube-system get servicemonitor --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+}
+# prom_scalar <PromQL> — one number from the hub's Prometheus through the API server's service proxy (the lab-apps.sh idiom)
+prom_scalar() {
+  k get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/query?query=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$1")" 2>/dev/null \
+    | python3 -c 'import json,sys; r=json.load(sys.stdin)["data"]["result"]; print(int(float(r[0]["value"][1])) if r else 0)' 2>/dev/null
+}
+
 # ---------------------------------------------------------------- demo 21 — Tempo (single binary), the traces' store
 step_tempo() {
   say "demo 21 — Tempo $TEMPO_VERSION in monitoring"
@@ -192,7 +225,7 @@ step_kyverno() {
 [ "$1" = all ] && set -- routes monitoring tempo collectors loki-observer obi hubble-cli kyverno
 for s in "$@"; do
   case "$s" in
-    routes) step_routes;; monitoring) step_monitoring;; tempo) step_tempo;; collectors) step_collectors;;
+    routes) step_routes;; monitoring) step_monitoring;; spoke) step_spoke;; tempo) step_tempo;; collectors) step_collectors;;
     loki-observer) step_loki_observer;; obi) step_obi;; hubble-cli) step_hubble_cli;; kyverno) step_kyverno;;
     *) die "unknown step $s";;
   esac
