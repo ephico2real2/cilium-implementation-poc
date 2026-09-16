@@ -527,7 +527,8 @@ measurement, an issue, a reviewed plan with the code, and the demo that will pro
   [docs/summary/BGP_FRR_PLAN.md](docs/summary/BGP_FRR_PLAN.md). Every VIP is reachable by L2 today and
   nothing on the docker network speaks BGP (measured), so the router *is* the demo.
 - **Swagger UI and ReDoc for cf2cnp** (`/api`, `/api/redoc`, `/api/openapi.json`, the way group-sync-dashboard serves
-  them from vendored, npm-integrity-checked bundles) — parked 2026-09-15. cf2cnp has three endpoints and its landing page
+  them from vendored, npm-integrity-checked bundles) — parked 2026-09-15, the plan in
+  [ephico2real2/cf2cnp#4](https://github.com/ephico2real2/cf2cnp/issues/4). cf2cnp has three endpoints and its landing page
   (fork branch `feat/api-page-try-it-out`) already documents each with a Try-it-out under it; with no framework to emit
   the spec it would be a fourth hand-kept description of the API plus ~2.5 MB of vendored JavaScript. Revisit when a
   machine consumer of the spec exists (a Grafana action, a generated client, a contract test) — and then
