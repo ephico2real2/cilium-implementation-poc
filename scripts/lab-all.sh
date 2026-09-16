@@ -35,7 +35,7 @@
 set -uo pipefail; cd "$(dirname "$0")/.."
 LAB_AUDIT_MINUTES="${LAB_AUDIT_MINUTES:-1}"; LAB_TRAFFIC_MINUTES="${LAB_TRAFFIC_MINUTES:-0}"
 LAB_CAPTURE="${LAB_CAPTURE:-0}"; LAB_OBI="${LAB_OBI:-1}"; LAB_SKIP="${LAB_SKIP:-}"
-CTX="${LAB_STACK_CTX:-kind-poc1}"; PEER="${LAB_PEER_CTX:-kind-poc2}"
+CTX="${LAB_STACK_CTX:-kind-poc1}"; PEER="${LAB_STACK_PEER_CTX:-kind-poc2}"   # the same two knobs lab-stack.sh and lab-apps.sh read (review)
 export ROOT_CA="${ROOT_CA:-.tmp/root-ca.crt}"        # the checks' trust anchor; lab-up.sh wrote it (a host that trusts the root works too)
 mkdir -p .tmp captures; : > .tmp/failed-steps; T0=$(date +%s)
 say() { printf '\n== %s  (%s)\n' "$*" "$(date +%H:%M:%S)"; }

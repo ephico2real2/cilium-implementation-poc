@@ -51,10 +51,18 @@ brew_env() { local p; for p in /opt/homebrew/bin/brew /usr/local/bin/brew; do [ 
 command -v brew >/dev/null || brew_env || true                     # installed (Apple silicon or Intel prefix) but not on this shell's PATH yet
 if ! command -v brew >/dev/null; then
   say "Homebrew is a requirement of this lab and is not installed — installing it (Homebrew's unattended mode; sudo asks for your password once)"
+  # the installer's own rule (install.sh: "Homebrew on macOS is only supported on Apple Silicon processors!"): an Intel Mac
+  # keeps an existing /usr/local/bin/brew (brew_env above) but cannot get a fresh one from here (review C8)
+  [ "$(/usr/bin/uname -m)" = arm64 ] || die "Homebrew's installer refuses Intel macOS today — this Mac needs an existing /usr/local/bin/brew (docs/NEW-MAC.md §1)"
   [ -t 0 ] || die 'no terminal for the password prompt — in a Terminal run:  sudo -v && NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"  then this script again'
   sudo -v || die "sudo did not accept the password (Homebrew needs an Administrator account on macOS)"
-  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || die "Homebrew's installer failed — its output above says why"
-  brew_env || die "Homebrew installed, but neither /opt/homebrew/bin/brew nor /usr/local/bin/brew exists"
+  # NONINTERACTIVE makes every step of the installer `sudo -n`, and sudo's timestamp is 5 minutes by default: the Command
+  # Line Tools alone can outlast it — so the credential is refreshed until the installer returns (review C8)
+  ( while sudo -n true 2>/dev/null; do sleep 50; done ) & keep=$!
+  rc=0; NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || rc=$?   # || rc: under set -e a bare failure would exit before the keep-alive is killed
+  kill "$keep" $(pgrep -P "$keep" 2>/dev/null) 2>/dev/null || true       # the loop and its current sleep
+  [ "$rc" = 0 ] || die "Homebrew's installer failed (exit $rc) — its output above says why"
+  brew_env || die "Homebrew installed, but /opt/homebrew/bin/brew does not exist"
   grep -qs 'brew shellenv' "$HOME/.zprofile" || { printf 'eval "$(%s shellenv)"\n' "$(command -v brew)" >> "$HOME/.zprofile"; echo "  ~/.zprofile: brew shellenv added (new Terminals find brew)"; }
   echo "  $(brew --version | head -1) at $(command -v brew)"
 fi

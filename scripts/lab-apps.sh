@@ -41,6 +41,9 @@ deadline() { if command -v timeout >/dev/null; then timeout "$@"; elif command -
 # last pass (cf2cnp labels every one app.kubernetes.io/managed-by=cf2cnp), and the lab's "under audit" start is then a lie:
 # pos → shop is FORWARDED by last time's allow, never AUDIT, and chapter 26 finds no flow to generate from (the M5's third
 # pass, 2026-09-15 — gotcha #112's second face). Removed here, so the lab starts where the demo starts; a first run finds none.
+# The lab-owned default-deny and visibility policies carry no such label and stay. One lab-applied policy DOES carry it:
+# demo 31's recorded cnp-pos-fqdn.yaml (cf2cnp wrote it), which dns() applies in cf2cnp-lab — lab26's reset removes it and
+# dns() re-applies it later in `all`; run `lab26` alone after `dns` and the DNS lab needs `dns` again (review C1).
 reset_chapter() { local ns; for ns in "$@"; do k -n "$ns" delete ciliumnetworkpolicies -l app.kubernetes.io/managed-by=cf2cnp --ignore-not-found >/dev/null 2>&1 || true; done; }
 CTX="${LAB_STACK_CTX:-kind-poc1}"; PEER_CTX="${LAB_STACK_PEER_CTX:-kind-poc2}"
 say() { printf '\n== %s  (%s)\n' "$1" "$(date +%H:%M:%S)"; }
@@ -137,6 +140,8 @@ bank() {
   done
   if k -n forensic get pod client >/dev/null 2>&1; then
     say "demo 15 — the bank across the mesh, from inside (demos/15-bank/check.sh from forensic/client), before the cell"
+    # the check's stdout AND stderr go to its file below, so the ceiling's absence is said here, where the log can see it (review C4)
+    command -v timeout >/dev/null || command -v gtimeout >/dev/null || echo "::warning::no timeout/gtimeout on this host — demos/15-bank/check.sh runs with no 15m ceiling (brew install coreutils)"
     # ROOT_CA: step 7 of the check goes through the Gateway on the wildcard certificate — without this lab's root it read
     # docs/root-ca.crt (the laptop's) and printed `https://bank.poc.local -> http 000` (run 34930321170)
     ( export ROOT_CA="${ROOT_CA:-.tmp/root-ca.crt}"; deadline 15m demos/15-bank/check.sh ) > "${LAB_CHECKS_DIR:-captures/checks}/demo15-check.txt" 2>&1 || echo "  check.sh exited $? (the output is kept)"

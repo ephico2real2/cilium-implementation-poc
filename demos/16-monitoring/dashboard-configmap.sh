@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dashboard-configmap.sh <grafana.com id> <namespace> <configmap-name> <uid> [title suffix] [folder]
 #   Turn a grafana.com dashboard into a ConfigMap the demo 16 Grafana sidecar provisions — the exact steps demo 20
-#   used for "Spring Boot 3.x Statistics" (id 19004). Prints the ConfigMap YAML to stdout; pipe to kubectl apply.
+#   used for "Spring Boot 3.x Statistics" (id 19004). Prints the ConfigMap as JSON to stdout (kubectl apply -f - reads JSON as it reads YAML); pipe to kubectl apply.
 #   1. download the latest revision's JSON from grafana.com's API
 #   2. resolve the import-time placeholder ${DS_PROMETHEUS} to the live Prometheus datasource uid (the sidecar does
 #      no import-time input resolution — an unresolved placeholder renders empty panels)
