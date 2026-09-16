@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dashboard-configmap.sh <grafana.com id> <namespace> <configmap-name> <uid> [title suffix] [folder]
 #   Turn a grafana.com dashboard into a ConfigMap the demo 16 Grafana sidecar provisions — the exact steps demo 20
-#   used for "Spring Boot 3.x Statistics" (id 19004). Prints the ConfigMap YAML to stdout; pipe to kubectl apply.
+#   used for "Spring Boot 3.x Statistics" (id 19004). Prints the ConfigMap as JSON to stdout (kubectl apply -f - reads JSON as it reads YAML); pipe to kubectl apply.
 #   1. download the latest revision's JSON from grafana.com's API
 #   2. resolve the import-time placeholder ${DS_PROMETHEUS} to the live Prometheus datasource uid (the sidecar does
 #      no import-time input resolution — an unresolved placeholder renders empty panels)
@@ -19,10 +19,10 @@ DSUID=$(curl -s --cacert docs/root-ca.crt --resolve grafana.poc.local:443:$GW -u
         | python3 -c 'import json,sys; print(next(d["uid"] for d in json.load(sys.stdin) if d["type"]=="prometheus"))')
 curl -sL "https://grafana.com/api/dashboards/${ID}/revisions/latest/download" \
  | DSUID="$DSUID" UID_="$UID_" SUFFIX="$SUFFIX" NS="$NS" NAME="$NAME" FOLDER="$FOLDER" python3 -c '
-import json,os,sys,yaml
+import json,os,sys   # JSON out, not YAML: kubectl reads both; PyYAML is not in the macOS python3 (gotcha #110)
 d=json.loads(json.dumps(json.load(sys.stdin)).replace("${DS_PROMETHEUS}", os.environ["DSUID"]))
 d.pop("__inputs",None); d.pop("__requires",None); d["id"]=None; d["uid"]=os.environ["UID_"]; d["title"]=d.get("title","")+os.environ["SUFFIX"]
 cm={"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":os.environ["NAME"],"namespace":os.environ["NS"],"labels":{"grafana_dashboard":"1"}},
     "data":{os.environ["UID_"]+".json": json.dumps(d,separators=(",",":"))}}
 if os.environ["FOLDER"]: cm["metadata"]["annotations"]={"grafana_folder":os.environ["FOLDER"]}
-print(yaml.safe_dump(cm, sort_keys=False, width=100000))'
+print(json.dumps(cm, indent=1))'

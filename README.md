@@ -38,6 +38,36 @@ A new session on a new machine: **[docs/HANDOVER.md](docs/HANDOVER.md)** — the
 Steps 10 onward install what each demo adds, in the demo's order. There is no Makefile: every step is
 meant to be read and typed, with its output recorded beside it.
 
+## The lab on a laptop, and its pages
+
+The whole lab — both clusters, every stack, the eleven labs, the six cf2cnp chapters, the report — comes up from four
+commands, the same scripts the Action runs, with the runner's traffic windows as knobs (measured on the Apple M5 Pro,
+2026-09-15: the bring-up in 9 min 34 s, everything after it in 9 min 5 s):
+
+```bash
+scripts/bootstrap/macos.sh            # Homebrew, Homebrew's bash and coreutils (requirements), the tools, the Docker Desktop VM, the preflight
+scripts/lab-up.sh poc1 poc2           # both clusters, each complete on its own, then the mesh
+scripts/lab-all.sh                    # everything after: 1 min of audit traffic, the policies, the report — no long waits
+                                      # LAB_AUDIT_MINUTES=3 LAB_TRAFFIC_MINUTES=6 for the Action's windows; LAB_CAPTURE=1 for the page walk
+scripts/lab-trust.sh install kind-poc1; scripts/lab-route.sh kind-poc1; scripts/hosts-entries.sh | sudo tee -a /etc/hosts   # three sudo steps: the root, the route, the names
+```
+
+The pages, once the names are in `/etc/hosts` (`scripts/lab-route.sh kind-poc1` prints the live addresses and checks
+each one from this host; `scripts/hosts-entries.sh` prints the block from live state and never edits the file itself):
+
+| Page | URL | Notes |
+|---|---|---|
+| Grafana — Cilium, Hubble, the verdicts, the observer and DNS dashboards (demos 16, 25, 28, 31) | `https://grafana.poc.local` | `admin` / `poc-grafana`; through the Gateway `routes-gw` (`172.18.255.240`) on the lab's wildcard certificate |
+| Hubble UI — the service map, both clusters' flows | `http://hubble-direct.poc.local` (= `http://172.18.255.201`) | its own LoadBalancer address from poc1's block |
+| cf2cnp — the observer's policy generator, the API the chapters call (demo 25) | `https://cf2cnp.poc.local` | |
+| The bank across the mesh — web and api (demos 15, 19) | `https://bank.poc.local`, `https://bankapi.poc.local` | poc1's web/api/payments, poc2's accounts/postgres |
+| The petclinic — six Spring Boot services (demo 20) | `https://petclinic.poc.local` | |
+| The Star Wars app behind `sw-gateway` (demos 02, 05) | `http://deathstar.poc.local/v1/request-landing` | `172.18.255.241`; POST; the exhaust port answers 403 from the proxy |
+
+The certificate is the lab's wildcard `*.poc.local`, issued by cert-manager from the lab's own root: once
+`scripts/lab-trust.sh install kind-poc1` has put that root in the System keychain, the browser shows no warning.
+`scripts/cluster-pause.sh` keeps the clusters for tomorrow; `scripts/lab-down.sh` removes them.
+
 ## Scope: kind is the lab, not the design
 
 **kind was used for the Kubernetes clusters; only the initial setup needs kind-specific instructions.**
@@ -153,7 +183,7 @@ unchanged, with BGP substituted for L2 in production.
    from the chain, not assumed), and that root put into the OS trust stores and every namespace of both
    clusters, so `--cacert` flags and in-pod curls to Gateway URLs stop being special cases.
 9. **[docs/POLICY-TEST-RESULTS.md](docs/POLICY-TEST-RESULTS.md)** is the one-page answer to "what was tested and what happened" for every generated network policy (demos 26–35) and for cf2cnp's own test layers.
-10. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 107 traps, each with the real error
+10. Keep **[docs/GOTCHAS.md](docs/GOTCHAS.md)** open throughout — 113 traps, each with the real error
    text.
 
 ## What is done, and what is left
@@ -379,7 +409,9 @@ hidden. It is an evidence report, not a pass/fail gate; read the output.
 The whole lab is also built, exercised and measured on a GitHub Actions runner (4 vCPU, 16 GB): the plan and
 every run's measurements are in **[enhancements/004-lab-in-ci.md](enhancements/004-lab-in-ci.md)**. Three
 `workflow_dispatch` workflows, each from the same scripts a MacBook uses (`scripts/lab-up.sh`, `lab-stack.sh`,
-`lab-images.sh`, `lab-apps.sh`, `lab-policies.sh`, `lab-report.sh`, `scripts/capture/`):
+`lab-images.sh`, `lab-apps.sh`, `lab-policies.sh`, `lab-report.sh`, `scripts/capture/`). The only per-host part is
+the bootstrap before them — `scripts/bootstrap/ubuntu.sh` on the runner, `scripts/bootstrap/macos.sh` on a Mac, the
+pins in `scripts/bootstrap/versions.env` — and both end in the same `scripts/lab-preflight.sh` table:
 
 | Workflow | What it proves |
 |---|---|
@@ -393,7 +425,7 @@ in the gotchas, #92 onward.
 
 ## Every gotcha, in one place
 
-**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 107 traps this build actually hit — not things that
+**[docs/GOTCHAS.md](docs/GOTCHAS.md)** lists all 113 traps this build actually hit — not things that
 *could* go wrong, but the ones that did, with the real error text and the real fix. Skim it before
 you start; several cost an hour each.
 
@@ -494,6 +526,13 @@ measurement, an issue, a reviewed plan with the code, and the demo that will pro
 - **BGP with an FRR router (demo 12)** — researched and planned, not built:
   [docs/summary/BGP_FRR_PLAN.md](docs/summary/BGP_FRR_PLAN.md). Every VIP is reachable by L2 today and
   nothing on the docker network speaks BGP (measured), so the router *is* the demo.
+- **Swagger UI and ReDoc for cf2cnp** (`/api`, `/api/redoc`, `/api/openapi.json`, the way group-sync-dashboard serves
+  them from vendored, npm-integrity-checked bundles) — parked 2026-09-15, the plan in
+  [ephico2real2/cf2cnp#4](https://github.com/ephico2real2/cf2cnp/issues/4). cf2cnp has three endpoints and its landing page
+  (fork branch `feat/api-page-try-it-out`) already documents each with a Try-it-out under it; with no framework to emit
+  the spec it would be a fourth hand-kept description of the API plus ~2.5 MB of vendored JavaScript. Revisit when a
+  machine consumer of the spec exists (a Grafana action, a generated client, a contract test) — and then
+  `/api/openapi.json` alone first.
 
 ## Status
 

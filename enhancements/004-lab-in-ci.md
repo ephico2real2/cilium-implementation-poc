@@ -248,6 +248,31 @@ unmeasured: Step 3.5's host route under Docker VMM (measured only on the Apple V
 `kernelForUDP`). `scripts/lab-preflight.sh` measures all of it on the machine before a cluster exists — the runner
 prints the same table — so the M5's first command is that script, and its table is the record.
 
+**Measured on the M5 Pro, 2026-09-15** (macOS 26.5.2, 18 cores, 64 GiB; Docker Desktop 4.91.0 installed fresh, engine
+`linux/virtualization-framework` per its backend log):
+
+| Row | The M5's table | What it settles |
+|---|---|---|
+| netkit | **no** — `7.0.12-linuxkit` is above the 6.8 floor but `/proc/config.gz` line 2033 reads `# CONFIG_NETKIT is not set`; `ip link add … type netkit` → `Attribute failed policy validation`, a veth pair from the same shell is created | the paragraph above inferred netkit from the Desktop version; retracted (gotcha #109). The lab is veth on every Mac and on every gated run (`LAB_FEATURES: ""`); netkit stays the runner spike's measurement |
+| memory for the nodes | **REQUIRED-FAIL 7 GiB** on Desktop's default, then **ok 23 GiB** after `scripts/bootstrap/macos.sh` wrote `Cpus=10 MemoryMiB=24576` — read back from the VM (`docker info`: CPUs=10, MemTotal 23,994 MiB) | the settings file's key names are the store's, PascalCase, and absent by default (gotcha #108) |
+| route to the LB blocks | **warn, no eth1** on the default; **ok, `eth1 192.168.64.2` on a host bridge** with `KernelForUDP=true` — on a user-mode install with no vmnetd | the host route works on the Virtualization framework on Apple silicon; the privileged helper is not needed for it. Docker VMM stays unmeasured |
+| Tetragon base sensor, ip_forward, node image (`amd64 arm64`), IPv6 on a docker network | ok | as on the Intel Mac and the runner |
+| bandwidth manager + BBR, BIG TCP | no | gotcha #103, any host |
+
+The per-host preparation is now two scripts that end in this same table: `scripts/bootstrap/ubuntu.sh` (the three
+workflows call it in place of their inline install steps — helm/kind-action, cilium/cilium-cli, the hubble curl —
+with the pins in `scripts/bootstrap/versions.env`, each release's sha256 verified; measured twice in an
+`ubuntu:24.04` container on arm64, the second pass downloading nothing) and `scripts/bootstrap/macos.sh` (Homebrew, the
+VM from the file with Desktop quit and relaunched, the proof from the VM). Everything after the table is one path.
+
+**The M5's first bring-up, 2026-09-15 17:45:11 → 17:54:45 (9 min 34 s)** — `scripts/lab-up.sh poc1 poc2`, the CI-size
+clusters (`clusters/ci`), the host's trust store untouched (the keychain step needs the operator's password): poc1's
+kind create 28 s, poc2's 18 s; poc1 complete and independent at +4 min 07 s, poc2 at +3 min 33 s; Cilium `OK` with
+`KubeProxyReplacement: True` on both; root CA `F4:FD:F8:B7…` identical in both clusters; ClusterMesh `OK` both ways,
+`2/2 configured, 2/2 connected`, KVStoreMesh `1/1`. Two facts from the log: gotcha #107's webhook race hit on poc1 (the
+Bundle applied at attempt 2 — the retry loop is why the run did not stop), and the whole column installed under **Helm
+4.3.0** (Homebrew's stable) — the first measurement of the lab on Helm 4; the runner stays on 3.21.4.
+
 ## 5. Two questions for the operator
 
 1. **Run phase 0's minikube spike before choosing?** (§3) — if the `DOCKER-USER` route meshes two profiles on the

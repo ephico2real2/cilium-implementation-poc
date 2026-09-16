@@ -37,13 +37,6 @@ on:
 permissions:
   contents: write   # the captures are pushed to the ci-captures branch so the job summary can show them (below)
 
-env:
-  KIND_VERSION: v0.33.0
-  KUBECTL_VERSION: v1.36.4
-  CILIUM_CLI_VERSION: v0.20.0   # 0.19.7 did not know 1.20's CiliumCIDRGroup v2 ("no kind is registered for the type v2alpha1.CiliumCIDRGroupList" in the sysdump)
-  CILIUM_VERSION: "1.20.1"
-  HUBBLE_CLI_VERSION: "1.19.4"   # the laptop's (SETUP Step 1)
-
 jobs:
   two-clusters-meshed:
     runs-on: ubuntu-24.04
@@ -57,33 +50,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: The runner
-        run: |
-          uname -r; nproc; free -m; df -h / | tail -1; docker version --format 'docker {{.Server.Version}}'; helm version --short
-          # BBR is a module on Ubuntu (tcp_bbr); a kind node shares the host kernel and cannot load it, the host must
-          sudo modprobe tcp_bbr || true
-          echo "congestion=$(cat /proc/sys/net/ipv4/tcp_available_congestion_control)"
-          # the same measured table a MacBook prints (scripts/lab-preflight.sh): the kernel's netkit, Tetragon's symbol,
-          # the node image for this CPU, IPv6 on a docker network — lab-up.sh runs it again, strictly
-          scripts/lab-preflight.sh
-
-      - name: kind and kubectl (pinned, install only)
-        uses: helm/kind-action@v1.14.0
-        with:
-          version: ${{ env.KIND_VERSION }}
-          kubectl_version: ${{ env.KUBECTL_VERSION }}
-          install_only: true
-
-      - name: Hubble CLI (pinned) — the demo scripts' `hubble observe`
-        run: |
-          curl -sSL --fail --retry 5 --retry-all-errors --retry-delay 3 -o hubble.tgz "https://github.com/cilium/hubble/releases/download/v${HUBBLE_CLI_VERSION}/hubble-linux-amd64.tar.gz"
-          sudo tar -C /usr/local/bin -xzf hubble.tgz hubble && rm hubble.tgz && hubble version
-
-      - name: Cilium CLI (pinned)
-        uses: cilium/cilium-cli@v0.20.0
-        with:
-          release-version: ${{ env.CILIUM_CLI_VERSION }}
-          skip-build: true
+      - name: The runner, bootstrapped — the tools at their pins, tcp_bbr, the preflight table
+        # scripts/bootstrap/ubuntu.sh is the runner's whole preparation (enhancement 004): kind, kubectl, cilium-cli and
+        # hubble from their releases at scripts/bootstrap/versions.env's pins with each published sha256 verified, the
+        # pins exported into $GITHUB_ENV (lab-up.sh reads CILIUM_VERSION), BBR loaded (a module on Ubuntu; a kind node
+        # shares the host kernel and cannot load it), then the same measured table a MacBook prints — netkit, Tetragon's
+        # symbol, the node image for this CPU, IPv6 on a docker network. lab-up.sh runs the preflight again, strictly.
+        # A Mac takes scripts/bootstrap/macos.sh to the same table; from there every host takes the same scripts.
+        run: scripts/bootstrap/ubuntu.sh
 
       - name: Bring the lab up — poc1, poc2, meshed
         id: up
@@ -176,7 +150,7 @@ jobs:
           scripts/lab-apps.sh rounds ${{ inputs.audit_minutes }} 2>&1 | tee audit-traffic.log
 
       # The cf2cnp chapters (scripts/lab-policies.sh): per demo, the raw flows captured and kept, the policy generated
-      # through cf2cnp's API, validated by the 0.7.0 binary, by the API server's dry run and by the agent's Valid condition,
+      # through cf2cnp's API, validated by the pinned cf2cnp binary, by the API server's dry run and by the agent's Valid condition,
       # applied, the audit flag dropped, the application tested again with the demo's own check — every promised line measured
       # A failed chapter or an empty store is recorded and the run goes on to the report and the captures — the evidence of
       # what state the lab was left in — and "The verdict" fails the job at the end (a failure here would otherwise skip them)

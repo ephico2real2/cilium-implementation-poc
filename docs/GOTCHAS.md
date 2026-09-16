@@ -2679,6 +2679,220 @@ the Bundle and for Kyverno's MutatingPolicy (12 tries, 5 s apart), and says at w
 **The lesson:** "the Deployment is Ready" and "the API server can reach its webhook" are two different moments; the
 second is the one a `kubectl apply` needs.
 
+## <a name="108"></a>108. Docker Desktop's settings file has two spellings, and a key it does not recognise is silently a default — the M5 booted an 8 GB VM after the guide's edit would have "worked"
+
+**Where:** the M5 Pro, Docker Desktop 4.91.0 installed fresh (2026-09-15). `docs/NEW-MAC.md` §3 said to set
+`cpus`, `memoryMiB` and `kernelForUDP` in the settings file, as the Intel Mac's file spells them. The M5's file:
+
+```text
+$ cat ~/Library/Group\ Containers/group.com.docker/settings-store.json
+{ "AutoStart": false, "DisplayedOnboarding": true, …, "RequireVmnetd": false, "SettingsVersion": 45,
+  "UseContainerdSnapshotter": true }                       # twelve keys, all PascalCase, none of the three
+$ docker info --format 'CPUs={{.NCPU}} Mem={{.MemTotal}}'
+CPUs=18 Mem=8317267968                                      # every core, Desktop's default 8 GB
+$ scripts/lab-preflight.sh
+  REQUIRED-FAIL memory for the nodes       7 GiB            # below 8 GiB two clusters do not fit
+```
+
+**What happened:** two files, two spellings. A Desktop upgraded in place from 4.27.2 (the Intel Mac) still writes
+the legacy `settings.json` in camelCase (`cpus`, `memoryMiB`, `kernelForUDP` — the runbook's measured diff). A
+Desktop installed fresh writes `settings-store.json` with its Go field names — `Cpus`, `MemoryMiB`, `SwapMiB`,
+`DiskSizeMiB`, `KernelForUDP`, `UseVirtualizationFramework`, read from the 4.91.0 backend binary
+(`strings com.docker.backend`). And the store writes **only non-default keys**, so the three the lab needs are simply
+absent on a fresh install: nothing to "read and change", and a guide that "remembers" a spelling has nothing in the
+file to contradict it. Also measured on the way: this Desktop was installed in user mode (`DockerBinInstallPath:
+user`, `RequireVmnetd: false`, the backend log's "vmnetd is not installed on this system") — and `KernelForUDP`
+still gave the VM `eth1 192.168.64.2` on a host bridge, so the privileged helper is not what the route needs.
+
+**The fix:** `scripts/bootstrap/macos.sh` picks the spelling by the file that exists, writes the three keys with
+Docker Desktop quit (it rewrites the file while running — SETUP Step 2.4), relaunches it and proves the result from
+the VM, not the file: `docker info` must answer the CPUs asked for and a MemTotal within 1.5 GiB of the setting, and
+the keys must survive Desktop's own rewrite (`Cpus=10 MemoryMiB=24576 KernelForUDP=true` after the relaunch — the
+M5, 2026-09-15). The guide's manual edit is gone; the script is the guide.
+
+**The lesson:** a settings file that omits defaults cannot tell you the names of the keys it accepts; read them from
+the program that reads the file, and verify the write where it takes effect.
+
+## <a name="109"></a>109. A kernel above netkit's version floor without `CONFIG_NETKIT` — Docker Desktop 4.91.0's `7.0.12-linuxkit` refuses netkit, and the version check said yes
+
+**Where:** the M5 Pro's first preflight (2026-09-15). Four documents (`NEW-MAC.md`, `DOCKER-DESKTOP-RUNBOOK.md`,
+`SETUP.md` Step 2, enhancement 004 phase 4) expected netkit from Docker Desktop ≥ 4.89.0 because its kernel,
+7.0.12, is above Cilium's 6.8 floor:
+
+```text
+  no   netkit (kernel 7.0.12-linuxkit)  ≥ 6.8 but no CONFIG_NETKIT exported and 'ip link add … type netkit' failed
+$ docker run --rm --privileged busybox:1.36 sh -c 'zcat /proc/config.gz | grep -n NETKIT'
+2033:# CONFIG_NETKIT is not set
+$ docker run --rm --privileged --net=host --entrypoint sh quay.io/cilium/cilium:v1.20.1 -c 'ip link add nk0 type netkit'
+Error: Attribute failed policy validation.                  # a veth pair from the same shell: created
+```
+
+**What happened:** Cilium's requirement is two-part — kernel ≥ 6.8 **and** `CONFIG_NETKIT` — and Docker Desktop's
+linuxkit kernel is built without the option. The Intel Mac's 4.91.0 had been installed but never launched when the
+expectation was written, so no 7.0.12 kernel had been read before this one; the version-only inference was mine, and
+it was wrong. The preflight's row was right all along because it measures the device, not the version.
+
+**The fix:** none needed for the lab — netkit is opt-in (`LAB_FEATURES=1`, `cilium/values-ci-features.yaml`) and every
+gated run is veth (`lab-observability.yaml`: `LAB_FEATURES: ""`); the only measured netkit is the runner's spike on
+its 6.17 kernel (`lab-spike-kind.yaml`, `kernel-features`). The four documents now say so, and `scripts/bootstrap/macos.sh`
+promises nothing about netkit.
+
+**The lesson:** a version floor is necessary, not sufficient — read the kernel's config (`/proc/config.gz`), or create
+the device, before writing "supported" anywhere.
+
+## <a name="110"></a>110. A `python3` one-liner that imports `yaml` runs on GitHub's Ubuntu image and dies on macOS — and under `set -e` it took the rest of the stack and half the labs with it
+
+**Where:** the M5's first full deploy (2026-09-15 18:14), `scripts/lab-stack.sh loki-observer`, at the observer's
+dashboard ConfigMap:
+
+```text
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+ModuleNotFoundError: No module named 'yaml'
+error: no objects passed to apply
+::error::the stack (lab-stack.sh)
+…
+== demo 30 — cf2cnp-lab30: the shop with real paths and HTTP visibility; what the proxy reports (Exercise 0)
+::error::the labs (lab-apps.sh all)
+```
+
+**What happened:** `demos/25-hubble-observer-loki/dashboard-from-file.sh` built the ConfigMap in Python and printed it
+with `yaml.safe_dump` — PyYAML. GitHub's `ubuntu-24.04` image ships `python3-yaml`, so every green run had it for
+free; macOS's `/usr/bin/python3` (3.9.6, Command Line Tools) has the standard library only. `set -e` ended
+`lab-stack.sh` there, so OBI, the Hubble CLI's client certificate and Kyverno never installed; then demo 30's
+`hubble observe` in `lab-apps.sh` had no certificate, `set -e` ended that too, and labs 32, 35, the Star Wars app, the
+bank, the DNS policy, the forensic client, the petclinic and the trust client never deployed. One undeclared module,
+one cascade — and nothing in CI could have shown it, because the runner is the platform that has the module.
+
+**The fix:** print JSON. `kubectl apply -f -` reads JSON as it reads YAML, and the ConfigMap is a `dict` either way:
+`print(json.dumps(cm, indent=1))` in `dashboard-from-file.sh` and in its parent, `demos/16-monitoring/dashboard-configmap.sh`
+— no dependency at all. Proven with a client-side dry run on the same dashboard file: `configmap/hubble-observer-flows
+created (dry run)`, uid pinned, 13 panels, `__inputs` dropped, the cf2cnp URL substituted. `demos/19-zero-trust-cell/render.py`
+genuinely *parses* YAML and stays on PyYAML: it is run only by `scripts/verify.sh` and its output is committed
+(`pip3 install pyyaml` on a Mac before that one).
+
+**The lesson:** "it runs in CI" proves the code on the runner's image, modules included. The standard library is the
+only Python a lab script may assume; when a script must write a Kubernetes object from Python, write JSON.
+
+## <a name="111"></a>111. macOS's `/bin/bash` is 3.2 — `declare -A` and an empty array under `set -u` fail, and three labs died of it on the M5 while the runner's bash 5 never noticed
+
+**Where:** the M5's first full deploy (2026-09-15, `scripts/lab-apps.sh all` from `scripts/lab-all.sh`), with no Homebrew
+bash on the machine:
+
+```text
+demos/15-bank/exercise.sh: line 46: declare: -A: invalid option
+declare: usage: declare [-afFirtx] [-p] [name[=value] ...]
+demos/15-bank/exercise.sh: line 59: poc2: unbound variable
+  world by IP: 1.1.1.1:443                                   DENIED (rc=1)
+  a Service IP on a port that is not a Service port: api.bank:8080 DENIED (rc=143)
+== demo 31 — the chapter's recorded toFQDNs policy on cf2cnp-lab/pos …
+scripts/lab-apps.sh: line 43: c[@]: unbound variable
+== demo 20 — the petclinic in springboot …
+::error::the labs (scripts/lab-apps.sh all)
+```
+
+The bank step took 11 min 20 s against the runner's 2 min 38 s (run 35028933940): the broken exercise left the egress
+test waiting out its timeouts.
+
+**What happened:** every script starts `#!/usr/bin/env bash`, and `env` found `/bin/bash` — macOS's 3.2.57 (2007; Apple
+stopped at the last GPLv2 release). Associative arrays (`declare -A`) arrived in bash 4.0; `"${a[@]}"` on an empty array
+under `set -u` was an "unbound variable" error until 4.4. GitHub's Ubuntu image has bash 5.2, and so did the Intel Mac
+through Homebrew — the scripts were written and measured on 5 without anyone naming the requirement. The petclinic step
+printed nothing after its header: `set -e` ended `lab-apps.sh` on the same class.
+
+**The fix:** the requirement, stated and installed, not eleven rewrites. `brew install bash` (5.3.20 on the M5);
+`/opt/homebrew/bin` precedes `/bin` on PATH, so `env bash` becomes Homebrew's — measured: `declare -A` and the
+empty-array expansion both work, and the re-run of the labs passed. `scripts/bootstrap/macos.sh` installs the formula
+(and Homebrew itself when absent — the operator's rule, 2026-09-15: "say it is a requirement"), its tools table leads
+with the bash `env` finds, and `scripts/lab-preflight.sh` has a `bash (env bash)` row that is REQUIRED-FAIL below 4.4 on
+any host, so the next machine learns this in the first table, not in the eleventh lab. `docs/NEW-MAC.md` §1 and
+`docs/SETUP.md` Step 1 name both requirements.
+
+**The lesson:** the interpreter is a dependency like any other. "Works in CI" measured the scripts on the runner's
+bash; a `#!/usr/bin/env bash` promises nothing about the version — the preflight has to read it.
+
+## <a name="112"></a>112. A lab that is only ever run once is not idempotent — the bank's "before the cell" check ran under the cell on the M5's second pass and hung 36 minutes, because macOS has no `timeout`
+
+**Where:** the M5, 2026-09-15 18:37 → 19:13, `scripts/lab-all.sh` re-running `scripts/lab-apps.sh all` after the bash fix
+(gotcha #111). `demos/15-bank/check.sh` printed its header and nothing else; the agent's own flow log said why:
+
+```text
+forensic/client:40494 (ID:72564) <> bank/api-6d44c9dd88-768q9:8080 (ID:122117) policy-verdict:none INGRESS DENIED (TCP Flags: SYN)
+forensic/client:40494 (ID:72564) <> bank/api-6d44c9dd88-768q9:8080 (ID:122117) Policy denied DROPPED (TCP Flags: SYN)
+$ kubectl --context kind-poc1 -n bank get cnp
+cell-accounts  cell-api  cell-payments  cell-postgres  cell-postgres-standby  cell-redis  cell-web    # 23:28:04Z — the FIRST pass
+```
+
+**What happened:** two things, both invisible on the runner. (1) `lab-apps.sh`'s bank lab runs demo 15's in-cluster check
+*before* applying demo 19's cell — the demos' own order, and the lab's comment says the cell "denies every namespace but its
+own, so a check from forensic after it hangs". True on a fresh cluster. On a re-run the cell from the previous pass is
+already there, the check runs under it, and every curl's SYN is dropped — no RST, so `curl` without `--max-time` waits for
+TCP to give up, forty times in step 3. The runner creates its clusters fresh every run and never met this. (2) The
+guard written for exactly this hang after run 34922062949 (94 minutes) — `command -v timeout && exec timeout 15m … ||
+exec …` — falls through *silently* where `timeout` does not exist, and macOS has no `timeout`: it is GNU coreutils'. So
+the ceiling that made the runner's failure a 15-minute one made the Mac's an open-ended one.
+
+**The fix:** (1) the bank lab removes the cell before the check when a previous pass left it — the
+`CiliumClusterwideNetworkPolicy` `bank-cell-baseline` and the `CiliumNetworkPolicies` labelled `rendered-from=intent.yaml`
+(`demos/19-zero-trust-cell/render.py` puts the label on every rendered policy), in both clusters — and re-applies it after,
+as before; on a first run there is nothing to remove. (2) a `deadline` helper: GNU `timeout` where it exists, Homebrew
+coreutils' `gtimeout` on a Mac, and with neither the command runs unguarded *and prints a warning naming the missing
+ceiling*. `coreutils` joins `scripts/bootstrap/macos.sh`'s formulae as a requirement. Measured: `deadline 1 sleep 5`
+exits 124 with coreutils; without it, the warning.
+
+**The same face, twice more on the M5's third pass:** chapter 26 died with `no AUDIT flow pos → shop in the relay` —
+the lab had re-enabled audit on `shop`, but the previous pass's generated allow-policy (`shop`, labelled
+`app.kubernetes.io/managed-by: cf2cnp`) still forwarded pos → shop, so the relay saw FORWARDED, never AUDIT, and cf2cnp
+had nothing to generate from. And the petclinic lab died at its header with nothing printed: `before_used=$(free -m
+2>/dev/null | awk …)` — `free` is Linux's, a Mac has none, the failed pipeline's status is the assignment's under
+`pipefail`, and `set -e` ended the lab with stderr already discarded. **Fixed the same way:** each chapter's lab calls
+`reset_chapter <namespaces>` (delete the cf2cnp-managed CiliumNetworkPolicies; lab30 also removes chapter 30's
+replacement default-deny) so the lab starts where the demo starts; the memory measurement became optional — `used_mb()`
+cannot fail the assignment and prints `?(no free on this host)` where it has nothing to say.
+
+**The lesson:** "idempotent" has to be measured by running twice — the runner's fresh clusters hide every second-run
+assumption. A guard that checks for a tool and quietly does without it is not a guard; the fall-through must speak. And
+a Linux-only command behind `2>/dev/null` inside `$( )` under `set -euo pipefail` is a silent exit waiting for a Mac.
+
+## <a name="113"></a>113. A registry image needs no `kind load` — the node pulls it — and loading one anyway fails under Docker's containerd image store: `ctr: content digest sha256:…: not found`
+
+**Where:** the M5, 2026-09-16 06:2x, the observer upgrade to cf2cnp 0.8.0. The values file's comment said the fork's
+image was "loaded into poc1 with `kind load` as well, so the nodes need no ghcr pull (a personal ghcr package starts
+private)", so the release was pulled and loaded first:
+
+```text
+$ docker pull -q --platform linux/arm64 ghcr.io/ephico2real2/cf2cnp:0.8.0
+$ kind load docker-image ghcr.io/ephico2real2/cf2cnp:0.8.0 --name poc1
+Command Output: ctr: content digest sha256:425c72aeda273ce1790ccc070b71234532a8a4dfe22fe7237852dc6a96be5cb9: not found
+$ docker info --format '{{.DriverStatus}}'
+[[driver-type io.containerd.snapshotter.v1]]                       # Docker Desktop 4.91.0's default image store
+$ kubectl --context kind-poc1 -n hubble-observer get pod -l app.kubernetes.io/name=cf2cnp -o jsonpath='{.items[0].status.containerStatuses[0].imageID}'
+ghcr.io/ephico2real2/cf2cnp@sha256:153e430d1ed8922847bf4f7a8f549d8f6b0e1711e13153293ccc648db43b8770   # 0.7.0's pod: PULLED
+```
+
+**What happened:** two things. (1) The step was unnecessary — the operator's rule, and the last line above is its proof:
+the running 0.7.0 pod's `imageID` is a ghcr digest, so poc1's nodes pull the fork's package themselves; it is public.
+`kind load` is for an image that exists only in the host's Docker (`scripts/lab-images.sh`'s locally built ones) and
+for nothing else. (2) The load then failed for a reason of its own: with the containerd image store the tag keeps its
+*index* identity (the multi-platform manifest list) while only arm64 was materialised; `kind load docker-image` streams
+`docker save` into each node's `ctr images import --all-platforms --digests`, which walks the index and asks for the
+amd64 manifest the host never fetched — `425c72ae…` is that manifest (kind [#4224](https://github.com/kubernetes-sigs/kind/issues/4224),
+[#3795](https://github.com/kubernetes-sigs/kind/issues/3795); kind v0.33.0 here). The classic image store writes a
+single-platform archive and never showed this.
+
+**The fix:** for a registry image, nothing — let the node pull. The 0.8.0 pod that the upgrade produced runs the image
+this session had already loaded (`imageID docker.io/library/import-2026-09-16@sha256:a556b73a…`, gotcha #38's face); the
+next fresh bring-up pulls `ghcr.io/ephico2real2/cf2cnp:0.8.0` like every run before it. The values comment now says
+so. If a *locally built* multi-platform image ever has to be loaded on a Mac with the containerd store, save the one
+platform the nodes run and load the archive — the import then sees a plain image, not an index:
+
+```bash
+docker save --platform linux/arm64 -o .tmp/img.tar <image:tag>; kind load image-archive .tmp/img.tar --name poc1
+```
+
+**The lesson:** "load it to be safe" is a step, and a step can fail. The node's `imageID` already says where the image
+came from; read it before adding a hand-off the cluster does not need.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**

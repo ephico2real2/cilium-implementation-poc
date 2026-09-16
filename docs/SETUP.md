@@ -149,6 +149,14 @@ build only cluster `poc1` and skip Phase 4 (ClusterMesh).
 
 ## Step 1 — install and verify the toolchain
 
+> **Two requirements first, on any Mac (2026-09-15): Homebrew, and Homebrew's bash (≥ 4.4).** macOS ships
+> `/bin/bash` 3.2.57; the lab's scripts were measured on bash 5 and use `declare -A` and `"${a[@]}"` on empty
+> arrays under `set -u`, both of which 3.2 refuses — on the M5 the bank, the DNS lab and the petclinic died of it
+> (gotcha #111). `scripts/bootstrap/macos.sh` installs both when absent and its table leads with the bash it found;
+> `scripts/lab-preflight.sh` has a `bash (env bash)` row that is REQUIRED-FAIL below 4.4. By hand:
+> `brew install bash coreutils`, then `which -a bash` must list `/opt/homebrew/bin/bash` before `/bin/bash`, and
+> `gtimeout` must exist (the labs' 15-minute ceiling on their in-cluster checks — gotcha #112).
+
 Four sub-steps, each run and verified on its own. Resist the urge to chain them with `&&`: when a
 chain fails you have to work out *which* link broke, and Homebrew in particular prints a lot of
 noise around the one line that matters.
@@ -342,7 +350,9 @@ measured constraint, not a guess.
 > **That kernel is Docker Desktop's, not the Mac's — and it moved (2026-09-14).** The `6.6.12` above is
 > what Docker Desktop **4.27.2** (February 2024, the version on the 2019 Intel MacBook) shipped. Docker
 > Desktop 4.89.0 (August 2026) ships Linux kernel **v7.0.12** ([release notes](https://docs.docker.com/desktop/release-notes/)),
-> on Intel and on Apple silicon alike, so the netkit floor is a Desktop version, not a CPU. What stays
+> on Intel and on Apple silicon alike. **Measured on the M5 (2026-09-15, Desktop 4.91.0): that kernel is built without
+> `CONFIG_NETKIT`** (`/proc/config.gz`: `# CONFIG_NETKIT is not set`; `ip link add … type netkit` refused), so netkit
+> is unavailable on every Docker Desktop kernel read so far, above the version floor or not — gotcha #109. What stays
 > the same on ANY Mac, and on the runner: the bandwidth manager is off inside kind nodes, because the
 > sysctl it reads lives in the host's network namespace (gotcha #103); BIG TCP needs native routing and
 > the lab runs VXLAN (same gotcha). What is different on **Apple silicon**: the CPU is arm64 — the pinned

@@ -32,6 +32,12 @@ case "$os" in
   Darwin) row ok "host" "macOS $(sw_vers -productVersion) on $arch, $(/usr/sbin/sysctl -n hw.ncpu) CPUs, $(( $(/usr/sbin/sysctl -n hw.memsize) / 1073741824 )) GiB" "the nodes run in Docker's Linux VM, not on this kernel" ;;
   Linux)  row ok "host" "$(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-Linux}") on $arch, $(nproc) CPUs, $(( $(awk '/MemTotal/{print $2}' /proc/meminfo) / 1048576 )) GiB" "the nodes share THIS kernel" ;;
 esac
+# the bash the scripts' `#!/usr/bin/env bash` resolves to: the lab was measured on the runner's 5.2 and uses what 3.2 lacks
+# (declare -A in demos/15-bank/exercise.sh; "${a[@]}" on an empty array under set -u, an error before 4.4, in lab-apps.sh);
+# macOS ships 3.2.57 and its labs died on it (gotcha #111) — a row here, not a surprise in the eleventh lab
+bv=$(bash -c 'echo "$BASH_VERSION"' 2>/dev/null); bv=${bv:-0}
+if ver_ge "${bv%%(*}" 4.4; then row ok "bash (env bash)" "$bv at $(command -v bash)" "≥ 4.4 for the lab's scripts (the runner: 5.2)"
+else row REQUIRED-FAIL "bash (env bash)" "$bv at $(command -v bash)" "the lab's scripts need ≥ 4.4 (gotcha #111) — macOS: brew install bash (/opt/homebrew/bin precedes /bin)"; fi
 
 # ---------------------------------------------------------------- Docker: answering, version, the VM's resources and kernel
 if ! docker info >/dev/null 2>&1; then

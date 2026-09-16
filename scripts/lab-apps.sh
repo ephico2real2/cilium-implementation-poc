@@ -32,6 +32,19 @@
 #   wait     —                            —     until Prometheus, Loki and Tempo (both clusters) hold what the dashboards read — or fail
 #   traffic  every lab above              —     `traffic <minutes>`: rounds, then wait
 set -euo pipefail; cd "$(dirname "$0")/.."
+# deadline <duration> <cmd…> — GNU timeout on the runner, Homebrew coreutils' gtimeout on a Mac (scripts/bootstrap/macos.sh
+# installs it); with neither the command runs unguarded and SAYS so — `command -v timeout && … || exec` used to fall
+# through silently on macOS, and a hung check had no ceiling (gotcha #112)
+deadline() { if command -v timeout >/dev/null; then timeout "$@"; elif command -v gtimeout >/dev/null; then gtimeout "$@"
+  else echo "::warning::no timeout/gtimeout on this host — $2 runs with no $1 ceiling (brew install coreutils)" >&2; shift; "$@"; fi; }
+# reset_chapter <namespace…> — a re-run (a laptop; the runner never re-runs) finds the chapter's generated policies from the
+# last pass (cf2cnp labels every one app.kubernetes.io/managed-by=cf2cnp), and the lab's "under audit" start is then a lie:
+# pos → shop is FORWARDED by last time's allow, never AUDIT, and chapter 26 finds no flow to generate from (the M5's third
+# pass, 2026-09-15 — gotcha #112's second face). Removed here, so the lab starts where the demo starts; a first run finds none.
+# The lab-owned default-deny and visibility policies carry no such label and stay. One lab-applied policy DOES carry it:
+# demo 31's recorded cnp-pos-fqdn.yaml (cf2cnp wrote it), which dns() applies in cf2cnp-lab — lab26's reset removes it and
+# dns() re-applies it later in `all`; run `lab26` alone after `dns` and the DNS lab needs `dns` again (review C1).
+reset_chapter() { local ns; for ns in "$@"; do k -n "$ns" delete ciliumnetworkpolicies -l app.kubernetes.io/managed-by=cf2cnp --ignore-not-found >/dev/null 2>&1 || true; done; }
 CTX="${LAB_STACK_CTX:-kind-poc1}"; PEER_CTX="${LAB_STACK_PEER_CTX:-kind-poc2}"
 say() { printf '\n== %s  (%s)\n' "$1" "$(date +%H:%M:%S)"; }
 die() { echo "::error::$1"; exit 1; }
@@ -45,7 +58,7 @@ hit() { # <ns> <pod> <container|-> <url> — one request, the status line the ca
 
 lab26() {
   say "demo 26 — cf2cnp-lab: shop, pos, stranger; the default-deny under audit mode; one round of traffic"
-  k apply -f demos/26-cf2cnp-policy-from-flows/10-lab.yaml >/dev/null; ready cf2cnp-lab
+  k apply -f demos/26-cf2cnp-policy-from-flows/10-lab.yaml >/dev/null; ready cf2cnp-lab; reset_chapter cf2cnp-lab
   demos/26-cf2cnp-policy-from-flows/audit-mode.sh shop Enabled | tail -1
   k apply -f demos/26-cf2cnp-policy-from-flows/20-shop-default-deny-ingress.yaml >/dev/null
   hit cf2cnp-lab pos - http://shop.cf2cnp-lab/
@@ -56,7 +69,7 @@ lab26() {
 }
 lab27() {
   say "demo 27 — cf2cnp-lab27: the two-component shop, pos and the stranger; both components under audit, then the default-deny"
-  k apply -f demos/27-cf2cnp-release/10-lab.yaml >/dev/null; ready cf2cnp-lab27
+  k apply -f demos/27-cf2cnp-release/10-lab.yaml >/dev/null; ready cf2cnp-lab27; reset_chapter cf2cnp-lab27
   # audit mode on BOTH endpoints before the default-deny (demo 27 Exercise 1) — without it the default-deny enforces from the
   # start: no AUDIT flows to generate from, and cf2cnp-lab27 was 83% of the observer's drops in run 34918170151
   NS=cf2cnp-lab27 demos/26-cf2cnp-policy-from-flows/audit-mode.sh shop-frontend Enabled | tail -1 | sed 's/^/  /'
@@ -68,6 +81,7 @@ lab27() {
 lab30() {
   say "demo 30 — cf2cnp-lab30: the shop with real paths and HTTP visibility; what the proxy reports (Exercise 0)"
   k apply -f demos/30-l7-rules/10-lab.yaml -f demos/30-l7-rules/20-http-visibility.yaml >/dev/null; ready cf2cnp-lab30
+  reset_chapter cf2cnp-lab30; k delete -f demos/30-l7-rules/30-shop-default-deny-ingress.yaml --ignore-not-found >/dev/null 2>&1 || true   # chapter 30's replacement of the visibility policy, from the last pass
   # the observation is the pods' own loops (pos: / and /checkout; the frontend's caller: /api/orders; the stranger: /admin and
   # the backend) — calls.sh is NOT run here: its pos → /admin would be observed, become a rule, and the chapter's 403 would
   # be a 200 (demo 30's lesson: the rule is the intent, so the observation must be the intent); calls.sh is the enforced check
@@ -82,6 +96,7 @@ lab35() {
   say "demo 35 — the shop platform: six namespaces; probe.sh before any policy (Exercise 0); then audit mode everywhere and the default-deny"
   k apply -f demos/35-shop-platform/10-platform.yaml >/dev/null
   for ns in shop-edge shop-core shop-payments shop-merchant shop-reviews shop-clients; do ready "$ns"; done
+  reset_chapter shop-edge shop-core shop-payments shop-merchant shop-reviews shop-clients
   demos/35-shop-platform/probe.sh 2>&1 | sed 's/^/  /'
   # the observation under audit is the platform's own loops; probe.sh's last line (the shopper straight at the catalog) is
   # the call the chapter proves was never observed — so probe.sh runs before audit here, and in the rounds only once enforced
@@ -116,11 +131,20 @@ bank() {
   # but its own, so a check from forensic after it hangs on curls with no timeout (run 34922062949: the report step sat
   # 94 minutes on it). Its output is kept for the report; a run without the forensic client notes that instead.
   mkdir -p "${LAB_CHECKS_DIR:-captures/checks}"
+  # a re-run (a laptop; the runner never re-runs) finds the cell from the last pass in both clusters, and "before the cell"
+  # would then run under its deny — every curl from forensic dropped, the check hung 36 minutes on the M5 (gotcha #112).
+  # The demos' order is restored: the cell removed here, re-applied below. On a first run there is nothing to remove.
+  for c in "$CTX" "$PEER_CTX"; do
+    kubectl --context "$c" delete ciliumclusterwidenetworkpolicies bank-cell-baseline --ignore-not-found >/dev/null 2>&1 || true
+    kubectl --context "$c" -n bank delete ciliumnetworkpolicies -l rendered-from=intent.yaml --ignore-not-found >/dev/null 2>&1 || true
+  done
   if k -n forensic get pod client >/dev/null 2>&1; then
     say "demo 15 — the bank across the mesh, from inside (demos/15-bank/check.sh from forensic/client), before the cell"
+    # the check's stdout AND stderr go to its file below, so the ceiling's absence is said here, where the log can see it (review C4)
+    command -v timeout >/dev/null || command -v gtimeout >/dev/null || echo "::warning::no timeout/gtimeout on this host — demos/15-bank/check.sh runs with no 15m ceiling (brew install coreutils)"
     # ROOT_CA: step 7 of the check goes through the Gateway on the wildcard certificate — without this lab's root it read
     # docs/root-ca.crt (the laptop's) and printed `https://bank.poc.local -> http 000` (run 34930321170)
-    ( export ROOT_CA="${ROOT_CA:-.tmp/root-ca.crt}"; command -v timeout >/dev/null && exec timeout 15m demos/15-bank/check.sh || exec demos/15-bank/check.sh ) > "${LAB_CHECKS_DIR:-captures/checks}/demo15-check.txt" 2>&1 || echo "  check.sh exited $? (the output is kept)"
+    ( export ROOT_CA="${ROOT_CA:-.tmp/root-ca.crt}"; deadline 15m demos/15-bank/check.sh ) > "${LAB_CHECKS_DIR:-captures/checks}/demo15-check.txt" 2>&1 || echo "  check.sh exited $? (the output is kept)"
     grep -E '^== |served|TOTAL|payments backends|https://bank|^ +[0-9]+ (poc1|poc2|FAIL)$|requests:|stored_in_redis|balance now' "${LAB_CHECKS_DIR:-captures/checks}/demo15-check.txt" | head -40 | sed 's/^/  /'
   else echo "  demo 15's in-cluster check skipped: no forensic/client (scripts/lab-apps.sh forensic first)" | tee "${LAB_CHECKS_DIR:-captures/checks}/demo15-check.txt"; fi
   for c in "$CTX" "$PEER_CTX"; do kubectl --context "$c" apply -f demos/19-zero-trust-cell/10-platform-baseline.yaml -f demos/19-zero-trust-cell/rendered/cell-policies.yaml >/dev/null; done
@@ -157,7 +181,11 @@ forensic() {
 }
 springboot() {
   say "demo 20 — the petclinic in springboot: six Spring Boot services (the collector's zipkin receiver takes their spans), the route, the memory"
-  local before_used; before_used=$(free -m 2>/dev/null | awk '/^Mem:/ {print $3}')
+  # the host's memory before and after: `free` is Linux's (the runner); a Mac has none, and under pipefail the failed
+  # substitution's status ended the whole lab here with nothing printed (the M5, 2026-09-15) — so the measurement is
+  # optional, its absence is said, and the pipeline cannot fail the assignment
+  used_mb() { { free -m 2>/dev/null || true; } | awk '/^Mem:/ {print $3}'; }
+  local before_used; before_used=$(used_mb)
   k apply -f demos/20-springboot/10-petclinic.yaml >/dev/null
   # the order the init containers enforce: config-server, then discovery-server, then the four; 10 min per cold JVM
   local d; for d in config-server discovery-server customers-service vets-service visits-service api-gateway; do
@@ -176,7 +204,7 @@ springboot() {
   echo "  Eureka: ${apps:-0} applications UP after $(( _j * 5 )) s; the gateway's 30 s cache next"; sleep 35
   # the measurement the operator asked for: what six JVMs cost this host — the runner's used memory before and after,
   # and what the pods themselves use (metrics-server, installed by lab-up), against what the manifest requests and limits
-  echo "  memory: host used ${before_used:-?} MB → $(free -m 2>/dev/null | awk '/^Mem:/ {print $3}') MB; requests $(k -n springboot get pods -o jsonpath='{range .items[*].spec.containers[*]}{.resources.requests.memory}{"\n"}{end}' | sed 's/Mi//' | awk '{s+=$1} END {print s}') Mi, limits $(k -n springboot get pods -o jsonpath='{range .items[*].spec.containers[*]}{.resources.limits.memory}{"\n"}{end}' | sed 's/Mi//' | awk '{s+=$1} END {print s}') Mi"
+  echo "  memory: host used ${before_used:-?(no free on this host)} MB → $(used_mb) MB; requests $(k -n springboot get pods -o jsonpath='{range .items[*].spec.containers[*]}{.resources.requests.memory}{"\n"}{end}' | sed 's/Mi//' | awk '{s+=$1} END {print s}') Mi, limits $(k -n springboot get pods -o jsonpath='{range .items[*].spec.containers[*]}{.resources.limits.memory}{"\n"}{end}' | sed 's/Mi//' | awk '{s+=$1} END {print s}') Mi"
   k top pods -n springboot --no-headers 2>/dev/null | awk '{printf "    %-40s %s %s\n", $1, $2, $3}' || echo "    (kubectl top: no samples yet)"
   petclinic_traffic
 }
