@@ -100,6 +100,13 @@ step_monitoring() {
   helm upgrade cilium cilium/cilium --version "$CILIUM_VERSION" -n kube-system --kube-context "$CTX" --reuse-values -f demos/16-monitoring/values-cilium-metrics.yaml >/dev/null
   agents_after_upgrade "$cm" "$gen"
   k -n kube-system rollout status deploy/hubble-relay --timeout=5m >/dev/null
+  # the lab's L7 dashboard beside Cilium's (demo 37, gotcha #115): the chart's "by Workload" keyed on the app labels
+  # instead — destination_workload is empty for a backend on another node than the reporting Envoy, i.e. for most
+  # Gateway traffic; destination_app is identity-derived and present everywhere. Generated from the chart's ConfigMap so
+  # it follows the chart's panels; provisioned the demo 25 way
+  k -n monitoring get cm hubble-l7-http-metrics-by-workload -o jsonpath='{.data.hubble-l7-http-metrics-by-workload\.json}' > .tmp/l7-orig.json
+  demos/37-two-gateways/l7-by-app-dashboard.py .tmp/l7-orig.json > .tmp/l7-by-app.json
+  demos/25-hubble-observer-loki/dashboard-from-file.sh .tmp/l7-by-app.json monitoring hubble-l7-http-by-app hubble-l7-http-by-app Hubble | k apply -f - >/dev/null
   local sm dash; sm=$(k get servicemonitor -A --no-headers 2>/dev/null | wc -l | tr -d ' '); dash=$(k get cm -A -l grafana_dashboard=1 --no-headers | wc -l | tr -d ' ')
   echo "ServiceMonitors: $sm; Grafana dashboards provisioned: $dash (Cilium's, Hubble's, the stack's)"
   local _i t=0; for _i in $(seq 1 24); do t=$(k get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/targets?state=active" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(sum(1 for x in d["data"]["activeTargets"] if x["health"]=="up"))' 2>/dev/null || echo 0); [ "${t:-0}" -ge 8 ] && break; sleep 10; done
