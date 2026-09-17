@@ -1,0 +1,54 @@
+{"phase":"baseline","label":"shop-a via routes-gw (.240)","p50_ms":0.72,"p99_ms":3.80,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"probe-a via routes-gw (.240)","p50_ms":0.75,"p99_ms":3.80,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"probe-b via team-b-gw (.243)","p50_ms":0.85,"p99_ms":2.75,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"shop-a direct (Service, no Envoy)","p50_ms":0.57,"p99_ms":0.99,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"load https://shop-a.poc.local/","p50_ms":2.14,"p99_ms":10.42,"qps":24401,"errors":0,"pod":"load"}
+{"phase":"load-shared","label":"probe-a via routes-gw (.240)  ← same door","p50_ms":3.56,"p99_ms":21.25,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"probe-b via team-b-gw (.243) ← other door","p50_ms":3.62,"p99_ms":17.33,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"shop-a direct (Service, no Envoy)","p50_ms":0.56,"p99_ms":2.57,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-team","label":"load https://shop.team-b.poc.local/","p50_ms":2.32,"p99_ms":13.45,"qps":21411,"errors":0,"pod":"load"}
+{"phase":"load-team","label":"probe-a via routes-gw (.240)  ← other door","p50_ms":3.42,"p99_ms":21.67,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-team","label":"probe-b via team-b-gw (.243) ← same door","p50_ms":3.96,"p99_ms":24.29,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-both","label":"load https://shop.team-b.poc.local/","p50_ms":5.20,"p99_ms":23.37,"qps":10312,"errors":0,"pod":"load-b"}
+{"phase":"load-both","label":"load https://shop-a.poc.local/","p50_ms":5.27,"p99_ms":23.76,"qps":10159,"errors":0,"pod":"load"}
+{"phase":"load-both","label":"probe-a via routes-gw (.240)  ← loaded door","p50_ms":8.00,"p99_ms":46.25,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-both","label":"probe-b via team-b-gw (.243) ← loaded door","p50_ms":8.04,"p99_ms":38.33,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-direct","label":"load http://shop.team-a.svc:8080/","p50_ms":0.60,"p99_ms":2.95,"qps":104717,"errors":0,"pod":"load"}
+{"phase":"load-direct","label":"probe-a via routes-gw (.240)","p50_ms":1.31,"p99_ms":9.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-direct","label":"probe-b via team-b-gw (.243)","p50_ms":1.26,"p99_ms":10.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"shop-a via routes-gw (.240)","p50_ms":0.78,"p99_ms":4.50,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"probe-a via routes-gw (.240)","p50_ms":0.80,"p99_ms":4.33,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"probe-b via team-b-gw (.243)","p50_ms":0.67,"p99_ms":4.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"shop-a direct (Service, no Envoy)","p50_ms":0.57,"p99_ms":1.57,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"load https://shop-a.poc.local/","p50_ms":2.15,"p99_ms":12.49,"qps":23056,"errors":0,"pod":"load"}
+{"phase":"load-shared","label":"probe-a via routes-gw (.240)  ← same door","p50_ms":3.28,"p99_ms":16.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"probe-b via team-b-gw (.243) ← other door","p50_ms":3.33,"p99_ms":17.33,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"shop-a direct (Service, no Envoy)","p50_ms":0.58,"p99_ms":3.83,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-team","label":"load https://shop.team-b.poc.local/","p50_ms":2.29,"p99_ms":13.51,"qps":21468,"errors":0,"pod":"load"}
+{"phase":"load-team","label":"probe-a via routes-gw (.240)  ← other door","p50_ms":4.55,"p99_ms":25.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-team","label":"probe-b via team-b-gw (.243) ← same door","p50_ms":4.60,"p99_ms":24.29,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-both","label":"load https://shop.team-b.poc.local/","p50_ms":5.77,"p99_ms":26.78,"qps":9096,"errors":0,"pod":"load-b"}
+{"phase":"load-both","label":"load https://shop-a.poc.local/","p50_ms":5.80,"p99_ms":27.29,"qps":9053,"errors":0,"pod":"load"}
+{"phase":"load-both","label":"probe-a via routes-gw (.240)  ← loaded door","p50_ms":9.72,"p99_ms":52.50,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-both","label":"probe-b via team-b-gw (.243) ← loaded door","p50_ms":9.35,"p99_ms":60.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-direct","label":"load http://shop.team-a.svc:8080/","p50_ms":0.60,"p99_ms":2.98,"qps":104311,"errors":0,"pod":"load"}
+{"phase":"load-direct","label":"probe-a via routes-gw (.240)","p50_ms":1.22,"p99_ms":5.60,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-direct","label":"probe-b via team-b-gw (.243)","p50_ms":1.13,"p99_ms":7.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"shop-a via routes-gw (.240)","p50_ms":0.80,"p99_ms":2.80,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"probe-a via routes-gw (.240)","p50_ms":0.74,"p99_ms":2.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"probe-b via team-b-gw (.243)","p50_ms":0.73,"p99_ms":3.83,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"shop-a direct (Service, no Envoy)","p50_ms":0.58,"p99_ms":1.33,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"load https://shop-a.poc.local/","p50_ms":2.27,"p99_ms":12.31,"qps":22382,"errors":0,"pod":"load"}
+{"phase":"load-shared","label":"probe-a via routes-gw (.240)  ← same door","p50_ms":3.50,"p99_ms":15.71,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"probe-b via team-b-gw (.243) ← other door","p50_ms":3.67,"p99_ms":22.50,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"shop-a direct (Service, no Envoy)","p50_ms":0.57,"p99_ms":5.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-team","label":"load https://shop.team-b.poc.local/","p50_ms":2.20,"p99_ms":12.38,"qps":22791,"errors":0,"pod":"load"}
+{"phase":"load-team","label":"probe-a via routes-gw (.240)  ← other door","p50_ms":4.44,"p99_ms":36.67,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-team","label":"probe-b via team-b-gw (.243) ← same door","p50_ms":3.19,"p99_ms":23.33,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-both","label":"load https://shop-a.poc.local/","p50_ms":4.95,"p99_ms":19.83,"qps":11028,"errors":0,"pod":"load"}
+{"phase":"load-both","label":"load https://shop.team-b.poc.local/","p50_ms":4.76,"p99_ms":19.55,"qps":11413,"errors":0,"pod":"load-b"}
+{"phase":"load-both","label":"probe-a via routes-gw (.240)  ← loaded door","p50_ms":7.48,"p99_ms":30.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-both","label":"probe-b via team-b-gw (.243) ← loaded door","p50_ms":7.43,"p99_ms":33.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-direct","label":"load http://shop.team-a.svc:8080/","p50_ms":0.59,"p99_ms":2.84,"qps":108730,"errors":0,"pod":"load"}
+{"phase":"load-direct","label":"probe-a via routes-gw (.240)","p50_ms":0.89,"p99_ms":13.33,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-direct","label":"probe-b via team-b-gw (.243)","p50_ms":1.26,"p99_ms":9.75,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}

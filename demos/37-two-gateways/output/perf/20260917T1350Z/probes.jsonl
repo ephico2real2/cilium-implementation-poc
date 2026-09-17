@@ -1,0 +1,66 @@
+{"phase":"baseline","label":"shop-a via routes-gw (.240)","p50_ms":0.73,"p99_ms":1.99,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"probe-a via routes-gw (.240)","p50_ms":0.69,"p99_ms":1.92,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"probe-b via team-b-gw (.243)","p50_ms":0.67,"p99_ms":1.94,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"shop-a direct (Service, no Envoy)","p50_ms":0.56,"p99_ms":0.99,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"load https://shop-a.poc.local/","p50_ms":2.27,"p99_ms":9.81,"qps":23851,"errors":0,"pod":"load"}
+{"phase":"load-shared","label":"probe-a via routes-gw (.240)  ← same door","p50_ms":3.49,"p99_ms":12.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"probe-b via team-b-gw (.243) ← other door","p50_ms":3.68,"p99_ms":16.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"shop-a direct (Service, no Envoy)","p50_ms":0.56,"p99_ms":3.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-team","label":"load https://shop.team-b.poc.local/","p50_ms":2.24,"p99_ms":9.87,"qps":24035,"errors":0,"pod":"load"}
+{"phase":"load-team","label":"probe-a via routes-gw (.240)  ← other door","p50_ms":3.06,"p99_ms":11.50,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-team","label":"probe-b via team-b-gw (.243) ← same door","p50_ms":3.30,"p99_ms":14.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-both","label":"load https://shop.team-b.poc.local/","p50_ms":4.99,"p99_ms":16.58,"qps":11468,"errors":0,"pod":"load-b"}
+{"phase":"load-both","label":"load https://shop-a.poc.local/","p50_ms":5.03,"p99_ms":16.54,"qps":11388,"errors":0,"pod":"load"}
+{"phase":"load-both","label":"probe-a via routes-gw (.240)  ← loaded door","p50_ms":7.15,"p99_ms":23.33,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-both","label":"probe-b via team-b-gw (.243) ← loaded door","p50_ms":6.55,"p99_ms":19.33,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-same-door","label":"load https://shop-a.team-b.poc.local/","p50_ms":5.08,"p99_ms":16.18,"qps":11384,"errors":0,"pod":"load-b"}
+{"phase":"load-same-door","label":"load https://shop.team-b.poc.local/","p50_ms":4.84,"p99_ms":15.81,"qps":11883,"errors":0,"pod":"load"}
+{"phase":"load-same-door","label":"probe-a via routes-gw (.240)  ← other door","p50_ms":6.27,"p99_ms":18.67,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-same-door","label":"probe-b via team-b-gw (.243) ← the loaded door","p50_ms":6.88,"p99_ms":19.40,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-direct","label":"load http://shop.team-a.svc:8080/","p50_ms":0.58,"p99_ms":2.40,"qps":117486,"errors":0,"pod":"load"}
+{"phase":"load-direct","label":"probe-a via routes-gw (.240)","p50_ms":1.03,"p99_ms":4.83,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-direct","label":"probe-b via team-b-gw (.243)","p50_ms":0.87,"p99_ms":4.83,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"shop-a via routes-gw (.240)","p50_ms":0.81,"p99_ms":1.84,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"probe-a via routes-gw (.240)","p50_ms":0.70,"p99_ms":1.80,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"probe-b via team-b-gw (.243)","p50_ms":0.71,"p99_ms":1.62,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"shop-a direct (Service, no Envoy)","p50_ms":0.49,"p99_ms":0.85,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"load https://shop-a.poc.local/","p50_ms":2.20,"p99_ms":9.27,"qps":24825,"errors":0,"pod":"load"}
+{"phase":"load-shared","label":"probe-a via routes-gw (.240)  ← same door","p50_ms":3.08,"p99_ms":10.20,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"probe-b via team-b-gw (.243) ← other door","p50_ms":3.63,"p99_ms":12.67,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"shop-a direct (Service, no Envoy)","p50_ms":0.56,"p99_ms":2.50,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-team","label":"load https://shop.team-b.poc.local/","p50_ms":2.21,"p99_ms":9.49,"qps":24526,"errors":0,"pod":"load"}
+{"phase":"load-team","label":"probe-a via routes-gw (.240)  ← other door","p50_ms":2.64,"p99_ms":10.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-team","label":"probe-b via team-b-gw (.243) ← same door","p50_ms":3.18,"p99_ms":12.67,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-both","label":"load https://shop-a.poc.local/","p50_ms":4.93,"p99_ms":15.94,"qps":11681,"errors":0,"pod":"load"}
+{"phase":"load-both","label":"load https://shop.team-b.poc.local/","p50_ms":5.10,"p99_ms":16.21,"qps":11345,"errors":0,"pod":"load-b"}
+{"phase":"load-both","label":"probe-a via routes-gw (.240)  ← loaded door","p50_ms":6.21,"p99_ms":17.33,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-both","label":"probe-b via team-b-gw (.243) ← loaded door","p50_ms":7.49,"p99_ms":20.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-same-door","label":"load https://shop-a.team-b.poc.local/","p50_ms":4.77,"p99_ms":15.85,"qps":11987,"errors":0,"pod":"load-b"}
+{"phase":"load-same-door","label":"load https://shop.team-b.poc.local/","p50_ms":5.24,"p99_ms":16.73,"qps":11049,"errors":0,"pod":"load"}
+{"phase":"load-same-door","label":"probe-a via routes-gw (.240)  ← other door","p50_ms":7.75,"p99_ms":21.43,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-same-door","label":"probe-b via team-b-gw (.243) ← the loaded door","p50_ms":6.04,"p99_ms":17.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-direct","label":"load http://shop.team-a.svc:8080/","p50_ms":0.58,"p99_ms":2.41,"qps":117178,"errors":0,"pod":"load"}
+{"phase":"load-direct","label":"probe-a via routes-gw (.240)","p50_ms":1.07,"p99_ms":4.80,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-direct","label":"probe-b via team-b-gw (.243)","p50_ms":0.84,"p99_ms":4.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"shop-a via routes-gw (.240)","p50_ms":0.85,"p99_ms":1.96,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"probe-a via routes-gw (.240)","p50_ms":0.72,"p99_ms":1.88,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"probe-b via team-b-gw (.243)","p50_ms":0.73,"p99_ms":1.79,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"baseline","label":"shop-a direct (Service, no Envoy)","p50_ms":0.56,"p99_ms":0.99,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"load https://shop-a.poc.local/","p50_ms":2.18,"p99_ms":9.59,"qps":24672,"errors":0,"pod":"load"}
+{"phase":"load-shared","label":"probe-a via routes-gw (.240)  ← same door","p50_ms":3.55,"p99_ms":12.67,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"probe-b via team-b-gw (.243) ← other door","p50_ms":3.18,"p99_ms":11.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-shared","label":"shop-a direct (Service, no Envoy)","p50_ms":0.56,"p99_ms":2.57,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-team","label":"load https://shop.team-b.poc.local/","p50_ms":2.23,"p99_ms":9.53,"qps":24479,"errors":0,"pod":"load"}
+{"phase":"load-team","label":"probe-a via routes-gw (.240)  ← other door","p50_ms":3.03,"p99_ms":12.86,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-team","label":"probe-b via team-b-gw (.243) ← same door","p50_ms":3.45,"p99_ms":12.40,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-both","label":"load https://shop-a.poc.local/","p50_ms":5.20,"p99_ms":16.05,"qps":11195,"errors":0,"pod":"load"}
+{"phase":"load-both","label":"load https://shop.team-b.poc.local/","p50_ms":5.06,"p99_ms":15.75,"qps":11509,"errors":0,"pod":"load-b"}
+{"phase":"load-both","label":"probe-a via routes-gw (.240)  ← loaded door","p50_ms":6.98,"p99_ms":17.80,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-both","label":"probe-b via team-b-gw (.243) ← loaded door","p50_ms":6.88,"p99_ms":18.40,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-same-door","label":"load https://shop-a.team-b.poc.local/","p50_ms":5.26,"p99_ms":16.18,"qps":11090,"errors":0,"pod":"load-b"}
+{"phase":"load-same-door","label":"load https://shop.team-b.poc.local/","p50_ms":5.02,"p99_ms":15.96,"qps":11520,"errors":0,"pod":"load"}
+{"phase":"load-same-door","label":"probe-a via routes-gw (.240)  ← other door","p50_ms":6.00,"p99_ms":16.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-same-door","label":"probe-b via team-b-gw (.243) ← the loaded door","p50_ms":6.84,"p99_ms":19.33,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-direct","label":"load http://shop.team-a.svc:8080/","p50_ms":0.58,"p99_ms":2.47,"qps":115943,"errors":0,"pod":"load"}
+{"phase":"load-direct","label":"probe-a via routes-gw (.240)","p50_ms":1.20,"p99_ms":6.00,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}
+{"phase":"load-direct","label":"probe-b via team-b-gw (.243)","p50_ms":0.92,"p99_ms":5.67,"qps":20,"errors":0,"leases":"poc1-control-plane/poc1-worker"}

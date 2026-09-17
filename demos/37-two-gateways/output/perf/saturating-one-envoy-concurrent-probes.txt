@@ -1,0 +1,91 @@
+
+== the rig: load and probe pods both on the worker (one Envoy), the four upstreams on the control plane; routes-gw 172.18.255.240, team-b-gw 172.18.255.243; load 0 qps × 64 conns × 30s, probes 20 qps, 3 runs  (10:30:23)
+  leases: routes-cilium-gateway-routes-gw → poc1-control-plane;team-b-cilium-gateway-team-b-gw → poc1-worker;
+  pods: loadtest/fortio@worker loadtest/fortio@worker team-a/probe@control-plane team-a/shop@control-plane team-b/probe@control-plane team-b/shop@control-plane 
+  host: 63G used, 73M unused, compressor 32G compressor, swap 3421.62M; CRC: Running
+  cilium-envoy CPU (cores): poc1-control-plane=0.00 poc1-worker=0.02 poc2-control-plane=0.00 poc2-worker=0.00
+
+== warm-up (not recorded)  (10:30:25)
+
+== run 1/3 — 0. idle baseline  (10:30:45)
+  shop-a via routes-gw (.240)        p50    0.71 ms  p99    2.25 ms  qps   20  errors 0
+  probe-a via routes-gw (.240)       p50    0.74 ms  p99    2.71 ms  qps   20  errors 0
+  probe-b via team-b-gw (.243)       p50    0.83 ms  p99    2.87 ms  qps   20  errors 0
+  shop-a direct (Service, no Envoy)  p50    0.58 ms  p99    1.14 ms  qps   20  errors 0
+
+== run 1/3 — 1. load on shop-a via routes-gw; probe the same door and the team door  (10:31:16)
+  envoy CPU mid-load: poc1-control-plane=0.00 poc1-worker=0.26 poc2-control-plane=0.00 poc2-worker=0.00
+  load https://shop-a.poc.local/     p50    2.03 ms  p99   10.97 ms  qps 24707  errors 0   ← the load itself
+  probe-a via routes-gw (.240)  ← same door p50    2.92 ms  p99   14.50 ms  qps   20  errors 0
+  probe-b via team-b-gw (.243) ← other door p50    3.84 ms  p99   18.00 ms  qps   20  errors 0
+  shop-a direct (Service, no Envoy)  p50    0.57 ms  p99    2.75 ms  qps   20  errors 0
+
+== run 1/3 — 2. load on shop-b via team-b-gw; probe the platform door and the team door  (10:31:52)
+  envoy CPU mid-load: poc1-control-plane=0.00 poc1-worker=1.27 poc2-control-plane=0.00 poc2-worker=0.00
+  load https://shop.team-b.poc.local/ p50    2.28 ms  p99   12.01 ms  qps 22397  errors 0   ← the load itself
+  probe-a via routes-gw (.240)  ← other door p50    3.73 ms  p99   15.00 ms  qps   20  errors 0
+  probe-b via team-b-gw (.243) ← same door p50    3.42 ms  p99   18.00 ms  qps   20  errors 0
+
+== run 1/3 — 3. control: load direct to the Service (no Envoy in the loaded path)  (10:32:29)
+  envoy CPU mid-load: poc1-control-plane=0.00 poc1-worker=1.84 poc2-control-plane=0.00 poc2-worker=0.00
+  load http://shop.team-a.svc:8080/  p50    0.60 ms  p99    2.94 ms  qps 105831  errors 0   ← the load itself
+  probe-a via routes-gw (.240)       p50    1.34 ms  p99    9.00 ms  qps   20  errors 0
+  probe-b via team-b-gw (.243)       p50    1.35 ms  p99    8.00 ms  qps   20  errors 0
+
+== run 2/3 — 0. idle baseline  (10:33:05)
+  shop-a via routes-gw (.240)        p50    0.79 ms  p99    4.00 ms  qps   20  errors 0
+  probe-a via routes-gw (.240)       p50    0.86 ms  p99    4.80 ms  qps   20  errors 0
+  probe-b via team-b-gw (.243)       p50    0.77 ms  p99    5.00 ms  qps   20  errors 0
+  shop-a direct (Service, no Envoy)  p50    0.61 ms  p99    1.50 ms  qps   20  errors 0
+
+== run 2/3 — 1. load on shop-a via routes-gw; probe the same door and the team door  (10:33:35)
+  envoy CPU mid-load: poc1-control-plane=0.00 poc1-worker=0.75 poc2-control-plane=0.00 poc2-worker=0.00
+  load https://shop-a.poc.local/     p50    2.26 ms  p99   11.67 ms  qps 22781  errors 0   ← the load itself
+  probe-a via routes-gw (.240)  ← same door p50    3.23 ms  p99   16.00 ms  qps   20  errors 0
+  probe-b via team-b-gw (.243) ← other door p50    3.53 ms  p99   15.43 ms  qps   20  errors 0
+  shop-a direct (Service, no Envoy)  p50    0.57 ms  p99    3.25 ms  qps   20  errors 0
+
+== run 2/3 — 2. load on shop-b via team-b-gw; probe the platform door and the team door  (10:34:12)
+  envoy CPU mid-load: poc1-control-plane=0.01 poc1-worker=1.15 poc2-control-plane=0.00 poc2-worker=0.00
+  load https://shop.team-b.poc.local/ p50    2.75 ms  p99   18.65 ms  qps 17003  errors 0   ← the load itself
+  probe-a via routes-gw (.240)  ← other door p50    5.70 ms  p99   33.33 ms  qps   20  errors 0
+  probe-b via team-b-gw (.243) ← same door p50    4.69 ms  p99   26.25 ms  qps   20  errors 0
+
+== run 2/3 — 3. control: load direct to the Service (no Envoy in the loaded path)  (10:34:48)
+  envoy CPU mid-load: poc1-control-plane=0.01 poc1-worker=1.77 poc2-control-plane=0.00 poc2-worker=0.00
+  load http://shop.team-a.svc:8080/  p50    0.64 ms  p99    3.88 ms  qps 89331  errors 0   ← the load itself
+  probe-a via routes-gw (.240)       p50    1.44 ms  p99   11.00 ms  qps   20  errors 0
+  probe-b via team-b-gw (.243)       p50    1.29 ms  p99    9.00 ms  qps   20  errors 0
+
+== run 3/3 — 0. idle baseline  (10:35:24)
+  shop-a via routes-gw (.240)        p50    0.86 ms  p99    4.67 ms  qps   20  errors 0
+  probe-a via routes-gw (.240)       p50    0.86 ms  p99    4.33 ms  qps   20  errors 0
+  probe-b via team-b-gw (.243)       p50    0.78 ms  p99    3.00 ms  qps   20  errors 0
+  shop-a direct (Service, no Envoy)  p50    0.61 ms  p99    1.62 ms  qps   20  errors 0
+
+== run 3/3 — 1. load on shop-a via routes-gw; probe the same door and the team door  (10:35:55)
+  envoy CPU mid-load: poc1-control-plane=0.01 poc1-worker=0.66 poc2-control-plane=0.00 poc2-worker=0.00
+  load https://shop-a.poc.local/     p50    2.33 ms  p99   12.67 ms  qps 21786  errors 0   ← the load itself
+  probe-a via routes-gw (.240)  ← same door p50    3.46 ms  p99   23.75 ms  qps   20  errors 0
+  probe-b via team-b-gw (.243) ← other door p50    4.16 ms  p99   30.00 ms  qps   20  errors 0
+  shop-a direct (Service, no Envoy)  p50    0.59 ms  p99    5.33 ms  qps   20  errors 0
+
+== run 3/3 — 2. load on shop-b via team-b-gw; probe the platform door and the team door  (10:36:31)
+  envoy CPU mid-load: poc1-control-plane=0.01 poc1-worker=1.07 poc2-control-plane=0.00 poc2-worker=0.00
+  load https://shop.team-b.poc.local/ p50    2.03 ms  p99   10.56 ms  qps 25205  errors 0   ← the load itself
+  probe-a via routes-gw (.240)  ← other door p50    3.16 ms  p99   17.00 ms  qps   20  errors 0
+  probe-b via team-b-gw (.243) ← same door p50    3.14 ms  p99   14.00 ms  qps   20  errors 0
+
+== run 3/3 — 3. control: load direct to the Service (no Envoy in the loaded path)  (10:37:08)
+  envoy CPU mid-load: poc1-control-plane=0.01 poc1-worker=1.83 poc2-control-plane=0.00 poc2-worker=0.00
+  load http://shop.team-a.svc:8080/  p50    0.60 ms  p99    2.99 ms  qps 102805  errors 0   ← the load itself
+  probe-a via routes-gw (.240)       p50    1.23 ms  p99    6.89 ms  qps   20  errors 0
+  probe-b via team-b-gw (.243)       p50    0.96 ms  p99    7.00 ms  qps   20  errors 0
+
+== context after  (10:37:44)
+  leases: routes-cilium-gateway-routes-gw → poc1-control-plane;team-b-cilium-gateway-team-b-gw → poc1-worker;
+  pods: loadtest/fortio@worker loadtest/fortio@worker team-a/probe@control-plane team-a/shop@control-plane team-b/probe@control-plane team-b/shop@control-plane 
+  host: 63G used, 93M unused, compressor 32G compressor, swap 3389.62M; CRC: Running
+  cilium-envoy CPU (cores): poc1-control-plane=0.01 poc1-worker=1.66 poc2-control-plane=0.00 poc2-worker=0.00
+
+records: demos/37-two-gateways/output/perf/20260916T1530Z/probes.jsonl (      42 probes)
