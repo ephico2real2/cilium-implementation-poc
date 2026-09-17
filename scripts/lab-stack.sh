@@ -107,6 +107,11 @@ step_monitoring() {
   k -n monitoring get cm hubble-l7-http-metrics-by-workload -o jsonpath='{.data.hubble-l7-http-metrics-by-workload\.json}' > .tmp/l7-orig.json
   demos/37-two-gateways/l7-by-app-dashboard.py .tmp/l7-orig.json > .tmp/l7-by-app.json
   demos/25-hubble-observer-loki/dashboard-from-file.sh .tmp/l7-by-app.json monitoring hubble-l7-http-by-app hubble-l7-http-by-app Hubble | k apply -f - >/dev/null
+  # and the chart's "Hubble Metrics and Monitoring" with a cluster variable (demo 22): the original has none and sums every
+  # cluster that remote-writes to the hub; the copy filters every query on cluster=~"$cluster" — measured 259.6 = 212.2 + 47.4
+  k -n monitoring get cm hubble-dashboard -o jsonpath='{.data.hubble-dashboard\.json}' > .tmp/hm-orig.json
+  demos/22-multicluster-observability/hubble-metrics-cluster-dashboard.py .tmp/hm-orig.json > .tmp/hm-cluster.json 2>/dev/null
+  demos/25-hubble-observer-loki/dashboard-from-file.sh .tmp/hm-cluster.json monitoring hubble-metrics-per-cluster hubble-metrics-per-cluster Hubble | k apply -f - >/dev/null
   local sm dash; sm=$(k get servicemonitor -A --no-headers 2>/dev/null | wc -l | tr -d ' '); dash=$(k get cm -A -l grafana_dashboard=1 --no-headers | wc -l | tr -d ' ')
   echo "ServiceMonitors: $sm; Grafana dashboards provisioned: $dash (Cilium's, Hubble's, the stack's)"
   local _i t=0; for _i in $(seq 1 24); do t=$(k get --raw "/api/v1/namespaces/monitoring/services/monitoring-kube-prometheus-prometheus:9090/proxy/api/v1/targets?state=active" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(sum(1 for x in d["data"]["activeTargets"] if x["health"]=="up"))' 2>/dev/null || echo 0); [ "${t:-0}" -ge 8 ] && break; sleep 10; done

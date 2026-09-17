@@ -253,6 +253,17 @@ The fix, in the demo 16 values: `limits.memory: 2Gi`, `requests.memory: 1Gi`, an
 PodMonitor could not be applied to poc2 before this demo gave it the operator CRDs — so it was applied
 with `__CLUSTER__` → `poc2`: `podMonitor/obi/obi/0 up cluster=poc2` in the edge Prometheus.
 
+## Part 6 — the one Hubble dashboard without a `cluster` variable, given one (2026-09-17)
+
+Every Hubble dashboard the chart ships filters on `cluster` except *Hubble Metrics and Monitoring* (uid `5HftnJAWz`): 0
+of its 38 panels do, so since this demo's spoke every panel there has been the **sum** of poc1 and poc2 without saying so.
+[`hubble-metrics-cluster-dashboard.py`](hubble-metrics-cluster-dashboard.py) makes the lab's copy the way the others
+work — a `cluster` variable from `label_values(hubble_flows_processed_total, cluster)` ("All" = `.*`) and
+`cluster=~"$cluster"` on every metric selector of all 35 queries — provisioned by `lab-stack.sh` beside the untouched
+original as *Hubble Metrics and Monitoring (per cluster)*. Measured on the first panel's query: the original 259.6
+flows/s; the copy with `All` 259.6, `poc1` 212.2, `poc2` 47.4 — the parts and the whole agree, and the original had been
+the whole. The chart's dashboard is the candidate for the same change upstream.
+
 ## Exercises
 
 1. Break the join key: remove `externalLabels` from the poc2 values, upgrade, wait a minute. *Expect*
