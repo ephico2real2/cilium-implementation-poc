@@ -88,7 +88,7 @@ the measurement, the PR carries a screenshot before and after, and the release n
 |---|---|---|---|
 | Hubble's `destination_workload` empty for Gateway traffic to a remote backend | bug report, then a dashboard PR | [hubble-l7-dashboard.md](hubble-l7-dashboard.md) | measured, drafted, patch made and verified — awaiting the operator's word to post |
 | *Hubble Metrics and Monitoring* without a `cluster` variable | dashboard PR | the same file, §7 | the lab's copy measured (259.6 = 212.2 + 47.4); the upstream patch is the same script over the chart's file |
-| The observer flow table's cluster columns | PR on onzack/hubble-observer | ephico2real2/hubble-observer#1 | on the fork, measured; goes upstream beside #16 |
+| The observer flow table's cluster columns | PR on onzack/hubble-observer | ephico2real2/hubble-observer#1 | on the fork, measured; goes upstream beside #16 — upstream released 2.7.0 on 2026-09-15 with five of the fork's PRs merged (#9, #10, #11, #13, #14), #16 still open: [releases/hubble-observer-2.7.0.md](releases/hubble-observer-2.7.0.md) |
 | The agent image, rescanned: `v1.20` missing the grpc 1.83.2 / x/crypto 0.55.0 security bumps (Renovate autoclosed #48575); the Ubuntu base's `pebble` the last Go 1.26.5 binary in the image | two issues (dependency bump; base-image cleanup) | [cilium-image-scan.md](cilium-image-scan.md) | measured 2026-09-17 with trivy and grype, 128 → 13 HIGH across 1.20.1 → 1.20.2, vulnerable packages shown not linked; drafted — awaiting the operator's word to post |
 
 ## 4. The rule this lab keeps
@@ -97,3 +97,15 @@ Every claim in a report or a PR is a measurement that anyone can repeat with the
 shows the before and the after; the lab keeps its own working copy of every change so nothing here waits on upstream.
 It is fine to replace the lab's copies with the upstream shape once it lands — the generators here take the chart's
 file as input, so the lab's dashboards follow whatever the chart ships.
+
+## 5. Release reports — what upstream shipped, against what the lab runs
+
+Written with the `upstream-release-notes` skill (`.claude/skills/upstream-release-notes/SKILL.md`): the release fetched
+verbatim by `scripts/upstream-release-notes.sh`, every item with a lab side checked in the lab's files, the cost of
+moving and what was done. One file per release under [`releases/`](releases/).
+
+| Upstream | Release | Report | Verdict |
+|---|---|---|---|
+| cilium/cilium | v1.20.2 (2026-09-16) | [releases/cilium-v1.20.2.md](releases/cilium-v1.20.2.md) | move — 39 bugfixes, five touching mechanisms the lab measures; the image 128 → 13 HIGH; one agent rollout per cluster |
+| onzack/hubble-observer | chart 2.7.0 (2026-09-15) | [releases/hubble-observer-2.7.0.md](releases/hubble-observer-2.7.0.md) | nothing to move — the release *is* the fork's work; upstream dropped `containerName` and resolves cf2cnp to 0.4.0; #16 open |
+| onzack/cf2cnp | chart 0.4.0 / binary 0.3.1 (2026-07-30, the fork contains it) | — | the fork (0.9.0) is 58 commits ahead, 0 behind; onzack/cf2cnp#3 open since 0.7.0 — no report until upstream moves |
