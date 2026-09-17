@@ -34,7 +34,7 @@
 # Idempotent: an existing cluster is kept, an installed release is upgraded with the same values.
 set -euo pipefail; cd "$(dirname "$0")/.."
 CLUSTERS="${LAB_CLUSTERS_DIR:-clusters/ci}"
-CILIUM_VERSION="${CILIUM_VERSION:-1.20.1}"             # SETUP Step 5
+CILIUM_VERSION="${CILIUM_VERSION:-1.20.2}"             # SETUP Step 5
 # the agent image, when the lab runs its own build instead of the release (demo 39): repo:tag from versions.env, its CRD
 # (a field the cluster's schema does not know is pruned silently) and the schema-version label the operator compares
 CILIUM_IMAGE="${CILIUM_IMAGE:-$(sed -n 's/^CILIUM_IMAGE=//p' scripts/bootstrap/versions.env)}"

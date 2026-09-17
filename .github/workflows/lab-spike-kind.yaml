@@ -1,4 +1,4 @@
-# Enhancement 004, phase 0 — the lab on a GitHub-hosted runner: two kind clusters, Cilium 1.20.1 with kube-proxy
+# Enhancement 004, phase 0 — the lab on a GitHub-hosted runner: two kind clusters, Cilium 1.20.2 with kube-proxy
 # replacement, Gateway API, the LB pools, ClusterMesh, and Cilium's own multi-cluster connectivity test — the way
 # cilium/cilium's conformance-clustermesh.yaml does it, on the same 4 vCPU / 16 GB runners. Dispatched by hand; the
 # job's numbers (wall clock per step, memory, CPU) are the measurement the plan's next phases are sized on.

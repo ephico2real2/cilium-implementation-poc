@@ -15,7 +15,7 @@
 # given, whether the host can route to the LB blocks (SETUP Step 3.5 needs the VM on a host bridge), and whether the
 # docker network can carry IPv6 for the dual-stack runs.
 set -uo pipefail; cd "$(dirname "$0")/.." || exit 1
-CILIUM_VERSION="${CILIUM_VERSION:-1.20.1}"
+CILIUM_VERSION="${CILIUM_VERSION:-1.20.2}"
 NODE_IMAGE="${NODE_IMAGE:-$(grep -m1 -oE 'kindest/node:[^ ]+' clusters/ci/poc1.yaml)}"
 STRICT="${LAB_PREFLIGHT_STRICT:-0}"; failed=0
 os=$(uname -s); arch=$(uname -m)

@@ -75,7 +75,16 @@ Same release, scanned the day after ([`../cilium-image-scan.md`](../cilium-image
 
 ## Actions
 
-Done: this report; the enhancement 005 line. Recommended and awaiting the operator's word: the upgrade (pins, both
-clusters, the PR); afterwards, `check.sh` gains the per-listener `Programmed` assertion and demo 37's `load-both` is
-re-run once on the new Envoy. Watch: the next patch (Cilium's cadence is three to four weeks — 1.20.1 on 08-18, 1.20.2
+Done, 2026-09-17 on the operator's word ("then proceed"): **both clusters on 1.20.2** (`cilium status`: `v1.20.2@sha256:2939231d…`
+on 2/2 agents each; ClusterMesh connected both ways; Hubble metrics from both clusters in Grafana — poc1 214.5, poc2
+39.6 flows/s two minutes after). The first attempt with `--reuse-values` changed the chart and not the image —
+**gotcha #117**; the second, with `--reset-then-reuse-values`, rolled poc1 in 100 s (agents at +29 s) with the user
+values byte-identical before and after, and poc2 in 35 s. Measured cost on poc1: the Gateway answered nothing for
+**121 of the seconds between +6 s and +138 s** (the Envoy DaemonSet rolls too when the release bumps its image; #116's
+~45 s was an agent-only restart), the four L2 leases re-elected onto the worker. Demo 37's `check.sh` before/after:
+identical apart from pod names and lease holders; all six listeners `Programmed=True` (no 1.20.1 record of the
+per-listener condition exists, so #48013 is not *measured* here — `check.sh` now prints the line so the next release
+can be). Pins moved: `lab-stack.sh`, `lab-preflight.sh`, `lab-up.sh`, `scripts/bootstrap/versions.env` (the bootstrap
+refuses a disagreement with `lab-up.sh`), the observer's CLI image digest, `apply-poc2.sh`, `mtls-check.sh`, the README.
+Left: demo 37's `load-both` on the new Envoy — a separate run when the host is quiet. Watch: the next patch (Cilium's cadence is three to four weeks — 1.20.1 on 08-18, 1.20.2
 on 09-16) should carry the `v1.20` grpc/x/crypto bumps the scan report's §5 describes.
