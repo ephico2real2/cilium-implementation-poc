@@ -483,6 +483,18 @@ chart's own dashboard file on `develop` (unchanged from the previous apply — s
 cell probe → 68 lines on stdout at 947 bytes each, `{poc1, DROPPED} 68` in Loki within 45 s, Grafana
 listing the six "Flows per" panels including *Drop Reason* and *Denying Policy*, cf2cnp `OK`.
 
+## Part 10c — upstream released it: hubble-observer 2.7.0 (2026-09-15)
+
+Upstream merged five of the fork's pull requests in one day — PR 9 (the pod's policy), PR 10 (the CLI image
+documented), PR 11 (`fieldMask` and `extraArgs`), PR 13 (the policy-verdicts dashboard as a dependency), PR 14
+(`is_reply` kept) — and published chart **2.7.0** to `oci://ghcr.io/onzack/helm-charts/hubble-observer`. Then it removed the `containerName`
+value (#13's; with upstream's dashboard a second release under another name showed nothing), deleted the
+second-release example, and left the cf2cnp dependency at `version: "*"` from `oci://ghcr.io/onzack/helm-charts` —
+which resolves to **cf2cnp 0.4.0 / binary 0.3.1**, none of PR onzack/cf2cnp#3's features. The clusters keep deploying
+from the fork's `develop` (29 commits ahead, 0 behind): the #16 dashboard (open upstream), `containerName` with the
+dashboard's `Container` variable that makes it safe, and cf2cnp ≥ 0.7.0. Both charts say `2.7.0`; they are not the same
+chart. The comparison, commit by commit: [`docs/upstream/releases/hubble-observer-2.7.0.md`](../../docs/upstream/releases/hubble-observer-2.7.0.md).
+
 ## Part 11 — cf2cnp through its UI, through Grafana, and through the API: learned from the project, then done
 
 cf2cnp ([onzack/cf2cnp](https://github.com/onzack/cf2cnp), Apache-2.0) "generates CiliumNetworkPolicies from

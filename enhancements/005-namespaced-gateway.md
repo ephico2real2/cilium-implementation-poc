@@ -108,8 +108,9 @@ nothing measurable here).
    (`kubectl -n kube-system get leases`), pod placement, achieved RPS and errors, `cilium-envoy` process CPU per node
    and per-listener stats (`envoy_listener_downstream_cx_active`, `envoy_http_downstream_rq_time` by listener),
    node CPU throttling. One deliberate run with both VIPs announced by the **same** node and one with them split, since
-   §2 measured the split happening by chance. `externalTrafficPolicy: Local` is **not** a variant: Cilium documents it
-   as incompatible with L2 announcements. The finding is what the numbers show; the Cilium fact from §2 is the
+   §2 measured the split happening by chance. `externalTrafficPolicy: Local` is **not** a variant: on 1.20.1 Cilium
+   documents it as incompatible with L2 announcements (fixed in 1.20.2, cilium/cilium#46399 — and still no isolation for a
+   Gateway, since Envoy is on every node). The finding is what the numbers show; the Cilium fact from §2 is the
    architecture they are read against, not a number they can overturn.
 2. **Ownership — configuration scope, stated as such.** `edit` alone → `can-i create gateways/httproutes` = **no**
    (measured); with the platform's `Role` (phase 1) → yes in `team-b`, still no in `routes`. Change: `team-b` adds a
@@ -157,7 +158,10 @@ ran on Grok (ZDR), the operator's choice.
 - **A second L2-announced address** (`.243`): the same mechanism, but **one lease and one leader per Service** — the
   two VIPs may be announced by different nodes (measured: they were), which is the noisy-neighbour confounder of phase
   3.1. Record `cilium-l2announce-*` holders in every run; `arp -a` on the Mac shows the VM's edge, not the leader.
-  `externalTrafficPolicy: Local` is incompatible with L2 announcements — not a knob here.
+  `externalTrafficPolicy: Local` was incompatible with L2 announcements on 1.20.1 (the announced VIP dropped external
+  traffic); Cilium 1.20.2 fixed it (cilium/cilium#46399 — the lease follows a node with a backend;
+  `docs/upstream/releases/cilium-v1.20.2.md`). It is still not a knob *for a Gateway*: Cilium's Envoy runs on every
+  node, so every node is a backend and the lease can land anywhere — the shared-proxy finding above is unchanged.
 - **The hostname hijack is real on a shared Gateway** (phase 2, row 3): the demo shows it and its control; until the
   admission policy exists, `scripts/hosts-entries.sh` maps any hostname found on `routes-gw` to `.240`.
 - **`edit` does not own Gateway API objects**: without the phase 1 `Role` the ownership claim is false; with it, the
