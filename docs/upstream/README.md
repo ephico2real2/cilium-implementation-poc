@@ -89,6 +89,7 @@ the measurement, the PR carries a screenshot before and after, and the release n
 | Hubble's `destination_workload` empty for Gateway traffic to a remote backend | bug report, then a dashboard PR | [hubble-l7-dashboard.md](hubble-l7-dashboard.md) | measured, drafted, patch made and verified — awaiting the operator's word to post |
 | *Hubble Metrics and Monitoring* without a `cluster` variable | dashboard PR | the same file, §7 | the lab's copy measured (259.6 = 212.2 + 47.4); the upstream patch is the same script over the chart's file |
 | The observer flow table's cluster columns | PR on onzack/hubble-observer | ephico2real2/hubble-observer#1 | on the fork, measured; goes upstream beside #16 |
+| The agent image, rescanned: `v1.20` missing the grpc 1.83.2 / x/crypto 0.55.0 security bumps (Renovate autoclosed #48575); the Ubuntu base's `pebble` the last Go 1.26.5 binary in the image | two issues (dependency bump; base-image cleanup) | [cilium-image-scan.md](cilium-image-scan.md) | measured 2026-09-17 with trivy and grype, 128 → 13 HIGH across 1.20.1 → 1.20.2, vulnerable packages shown not linked; drafted — awaiting the operator's word to post |
 
 ## 4. The rule this lab keeps
 
