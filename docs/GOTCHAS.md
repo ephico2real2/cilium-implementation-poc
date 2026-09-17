@@ -2985,11 +2985,9 @@ previous configuration. A `helm upgrade` that changes only a ConfigMap changes n
 nothing to roll: "successfully rolled out" is true and means nothing. The lab-stack monitoring step never met this
 because it sets the labels before the first metric exists.
 
-**The fix:** `kubectl -n kube-system rollout restart ds/cilium` after a label-set change (both clusters), with gotcha
-
-# 42's cost — the Gateway off the air for the rollout (~45 s here) and the VIPs' L2 leases re-elected. Adding a *metric*
-
-or a context value is a reload; adding a *label* is a restart. Check the agent log for the line above after any
+**The fix:** `kubectl -n kube-system rollout restart ds/cilium` after a label-set change (both clusters), with the
+cost of gotcha #42 — the Gateway off the air for the rollout (~45 s here) and the VIPs' L2 leases re-elected. Adding
+a *metric* or a context value is a reload; adding a *label* is a restart. Check the agent log for the line above after any
 dynamic-metrics change; `rollout status` will not tell you.
 
 **The lesson:** "dynamic" is scoped — the docs promise a reload, the metric library promises a fixed label set, and the
