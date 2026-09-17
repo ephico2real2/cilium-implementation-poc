@@ -46,7 +46,8 @@ Trivy scans every Go binary in the image separately and reports each CVE once pe
 `iptables-wrapper` and `pebble`. All fourteen in v1.20.1 were built with Go 1.26.5, and Go 1.26.6 fixed eight HIGH
 CVEs in the standard library (`encoding/asn1`, `net/http`, `net/url`, `html/template`, `encoding/xml`,
 `crypto/tls`, and the vendored `x/net` `idna` and `dnsmessage` code). Eight CVEs × fourteen binaries = 112 rows for **one
-cause: the toolchain**. The other sixteen rows were three library versions in the binaries that import them.
+cause: the toolchain**. The other sixteen rows were three module versions, counted in every binary whose build
+info (`go version -m`) lists them — trivy matches the *module version*, not the import of the vulnerable package (§5).
 
 So "128 HIGH" was never 128 problems; it was one toolchain and three modules. The count to watch is *distinct causes*,
 and the jq below produces it:
@@ -113,16 +114,23 @@ So the eight remaining stdlib rows are gone the moment Cilium's runtime image mo
 which then needs a `cilium-runtime` rebuild (`images/runtime/update-cilium-runtime-image.sh`) before the next patch
 release picks it up. Nothing for this lab to write code for; the two things worth doing upstream are in §6.
 
-One thing to note for the risk reading: pebble is never executed in a Cilium pod (the entrypoint is `cilium-agent`;
-nothing in the image references pebble), so these eight are "a vulnerable binary present in the filesystem", not a
-reachable service. Scanners count it all the same, and so do compliance gates — which is exactly why it is worth removing.
+One thing to note for the risk reading. The image has no `Entrypoint` and its `Cmd` is `/usr/bin/cilium-dbg`
+(`jq '.Metadata.ImageConfig.config | {Entrypoint,Cmd}' trivy-v1.20.2.json`); the chart's DaemonSet overrides it with
+`command: ["cilium-agent"]` (measured on poc1: `kubectl -n kube-system get ds cilium -o
+jsonpath='{.spec.template.spec.containers[0].command}'` → `["cilium-agent"]`). Nothing in the image names pebble
+apart from the binary itself and an empty `/var/lib/pebble` directory (`grep -rIl pebble /` over the image's filesystem
+returns nothing; `grep -c pebble` is 0 in `cilium-agent`, `cilium-dbg`, `hubble`, `cilium-cni`). So these eight are "a
+vulnerable binary present in the filesystem", not a process anything in a Cilium pod starts. Scanners count it all the
+same, and so do compliance gates — which is exactly why it is worth removing.
 
 ## 5. The five in Cilium's own binaries — version matches, vulnerable code not linked
 
 Trivy and grype match a Go binary's **module versions** from its build info (`go version -m`). They cannot see which
 *packages* of a module were linked. For the two library findings the vulnerable package is specific, so it was checked
 against the binaries themselves. The binaries are stripped (`-s -w`; `go tool nm` finds no symbol table), but the Go
-runtime keeps every linked function's name in the `pclntab` for stack traces, and `strings` reads it:
+runtime keeps every linked function's name in the `pclntab` for stack traces, and a text scan of the whole binary
+(`strings`) sees those names. It is a scan, not a parse of the table — so the test is stated as a contrast: the package
+you are looking for appears zero times while sibling packages of the same module appear dozens of times:
 
 ```sh
 cid=$(docker create --platform linux/arm64 quay.io/cilium/cilium:v1.20.2)
@@ -135,17 +143,20 @@ done
 #   cilium-agent  x/crypto/ssh functions: 0   grpc/xds functions: 0
 #      59 golang.org/x/crypto/cryptobyte.   13 …/chacha20poly1305.   13 …/internal/poly1305.   11 …/chacha20.
 #   cilium-dbg    x/crypto/ssh functions: 0   grpc/xds functions: 0
+#      56 golang.org/x/crypto/cryptobyte.   13 …/chacha20poly1305.   13 …/internal/poly1305.   11 …/chacha20.
 #   hubble        x/crypto/ssh functions: 0   grpc/xds functions: 0
+#      56 golang.org/x/crypto/cryptobyte.   13 …/chacha20poly1305.   13 …/internal/poly1305.   11 …/chacha20.
 ```
 
 - **CVE-2026-56854** is in `golang.org/x/crypto/ssh` (an authentication bypass in the SSH *server*'s source-address
-  restriction). Cilium imports `x/crypto/ssh` only in `test/helpers/` (`ssh_command.go`, `node.go`; GitHub code search,
-  2 hits); the shipped binaries link `cryptobyte`, `chacha20poly1305`, `chacha20` and `poly1305` from that module — no
-  `ssh` package. The finding is a module-version match with no vulnerable code in the binary.
+  restriction). Cilium's own code imports `x/crypto/ssh` only in `test/helpers/` (`ssh_command.go`, `node.go`; GitHub code
+  search, 2 hits) — and since a dependency could import it too, the check that counts is the binary's: all three link
+  `cryptobyte`, `chacha20poly1305`, `chacha20` and `poly1305` from that module and no `ssh` package. The finding is a
+  module-version match; the vulnerable package's code is not in the binary.
 - **CVE-2026-84445** (GHSA-2v4p-qf9q-27wj) is a panic in gRPC-Go servers built with `xds.NewGRPCServer()` when a request
-  carries neither `:authority` nor `Host`. Cilium has zero references to `google.golang.org/grpc/xds` (code search: 0)
-  and the binaries link no `grpc/xds` function. Same class: the module is at a flagged version; the affected server
-  type is not in the program.
+  carries neither `:authority` nor `Host`. Cilium's repository has zero references to `google.golang.org/grpc/xds` (code search: 0),
+  and — the check that counts — the three binaries carry no `grpc/xds` name at all. Same class: the module is at a
+  flagged version; the affected server type is not linked.
 
 Both are still worth bumping — a scanner gate does not read pclntabs — and upstream already has: `main` is at grpc
 **1.83.2** and x/crypto **0.57.0**, and the `v1.18` branch got the grpc fix (cilium/cilium#48576, merged 2026-09-09). The
@@ -163,11 +174,11 @@ the evidence, not a patch.
 
 **Candidate A — `v1.20`: grpc 1.83.2 / x/crypto 0.55.0 security bumps missing (Renovate autoclosed #48575).**
 Bug report template fields: *Cilium version* 1.20.2 (`quay.io/cilium/cilium:v1.20.2@sha256:2939231d…`); *What
-happened*: the image ships `google.golang.org/grpc v1.83.1` (CVE-2026-84445, fixed 1.83.2) and `golang.org/x/crypto
-v0.53.0` (CVE-2026-56854, fixed 0.55.0) in `cilium-agent`, `cilium-dbg`, `hubble`; `main` and `v1.18` have 1.83.2, the
+happened*: the image ships `google.golang.org/grpc v1.83.1` (CVE-2026-84445, fixed 1.83.2) in `cilium-agent`, `cilium-dbg`
+and `hubble`, and `golang.org/x/crypto v0.53.0` (CVE-2026-56854, fixed 0.55.0) in `cilium-agent` and `cilium-dbg`; `main` and `v1.18` have 1.83.2, the
 `v1.20` Renovate PR #48575 was autoclosed 2026-09-09 and never replaced; *How to reproduce*: the trivy command in §7;
-*Anything else*: neither vulnerable package is linked into the binaries (the `strings` check in §5), so this is a
-scanner-gate fix, not an exploitable one — said plainly so the maintainers can label it `release-note/misc`.
+*Anything else*: neither vulnerable package (`x/crypto/ssh`, `grpc/xds`) appears in the binaries (the `strings`
+contrast in §5), so this is a scanner-gate fix — said plainly so the maintainers can label it `release-note/misc`.
 
 **Candidate B — `images/runtime`: the Ubuntu base's `pebble` binary is the last Go 1.26.5 binary in the image; bump
 the digest, or drop the binary.** Feature request / cleanup: `ubuntu:26.04@sha256:513c0741…` (2026-09-01) ships
