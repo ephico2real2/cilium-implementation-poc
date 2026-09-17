@@ -112,17 +112,49 @@ histogram are the sources for that range, and demo 37 Part 6 reads them, not Hub
 
 ## 6. What remains, and where
 
-- **Upstream**: a report to cilium/cilium — 1.20.1, `httpV2` with `labelsContext` including `destination_workload`,
-  Gateway API traffic, backend on another node than the reporting Envoy → the label empty; the same backend local →
-  present; §2's table as the repro; #27974 as the mechanism that should cover it.
+- **Upstream**: a report to cilium/cilium, drafted below (§7), posted on the operator's word.
 - **Cilium's chart dashboard**: the `allValue` hole in the source variables, and `destination_app` as a more robust
   key for ingress-style traffic — a candidate change for the chart's `hubble-l7-http-metrics-by-workload.json`, with
   this document as its evidence.
-- **`Hubble Metrics and Monitoring`** (the chart's other dashboard): no `cluster` variable at all — since the spoke
-  (demo 22) every panel sums poc1 and poc2. The multi-cluster convention every other Hubble dashboard follows
-  (`external_labels.cluster`, a `cluster` variable from `label_values`, `cluster=~"$cluster"` in each query —
-  [Grafana Cloud: multi-cluster](https://grafana.com/docs/grafana-cloud/monitor-infrastructure/kubernetes-monitoring/configuration/config-other-methods/helm-operator-migration/multi_cluster/))
-  is the fix; a separate change.
-- **The observer flow table** (the Loki dashboard, the hubble-observer fork): `flow.source.cluster_name` /
-  `flow.destination.cluster_name` are parsed and used by its filters but not shown as columns; two columns, on the fork
-  and in upstream PR #16.
+- **`Hubble Metrics and Monitoring`** — **done 2026-09-17** (PR #27, demo 22 Part 6): the lab's copy with a `cluster`
+  variable on all 35 queries; measured 259.6 = 212.2 + 47.4. The chart's dashboard remains the upstream candidate.
+- **The observer flow table** — **done 2026-09-17** on the fork (ephico2real2/hubble-observer#1): *Source Cluster* and
+  *Destination Cluster* columns through the table's own pipeline, a stray rename corrected; the lab picks it up on the
+  next `chart-from-fork.sh` upgrade once merged; upstream beside onzack/hubble-observer#16.
+
+## 7. The upstream report, drafted
+
+To be posted to cilium/cilium on the operator's word — title and body as they would go:
+
+> **Hubble metrics: `destination_workload` in `labelsContext` is empty for Gateway API (Envoy-reported) L7 flows whose
+> backend is on another node than the reporting agent — 1.20.1**
+>
+> **Version:** Cilium 1.20.1, kind, `kubeProxyReplacement: true`, Gateway API on, Hubble `httpV2` with
+> `labelsContext: source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload,traffic_direction`
+> and `destinationContext: app|workload-name|reserved-identity`.
+>
+> **What happens:** for HTTP traffic through a Cilium Gateway, `hubble_http_requests_total` is reported by the Envoy on
+> the client's node (`source=reserved:ingress`, `traffic_direction=egress`, `reporter=client`). The `destination_workload`
+> label is filled when the backend pod runs on that same node and **empty** when it runs on another node — on every
+> series over two placements (eleven series; `kube_pod_info` for the placement):
+>
+> | backend pod | reporting agent | `destination_workload` | `destination` (context `app`) |
+> |---|---|---|---|
+> | `team-b/shop` @ worker | worker | `shop` | `shop` |
+> | `team-a/shop` @ control plane | worker | *(empty)* | `shop` |
+> | `team-a/probe` @ control plane | control plane | `probe` | `probe` |
+> | all four backends @ control plane | worker | *(empty)* on all | present on all |
+>
+> `destination_app` (added to `labelsContext`, after an agent restart — the dynamic reload refuses a label-set change)
+> is present in every case, so the identity labels reach the reporting agent; the workload name does not, although
+> #27974 / #28373 added workload metadata to the ipcache for remote endpoints. The chart's *Hubble L7 HTTP Metrics by
+> Workload* dashboard filters on `destination_workload` in 29 of 32 queries and therefore shows only the fraction of
+> Gateway traffic whose backend happened to be local — or "No data".
+>
+> **Expected:** `destination_workload` populated for a remote backend as it is for a local one, or the limitation
+> documented beside `labelsContext` ("known only for endpoints local to the reporting agent").
+>
+> **Repro:** two nodes; a Deployment pinned to node B behind a Gateway; a client pod on node A with `-resolve` to the
+> Gateway's LoadBalancer IP; read node A's agent `:9965/metrics` — `destination_workload=""`; move the Deployment to
+> node A — `destination_workload="<name>"`. Full measurement and the lab's workaround (an app-keyed dashboard):
+> https://github.com/ephico2real2/cilium-implementation-poc/blob/main/docs/HUBBLE-L7-LABELS.md
