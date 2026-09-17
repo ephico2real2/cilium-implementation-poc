@@ -278,3 +278,41 @@ Outcome in one line: **…**
   per-node `cilium-envoy` DaemonSet — not its own proxy — so a namespaced Gateway buys address, listeners, certificates
   and ownership, not CPU isolation; the noisy-neighbour test will be a real measurement. `gateway-pool` selects any
   Gateway-owned Service, whatever the namespace. Next: the issue and `enhancements/005`.
+
+## Part 7 — demo 37 built and measured; the dashboards told the truth (2026-09-16 11:30 → 2026-09-17 15:30)
+
+- **Demo 37 phase 1** (PR #23): two doors on poc1 — `team-a` on `routes-gw` by label, `team-b`'s own Gateway at `.243`
+  with a cert-manager wildcard for its zone `*.team-b.poc.local` (the operator's question — measured: Gateway API
+  wildcards are multi-label, TLS wildcards single-label, so the zone is the second wall behind the admission policy),
+  the platform's Role (`edit` cannot create gateways/httproutes — measured), one backend behind both doors through a
+  ReferenceGrant, the zone's 301 route (check.sh caught it covering one name). The negatives: the flat hijack served with
+  a valid certificate, the zoned one failing TLS, the policy refusing it by name. `hosts-entries.sh` without wildcards.
+- **The apps answer a browser** (PR #24, the operator: "so that I don't have to toggle pretty", then "not visually
+  pleasing", then "some colour, not bright", then "why didn't you make it a function"): Accept negotiation, a muted
+  palette, and one shared module `demos/shared/jsonview` required by both apps with the build context moved to `demos/`;
+  compact JSON unchanged byte for byte. My miss: a `grep -c` returning 0 broke an `&&` chain and skipped a rebuild once —
+  caught by the image's build time.
+- **Demo 37 phase 3** (PR #25): fortio, six phases × three runs, the confounders the review named recorded per run.
+  Two rig faults found by the numbers and kept: in-cluster clients are served by their **own node's Envoy** (the first
+  rig's load and probe never shared a process: 0.3–0.85 vs 0.01 cores), and sequential probes fell outside the load
+  window (retracted). The result: a team's Gateway does not isolate it on Cilium — a probe on either door slows ×4–5
+  whichever door is loaded; two tenants get exactly half each (11.5k of 24.5k qps) through two doors **or one** (the
+  operator's same-door question); the node is not the limit (117k qps direct); ~45 M requests, 0 errors. The operator:
+  "the results being stable is also good for Cilium" — yes, and quantified. The host as a variable: CRC beside the VM
+  doubled the tails (p99 30–60 vs 17–23 ms). **The operator ran CRC** (`~/gitRepos/crc-up.sh`, written for them; the
+  arithmetic 24 + 32 of 64 GB said out loud) and stopped it before the last run.
+- **Gotcha #115** — Hubble's `destination_workload` filled only for a backend local to the reporting Envoy (eleven
+  series, `kube_pod_info` placement; demo 16 Part 9 had met it for the contexts) → Cilium's *L7 by Workload* dashboard
+  blind to most Gateway traffic. **The fix from the written sources** (PR #26, `docs/HUBBLE-L7-LABELS.md`): `source_app`
+  / `destination_app` in `labelsContext` (the reference's own lever; `context.go` at v1.20.1 confirms), both clusters;
+  **gotcha #116** — the dynamic config refuses a label-set change on a live metric (the error every 10 s, `rollout
+  status` meaningless) → agents restarted, Gateway off the air ~45 s; `l7-by-app-dashboard.py` rewrites the chart's
+  dashboard onto the app labels (CPU panels dropped; `allValue .*` — the Gateway's empty `source_app` never matched
+  "All", in Cilium's dashboard too), provisioned by lab-stack. **Aligned:** 500 qps per door → 499.9 / 499.94 req/s by
+  app, 0 / 0 by workload. Hubble's sub-5 ms percentiles are its first bucket, named.
+- **The `cluster` gaps the operator spotted** ("namespaces, pods, but no cluster"): *Hubble Metrics and Monitoring* had
+  no cluster variable and summed both clusters since the spoke — a per-cluster copy on all 35 queries, measured
+  259.6 = 212.2 + 47.4 (PR #27, demo 22 Part 6); the observer flow table's cluster fields were parsed then excluded —
+  two columns and a stray rename fixed on the fork (ephico2real2/hubble-observer#1, for the operator to merge).
+- **Merges on the operator's word** ("merge and do your thing"): #25, #26 (rebased over #25's gotcha), #27. The upstream
+  Cilium report is drafted in `HUBBLE-L7-LABELS.md` §7, posted only on the operator's word.
