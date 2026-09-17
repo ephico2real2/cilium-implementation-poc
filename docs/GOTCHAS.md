@@ -2960,11 +2960,40 @@ proxy's point of view.
 pod's app name from labels (`app.kubernetes.io/name`, `k8s-app`, or `app`)", identity-derived and so known for remote
 pods; the lab's dashboard copy keys on it with `destination_workload` as the refinement. Envoy's own metrics work per
 door regardless: `envoy_cluster_upstream_rq_time` by `envoy_cluster_name` (`routes/cilium-gateway-routes-gw/team-a_shop_8080`),
-`envoy_http_downstream_cx_active` by listener. The upstream report carries the table above as its repro.
+`envoy_http_downstream_cx_active` by listener. The upstream report carries the table above as its repro; the whole of it — references, the
+changes, the alignment measured — is [docs/HUBBLE-L7-LABELS.md](HUBBLE-L7-LABELS.md).
 
 **The lesson:** a label that "is included even if empty" is a label that can be empty for reasons of *placement*, and a
 dashboard that filters on it will quietly show the subset that happened to be local. Check the series with and without
 the label before trusting a panel that reads zero.
+
+## <a name="116"></a>116. Hubble's dynamic metrics config refuses a label-set change on a live metric — the agents log it every 10 s, `helm upgrade` "rolls out" nothing, and the old labels stay until the agents restart
+
+**Where:** the M5, 2026-09-17, adding `source_app`/`destination_app` to `httpV2`'s `labelsContext` (gotcha #115's fix).
+`helm upgrade cilium … -f values-cilium-metrics.yaml` succeeded, `rollout status ds/cilium` said "successfully rolled
+out", the rendered `cilium-dynamic-metrics-config` carried the new labels — and the exposed series did not:
+
+```text
+$ kubectl -n kube-system logs <agent> -c cilium-agent | grep 'dynamic exporter'
+level=error msg="failed reading dynamic exporter config" … error="invalid yaml config file: metric config validation
+failed - label set cannot be changed without restarting Prometheus. metric: httpV2"        # every 10 s
+```
+
+**What happened:** the dynamic metrics feature reloads the ConfigMap in place, and a metric already registered with
+Prometheus' client library cannot change its label set — Hubble validates that and refuses the whole file, keeping the
+previous configuration. A `helm upgrade` that changes only a ConfigMap changes no pod template, so the DaemonSet has
+nothing to roll: "successfully rolled out" is true and means nothing. The lab-stack monitoring step never met this
+because it sets the labels before the first metric exists.
+
+**The fix:** `kubectl -n kube-system rollout restart ds/cilium` after a label-set change (both clusters), with gotcha
+
+# 42's cost — the Gateway off the air for the rollout (~45 s here) and the VIPs' L2 leases re-elected. Adding a *metric*
+
+or a context value is a reload; adding a *label* is a restart. Check the agent log for the line above after any
+dynamic-metrics change; `rollout status` will not tell you.
+
+**The lesson:** "dynamic" is scoped — the docs promise a reload, the metric library promises a fixed label set, and the
+agent tells you which won only in its log.
 
 ## The meta-lesson
 

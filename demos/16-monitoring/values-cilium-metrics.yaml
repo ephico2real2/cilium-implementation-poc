@@ -98,7 +98,11 @@ hubble:
           - name: httpV2                                         # the demo 01 string, in the dynamic shape
             contextOptions:
               - {name: exemplars, values: [true]}
-              - {name: labelsContext, values: [source_ip, source_namespace, source_workload, destination_ip, destination_namespace, destination_workload, traffic_direction]}
+              # source_app / destination_app (2026-09-17, gotcha #115): "the pod's app name from labels (app.kubernetes.io/name,
+              # k8s-app, or app)" per the metrics reference — identity-derived, so present for a REMOTE backend too, where
+              # destination_workload (the Deployment name, from the pod's Kubernetes metadata) is empty for the Gateway's
+              # Envoy-reported flows; demo 37's "Hubble L7 HTTP by App" dashboard keys on it
+              - {name: labelsContext, values: [source_ip, source_namespace, source_workload, source_app, destination_ip, destination_namespace, destination_workload, destination_app, traffic_direction]}
               - {name: sourceContext,      values: [app, workload-name, reserved-identity]}
               - {name: destinationContext, values: [app, workload-name, reserved-identity]}
     serviceMonitor:
