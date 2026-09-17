@@ -316,3 +316,35 @@ Outcome in one line: **…**
   two columns and a stray rename fixed on the fork (ephico2real2/hubble-observer#1, for the operator to merge).
 - **Merges on the operator's word** ("merge and do your thing"): #25, #26 (rebased over #25's gotcha), #27. The upstream
   Cilium report is drafted in `HUBBLE-L7-LABELS.md` §7, posted only on the operator's word.
+
+## Part 8 — contributing upstream, written down; the agent image rescanned (2026-09-17 12:30 → 16:15)
+
+- **`docs/upstream/`** (PR #29, the operator: "what is cilium/cilium? … step by step a junior engineer will understand
+  … benefits and screenshots … it is okay to override what we have"): what the repository is and where the chart, the
+  dashboards, the metrics reference and the metrics code live; their contributing guide quoted (issue first, fork, DCO
+  `git commit -s`, `Fixes:`, the release-note block, labels, CODEOWNERS, `/test`); the L7 dashboard change end to end
+  with the before/after screens, the data path, the capture, the fix, the alignment (499.9 vs 0), the bug report field
+  by field and the PR as it would be written; `l7-by-app-dashboard.py --upstream` produces the chart-shaped file (same
+  title/uid, the CPU panels kept on kube-state-metrics variables), verified in Chromium under load and checked in with
+  its diff. **Their AI policy** (PR #30, the operator: "they also have an AI standard now"): `cilium/community/AI-POLICY.md`
+  quoted — declare non-trivial AI use and the human review applied; the DCO certifies the person — and the lab's
+  declaration paragraph. Memory: `upstream-cilium-collaboration.md`.
+- **The rescan** (PR #31, the operator: "our last scan has a lot of bugs — rescan, list the results, take a screenshot,
+  another file under docs/upstream"): trivy 0.74.0 and grype 0.119.0 on `v1.20.1` (the lab) and `v1.20.2` (released
+  09-16). **128 → 13 HIGH, 0 CRITICAL both.** The 128 read as one cause — eight Go 1.26.5 stdlib CVEs × fourteen Go
+  binaries = 112 — plus x/text ×8, grpc ×6, x/crypto ×2; 1.20.2's Go 1.26.8 removed 115. The 13 traced to owners:
+  `pebble` (8) is the **Ubuntu 26.04 base rootfs's** binary — no dpkg owner, not built by `images/runtime`, never started
+  (the image `Cmd` is `cilium-dbg`, the DaemonSet's command `cilium-agent`); Cilium pins `ubuntu:26.04@513c0741…`
+  (09-01) and the current digest `cd21a4f6…` (09-12) scans 0; grpc 1.83.2 and x/crypto 0.55.0 are **missing on the
+  `v1.20` branch** because Renovate's #48575 was autoclosed five minutes after opening while `main` and `v1.18` merged
+  theirs. The packages the two CVEs live in (`x/crypto/ssh`, `grpc/xds`) do not appear in the stripped binaries — a
+  `strings` contrast against sibling packages of the same modules (59/56/56 `cryptobyte.` vs 0). Two issue drafts in
+  §6, **posted only on the operator's word**; the trivy tables checked in; the screenshot rendered from them.
+- **Review** (`docs/REVIEW_IMAGE_SCAN.md`): Codex (xhigh, with the JSON and the three binaries) reproduced every count
+  and refuted one sentence — "the entrypoint is `cilium-agent`" (it is `Cmd: /usr/bin/cilium-dbg`, no Entrypoint;
+  fixed, the DaemonSet's command measured on poc1); Grok caught `hubble` wrongly listed for x/crypto, the histogram
+  printed for one binary of three, a repository search standing in for the binary check, and "not exploitable" saying
+  more than the evidence — all applied.
+- **Recommended, not performed:** the lab to Cilium 1.20.2 (`CILIUM_VERSION` in `lab-stack.sh` and `lab-preflight.sh`,
+  the README's versions table) — an agent rollout per cluster, gotcha #42. Merged under "merge and do your thing":
+  #29, #30, #31. Still for the operator: hubble-observer#1, cf2cnp#5, the two upstream posts, the upgrade.
