@@ -3017,7 +3017,7 @@ coalescing the *previous chart's* defaults with the previous user values (`pkg/a
 "We have to regenerate the old coalesced values: `CoalesceValues(current.Chart, current.Config)`"), then merges `--set`/`-f` — so every default
 the old chart had (`image.tag: v1.20.1`, `image.digest`, the Envoy and operator digests) becomes an explicit value that
 overrides the new chart's defaults. The version bump changed the chart and nothing that renders from the image fields.
-Helm's own `--help` says as much in the negative and ships the flag that does the right thing:
+Helm's `--help` does not warn about it under `--reuse-values`; the flag that does the right thing describes itself:
 `--reset-then-reuse-values` — "reset the values to the ones built into the chart, apply the last release's values and
 merge in any overrides" (Helm ≥ 3.14; this Mac runs 4.3.0).
 
@@ -3036,7 +3036,8 @@ Image versions  cilium  quay.io/cilium/cilium:v1.20.2@sha256:2939231d…: 2
 it is the version bump that must not use it.
 
 **Also measured, the cost of the rollout:** a probe of `https://grafana.poc.local/api/health` every second through the
-Gateway saw **121 failed seconds between +6 s and +138 s** — 2 min 12 s off the air, not the ~45 s of #116. The
+Gateway saw **121 failed probes in the 132 s between +6 s and +138 s** (eleven got through as the leases and the
+Envoy listeners came and went) — a two-minute hole, not the ~45 s of #116. The
 difference is the Envoy: an agent-only restart (#116) leaves `cilium-envoy` running; a release that bumps the Envoy image
 (1.20.2 did, three times) rolls the DaemonSet that *is* the Gateway's data plane, and the four L2 leases were re-elected
 onto the other node on the way. Gotcha #42's "2–3 minutes" is this case. poc2, with no Gateway, rolled everything in 35 s.
