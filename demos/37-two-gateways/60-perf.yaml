@@ -1,0 +1,133 @@
+# Phase 3's rig (enhancement 005 §4, reviewed): two IDENTICAL backends per door and two fortio pods with FIXED placement.
+#   kubectl --context kind-poc1 apply -f demos/37-two-gateways/60-perf.yaml
+#
+# Why identical backends: the review refuted probing "a sibling" that is a different app — the bank — as a controlled
+# comparison. `probe` is the same image, replicas and resources as `shop`, on the same door, so a latency change on it
+# under load on `shop` is the door's (or the node's), not the app's.
+#
+# Why THIS placement — measured on the first two runs (2026-09-16, output/perf/): an in-cluster client's connection to a
+# Gateway's LoadBalancer IP is translated on the CLIENT's node and served by that node's own cilium-envoy; the L2 lease
+# holder only answers ARP for clients outside the cluster. With the load pod on the worker and the probe pod on the
+# control plane, the two were served by two different Envoy processes for the whole experiment (worker Envoy 0.3–0.85
+# cores mid-load, control-plane Envoy 0.01) — the question "do two doors share one Envoy" had not been asked. So: BOTH
+# fortio pods on the worker (one Envoy process for the load and the probes; the two doors are two listeners in it), and
+# ALL FOUR upstreams on the control plane, so the loaded app and the probed apps share a node in every phase and the
+# direct-to-Service control (which loads that node without Envoy) separates the upstream's contention from the door's.
+# The root CA the probes verify against is demo 36's `enterprise-root` ConfigMap, present in every namespace.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: probe, namespace: team-a}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: probe}}
+  template:
+    metadata: {labels: {app: probe}}
+    spec:
+      nodeSelector: {kubernetes.io/hostname: poc1-control-plane}
+      containers:
+        - name: app
+          image: routedemo:local
+          imagePullPolicy: Never
+          args: ["-mode", "http", "-addr", ":8080"]
+          env: [{name: APP_NAME, value: probe-a}]
+          ports: [{containerPort: 8080}]
+          resources: {requests: {cpu: 50m, memory: 32Mi}, limits: {cpu: 500m, memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: probe, namespace: team-a}
+spec:
+  selector: {app: probe}
+  ports: [{port: 8080, targetPort: 8080}]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: probe, namespace: team-a}
+spec:
+  parentRefs: [{name: routes-gw, namespace: routes, sectionName: https-wildcard}]
+  hostnames: ["probe-a.poc.local"]
+  rules:
+    - backendRefs: [{name: probe, port: 8080}]
+      filters: [{type: ResponseHeaderModifier, responseHeaderModifier: {set: [{name: X-Door, value: routes-gw}]}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: probe, namespace: team-b}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: probe}}
+  template:
+    metadata: {labels: {app: probe}}
+    spec:
+      nodeSelector: {kubernetes.io/hostname: poc1-control-plane}
+      containers:
+        - name: app
+          image: routedemo:local
+          imagePullPolicy: Never
+          args: ["-mode", "http", "-addr", ":8080"]
+          env: [{name: APP_NAME, value: probe-b}]
+          ports: [{containerPort: 8080}]
+          resources: {requests: {cpu: 50m, memory: 32Mi}, limits: {cpu: 500m, memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: probe, namespace: team-b}
+spec:
+  selector: {app: probe}
+  ports: [{port: 8080, targetPort: 8080}]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: probe, namespace: team-b}
+spec:
+  parentRefs: [{name: team-b-gw, sectionName: https}]
+  hostnames: ["probe.team-b.poc.local"]
+  rules:
+    - backendRefs: [{name: probe, port: 8080}]
+      filters: [{type: ResponseHeaderModifier, responseHeaderModifier: {set: [{name: X-Door, value: team-b-gw}]}}]
+---
+# the two fortio pods: `load` on the worker, `probe` on the control plane — fixed, and never the same node as each other
+apiVersion: v1
+kind: Namespace
+metadata: {name: loadtest}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: load, namespace: loadtest, labels: {app: fortio, role: load}}
+spec:
+  nodeSelector: {kubernetes.io/hostname: poc1-worker}
+  containers:
+    - name: fortio
+      image: fortio/fortio:1.75.3
+      args: ["server", "-http-port", "8079", "-grpc-port", "disabled"]   # distroless: no sleep; the idle process is fortio itself
+      volumeMounts: [{name: root, mountPath: /ca, readOnly: true}]
+      resources: {requests: {cpu: 500m, memory: 128Mi}, limits: {cpu: "2", memory: 512Mi}}
+  volumes: [{name: root, configMap: {name: enterprise-root}}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: probe, namespace: loadtest, labels: {app: fortio, role: probe}}
+spec:
+  nodeSelector: {kubernetes.io/hostname: poc1-worker}
+  containers:
+    - name: fortio
+      image: fortio/fortio:1.75.3
+      args: ["server", "-http-port", "8079", "-grpc-port", "disabled"]   # distroless: no sleep; the idle process is fortio itself
+      volumeMounts: [{name: root, mountPath: /ca, readOnly: true}]
+      resources: {requests: {cpu: 200m, memory: 128Mi}, limits: {cpu: "1", memory: 256Mi}}
+  volumes: [{name: root, configMap: {name: enterprise-root}}]
+---
+# a second load generator, for phase 4 (both doors loaded at once): one pod per load so the generator's own CPU limit is
+# never the thing being measured; same node as `load`, so both loads and the probes go through the worker's Envoy
+apiVersion: v1
+kind: Pod
+metadata: {name: load-b, namespace: loadtest, labels: {app: fortio, role: load-b}}
+spec:
+  nodeSelector: {kubernetes.io/hostname: poc1-worker}
+  containers:
+    - name: fortio
+      image: fortio/fortio:1.75.3
+      args: ["server", "-http-port", "8079", "-grpc-port", "disabled"]
+      volumeMounts: [{name: root, mountPath: /ca, readOnly: true}]
+      resources: {requests: {cpu: 500m, memory: 128Mi}, limits: {cpu: "2", memory: 512Mi}}
+  volumes: [{name: root, configMap: {name: enterprise-root}}]

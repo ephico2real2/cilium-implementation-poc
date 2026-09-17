@@ -2929,6 +2929,43 @@ route is issue #14's business).
 **The lesson:** "attached to the Gateway" is not "attached to the TLS listener". A route that must be TLS-only says which
 listener it means, and the plain-HTTP listener gets a redirect, not silence — silence is what a bookmark finds.
 
+## <a name="115"></a>115. Hubble's `destination_workload` on the Gateway's L7 metrics is filled only when the backend pod is on the node whose Envoy reported the flow — Cilium's *L7 HTTP by Workload* dashboard then shows a fraction of the traffic, or "No data"
+
+**Where:** the M5, 2026-09-16, demo 37's load runs. *Hubble L7 HTTP Metrics by Workload* read **No data** for `team-a` and
+`team-b` while Prometheus held 3,000–7,000 req/s for them. The series, grouped by every label, with the pods' placement
+from `kube_pod_info` at the same instants:
+
+```text
+time    backend pod                reporting Envoy (= the client's node)   destination_workload   req/s
+14:57Z  team-b/shop   @ worker     worker (the load pod)                   shop                     937
+14:57Z  team-a/probe  @ control    control plane (the probe pod)           probe                      6
+14:57Z  team-a/shop   @ control    worker                                  (empty)                7,405
+14:57Z  team-b/probe  @ worker     control plane                           (empty)                    5
+15:16Z  all four      @ control    worker (both fortio pods)               (empty) on every series
+```
+
+**What happened:** `hubble_http_requests_total` for Gateway traffic is reported by the Envoy on the **client's** node
+(`source=reserved:ingress`, `traffic_direction=egress`), and the `workload` field — the Deployment name, from the pod's
+Kubernetes metadata — is present exactly when that pod is **local** to the reporting node, on all eleven series. The
+identity-derived `destination` label (`destinationContext: app|workload-name|reserved-identity` → `shop`, from the
+pod's `app` label that travels with the identity) is present everywhere. Cilium added workload metadata to the ipcache
+for remote endpoints in [cilium#27974](https://github.com/cilium/cilium/pull/27974); on 1.20.1, for Envoy-reported L7
+flows to a remote backend, it does not arrive. In a real cluster the backends are spread by the scheduler and the
+Gateway's Envoy is wherever the client's connection lands, so **most** ingress traffic takes the label-less shape and a
+panel filtering on `destination_workload` (29 of the dashboard's 32 queries do) shows the local fraction — worse than
+empty, because it looks like data. `destinationIngressContext` is not the lever: this traffic is not ingress from the
+proxy's point of view.
+
+**The fix:** the lever Cilium's reference documents — `labelsContext` accepts `destination_app` / `source_app`, "the
+pod's app name from labels (`app.kubernetes.io/name`, `k8s-app`, or `app`)", identity-derived and so known for remote
+pods; the lab's dashboard copy keys on it with `destination_workload` as the refinement. Envoy's own metrics work per
+door regardless: `envoy_cluster_upstream_rq_time` by `envoy_cluster_name` (`routes/cilium-gateway-routes-gw/team-a_shop_8080`),
+`envoy_http_downstream_cx_active` by listener. The upstream report carries the table above as its repro.
+
+**The lesson:** a label that "is included even if empty" is a label that can be empty for reasons of *placement*, and a
+dashboard that filters on it will quietly show the subset that happened to be local. Check the series with and without
+the label before trusting a panel that reads zero.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
