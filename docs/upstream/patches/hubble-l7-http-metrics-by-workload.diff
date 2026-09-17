@@ -1,0 +1,297 @@
+--- /dev/fd/11	2026-09-17 13:15:38
++++ /dev/fd/12	2026-09-17 13:15:38
+@@ -134,7 +134,7 @@
+             "type": "prometheus",
+             "uid": "${DS_PROMETHEUS}"
+           },
+-          "expr": "round(sum(rate(hubble_http_requests_total{reporter=~\"${reporter}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\"}[$__rate_interval])), 0.001)",
++          "expr": "round(sum(rate(hubble_http_requests_total{reporter=~\"${reporter}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\"}[$__rate_interval])), 0.001)",
+           "refId": "A"
+         }
+       ],
+@@ -200,9 +200,9 @@
+           },
+           "editorMode": "code",
+           "exemplar": false,
+-          "expr": "sum(rate(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\", status!~\"5.*\"}[$__rate_interval]))\n/\nsum(rate(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\"}[$__rate_interval]))",
++          "expr": "sum(rate(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\", status!~\"5.*\"}[$__rate_interval]))\n/\nsum(rate(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\"}[$__rate_interval]))",
+           "interval": "",
+-          "legendFormat": "{{ cluster }} {{ method }} {{ source_namespace }}/{{ source_workload }}",
++          "legendFormat": "{{ cluster }} {{ method }} {{ source_namespace }}/{{ source_app }}",
+           "range": true,
+           "refId": "A"
+         }
+@@ -299,7 +299,7 @@
+           },
+           "editorMode": "code",
+           "exemplar": false,
+-          "expr": "histogram_quantile(0.50, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\"}[$__rate_interval])) by (le))",
++          "expr": "histogram_quantile(0.50, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\"}[$__rate_interval])) by (le))",
+           "interval": "",
+           "legendFormat": "P50",
+           "range": true,
+@@ -312,7 +312,7 @@
+           },
+           "editorMode": "code",
+           "exemplar": false,
+-          "expr": "histogram_quantile(0.95, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\"}[$__rate_interval])) by (le))",
++          "expr": "histogram_quantile(0.95, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\"}[$__rate_interval])) by (le))",
+           "hide": false,
+           "interval": "",
+           "legendFormat": "P95",
+@@ -326,7 +326,7 @@
+           },
+           "editorMode": "code",
+           "exemplar": false,
+-          "expr": "histogram_quantile(0.99, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\"}[$__rate_interval])) by (le))",
++          "expr": "histogram_quantile(0.99, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\"}[$__rate_interval])) by (le))",
+           "hide": false,
+           "interval": "",
+           "legendFormat": "P99",
+@@ -441,9 +441,9 @@
+           },
+           "editorMode": "code",
+           "exemplar": false,
+-          "expr": "round(sum(rate(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_workload=~\"${source_workload}\"}[$__rate_interval])) by (cluster, source_namespace, source_workload, status), 0.001)",
++          "expr": "round(sum(rate(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_app=~\"${source_app}\"}[$__rate_interval])) by (cluster, source_namespace, source_app, status), 0.001)",
+           "interval": "",
+-          "legendFormat": "{{ cluster }} {{ method }} {{ source_namespace }}/{{ source_workload }}: {{ status }}",
++          "legendFormat": "{{ cluster }} {{ method }} {{ source_namespace }}/{{ source_app }}: {{ status }}",
+           "range": true,
+           "refId": "A"
+         }
+@@ -542,9 +542,9 @@
+           },
+           "editorMode": "code",
+           "exemplar": false,
+-          "expr": "sum(rate(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_workload=~\"${source_workload}\",status!~\"5.*\"}[$__rate_interval])) by (cluster, source_namespace, source_workload)\n/\nsum(rate(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_workload=~\"${source_workload}\"}[$__rate_interval])) by (cluster, source_namespace, source_workload)",
++          "expr": "sum(rate(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_app=~\"${source_app}\",status!~\"5.*\"}[$__rate_interval])) by (cluster, source_namespace, source_app)\n/\nsum(rate(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_app=~\"${source_app}\"}[$__rate_interval])) by (cluster, source_namespace, source_app)",
+           "interval": "",
+-          "legendFormat": "{{ cluster }} {{ method }} {{ source_namespace }}/{{ source_workload }}",
++          "legendFormat": "{{ cluster }} {{ method }} {{ source_namespace }}/{{ source_app }}",
+           "range": true,
+           "refId": "A"
+         }
+@@ -643,9 +643,9 @@
+           },
+           "editorMode": "code",
+           "exemplar": true,
+-          "expr": "histogram_quantile(0.50, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_workload=~\"${source_workload}\"}[$__rate_interval])) by (cluster, source_namespace, source_workload, le))",
++          "expr": "histogram_quantile(0.50, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_app=~\"${source_app}\"}[$__rate_interval])) by (cluster, source_namespace, source_app, le))",
+           "interval": "",
+-          "legendFormat": "{{ cluster }} {{ source_namespace }}/{{ source_workload }} P50",
++          "legendFormat": "{{ cluster }} {{ source_namespace }}/{{ source_app }} P50",
+           "range": true,
+           "refId": "A"
+         },
+@@ -656,10 +656,10 @@
+           },
+           "editorMode": "code",
+           "exemplar": true,
+-          "expr": "histogram_quantile(0.95, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_workload=~\"${source_workload}\"}[$__rate_interval])) by (cluster, source_namespace, source_workload, le))",
++          "expr": "histogram_quantile(0.95, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_app=~\"${source_app}\"}[$__rate_interval])) by (cluster, source_namespace, source_app, le))",
+           "hide": false,
+           "interval": "",
+-          "legendFormat": "{{ cluster }} {{ source_namespace }}/{{ source_workload }} P95",
++          "legendFormat": "{{ cluster }} {{ source_namespace }}/{{ source_app }} P95",
+           "range": true,
+           "refId": "B"
+         },
+@@ -670,10 +670,10 @@
+           },
+           "editorMode": "code",
+           "exemplar": true,
+-          "expr": "histogram_quantile(0.99, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_workload=~\"${source_workload}\"}[$__rate_interval])) by (cluster, source_namespace, source_workload, le))",
++          "expr": "histogram_quantile(0.99, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_app=~\"${source_app}\"}[$__rate_interval])) by (cluster, source_namespace, source_app, le))",
+           "hide": false,
+           "interval": "",
+-          "legendFormat": "{{ cluster }} {{ source_namespace }}/{{ source_workload }} P99",
++          "legendFormat": "{{ cluster }} {{ source_namespace }}/{{ source_app }} P99",
+           "range": true,
+           "refId": "C"
+         }
+@@ -882,9 +882,9 @@
+           },
+           "editorMode": "code",
+           "exemplar": false,
+-          "expr": "round(sum(rate(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_workload=~\"${source_workload}\"}[$__rate_interval])) by (cluster, destination_namespace, destination_workload, status), 0.001)",
++          "expr": "round(sum(rate(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_app=~\"${source_app}\"}[$__rate_interval])) by (cluster, destination_namespace, destination_app, status), 0.001)",
+           "interval": "",
+-          "legendFormat": "{{ cluster }} {{ method }} {{ destination_namespace }}/{{ destination_workload }}: {{ status }}",
++          "legendFormat": "{{ cluster }} {{ method }} {{ destination_namespace }}/{{ destination_app }}: {{ status }}",
+           "range": true,
+           "refId": "A"
+         }
+@@ -983,9 +983,9 @@
+           },
+           "editorMode": "code",
+           "exemplar": false,
+-          "expr": "sum(rate(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_workload=~\"${source_workload}\",status!~\"5.*\"}[$__rate_interval])) by (cluster, destination_namespace, destination_workload)\n/\nsum(rate(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_workload=~\"${source_workload}\"}[$__rate_interval])) by (cluster, destination_namespace, destination_workload)",
++          "expr": "sum(rate(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_app=~\"${source_app}\",status!~\"5.*\"}[$__rate_interval])) by (cluster, destination_namespace, destination_app)\n/\nsum(rate(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_app=~\"${source_app}\"}[$__rate_interval])) by (cluster, destination_namespace, destination_app)",
+           "interval": "",
+-          "legendFormat": "{{ cluster }} {{ method }} {{ destination_namespace }}/{{ destination_workload }}",
++          "legendFormat": "{{ cluster }} {{ method }} {{ destination_namespace }}/{{ destination_app }}",
+           "range": true,
+           "refId": "A"
+         }
+@@ -1083,9 +1083,9 @@
+           },
+           "editorMode": "code",
+           "exemplar": true,
+-          "expr": "histogram_quantile(0.50, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_workload=~\"${source_workload}\"}[$__rate_interval])) by (cluster, destination_namespace, destination_workload, le))",
++          "expr": "histogram_quantile(0.50, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_app=~\"${source_app}\"}[$__rate_interval])) by (cluster, destination_namespace, destination_app, le))",
+           "interval": "",
+-          "legendFormat": "{{ cluster }} {{ destination_namespace }}/{{ destination_workload }} P50",
++          "legendFormat": "{{ cluster }} {{ destination_namespace }}/{{ destination_app }} P50",
+           "range": true,
+           "refId": "A"
+         },
+@@ -1096,10 +1096,10 @@
+           },
+           "editorMode": "code",
+           "exemplar": true,
+-          "expr": "histogram_quantile(0.95, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_workload=~\"${source_workload}\"}[$__rate_interval])) by (cluster, destination_namespace, destination_workload, le))",
++          "expr": "histogram_quantile(0.95, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_app=~\"${source_app}\"}[$__rate_interval])) by (cluster, destination_namespace, destination_app, le))",
+           "hide": false,
+           "interval": "",
+-          "legendFormat": "{{ cluster }} {{ destination_namespace }}/{{ destination_workload }} P95",
++          "legendFormat": "{{ cluster }} {{ destination_namespace }}/{{ destination_app }} P95",
+           "range": true,
+           "refId": "B"
+         },
+@@ -1110,10 +1110,10 @@
+           },
+           "editorMode": "code",
+           "exemplar": true,
+-          "expr": "histogram_quantile(0.99, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_workload=~\"${source_workload}\"}[$__rate_interval])) by (cluster, destination_namespace, destination_workload, le))",
++          "expr": "histogram_quantile(0.99, sum(rate(hubble_http_request_duration_seconds_bucket{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", reporter=\"${reporter}\", source_namespace=~\"${source_namespace}\", source_app=~\"${source_app}\"}[$__rate_interval])) by (cluster, destination_namespace, destination_app, le))",
+           "hide": false,
+           "interval": "",
+-          "legendFormat": "{{ cluster }} {{ destination_namespace }}/{{ destination_workload }} P99",
++          "legendFormat": "{{ cluster }} {{ destination_namespace }}/{{ destination_app }} P99",
+           "range": true,
+           "refId": "C"
+         }
+@@ -1293,15 +1293,15 @@
+           "type": "prometheus",
+           "uid": "${DS_PROMETHEUS}"
+         },
+-        "definition": "label_values(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\"}, destination_workload)",
++        "definition": "label_values(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\"}, destination_app)",
+         "hide": 0,
+         "includeAll": false,
+-        "label": "Destination Workload",
++        "label": "Destination App",
+         "multi": false,
+-        "name": "destination_workload",
++        "name": "destination_app",
+         "options": [],
+         "query": {
+-          "query": "label_values(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\"}, destination_workload)",
++          "query": "label_values(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\"}, destination_app)",
+           "refId": "StandardVariableQuery"
+         },
+         "refresh": 1,
+@@ -1347,14 +1347,15 @@
+         "name": "source_namespace",
+         "options": [],
+         "query": {
+-          "query": "label_values(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\"}, source_namespace)",
++          "query": "label_values(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\"}, source_namespace)",
+           "refId": "StandardVariableQuery"
+         },
+         "refresh": 1,
+         "regex": "",
+         "skipUrlSync": false,
+         "sort": 0,
+-        "type": "query"
++        "type": "query",
++        "allValue": ".*"
+       },
+       {
+         "current": {},
+@@ -1362,22 +1363,79 @@
+           "type": "prometheus",
+           "uid": "${DS_PROMETHEUS}"
+         },
+-        "definition": "label_values(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", source_namespace=~\"${source_namespace}\"}, source_workload)",
++        "definition": "label_values(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", source_namespace=~\"${source_namespace}\"}, source_app)",
+         "hide": 0,
+         "includeAll": true,
+-        "label": "Source Workload",
++        "label": "Source App",
+         "multi": true,
+-        "name": "source_workload",
++        "name": "source_app",
+         "options": [],
+         "query": {
+-          "query": "label_values(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_workload=~\"${destination_workload}\", source_namespace=~\"${source_namespace}\"}, source_workload)",
++          "query": "label_values(hubble_http_requests_total{cluster=~\"${cluster}\", destination_namespace=~\"${destination_namespace}\", destination_app=~\"${destination_app}\", source_namespace=~\"${source_namespace}\"}, source_app)",
+           "refId": "StandardVariableQuery"
+         },
+         "refresh": 1,
+         "regex": "",
+         "skipUrlSync": false,
+         "sort": 0,
+-        "type": "query"
++        "type": "query",
++        "allValue": ".*"
++      },
++      {
++        "name": "destination_workload",
++        "label": "destination workload (CPU panels)",
++        "type": "query",
++        "datasource": {
++          "type": "prometheus",
++          "uid": "${DS_PROMETHEUS}"
++        },
++        "definition": "label_values(namespace_workload_pod:kube_pod_owner:relabel{cluster=~\"${cluster}\", namespace=~\"${destination_namespace}\"}, workload)",
++        "query": {
++          "query": "label_values(namespace_workload_pod:kube_pod_owner:relabel{cluster=~\"${cluster}\", namespace=~\"${destination_namespace}\"}, workload)",
++          "refId": "PrometheusVariableQueryEditor-VariableQuery"
++        },
++        "refresh": 2,
++        "includeAll": true,
++        "allValue": ".*",
++        "multi": true,
++        "sort": 1,
++        "current": {
++          "selected": true,
++          "text": [
++            "All"
++          ],
++          "value": [
++            "$__all"
++          ]
++        }
++      },
++      {
++        "name": "source_workload",
++        "label": "source workload (CPU panels)",
++        "type": "query",
++        "datasource": {
++          "type": "prometheus",
++          "uid": "${DS_PROMETHEUS}"
++        },
++        "definition": "label_values(namespace_workload_pod:kube_pod_owner:relabel{cluster=~\"${cluster}\", namespace=~\"${source_namespace}\"}, workload)",
++        "query": {
++          "query": "label_values(namespace_workload_pod:kube_pod_owner:relabel{cluster=~\"${cluster}\", namespace=~\"${source_namespace}\"}, workload)",
++          "refId": "PrometheusVariableQueryEditor-VariableQuery"
++        },
++        "refresh": 2,
++        "includeAll": true,
++        "allValue": ".*",
++        "multi": true,
++        "sort": 1,
++        "current": {
++          "selected": true,
++          "text": [
++            "All"
++          ],
++          "value": [
++            "$__all"
++          ]
++        }
+       }
+     ]
+   },

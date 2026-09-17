@@ -262,6 +262,7 @@ each with its record:
 | [docs/POLICY-TEST-RESULTS.md](docs/POLICY-TEST-RESULTS.md) | every generated policy's test and outcome (demos 26–35), and cf2cnp's own test layers |
 | [docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md) | 1,024 lines of real console output in 23 sections, from the toolchain to the flow store, regenerable with `scripts/verify.sh` |
 | [enhancements/](enhancements/README.md) | proposals that grew out of the demos, each with its measurement, issue, reviewed plan and proving demo: 001 policy from flows (issue [#11](https://github.com/ephico2real2/cilium-implementation-poc/issues/11)), 002 the shop platform, 003 cf2cnp on Cilium's policy API, 004 the lab in CI — [001](enhancements/001-policy-from-flows-enterprise.md) is the one the demos from 29 on prove |
+| [docs/upstream/](docs/upstream/README.md) | what cilium/cilium is and how it takes changes (their guide, quoted), and each change this lab has ready for it with the problem, the data path, the capture, the fix, screenshots and the exact steps — first the Hubble L7 dashboard for Gateway traffic |
 | [docs/session-changelogs/](docs/session-changelogs/), `docs/REVIEW_*.md` | what each working session changed and measured; the adversarial review records (Codex and Cursor) behind the substantial changes |
 
 The lab's original name, `cilium-kind-poc`, survives in the git history and as the marker of the `/etc/hosts` blocks
