@@ -146,7 +146,7 @@ Go to https://github.com/cilium/cilium/issues/new/choose → *Bug report*. The t
 | Regression | unknown (not tested on an earlier release) |
 | Sysdump | `cilium sysdump` from poc1, attached |
 | Relevant log output | none — the agent logs nothing for this; the series themselves are the output |
-| Anything else? | a link to [docs/HUBBLE-L7-LABELS.md](../HUBBLE-L7-LABELS.md) and the expected behaviour: the label populated for a remote backend as for a local one, or the limitation documented beside `labelsContext` |
+| Anything else? | a link to [docs/HUBBLE-L7-LABELS.md](../HUBBLE-L7-LABELS.md) and the expected behaviour: the label populated for a remote backend as for a local one, or the limitation documented beside `labelsContext`; and the AI declaration (the policy asks for it on non-trivial submissions — a bug report with a measured repro is one): "prepared with an AI assistant; the measurements and the placement table were run and re-checked by me" |
 
 The full text as it would be posted is drafted in [HUBBLE-L7-LABELS.md §7](../HUBBLE-L7-LABELS.md).
 
@@ -208,6 +208,17 @@ Hubble L7 HTTP Metrics dashboard: panels are keyed on the app labels (destinatio
 ```
 
 ```
+
+And, required by [Cilium's Generative AI policy](README.md#2a-their-generative-ai-policy--it-applies-to-every-contribution-this-lab-makes),
+the declaration paragraph in the PR body:
+
+> **Generative AI use.** This change was prepared with an AI coding assistant (Claude Code orchestrating; Cursor's
+> agent generated the dashboard transformation script from a written brief). I directed the work, read every line of
+> the resulting JSON diff, and re-ran the measurement it rests on: 500 req/s through a Cilium Gateway to a backend on
+> another node — the proposed `destination_app` queries report 499.9 req/s, the current `destination_workload`
+> queries 0; the before/after screenshots are from that run. The label behaviour was verified against
+> `pkg/hubble/metrics/api/context.go` at v1.20.1 and the metrics reference, and the `allValue` behaviour against
+> Grafana's variable documentation. Signed off under the DCO by me.
 
 Labels, if you can set them: `release-note/minor`, `kind/enhancement`, `area/hubble`. Reviewers come from CODEOWNERS.
 The note the reviewers will want answered is in the commit: the dashboard now expects `*_app` in `labelsContext`, which

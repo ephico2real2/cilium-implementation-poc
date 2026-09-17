@@ -42,6 +42,42 @@ order:
    assigns reviewers automatically; CI runs on the reviewers' `/test`. Keep a PR under ~200 lines or split it.
 5. **After review**, re-request review once feedback is addressed; a maintainer merges.
 
+### 2a. Their Generative AI policy — it applies to every contribution this lab makes
+
+Cilium keeps it in the community repository, [`cilium/community/AI-POLICY.md`](https://github.com/cilium/community/blob/main/AI-POLICY.md)
+(sections: Guiding Principle, Acceptable Use, Unacceptable Use, Generative AI for Translation, Transparency &
+Attribution, DCO and Licensing). What it requires, quoted:
+
+- **Declare it.** "We generally expect contributors to declare when Generative AI was used to prepare a submission."
+  For anything non-trivial — "new features, documentation, complex design proposals" — "describe how Generative AI was
+  used and explain the human review process applied." Only "trivial use of Generative AI (such as spelling check or
+  simple autocomplete)" needs no declaration. And: "suspected use of Generative AI tooling without transparency may lead
+  to submissions being closed or rejected without discussion."
+- **Stay in the loop.** The contributor must be "involved in the entire process", must "personally review and edit
+  generated content" and "fully understand and review the content prior to submission"; "you are fully accountable for
+  the correctness, security, and clarity of your contributions" whether or not AI was involved.
+- **The DCO still means you.** "If you submit AI-assisted contributions … you are personally certifying that you have
+  the right to contribute the content under the project's license", and "if you're unsure about the licensing of code
+  you created using Generative AI tools, **don't submit it**."
+- No trailer format is mandated (no `Assisted-by:`), the declaration goes in the PR description; the policy carries
+  no version or date.
+
+How this lab meets it — every change here was prepared with an AI assistant (Claude Code) as the orchestrator, with
+Cursor's agent writing code from briefs, and that is declared, not hidden. The declaration paragraph for a PR from this
+lab, to be adapted, not copied blindly:
+
+> **Generative AI use.** This change was prepared with an AI coding assistant (Claude Code, with Cursor's agent
+> generating code from written briefs). The human contributor directed the work, read every line of the diff, and
+> re-ran the measurements it rests on: <the measurement, e.g. "500 req/s through a Gateway to a backend on another
+> node — 499.9 req/s on the proposed queries, 0 on the current ones; the before/after screenshots are from that run">.
+> The mechanism was verified against the source (<file@version>) and the documentation (<page>), not taken from the
+> assistant's word. The commit is signed off by the human contributor under the DCO.
+
+Two consequences for how this lab works: the **sign-off is the operator's** (the DCO certifies a person's right to
+contribute; the assistant has none), and the review record beside each change (`docs/REVIEW_*.md`, the adversarial
+pass with Codex and Cursor) is exactly the "human review process applied" the policy asks to see described — say so
+in the PR.
+
 What this means for a dashboard change: the JSON file under `install/kubernetes/cilium/files/hubble/dashboards/` is
 edited (and its twin under `examples/kubernetes/addons/prometheus/files/grafana-dashboards/`), the commit says why with
 the measurement, the PR carries a screenshot before and after, and the release note says what a user will see.
