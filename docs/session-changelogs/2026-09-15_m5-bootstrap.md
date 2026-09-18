@@ -348,3 +348,134 @@ Outcome in one line: **…**
 - **Recommended, not performed:** the lab to Cilium 1.20.2 (`CILIUM_VERSION` in `lab-stack.sh` and `lab-preflight.sh`,
   the README's versions table) — an agent rollout per cluster, gotcha #42. Merged under "merge and do your thing":
   #29, #30, #31. Still for the operator: hubble-observer#1, cf2cnp#5, the two upstream posts, the upgrade.
+
+## Part 9 — what is new in 1.20.2; the release-notes skill; both clusters moved (2026-09-17 16:20 → 18:30)
+
+- **"What is new in 1.20.2 and how can it benefit us?"** — read from the release itself (`gh release view v1.20.2`,
+  published 09-16 01:53Z): 1 minor, 39 bugfixes, 28 CI, 68 misc, 2 other — 138 bullets. Six with a side in this lab
+  (the L2 VIPs with `externalTrafficPolicy: Local`, policy revision for new pods = the connectivity test's setup flake, a
+  policy-recompute crash under churn, per-listener `Programmed`, Hubble's drop rate limit, Cluster Mesh's remove path);
+  the rest not for us with the value that proves it. One written constraint retired (enhancement 005's "Local is
+  incompatible with L2" → fixed in 1.20.2, cilium/cilium#46399; still no Gateway isolation, Envoy is on every node).
+- **The skill the operator asked for** (PR #33): `.claude/skills/upstream-release-notes/SKILL.md` — fetch, compare in
+  the lab's files (a table of where each feature lives), eight report sections, act within the standing rules — and
+  `scripts/upstream-release-notes.sh` (Cursor/Grok from a brief, after one silent 0-byte run; relaunched with stdin
+  closed): the release verbatim with section counts and keyword hits per lab feature, the lab's pins grepped; for the
+  forks the chart versions both sides, tags, the compare, 90 days of commits, our PRs. Verified on all three projects;
+  Codex reproduced every count independently. Reports: `docs/upstream/releases/cilium-v1.20.2.md`,
+  `hubble-observer-2.7.0.md` — **upstream released the fork's five PRs as 2.7.0 on 09-15**, then removed `containerName`,
+  deleted the second-release example, and left cf2cnp at `*` = 0.4.0 / binary 0.3.1; the fork is 29 ahead, 0 behind;
+  #16 open. Demo 25 Part 10c; `docs/upstream/README.md` §5.
+- **The upgrade** (PR #34, on "then proceed"): poc1 first. **Gotcha #117** on the first attempt — `--reuse-values` with
+  `--version 1.20.2`: "deployed", revision 6, "successfully rolled out" in 14 s, agents still on 1.20.1; `helm get values
+  --all` carried `image.tag: v1.20.1` from the old chart's defaults (Helm 4.3.0 `reuseValues`:
+  `CoalesceValues(current.Chart, current.Config)`, read in the source). `--reset-then-reuse-values`: revision 7, agents
+  at +29 s, everything at +100 s, user values byte-identical at 5 and 7. The Gateway probed every second: **121 failed
+  probes in the 132 s between +6 s and +138 s** — the Envoy DaemonSet rolls when the release bumps its image (three
+  times in 1.20.2), unlike #116's agent-only ~45 s; the four L2 leases moved to the worker. Demo 37's `check.sh`
+  identical before/after apart from pod names and lease holders; six listeners `Programmed=True` (no 1.20.1 record of
+  the per-listener condition exists — `check.sh` now prints it). poc2: 35 s, no Gateway. Mesh connected both ways;
+  poc1 214.5 / poc2 39.6 flows/s in Grafana; the observer re-deployed on the 1.20.2 CLI (`hubble v1.20.2 … go1.26.8`).
+  Pins: `lab-stack.sh`, `lab-preflight.sh`, `lab-up.sh`, `bootstrap/versions.env` (the bootstrap's own check would
+  have failed CI at step one without it), the observer's digest, `apply-poc2.sh`, `mtls-check.sh`, the README.
+- **Review** (`docs/REVIEW_RELEASE_NOTES.md`): Codex refuted "every one a backport" (34 of 138 name one PR) and
+  "2 min 12 s off the air" (a span, not a continuous outage); Grok refuted the report's outcome vocabulary (the skill now
+  names six) and one sentence judging the maintainer; the `sed` delimiter in `check.sh` replaced by `printf`. Merged:
+  #33. The CI proof for #34: `lab-observability` on the branch with the connectivity test (run 35283148292) — every
+  step through the captures green on 1.20.2; the connectivity test still running at 00:35Z.
+
+## Part 10 — "Go ahead": the fork, the upstream posts, the dashboard made to mean something, the Grafana tutorial (2026-09-17 18:30 → 01:00)
+
+- **The fork** (ephico2real2/hubble-observer): #1 merged (the flow table's cluster columns), #2 the cf2cnp subchart
+  0.7.0 → 0.9.0 (tested locally first — the deployment's args carry `--log-format json`, the pod's first line is JSON,
+  `/health` 200; the cluster columns render, `poc1` on every row), #3 the dashboard redesign, #4 dated backups
+  (`dashboard/backup/…2026-09-17.before-meaning-and-colours.json`, `…2026-09-15.upstream-2.7.0.json`; copies under
+  `demos/25-hubble-observer-loki/dashboard-backup/`).
+- **Upstream, on the operator's word:** a status comment on onzack/hubble-observer#16 (edited once — "rebased" →
+  "merges cleanly", the truthful word); **cilium/cilium#48811** (the Ubuntu base's `pebble` is the last Go 1.26.5 binary
+  in `cilium:v1.20.2`; bump the digest or drop the binary — the bug template's fields, the commands, the AI declaration);
+  **cilium/cilium#48812** (`destination_workload` empty for Envoy-reported L7 flows with a remote backend — re-checked
+  on 1.20.2 first: both `shop` backends on the control plane, the worker's Envoy reports `destination_workload=""`).
+  Candidate A of the scan report was **not** posted: Renovate had opened cilium/cilium#48808 (grpc 1.83.2 + x/crypto
+  0.56.0 for `v1.20`) twelve minutes before the check — the report's rule ("re-run §7; if it moved, the candidate is
+  closed") did its job.
+- **"Flows per Destination" had never had data; "Flows per Source Namespace" coloured different namespaces alike.**
+  Research first (`docs/OBSERVER-DASHBOARD-PANELS.md`): every field from `flow.proto` at v1.20.2, the observer's command
+  (`--verdict DROPPED` — every panel counts drops), Grafana's guidance, and the colours read from the DOM — instant
+  query + *All values*: 28 %/28 % both rgb(87,148,242), 33/33/33 all rgb(115,191,105); the three pies in the range +
+  *Calculate* shape coloured per series. The test that fills the empty panel: demo 31's `pos` (an L7 DNS rule,
+  `toFQDNs` for `example.com:443` only) → `wget https://example.org` → twelve `DROPPED POLICY_DENIED pos → example.org:443`
+  with `destination_names`; the panel filled in fifteen seconds. Found in the data on the way: eleven
+  `STALE_OR_UNROUTABLE_IP` drops at 22:34–22:35Z were poc2's edge Prometheus scraping `10.20.0.109:9962` — the
+  clustermesh-apiserver pod the 1.20.2 rollout replaced.
+- **The redesign** (`demos/25-hubble-observer-loki/dashboard-design.py`, Cursor from two briefs; fork #3; lab PR #35):
+  caption strips under every Statistics panel, the two rankings as sorted `topk(10)` bar gauges in one colour, fixed
+  colours per meaning, hover descriptions, the logs panel titled. Two first-pass faults the render caught: the caption's
+  HTML marker sharing the text's line rendered raw markdown (CommonMark HTML block → the marker on its own line); a bar
+  gauge on a range query did not sort (one frame per series → instant + *All values* + `sortBy "Value #A"`). Read back:
+  8 captions as markdown, bars 2.67K → 1.66K. Review (`docs/REVIEW_OBSERVER_DASHBOARD.md`): Codex found two
+  `flow.proto` quotes altered and three "Now" cells quoting captions the file did not carry — fixed; Grok's doubt about
+  `POLICY_DENY` refuted by `flow.proto:495` (`POLICY_DENY = 181`); the mechanism sentences relabelled as readings the
+  fix confirmed.
+- **Demo 38, the Grafana tutorial** (PR #36): six dashboards from node_exporter and kube-state-metrics up to Hubble,
+  generated (`build.py`), provisioned, proven (`check.sh`: 30 panels, 0 NO DATA), captured (31 captions read back). The
+  lessons were measured before they were written: the **by-name palette** gives one colour to every series in a pie, a
+  stat and a bar gauge (a 25-slice pie all cyan; 2 distinct colours in 50 bar swatches) and a stable colour per name
+  only on a time series (17 distinct for 25 names) — grafana#73275; so the README's first draft of §3, which promised
+  by-name for pies, was rewritten to the measurement, and `tut-3` shows all four cases side by side on five namespaces.
+  Every reference URL resolved (200); the videos are Grafana Labs' beginners series.
+- **Queued by the operator, not started:** fork cilium/cilium, find the code path behind #48812, fix it, build the
+  image on the M5, prove it as a demo — after the tutorial.
+
+## Part 11 — the fix built and proven; the rules of the night (2026-09-18 01:00 → 05:10)
+
+- **Three operator rules, in their words, now in memory and the skill:** *"Don't merge automatically — remember you
+  need to approve it"* (every PR since waits: #34, #39, #40, group-sync-dashboard #176 — the review skill with OB1);
+  *"before the issue is updated, use Fable 5.1 for an adversarial review and share the response in docs/upstream first"*;
+  *"call Anthropic Fable 5.1 OB1"* — the Agent tool with `model: fable`, the same brief and read-only rules as Codex
+  and Grok, not Cursor's Fable (whose usage cap refused a run that night). *"Deploy the same Cilium version into both
+  poc1 and poc2."* *"Keep the patch — we are engineers."*
+- **OB1's first review** (PR #39, the regression work) predicted from the code that the first CI run "cannot go green"
+  and named why — the runner did not trust the lab's root (`LAB_TRUST_ROOT` unset), could not resolve the names (no
+  `lab-route.sh`), row 4 probed names the trimmed lab never deploys, the connectivity test's success regex could never
+  match the CLI's real line, a query error counted as data. Run 1 failed exactly so (7 PASS, 6 FAIL); run 2 after the
+  fixes: 13 PASS, 0 FAIL on a fresh runner. Runs 3–4: the observer dashboard's capture — "not timing after all", the
+  trimmed stack had skipped `tempo` + `collectors`, and the OTel collector is the Loki shipper (lab-stack.sh's own table);
+  run 4 green end to end (`docs/REVIEW_REGRESSION.md`, `docs/regression/README.md`).
+- **"Test the cilium here and rebuild and redeploy the images here"** — demo 39. Fork `ephico2real2/cilium`, branch
+  `hubble/remote-workload-via-cep` on v1.20.2: the workload on `CiliumEndpoint.status.workloads` (CRD 1.33.12 → 1.33.13)
+  → the slim type → `ipcache.K8sMetadata` → Hubble (commit 1, Cursor from a brief; the generators in the builder
+  container). Built on the M5 (`make dev-docker-image`, 86 s warm), loaded into poc1, the CRD applied **and labelled**
+  first (both reviewers: a field the schema does not know is pruned silently — the first deploy would have measured
+  nothing), the agents rolled in 15 s. **Measured: L3/L4 flows from the worker named the control-plane pod's workload;
+  the Envoy-reported Gateway flow still `destination_workload=""`** — Hubble has two parsers, and the L7 one
+  (`pkg/hubble/parser/seven/parser.go`) resolves endpoints on its own. OB1, reviewing commit 1 in the same hour,
+  found the same line ("commit 1 alone would have measured nothing on the L7 dashboard"). Commit 2 fixed it; commit 3
+  closed Codex's edge (a bare local pod must clear a stale value). Both clusters on `1d3a02ab`: the worker's agent
+  reports `destination_workload="shop"` for Gateway flows to control-plane backends, 40/40 both teams; Cilium's own
+  *L7 by Workload* dashboard fills for the remote backend where it was "No data" (the highlighted capture — square
+  boxes, one colour each, the operator's spec). `docs/REVIEW_CILIUM_FIX.md`.
+- **Upstream, on the operator's word, with the gate applied:** OB1 and Codex found cilium/cilium#48563 — an open
+  draft doing the same with CES and the kvstore path (its predecessor #36011 died in 2025 as CEP-only) — so no
+  competing PR; the review comment bringing what the draft lacks (the CRD schema-version bump; the L7/Gateway
+  reproduction, before/after pictures, how it was tested, the operator named as the one who directed the work and
+  designed the test cases) drafted under `docs/upstream/drafts/`, read by the operator, posted: #48563
+  issuecomment-5725111947; the CI follow-up 5725439704. Earlier that night, before the gate: the #25676 comment (after
+  a duplicate #48812, closed) and #48811.
+- **The lab keeps the patch:** `versions.env` pins `CILIUM_IMAGE=ghcr.io/ephico2real2/cilium-dev:1.20.2-remote-workload-1d3a02ab`
+  with the fork's CRD URL and schema version; `lab-up.sh` installs it and applies the CRD in the safe order; the
+  regression check expects it (14 PASS). The image pushed to the operator's ghcr (made public), **rebuilt for
+  `linux/amd64,linux/arm64`** after the first CI runs on it died at `Init:ImagePullBackOff` (arm64-only), and the
+  `lab-regression` Action runs demo 39's `check.sh` when the build is pinned: run 35307892865 — a fresh amd64 runner,
+  client on one node, backend on the other, `destination_workload="shop"` — green end to end.
+- **Measured numbers to keep:** the 1.20.2 rollout darkens the Gateway ~2 min when the Envoy image changes (121 failed
+  probes in 132 s; #116's agent-only ~45 s); `helm upgrade --reuse-values` across a chart version keeps the old image
+  (#117); the by-name palette colours every slice of a pie alike on Grafana 13.2.1 (demo 38); an instant query with
+  *All values* colours equal counts alike (the observer dashboard's defect); a CiliumEndpoint status field the CRD
+  does not know is pruned with no error.
+- **"You can merge the prs" (2026-09-18 ~05:40 UTC), the one-time word for the PRs then open:** #40 (demo 39) and #39
+  (the regression testing) merged, group-sync-dashboard #176 (the review skill with OB1) merged; #34 (the 1.20.2 pins)
+  had conflicts with the merged main — rebased with the two resolutions (README line 3 and the docs row: main's text
+  with 1.20.2 and 117 traps; `lab-up.sh`: main's `CILIUM_IMAGE`/CRD block with the chart pin at 1.20.2), the
+  `lab-regression` Action run 35311034810 green on chart 1.20.2 + the pinned build (a combination CI had not run),
+  merged as e28b63d. The no-automatic-merges rule resumes for everything after this line.
