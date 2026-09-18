@@ -139,6 +139,19 @@ unset -f wait_route
 echo "== 6. hosts-entries.sh (the four names; this script never writes /etc/hosts)"
 rec demos/40-shop-mesh-phase0/hosts-entries.sh
 
+echo "== 6b. the reviewed policy set (the saved output of observe-and-enforce.sh) — enforced from the first apply"
+# A fresh lab (CI's runner, a rebuilt cluster) has no policies until someone runs the observe → generate → enforce
+# workflow by hand; check.sh then FAILs its policy rows and the first CI run (35371067379) reported success around a
+# failing check. The saved, reviewed set — demo 35's default-deny per namespace plus the seven cf2cnp policies of this
+# cluster (policies/<cluster>/cnp-shop-intent.yaml) — is applied here, idempotently; observe-and-enforce.sh remains
+# the way to REGENERATE it from fresh flows. Audit mode is endpoint-local and off on a fresh pod (gotcha #84), so a
+# fresh lab is enforcing as soon as these land.
+for ctx in "${CTX_ARR[@]}"; do
+  c=${ctx#kind-}
+  rec kubectl --context "$ctx" apply -f "$HERE/20-default-deny-ingress.yaml"
+  rec kubectl --context "$ctx" apply -f "$HERE/policies/$c/cnp-shop-intent.yaml"
+done
+
 echo "== 7. probe the three doors from the Mac (curl --resolve; expect 200 and X-Served-By)"
 probe_door() {
   local host=$1 addr=$2
@@ -252,5 +265,7 @@ export -f final_table
 rec bash -c 'final_table "$@"' bash "${CTX_ARR[@]}"
 unset -f final_table
 
-echo "== 10. check.sh (PASS/FAIL rows; exit is FAIL count)"
-rec "$HERE/check.sh" || true
+echo "== 10. check.sh (PASS/FAIL rows; exit is FAIL count) — a FAIL row fails this script"
+# Not `|| true`: the first CI run swallowed two FAIL rows (0/7 policies) and went green. RECORD_STRICT is exported
+# above, so record.sh returns check.sh's exit code and set -e stops here with the rows already on screen.
+rec "$HERE/check.sh"

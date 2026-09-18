@@ -46,6 +46,13 @@ flowchart LR
   cat1 -.->|"affinity: local → remote only when local gone"| cat2
 ```
 
+**A fresh lab enforces from the first apply.** `apply-both.sh` step 6b applies the reviewed policy set — demo 35's
+default-deny per namespace and this cluster's seven cf2cnp policies under `policies/<cluster>/` — before the probes, so a
+rebuilt cluster or CI's runner is enforcing without anyone running the observe → generate → enforce workflow;
+`observe-and-enforce.sh` is how that set is *regenerated* from fresh flows. The first CI run with this demo
+(35371067379) went green around two FAIL rows (`0/7` policies on both clusters) because nothing had applied them and
+`check.sh`'s exit was swallowed; both are fixed — the check's FAIL now fails `apply-both.sh` (`RECORD_STRICT`).
+
 ## Files
 
 | File | What |
