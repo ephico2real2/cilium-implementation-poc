@@ -1,5 +1,7 @@
 # Demo 40 — the shop platform on the mesh, phase 0: the ground under it
 
+For the reader in a hurry: [RECAP.md](RECAP.md) — what this demo did and proved, in plain English.
+
 **Where this sits in the whole:** [enhancement 002](../../enhancements/002-shop-platform-clustermesh.md)
 revision 4, tracking issue #42. Demo 35 is the platform this builds on; demo 41 (phase 1) deploys that
 platform behind these doors and starts measuring. This phase only lays the ground.
