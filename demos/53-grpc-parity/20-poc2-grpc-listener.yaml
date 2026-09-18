@@ -1,0 +1,8 @@
+# NOT APPLIED. shop-gw's third listener (https-grpc: 443/HTTPS hostname
+# grpc.poc2.shop.poc.local, certificateRefs grpc-tls) and Certificate/grpc-tls live in
+# demos/40-shop-mesh-phase0/30-gateways-poc2.yaml and
+# demos/40-shop-mesh-phase0/20-certificates.yaml so demo 40's apply stays the source of
+# truth. demos/53-grpc-parity/apply.sh applies those two files on kind-poc2, not this one.
+#
+# A Gateway's listeners are one object: copying them here would drift the first time demo 40
+# is re-applied.

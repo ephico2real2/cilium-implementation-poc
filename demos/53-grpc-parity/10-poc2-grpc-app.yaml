@@ -1,0 +1,65 @@
+# poc2's gRPC workload: the same image and mode as demo 09's grpc Deployment, in shop-edge so it
+# sits behind shop-gw. imagePullPolicy: Never is deliberate — routedemo:local is already on the
+# nodes (demo 09 / lab-images.sh); if it is missing the pod must FAIL visibly, not pull.
+#
+# TCP probes, not HTTP: the process speaks HTTP/2 (gRPC) on :9090. An httpGet would be a protocol
+# error. A grpc probe exists in Kubernetes ≥ 1.24; TCP is enough here because serveGRPC sets
+# SERVING at start and the Health/Check from outside the cluster is the real health check.
+#
+#   kubectl --context kind-poc2 apply -f demos/53-grpc-parity/10-poc2-grpc-app.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpc
+  namespace: shop-edge
+  labels: {app.kubernetes.io/name: grpc, app.kubernetes.io/part-of: shop}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: grpc}}
+  template:
+    metadata:
+      labels: {app: grpc, app.kubernetes.io/name: grpc, app.kubernetes.io/part-of: shop}
+    spec:
+      containers:
+        - name: app
+          image: routedemo:local
+          imagePullPolicy: Never
+          args: ["-mode", "grpc", "-addr", ":9090"]
+          env: [{name: APP_NAME, value: grpc}]
+          ports: [{containerPort: 9090}]
+          livenessProbe:  {tcpSocket: {port: 9090}, initialDelaySeconds: 3, periodSeconds: 10}
+          readinessProbe: {tcpSocket: {port: 9090}, initialDelaySeconds: 2, periodSeconds: 5}
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grpc
+  namespace: shop-edge
+  labels: {app.kubernetes.io/name: grpc, app.kubernetes.io/part-of: shop}
+spec:
+  selector: {app: grpc}
+  ports:
+    # appProtocol is how the Gateway learns this backend speaks HTTP/2 (gRPC). Without it Envoy
+    # would talk HTTP/1.1 to the pod and every gRPC call would fail with a protocol error that
+    # looks like an application bug (demo 09).
+    - {port: 9090, targetPort: 9090, appProtocol: kubernetes.io/h2c}
+---
+# Demo 41 left default-deny-ingress on shop-edge (selects part-of=shop, ingress: [{}]).
+# Measured 2026-09-18: that empty rule does NOT realize as allow-all — the endpoint's
+# allowing-ingress is localhost only — so Gateway traffic (reserved:ingress) is DROPPED
+# (Hubble: "10.20.0.33:54846 (ingress) <> shop-edge/grpc:9090 Policy denied DROPPED").
+# Same allow as the generated api-gateway policy: fromEntities ingress, on the gRPC port.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: grpc
+  namespace: shop-edge
+  labels: {app.kubernetes.io/name: grpc, app.kubernetes.io/part-of: shop}
+spec:
+  description: 'Allow Gateway (reserved:ingress) to grpc on TCP/9090; demo 41 default-deny otherwise drops it'
+  endpointSelector: {matchLabels: {app.kubernetes.io/name: grpc}}
+  ingress:
+    - fromEntities: [ingress]
+      toPorts:
+        - ports: [{port: "9090", protocol: TCP}]

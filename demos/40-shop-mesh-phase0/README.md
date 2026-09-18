@@ -50,8 +50,8 @@ file, so applying the pool on poc2 cannot start a second announcer.
 | [`cilium/l2-shop-vip-announce.yaml`](../../cilium/l2-shop-vip-announce.yaml) | `shop-vip-announce`; applied to **one** cluster (poc1 in this phase) |
 | [`cilium/lb-ippool-poc1.yaml`](../../cilium/lb-ippool-poc1.yaml) / [`-poc2.yaml`](../../cilium/lb-ippool-poc2.yaml) | `kind-l2-announce` now excludes `shop-vip-gw` |
 | [`00-namespaces.yaml`](00-namespaces.yaml) | `shop-edge` with demo 35's `part-of=shop` and `gateway-access: shop-gw` |
-| [`20-certificates.yaml`](20-certificates.yaml) | `Certificate/shop-tls` — three dnsNames, not a wildcard |
-| [`30-gateways-poc1.yaml`](30-gateways-poc1.yaml) / [`30-gateways-poc2.yaml`](30-gateways-poc2.yaml) | two files a junior can read; no Helm, no kustomize |
+| [`20-certificates.yaml`](20-certificates.yaml) | `Certificate/shop-tls` — three dnsNames, not a wildcard; `Certificate/grpc-tls` (demo 53, CN/SAN `grpc.poc2.shop.poc.local`) |
+| [`30-gateways-poc1.yaml`](30-gateways-poc1.yaml) / [`30-gateways-poc2.yaml`](30-gateways-poc2.yaml) | two files a junior can read; no Helm, no kustomize. poc2's `shop-gw` has a third listener `https-grpc` (demo 53) |
 | [`apply.sh`](apply.sh) | both contexts, recorded into [`output/transcript.txt`](output/transcript.txt) |
 | [`check.sh`](check.sh) | PASS/FAIL rows; exit = FAIL count |
 | [`hosts-entries.sh`](hosts-entries.sh) | prints four `/etc/hosts` lines from live state; never writes |
@@ -131,6 +131,7 @@ poc2     shop-vip-gw  172.18.255.16    True         True         poc1
 ```
 
 404 is a PASS in phase 0: the door exists. 000 is a FAIL. Demo 41 is where a 200 is the goal.
+After demo 41 attaches routes the doors return 200; `check.sh` PASSes on 404 (no routes yet) or 200 (routes attached) and FAILs on 000 or any other code, with MEASURED showing the code and which phase it implies.
 
 `hosts-entries.sh` never writes `/etc/hosts`. From live state this run:
 

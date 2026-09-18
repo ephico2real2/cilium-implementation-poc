@@ -81,7 +81,8 @@ else
   row fail "exactly one cluster holds the VIP l2announce lease" "poc1 holder=${poc1_holder:-absent} poc2 holder=${poc2_holder:-absent}" "a non-empty holderIdentity in exactly one context (a name with no holder is a dying lease)"
 fi
 
-# (e) VIP door from the Mac: 404 is a PASS (the door exists); 000 is a FAIL. Leaf issuer is the shared root.
+# (e) VIP door from the Mac: 404 (phase 0, no routes) or 200 (routes attached —
+# demo 41) is a PASS; 000 or any other code is a FAIL. Leaf issuer is the shared root.
 http_code() { # host addr — return 000 on curl failure, never concatenate the fallback onto a printed code
   local host=$1 addr=$2 code
   if ! code=$(curl -sk --resolve "$host:443:$addr" "https://$host/" \
@@ -92,13 +93,23 @@ http_code() { # host addr — return 000 on curl failure, never concatenate the 
   printf '%s' "$code"
 }
 
+door_measured() { # code — MEASURED column: the code and which phase it implies
+  case "$1" in
+    404) printf 'http_code=%s (phase 0, no routes)' "$1" ;;
+    200) printf 'http_code=%s (routes attached — demo 41)' "$1" ;;
+    *)   printf 'http_code=%s' "${1:-000}" ;;
+  esac
+}
+
 vip_code=$(http_code api.shop.poc.local "$VIP")
-if [ "$vip_code" = "404" ]; then
+if [ "$vip_code" = "404" ] || [ "$vip_code" = "200" ]; then
   row ok "VIP https://api.shop.poc.local @ $VIP answers" \
-    "http_code=$vip_code" "http_code=404 in phase 0"
+    "$(door_measured "$vip_code")" \
+    "http_code=404 (no routes yet) or 200 (routes attached — demo 41)"
 else
   row fail "VIP https://api.shop.poc.local @ $VIP answers" \
-    "http_code=${vip_code:-000}" "http_code=404 in phase 0; 000 means unreachable"
+    "http_code=${vip_code:-000}" \
+    "http_code=404 (no routes yet) or 200 (routes attached — demo 41); 000 or anything else is FAIL"
 fi
 
 vip_issuer=$(echo | openssl s_client -servername api.shop.poc.local \
@@ -117,11 +128,12 @@ fi
 door() { # host addr
   local host=$1 addr=$2 code issuer
   code=$(http_code "$host" "$addr")
-  if [ "$code" = "404" ]; then
-    row ok "https://$host @ $addr answers" "$code" "http_code=404 in phase 0"
+  if [ "$code" = "404" ] || [ "$code" = "200" ]; then
+    row ok "https://$host @ $addr answers" "$(door_measured "$code")" \
+      "http_code=404 (no routes yet) or 200 (routes attached — demo 41)"
   else
     row fail "https://$host @ $addr answers" "${code:-000}" \
-      "http_code=404 in phase 0; 000 means unreachable"
+      "http_code=404 (no routes yet) or 200 (routes attached — demo 41); 000 or anything else is FAIL"
   fi
 
   issuer=$(echo | openssl s_client -servername "$host" \

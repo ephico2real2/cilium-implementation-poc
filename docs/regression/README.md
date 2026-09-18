@@ -11,7 +11,7 @@ them.
 
 | Layer | What it is | How long | When |
 |---|---|---|---|
-| **1. The quick check** — `scripts/lab-regression.sh` | fifteen questions in plain English, each answered PASS or FAIL with the number that decided it | about a minute (the two saved runs started 62 s apart) | after any change, before saying "done" |
+| **1. The quick check** — `scripts/lab-regression.sh` | sixteen questions in plain English, each answered PASS or FAIL with the number that decided it | about a minute (the two saved runs started 62 s apart) | after any change, before saying "done" |
 | **2. Cilium's own connectivity test** — `cilium connectivity test --multi-cluster` | Cilium's 87 tests, 512 actions: pods talking to pods, services, the other cluster, the outside world, with and without policies | 13 minutes on this Mac | after an upgrade of Cilium itself |
 | **3. The whole lab from nothing** — the `lab-observability` GitHub Action | a fresh runner builds both clusters, installs every demo, generates traffic, generates and applies policies, checks every page, screenshots every dashboard | about 55 minutes | started by hand (`gh workflow run`) on the branch that changes a version pin; the slimmer `lab-regression` Action runs by itself on a push that touches the check or the pins |
 
@@ -91,7 +91,8 @@ The script prints one row per question. Here is what each row is really asking, 
 | 12 | The tutorial dashboards' queries return data | Do the 30 tutorial panels all have data — none says "No data", and none of the queries failed outright? |
 | 13 | Demo 37's two Gateway doors still behave | Are both doors up at their pinned addresses? |
 | 14 | The shop's public URL answers from a cluster | Does `https://api.shop.poc.local` return 200 with `X-Served-By` naming poc1 or poc2? WARN (not FAIL) when `shop-vip-gw` is absent — the CI lab before demos 40/41. |
-| 15 | Cilium's connectivity test result | If we ran layer 2, what did it say? |
+| 15 | gRPC answers through a Cilium door | Does poc2's `shop-gw` answer `grpc.health.v1.Health/Check` with `SERVING` for `grpc.poc2.shop.poc.local`? WARN when `grpcroute/grpc` is absent in `shop-edge`. |
+| 16 | Cilium's connectivity test result | If we ran layer 2, what did it say? |
 
 The real run after the upgrade is pasted below, unedited.
 

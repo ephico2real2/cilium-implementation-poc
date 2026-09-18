@@ -2,6 +2,12 @@
 # change (.177 in poc2's gateway-pool, api.poc2.shop.poc.local). The VIP Gateway is identical
 # (.16, api.shop.poc.local) — both clusters hold it, one announces it.
 #
+# shop-gw has a third listener (https-grpc) for demo 53: a GRPCRoute for grpc.poc2.shop.poc.local
+# cannot attach to `https` (that listener's hostname is api.poc2.shop.poc.local, and the Gateway
+# API forbids an HTTPRoute and a GRPCRoute sharing a hostname on one listener). Same port 443,
+# distinguished by SNI, same pattern as demo 09's two HTTPS listeners. The :80 listener has no
+# hostname and already serves plaintext for any Host — the GRPCRoute attaches there too (h2c).
+#
 #   kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/30-gateways-poc2.yaml
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
@@ -23,6 +29,19 @@ spec:
         certificateRefs:
           - kind: Secret
             name: shop-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector: {matchLabels: {gateway-access: shop-gw}}
+    - name: https-grpc
+      protocol: HTTPS
+      port: 443
+      hostname: grpc.poc2.shop.poc.local
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: grpc-tls
       allowedRoutes:
         namespaces:
           from: Selector

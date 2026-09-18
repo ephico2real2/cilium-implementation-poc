@@ -26,3 +26,23 @@ spec:
     name: ca-issuer
     kind: ClusterIssuer
     group: cert-manager.io
+---
+# Demo 53: a second leaf for gRPC on poc2's shop-gw. shop-tls cannot grow this name: a Gateway
+# listener has one hostname, shop-gw's https listener is already api.poc2.shop.poc.local, and a
+# GRPCRoute for a different name cannot attach to it (Gateway API GRPCRouteSpec.hostnames). The
+# same ClusterIssuer, so a client that trusts clustermesh-root-ca accepts this leaf too. Unused
+# on poc1 (no https-grpc listener there); apply is a merge.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: grpc-tls
+  namespace: shop-edge
+spec:
+  secretName: grpc-tls
+  commonName: grpc.poc2.shop.poc.local
+  dnsNames:
+    - grpc.poc2.shop.poc.local
+  issuerRef:
+    name: ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
