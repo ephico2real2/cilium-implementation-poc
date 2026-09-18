@@ -32,6 +32,8 @@ jobs:
   regression:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      LAB_TRUST_ROOT: "1"   # lab-up.sh puts the lab's root into the runner's OS trust store; ROOT_CA below points every curl at that bundle
     steps:
       - uses: actions/checkout@v5
 
@@ -43,6 +45,9 @@ jobs:
           set -o pipefail
           scripts/lab-up.sh poc1 poc2 2>&1 | tee lab-up.log
           echo "ROOT_CA=/etc/ssl/certs/ca-certificates.crt" >> "$GITHUB_ENV"
+          # the pool's addresses routed from the runner and the demo names into /etc/hosts (SETUP 3.5 and 8) — the check's own
+          # curls resolve from the cluster, but demo 38's scripts and the walker's login page go by name
+          scripts/lab-route.sh kind-poc1 | tail -8
 
       - name: The lab's images — built, loaded into every cluster
         run: |
@@ -53,6 +58,7 @@ jobs:
         run: |
           set -o pipefail
           scripts/lab-stack.sh routes monitoring spoke loki-observer hubble-cli 2>&1 | tee stack.log
+          scripts/lab-route.sh kind-poc1 | tail -8   # the names the stack added (grafana, cf2cnp) into /etc/hosts
 
       # demo 37 is applied by hand on the Mac; here its manifests go in so row 13 (the two doors) has something to measure
       - name: Demo 37's two doors — the shared routes-gw and team-b's own Gateway
@@ -74,7 +80,7 @@ jobs:
         run: |
           set -o pipefail
           demos/38-grafana-visual-grammar/provision.sh 2>&1 | tee tutorial.log
-          LAB_APPS_SKIP="springboot trust" scripts/lab-apps.sh lab26 lab30 dns forensic 2>&1 | tee apps.log
+          scripts/lab-apps.sh lab26 lab30 dns forensic 2>&1 | tee apps.log   # dns needs lab26's pos; LAB_APPS_SKIP only applies to "all"
           scripts/lab-apps.sh rounds 2 2>&1 | tee traffic.log
 
       - name: Cilium's connectivity test (optional)

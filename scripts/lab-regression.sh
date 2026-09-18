@@ -22,8 +22,10 @@
 # Exit code is the number of FAIL rows (0 = all good). WARN does not fail the run.
 set -uo pipefail; cd "$(dirname "$0")/.." || exit 1
 
-# pin from lab-stack.sh so a version bump is picked up here without editing this file
-EXPECT_CILIUM="${EXPECT_CILIUM:-$(grep -m1 'CILIUM_VERSION="${CILIUM_VERSION:-' scripts/lab-stack.sh | sed -E 's/.*:-([^}"]+).*/\1/')}"
+# the pin the lab is built from: scripts/bootstrap/versions.env (a plain KEY=value; the bootstraps refuse a disagreement
+# with lab-up.sh), or CILIUM_VERSION when the caller exports it — not lab-stack.sh's default, a third copy nothing checks
+# (OB1's review, 2026-09-18)
+EXPECT_CILIUM="${EXPECT_CILIUM:-${CILIUM_VERSION:-$(sed -n 's/^CILIUM_VERSION=//p' scripts/bootstrap/versions.env | head -1)}}"
 # same idea: the default in lab-policies.sh, overridable by CF2CNP_VERSION
 CF2CNP_VERSION="${CF2CNP_VERSION:-$(grep -m1 'CF2CNP_VERSION="${CF2CNP_VERSION:-' scripts/lab-policies.sh | sed -E 's/.*:-([^}"]+).*/\1/')}"
 CTX="${CTX:-kind-poc1}"
@@ -53,11 +55,19 @@ strip_ansi() { sed $'s/\x1b\\[[0-9;]*[A-Za-z]//g'; }
 grafana_pass() {
   k -n monitoring get secret monitoring-grafana -o jsonpath='{.data.admin-password}' | base64 -d | tr -d '\n'
 }
+# every name the check curls resolves to the Gateway's address read from the cluster — a runner has no /etc/hosts block
+# and the Mac's can lag a demo; the same idea as the browser walk's resolve map
+GW_ADDR=$(k -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
+resolve() { # host — the curl flag that pins the name to the Gateway, or nothing when the cluster gave no address
+  [ -n "$GW_ADDR" ] && printf -- '--resolve %s:443:%s' "$1" "$GW_ADDR"
+}
 grafana_get() { # path — GET Grafana with the lab CA and admin password
-  curl -sS -m 15 --cacert "$CA" -u "admin:${GRAFANA_PASS}" "https://grafana.poc.local$1"
+  # shellcheck disable=SC2046
+  curl -sS -m 15 --cacert "$CA" $(resolve grafana.poc.local) -u "admin:${GRAFANA_PASS}" "https://grafana.poc.local$1"
 }
 prom_query() { # PromQL — instant query through Grafana's Prometheus proxy
-  curl -sS -m 20 --cacert "$CA" -u "admin:${GRAFANA_PASS}" \
+  # shellcheck disable=SC2046
+  curl -sS -m 20 --cacert "$CA" $(resolve grafana.poc.local) -u "admin:${GRAFANA_PASS}" \
     --data-urlencode "query=$1" \
     "https://grafana.poc.local/api/datasources/proxy/uid/${PROM_UID}/api/v1/query"
 }
@@ -81,7 +91,7 @@ check_cilium_version() {
 }
 
 check_agent_health() {
-  local ctx c out val_c val_e parts
+  local ctx c out val_c val_e parts bad=0
   parts=""
   for ctx in "$CTX" "$PEER_CTX"; do
     c=${ctx#kind-}
@@ -90,8 +100,11 @@ check_agent_health() {
     val_c=$(printf '%s\n' "$out" | grep 'Cilium:' | head -1 | sed 's/.*Cilium:[[:space:]]*//' | awk '{print $1}')
     val_e=$(printf '%s\n' "$out" | grep 'Envoy DaemonSet:' | head -1 | sed 's/.*Envoy DaemonSet:[[:space:]]*//' | awk '{print $1}')
     parts="${parts:+$parts; }${c} Cilium=${val_c:-?} Envoy=${val_e:-?}"
+    # exit 0 alone is not health — the two lines must read OK (the reviewers' finding, 2026-09-18)
+    [ "${val_c:-}" = OK ] && [ "${val_e:-}" = OK ] || bad=1
   done
-  row ok "Every Cilium agent is healthy" "$parts" "cilium status --wait exits 0 on both"
+  if [ "${bad:-0}" = 0 ]; then row ok "Every Cilium agent is healthy" "$parts" "cilium status --wait exits 0 and reads Cilium: OK, Envoy DaemonSet: OK on both"
+  else row fail "Every Cilium agent is healthy" "$parts" "cilium status --wait exits 0 and reads Cilium: OK, Envoy DaemonSet: OK on both"; fi
 }
 
 check_clustermesh() {
@@ -109,13 +122,13 @@ check_clustermesh() {
 }
 
 check_gateway_urls() {
-  local url code host why bad=0 okc=0 fail_list="" errf gw240 gw243 addr
+  # the names the stack always publishes, plus the demos' names only when their HTTPRoute exists — a trimmed CI lab has
+  # no bank and no perf rig (probe-*), and a name that is not deployed is "skipped", not a regression (OB1, 2026-09-18)
+  local url code host why bad=0 okc=0 total=0 fail_list="" skipped="" errf gw240 gw243 addr routes
   errf=$(mktemp)
-  # resolve the names to the Gateways' addresses read from the cluster — the runner has no /etc/hosts block and the Mac's
-  # may lag a demo (probe-a.poc.local was missing from it on 2026-09-18); the browser walk resolves the same way
   gw240=$(k -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
   gw243=$(k -n team-b get gateway team-b-gw -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
-  # bank may answer 200 or 401 (the login wall); every other name must be 200
+  routes=$(k get httproute -A -o jsonpath='{range .items[*]}{.spec.hostnames[*]}{" "}{end}' 2>/dev/null || true)
   for url in \
     https://grafana.poc.local/api/health \
     https://cf2cnp.poc.local/health \
@@ -125,28 +138,27 @@ check_gateway_urls() {
     https://probe.team-b.poc.local/ \
     https://bank.poc.local/
   do
-    : >"$errf"
-    # curl prints 000 on DNS/timeout AND exits non-zero — do not append another 000
     host=${url#https://}; host=${host%%/*}
+    case " $routes " in *" $host "*) ;; *) skipped="${skipped:+$skipped, }$host"; continue ;; esac   # no HTTPRoute for it: not deployed here
+    total=$((total+1))
+    : >"$errf"
     case "$host" in *.team-b.poc.local) addr=${gw243:-$gw240} ;; *) addr=$gw240 ;; esac
+    # curl prints 000 on DNS/timeout AND exits non-zero — do not append another 000
     code=$(curl -sS -o /dev/null -m 8 -w '%{http_code}' --cacert "$CA" ${addr:+--resolve "$host:443:$addr"} "$url" 2>"$errf" || true)
     code=${code:-000}
     why=$(tr '\n' ' ' <"$errf" | sed 's/[[:space:]]*$//')
-    if [ "$url" = "https://bank.poc.local/" ]; then
-      if [ "$code" = 200 ] || [ "$code" = 401 ]; then okc=$((okc+1))
-      else bad=1; fail_list="${fail_list:+$fail_list, }${host} ${code}${why:+ ($why)}"; fi
-    elif [ "$code" = 200 ]; then okc=$((okc+1))
+    # bank may answer 200 or 401 (the login wall); every other name must be 200
+    if [ "$code" = 200 ] || { [ "$host" = bank.poc.local ] && [ "$code" = 401 ]; }; then okc=$((okc+1))
     else bad=1; fail_list="${fail_list:+$fail_list, }${host} ${code}${why:+ ($why)}"; fi
   done
   rm -f "$errf"
-  if [ "$bad" = 0 ]; then
-    if [ -z "$fail_list" ] && [ "$okc" = 7 ]; then
-      row ok "The Gateway answers on every published address" "7/7 200" "all 7 URLs return 200 (bank may be 401)"
-    else
-      row ok "The Gateway answers on every published address" "${okc}/7 200" "all 7 URLs return 200 (bank may be 401)"
-    fi
+  local measured="${okc}/${total} answered${skipped:+; not deployed here: $skipped}"
+  if [ "$total" -lt 4 ]; then
+    row fail "The Gateway answers on every published address" "only $total of the stack's names have a route: $routes" "grafana, cf2cnp, shop-a, shop.team-b always; bank, probe-* when deployed"
+  elif [ "$bad" = 0 ]; then
+    row ok "The Gateway answers on every published address" "$measured" "every deployed name answers 200 (bank may be 401)"
   else
-    row fail "The Gateway answers on every published address" "$fail_list" "all 7 URLs return 200 (bank may be 401)"
+    row fail "The Gateway answers on every published address" "$fail_list${skipped:+; not deployed here: $skipped}" "every deployed name answers 200 (bank may be 401)"
   fi
 }
 
@@ -165,7 +177,8 @@ check_l2_leases() {
   names=$(printf '%s' "$raw" | jq -r '.items[] | select(.metadata.name | test("l2announce")) | .metadata.name' 2>/dev/null)
   holders=$(printf '%s' "$raw" | jq -r '.items[] | select(.metadata.name | test("l2announce")) | .spec.holderIdentity // ""' 2>/dev/null)
   n=$(printf '%s\n' "$names" | grep -c . || true)
-  empty=$(printf '%s\n' "$holders" | grep -c '^$' || true)
+  # counted by jq, not by grep over the text: $(…) drops a trailing empty line, so a last lease without a holder would vanish
+  empty=$(printf '%s' "$raw" | jq '[.items[] | select(.metadata.name | test("l2announce")) | select((.spec.holderIdentity // "") == "")] | length' 2>/dev/null || echo 1)
   holders=$(printf '%s\n' "$holders" | grep -v '^$' | tr '\n' ' ' | sed 's/[[:space:]]*$//')
   if [ "${n:-0}" -gt 0 ] && [ "${empty:-0}" = 0 ]; then
     row ok "The load-balancer addresses have an owner (L2 leases)" "${n} leases, holders: ${holders}" "every l2announce lease has a holder"
@@ -216,18 +229,20 @@ check_observer() {
   ready=${ready:-0}
   lines=$(k -n hubble-observer logs deploy/hubble-observer --since=2m 2>/dev/null | wc -l | tr -d ' ')
   lines=${lines:-0}
-  if [ "$ready" = 1 ] && [ "${lines:-0}" -gt 0 ]; then
-    row ok "The flow observer is streaming to Loki" "ready ${ready}/${dest}, ${lines} lines in 2 min" "ready 1/1 and log lines in the last 2 min > 0"
+  if [ "$ready" = "$dest" ] && [ "${ready:-0}" -gt 0 ] && [ "${lines:-0}" -gt 0 ]; then
+    row ok "The flow observer is streaming to Loki" "ready ${ready}/${dest}, ${lines} lines in 2 min" "ready == desired and log lines in the last 2 min > 0"
   else
-    row fail "The flow observer is streaming to Loki" "ready ${ready}/${dest}, ${lines} lines in 2 min" "ready 1/1 and log lines in the last 2 min > 0"
+    row fail "The flow observer is streaming to Loki" "ready ${ready}/${dest}, ${lines} lines in 2 min" "ready == desired and log lines in the last 2 min > 0"
   fi
 }
 
 check_cf2cnp() {
   local code img tag
-  code=$(curl -s -o /dev/null -m 8 -w '%{http_code}' --cacert "$CA" https://cf2cnp.poc.local/health 2>/dev/null || echo 000)
+  # shellcheck disable=SC2046
+  code=$(curl -s -o /dev/null -m 8 -w '%{http_code}' --cacert "$CA" $(resolve cf2cnp.poc.local) https://cf2cnp.poc.local/health 2>/dev/null || true)
+  code=${code:-000}   # curl prints 000 itself on a failure — never append a second one
   img=$(k -n hubble-observer get deploy hubble-observer-cf2cnp -o jsonpath='{.spec.template.spec.containers[0].image}' 2>&1) || img="$img"
-  tag=$(printf '%s' "$img" | sed -n 's|.*/[^:]*:\([^@]*\).*|\1|p')
+  tag=$(printf '%s' "$img" | sed -e 's/@.*//' -e 's/.*://')   # the tag is what follows the last colon, digest stripped
   tag=${tag:-?}
   if [ "$code" = 200 ] && [ "$tag" = "$CF2CNP_VERSION" ]; then
     row ok "cf2cnp (the policy generator) answers and is the expected version" "health ${code}, image ${tag}" "health 200 and image tag ${CF2CNP_VERSION}"
@@ -260,6 +275,8 @@ check_tutorial_queries() {
   fi
   out=$(bash demos/38-grafana-visual-grammar/check.sh 2>&1) || true
   nodata=$(printf '%s\n' "$out" | grep -c 'NO DATA' || true)
+  errs=$(printf '%s\n' "$out" | grep -c '→ ERR' || true)   # check.sh prints "→ ERR" when the query itself failed — not data
+  nodata=$((nodata + errs))
   panels=$(printf '%s\n' "$out" | grep -c '→' || true)
   if [ "${nodata:-0}" = 0 ] && [ "${panels:-0}" -gt 0 ]; then
     row ok "The tutorial dashboards' queries return data" "${panels} panels, 0 NO DATA" "0 NO DATA lines (count → lines as panels)"
@@ -293,7 +310,7 @@ check_connectivity() {
     row warn "Cilium's own connectivity test, if a result file is present" "not run" "0 failed, or only check-log-errors (the log scan)"
     return 0
   fi
-  line=$(grep -E '❌ .*/[0-9]+ tests failed|✅ All [0-9]+ tests .* successful' "$f" | tail -1 | sed 's/[[:space:]]*$//')
+  line=$(grep -E '❌ .*/[0-9]+ tests failed|✅ .*All [0-9]+ tests .* successful' "$f" | tail -1 | sed 's/[[:space:]]*$//')
   if [ -z "$line" ]; then
     row fail "Cilium's own connectivity test, if a result file is present" "no summary line in ${f}" "0 failed, or only check-log-errors (the log scan)"
     return 0
