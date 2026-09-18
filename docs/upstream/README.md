@@ -61,10 +61,21 @@ Attribution, DCO and Licensing). What it requires, quoted:
   you created using Generative AI tools, **don't submit it**."
 - No trailer format is mandated (no `Assisted-by:`), the declaration goes in the PR description; the policy carries
   no version or date.
+- **The words must be yours — the clause this lab missed until 2026-09-18.** *Unacceptable Use*, first bullet, quoted:
+  "It is not acceptable to use Generative AI tools to: Communicate in any Cilium community space with content that is
+  substantially written using Generative AI tools. For example, it is not acceptable to send such text on Slack or
+  GitHub, whether initiating or responding to discussion with other community members." Also there: no submitting
+  content "you have not reviewed in careful detail, including testing", no relying "solely or primarily on Generative
+  AI output for technical problem solving, architectural decision making", no submission "you cannot explain,
+  contextualize, or justify … as part of review". **Consequence for this lab:** a draft under `docs/upstream/drafts/`
+  is a *fact sheet* — measurements, links, commands, the release-note block — and the operator writes the issue, PR
+  body or comment **in their own words** from it before posting. The three posts of 2026-09-17/18 (#48811, the #25676
+  comment, the #48563 comment) were AI-drafted and posted verbatim on the operator's word; they were read and approved,
+  but they were on the wrong side of this bullet, and the process below is corrected so the next one is not.
 
 How this lab meets it — every change here was prepared with an AI assistant (Claude Code) as the orchestrator, with
 Cursor's agent writing code from briefs, and that is declared, not hidden. The declaration paragraph for a PR from this
-lab, to be adapted, not copied blindly:
+lab — **facts to write from; the sentence that goes up is the operator's**:
 
 > **Generative AI use.** This change was prepared with an AI coding assistant (Claude Code, with Cursor's agent
 > generating code from written briefs). The human contributor directed the work, read every line of the diff, and
@@ -90,6 +101,8 @@ the measurement, the PR carries a screenshot before and after, and the release n
 | *Hubble Metrics and Monitoring* without a `cluster` variable | dashboard PR | the same file, §7 | the lab's copy measured (259.6 = 212.2 + 47.4); the upstream patch is the same script over the chart's file |
 | The observer flow table's cluster columns | PR on onzack/hubble-observer | ephico2real2/hubble-observer#1 | on the fork, measured; goes upstream beside #16 — upstream released 2.7.0 on 2026-09-15 with five of the fork's PRs merged (#9, #10, #11, #13, #14), #16 still open: [releases/hubble-observer-2.7.0.md](releases/hubble-observer-2.7.0.md) |
 | The agent image, rescanned: the Ubuntu base's `pebble` the last Go 1.26.5 binary in the image; `v1.20`'s grpc / x/crypto bumps | one issue posted, one closed by upstream's own Renovate | [cilium-image-scan.md](cilium-image-scan.md) | **[cilium/cilium#48811](https://github.com/cilium/cilium/issues/48811)** posted 2026-09-17 (pebble: bump the digest or drop the binary); the grpc/x/crypto candidate was **not** posted — Renovate opened cilium/cilium#48808 for `v1.20` twelve minutes before the re-check |
+| **The fix itself, ported to `main`** — `ephico2real2/cilium@hubble/remote-workload-main` (two commits: CEP `status.workloads` → ipcache → both parsers; schema 1.34.5; tests; upgrade note) | PR to cilium/cilium **or** input to the open draft #48563 — the operator decides ([the draft's §"The decision"](drafts/cilium-pr-remote-workload.md)) | [drafts/cilium-pr-remote-workload.md](drafts/cilium-pr-remote-workload.md), [REVIEW_CILIUM_UPSTREAM_PR.md](../REVIEW_CILIUM_UPSTREAM_PR.md) | reviewed by OB1 + Codex + Grok 2026-09-18; unsigned until the operator's DCO; #48563 already has the L7 half, not the bump |
+| `pkg/k8s/utils/workload.go` `GetWorkloadMetaFromPod` deletes `deploymentconfig` from the cached Pod's **shared** label map (shallow copy of `ObjectMeta`) — the second lookup flips `DeploymentConfig/shop` to `ReplicationController/shop-rc`; OpenShift-only in effect | issue + one-line fix (`maps.Clone` first) + a two-iteration test | found by Codex in [REVIEW_CILIUM_UPSTREAM_PR.md](../REVIEW_CILIUM_UPSTREAM_PR.md), measured there (fails before, passes after) | candidate; not part of the remote-workload PR; through the gate when the operator wants it |
 
 ## 4. The rule this lab keeps
 
