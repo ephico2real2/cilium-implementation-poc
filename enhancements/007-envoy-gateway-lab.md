@@ -151,6 +151,7 @@ the PR.
 | D7 | `shopapi` + `shopctl` reused as the app; no database, no policies | **Taken** — the Gateway and the LB are the subject; a second shop would dilute it |
 | D8 | A self-signed root for this lab (`docs/eg-root-ca.crt`), not the poc clusters' `clustermesh-root-ca` | **Taken** — independence; a client trusts two files, one per lab, and the README says why |
 | D9 | gRPC through `GRPCRoute` on both stacks, with demo 09's app and test unchanged | **Taken** (operator, 2026-09-18) — one app, one client, one route shape; the only variables are the Gateway implementation and the door; poc2 gets its first gRPC route on `shop-gw` rather than a new Gateway |
+| D10 | **Gateway API standard channel only — no experimental features in this lab** | **Taken** (operator, 2026-09-18: *"We don't need experimental features in this setup for now. We will install and use them in another lab later. So keep this clean"*) — the CRDs come from `standard-install.yaml` v1.6.2; the CRD chart runs with `crds.gatewayAPI.enabled=false` and the controller chart with `crds.enabled=false`, so the experimental channel cannot arrive by a side door; `check.sh` in demo 50 asserts `channel: standard` on every Gateway API CRD; Envoy Gateway features that need experimental fields are out of scope here and named in `docs/EG-VS-CILIUM.md` as "another lab" |
 
 ## 6. Stack facts the plan relies on
 

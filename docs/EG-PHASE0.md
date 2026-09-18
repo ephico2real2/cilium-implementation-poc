@@ -566,6 +566,9 @@ Revision 2 of enhancement 007, from this record:
    Alternative for a one-owner install: step (2) with `crds.gatewayAPI.enabled=true crds.gatewayAPI.channel=standard`
    replaces step (1) — the same upstream content, Helm-managed; the guide names it as a note and keeps the YAML.
    Nothing of Envoy Gateway's is skipped: eg1 has all eight `gateway.envoyproxy.io` CRDs and two `EnvoyProxy` objects.
+   **Standard channel only** (the operator, 2026-09-18: no experimental features in this lab; another lab later):
+   measured — every `gateway.networking.k8s.io` CRD on eg1 carries `channel: standard`, `bundle-version: v1.6.2`; demo 50's
+   `check.sh` asserts it on every CRD so the experimental set cannot arrive unnoticed.
 3. **The chart does not create GatewayClass `eg`.** Apply it (`controllerName:
    gateway.envoyproxy.io/gatewayclass-controller`).
 4. **Coexistence is the path** (not `scripts/eg-lb.sh`). Three filters, all required:
