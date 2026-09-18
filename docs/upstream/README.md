@@ -86,10 +86,10 @@ the measurement, the PR carries a screenshot before and after, and the release n
 
 | Candidate | Kind | File | Status |
 |---|---|---|---|
-| Hubble's `destination_workload` empty for Gateway traffic to a remote backend | bug report, then a dashboard PR | [hubble-l7-dashboard.md](hubble-l7-dashboard.md) | measured, drafted, patch made and verified — awaiting the operator's word to post |
+| Hubble's `destination_workload` empty for Gateway traffic to a remote backend | comment on the existing bug, then a dashboard PR | [hubble-l7-dashboard.md](hubble-l7-dashboard.md) | posted 2026-09-17 as a comment on [cilium/cilium#25676](https://github.com/cilium/cilium/issues/25676) (open since 2023; the remote branch of `pkg/hubble/parser/common/endpoint.go` has no workload data) — a first new issue, #48812, closed as its duplicate; the dashboard PR awaits the operator's word |
 | *Hubble Metrics and Monitoring* without a `cluster` variable | dashboard PR | the same file, §7 | the lab's copy measured (259.6 = 212.2 + 47.4); the upstream patch is the same script over the chart's file |
 | The observer flow table's cluster columns | PR on onzack/hubble-observer | ephico2real2/hubble-observer#1 | on the fork, measured; goes upstream beside #16 — upstream released 2.7.0 on 2026-09-15 with five of the fork's PRs merged (#9, #10, #11, #13, #14), #16 still open: [releases/hubble-observer-2.7.0.md](releases/hubble-observer-2.7.0.md) |
-| The agent image, rescanned: `v1.20` missing the grpc 1.83.2 / x/crypto 0.55.0 security bumps (Renovate autoclosed #48575); the Ubuntu base's `pebble` the last Go 1.26.5 binary in the image | two issues (dependency bump; base-image cleanup) | [cilium-image-scan.md](cilium-image-scan.md) | measured 2026-09-17 with trivy and grype, 128 → 13 HIGH across 1.20.1 → 1.20.2, vulnerable packages shown not linked; drafted — awaiting the operator's word to post |
+| The agent image, rescanned: the Ubuntu base's `pebble` the last Go 1.26.5 binary in the image; `v1.20`'s grpc / x/crypto bumps | one issue posted, one closed by upstream's own Renovate | [cilium-image-scan.md](cilium-image-scan.md) | **[cilium/cilium#48811](https://github.com/cilium/cilium/issues/48811)** posted 2026-09-17 (pebble: bump the digest or drop the binary); the grpc/x/crypto candidate was **not** posted — Renovate opened cilium/cilium#48808 for `v1.20` twelve minutes before the re-check |
 
 ## 4. The rule this lab keeps
 
