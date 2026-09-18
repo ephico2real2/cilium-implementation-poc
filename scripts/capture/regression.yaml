@@ -1,0 +1,60 @@
+# The pages the regression check touches (scripts/lab-regression.sh), for scripts/capture/walk.js — captured by
+# .github/workflows/lab-regression.yaml after the check so the run page shows what the rows measured. Each page is a
+# test: the panels that may say "No data" are named with the reason; any other empty panel fails the walk.
+# ${GW} = routes-gw's address, ${GW_TEAM_B} = team-b-gw's (both read from the cluster by the workflow).
+viewport: {width: 1600, height: 1100}
+resolve:
+  grafana.poc.local: ${GW}
+  cf2cnp.poc.local: ${GW}
+  shop-a.poc.local: ${GW}
+  shop.team-b.poc.local: ${GW_TEAM_B}
+login:
+  url: https://grafana.poc.local/login
+  user: ["input[name=user]", admin]
+  password: ["input[name=password]", "${GRAFANA_PASSWORD}"]
+  submit: "button[type=submit]"
+
+pages:
+  # ---- row 9 and the redesign of 2026-09-17: the observer dashboard (Loki flow logs) with its captions
+  - name: regression-observer-dashboard
+    evidence: panels
+    settleSeconds: 180
+    before: 8000
+    url: https://grafana.poc.local/d/hubble-observer-23862?orgId=1&from=now-30m&to=now
+    expect:
+      panelsMin: 9
+      noDataAllowed:
+        - "Top dropped destinations — by DNS name"   # fills only when a DNS-visibility source is dropped (demo 31's pos); the labs' round may not include one
+        - Policy drops by denying policy             # names a rule only for an explicit deny; default-deny drops show as one grey slice or nothing
+
+  # ---- rows 7 and 8: Hubble metrics from both clusters, forwards and drops (the lab's per-cluster dashboard)
+  - name: regression-hubble-per-cluster
+    evidence: panels
+    url: https://grafana.poc.local/d/hubble-metrics-per-cluster?orgId=1&from=now-30m&to=now&var-cluster=All
+    expect: {panelsMin: 10}
+
+  # ---- the L7 dashboard keyed on the app labels (the workaround for cilium/cilium#25676, docs/HUBBLE-L7-LABELS.md)
+  - name: regression-l7-by-app
+    evidence: panels
+    url: https://grafana.poc.local/d/hubble-l7-http-by-app?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-destination_namespace=cf2cnp-lab30&var-destination_app=All&var-source_namespace=All&var-source_app=All&var-reporter=All
+    expect: {panelsMin: 8}
+
+  # ---- row 12: the tutorial's Cilium page (demo 38) — the grammar on Hubble metrics
+  - name: regression-tutorial-cilium
+    evidence: panels
+    url: https://grafana.poc.local/d/tut-6-cilium?orgId=1&from=now-30m&to=now&kiosk
+    expect: {panelsMin: 3, noDataAllowed: []}
+
+  # ---- row 4: two of the seven public names, seen by a browser (the Gateway's certificate is the lab's root's)
+  - name: regression-shop-team-a
+    evidence: text
+    settle: false
+    before: 2000
+    url: https://shop-a.poc.local/
+    expect: {text: [shop]}
+  - name: regression-shop-team-b
+    evidence: text
+    settle: false
+    before: 2000
+    url: https://shop.team-b.poc.local/
+    expect: {text: [shop]}

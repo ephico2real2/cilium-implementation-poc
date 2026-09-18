@@ -1,0 +1,135 @@
+# lab-regression — the plain-English regression check of the lab, on its own: two kind clusters meshed, the stack the
+# check needs (routes, monitoring, spoke, loki-observer, the hubble CLI), demo 37's two doors, the tutorial dashboards,
+# one round of the labs' traffic so drops and forwards exist, then scripts/lab-regression.sh (fourteen PASS/FAIL rows)
+# and a browser walk of the dashboards the rows touch (scripts/capture/regression.yaml) — captures on the run page.
+# About 35 minutes; the full lab (lab-observability.yaml) is 55 and does everything else too. docs/regression/README.md
+# explains every row in simple words. Tracked in issue #38.
+name: lab-regression
+
+on:
+  workflow_dispatch:
+    inputs:
+      connectivity_test:
+        description: also run `cilium connectivity test --multi-cluster` (Cilium's own 87 tests; ~15 min; the runner has died under it once — run 35283148292)
+        type: boolean
+        default: false
+  push:
+    branches-ignore: [main, ci-captures]
+    paths:
+      - scripts/lab-regression.sh
+      - scripts/lab-stack.sh
+      - scripts/lab-up.sh
+      - scripts/bootstrap/versions.env
+      - scripts/capture/regression.yaml
+      - demos/25-hubble-observer-loki/dashboard-design.py
+      - demos/38-grafana-visual-grammar/**
+      - .github/workflows/lab-regression.yaml
+
+permissions:
+  contents: write   # the browser walk pushes its PNGs to the ci-captures branch so the job summary can show them
+
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: The runner, bootstrapped — the tools at their pins, the preflight table
+        run: scripts/bootstrap/ubuntu.sh
+
+      - name: Bring the lab up — poc1, poc2, meshed
+        run: |
+          set -o pipefail
+          scripts/lab-up.sh poc1 poc2 2>&1 | tee lab-up.log
+          echo "ROOT_CA=/etc/ssl/certs/ca-certificates.crt" >> "$GITHUB_ENV"
+
+      - name: The lab's images — built, loaded into every cluster
+        run: |
+          set -o pipefail
+          scripts/lab-images.sh poc1 poc2 2>&1 | tee images.log
+
+      - name: The stack the check needs — routes, monitoring, the spoke, Loki + the observer, the hubble CLI
+        run: |
+          set -o pipefail
+          scripts/lab-stack.sh routes monitoring spoke loki-observer hubble-cli 2>&1 | tee stack.log
+
+      # demo 37 is applied by hand on the Mac; here its manifests go in so row 13 (the two doors) has something to measure
+      - name: Demo 37's two doors — the shared routes-gw and team-b's own Gateway
+        run: |
+          set -o pipefail
+          k=kubectl; ctx=--context=kind-poc1
+          for f in 00-namespaces 10-app 20-shared-route 30-team-gateway 35-team-rbac 40-one-app-two-doors 50-hostname-policy; do
+            $k $ctx apply -f "demos/37-two-gateways/$f.yaml"
+          done
+          for i in $(seq 1 36); do
+            a=$($k $ctx -n team-b get gateway team-b-gw -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
+            p=$($k $ctx -n team-b get gateway team-b-gw -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' 2>/dev/null || true)
+            [ -n "$a" ] && [ "$p" = True ] && break; sleep 5
+          done
+          echo "team-b-gw: address=${a:-NONE} Programmed=${p:-?}"
+          $k $ctx get gateway -A
+
+      - name: The tutorial dashboards (demo 38) and one round of the labs' traffic — so drops and forwards exist
+        run: |
+          set -o pipefail
+          demos/38-grafana-visual-grammar/provision.sh 2>&1 | tee tutorial.log
+          LAB_APPS_SKIP="springboot trust" scripts/lab-apps.sh lab26 lab30 dns forensic 2>&1 | tee apps.log
+          scripts/lab-apps.sh rounds 2 2>&1 | tee traffic.log
+
+      - name: Cilium's connectivity test (optional)
+        if: ${{ inputs.connectivity_test }}
+        timeout-minutes: 40
+        run: |
+          set -o pipefail
+          cilium connectivity test --context kind-poc1 --multi-cluster kind-poc2 --test '!no-unexpected-packet-drops' 2>&1 | tee connectivity.log || true
+          echo "CONNECTIVITY_RESULT=$PWD/connectivity.log" >> "$GITHUB_ENV"
+
+      - name: The regression check — fourteen rows, PASS or FAIL with the number that decided it
+        id: check
+        run: |
+          set -o pipefail
+          scripts/lab-regression.sh 2>&1 | tee regression.log || echo "fails=$?" >> "$GITHUB_OUTPUT"
+          { echo '## Regression check'; echo; echo '```text'; cat regression.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: The addresses the pages live at
+        id: addr
+        run: |
+          echo "gw=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}')" >> "$GITHUB_OUTPUT"
+          echo "gw_b=$(kubectl --context kind-poc1 -n team-b get gateway team-b-gw -o jsonpath='{.status.addresses[0].value}')" >> "$GITHUB_OUTPUT"
+
+      - name: Captures — the dashboards the rows touch, with their expectations
+        uses: ./.github/actions/browser-walk
+        with:
+          spec: scripts/capture/regression.yaml
+          out: captures
+          env-json: '{"GW":"${{ steps.addr.outputs.gw }}","GW_TEAM_B":"${{ steps.addr.outputs.gw_b }}","GRAFANA_PASSWORD":"poc-grafana"}'
+
+      - name: The verdict
+        if: always()
+        run: |
+          echo "- regression rows failed: ${{ steps.check.outputs.fails || 0 }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- how to read every row: docs/regression/README.md · tracking issue #38" >> "$GITHUB_STEP_SUMMARY"
+          [ -z "${{ steps.check.outputs.fails }}" ] || { echo "::error::${{ steps.check.outputs.fails }} regression row(s) FAIL — see the table above"; exit 1; }
+
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-regression
+          path: |
+            lab-up.log
+            images.log
+            stack.log
+            tutorial.log
+            apps.log
+            traffic.log
+            connectivity.log
+            regression.log
+            output/regression/
+            captures/
+          if-no-files-found: ignore
+
+      - name: Down
+        if: always()
+        run: scripts/lab-down.sh || true
