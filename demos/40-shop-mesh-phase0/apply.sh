@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # apply.sh — land demo 40 phase 0 on both clusters: the shared VIP pool, the L2 exclusion, the
 # empty doors, the leaf, shopapi:local and both clients. Idempotent. Builds happen here (gotcha
-# #118 (PR #44)); measurements start in demo 41 after the Docker VM is quiet.
+# #118); measurements start in demo 41 after the Docker VM is quiet.
 #
 #   demos/40-shop-mesh-phase0/apply.sh
 #   CONTEXTS="kind-poc1 kind-poc2" demos/40-shop-mesh-phase0/apply.sh
@@ -33,7 +33,7 @@ gw_file() {
   esac
 }
 
-echo "== 0. build shopapi:local and shopctl (gotcha #118 (PR #44): builds in this phase, not during measurement)"
+echo "== 0. build shopapi:local and shopctl (gotcha #118: builds in this phase, not during measurement)"
 rec demos/40-shop-mesh-phase0/shopapi/build.sh
 rec demos/40-shop-mesh-phase0/client/go/shopctl/build.sh
 

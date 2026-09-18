@@ -5,7 +5,7 @@ revision 4, tracking issue #42. Demo 35 is the platform this builds on; demo 41 
 platform behind these doors and starts measuring. This phase only lays the ground.
 
 Builds happen here (`shopapi:local`, both `shopctl`s). That is a build on the Docker VM, and it is
-allowed in this phase (gotcha #118 (PR #44)). Measurements start in demo 41, after the VM is quiet.
+allowed in this phase (gotcha #118). Measurements start in demo 41, after the VM is quiet.
 
 ## Summary context — the enterprise case
 
@@ -217,4 +217,4 @@ namespace `shop-edge` and the `gateway-access: shop-gw` label apply.sh added to 
 
 Demo 41 deploys the shop platform in both clusters, attaches HTTPRoutes to these doors, and starts
 measuring. The image `shopapi:local` is already on all four nodes; both clients are already built.
-Do not rebuild during that demo (gotcha #118 (PR #44)).
+Do not rebuild during that demo (gotcha #118).
