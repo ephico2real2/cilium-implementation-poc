@@ -1,6 +1,6 @@
 # Enhancement 006 — the BGP tutorial: a four-router company fabric in docker compose, an external router peering with Cilium, and the live dashboard running in Kubernetes
 
-Status: **plan, revision 1 — nothing built** (2026-09-18). Written from the operator's brief, a full read of
+Status: **plan, revision 1 — nothing built** — tracking issue [#52](https://github.com/ephico2real2/cilium-implementation-poc/issues/52) (2026-09-18). Written from the operator's brief, a full read of
 [vadaszgergo/bgp-lab-with-dashboard](https://github.com/vadaszgergo/bgp-lab-with-dashboard) (cloned to
 `~/gitRepos/bgp-lab-with-dashboard`, commit `aaaaac1`) and its blog post
 [Make BGP visible: a live topology dashboard with Containerlab](https://gergovadasz.hu/make-bgp-visible-a-live-topology-dashboard-with-containerlab/),
