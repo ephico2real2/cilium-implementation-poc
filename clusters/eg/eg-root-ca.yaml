@@ -1,0 +1,43 @@
+# The vanilla lab's own root (enhancement 007 D8, demo 50). Created in eg1 only.
+# The Secret this Certificate writes is copied to eg2 so both ClusterIssuers sign
+# from the same key. The PEM is exported to .tmp/eg-root-ca.crt (gitignored) —
+# issue #60: a committed root drifts on every rebuild.
+#
+#   1. Issuer selfsigned-bootstrap — signs only this root (a root is self-signed).
+#   2. Certificate eg-root-ca — CN eg-root-ca, isCA, 10 years.
+#   3. ClusterIssuer eg-ca-issuer — signs leaves from Secret/eg-root-ca.
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned-bootstrap
+  namespace: cert-manager
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: eg-root-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: eg-root-ca
+  duration: 87600h    # 10 years
+  renewBefore: 720h   # 30 days
+  secretName: eg-root-ca
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: selfsigned-bootstrap
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: eg-ca-issuer
+spec:
+  ca:
+    secretName: eg-root-ca

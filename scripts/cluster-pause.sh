@@ -19,7 +19,23 @@ for c in "$@"; do
   docker network inspect "$net" --format '{{range .Containers}}{{.IPv4Address}} {{.Name}}{{println}}{{end}}' \
     | sed 's#/[0-9]*##' | grep -E " $c-" | sort -t. -k4 -n > "$map"
   echo "== $c on network '$net' — recorded $(wc -l < "$map" | tr -d ' ') containers to $map:"; sed 's/^/   /' "$map"
+  # kind starts its nodes with --restart=on-failure:1, and `docker stop` ends a node with exit 137 — a "failure" —
+  # so Docker restarted every node about a minute after the first pause (2026-09-18: all four back "Up" while the
+  # operator was told they were down; gotcha #119). The policy is turned off before the stop and restored by
+  # cluster-resume.sh. Docker Desktop sometimes answers "did not receive an exit event" and stops the node anyway;
+  # the loop below re-stops whatever is still running, then verifies nothing came back.
   # shellcheck disable=SC2046
-  docker stop $(awk '{print $2}' "$map") >/dev/null && echo "   stopped."
+  docker update --restart=no $(awk '{print $2}' "$map") >/dev/null
+  for _ in 1 2 3; do
+    running=$(docker ps --format '{{.Names}}' | grep -F -x -f <(awk '{print $2}' "$map") || true)
+    [ -z "$running" ] && break
+    # shellcheck disable=SC2086
+    docker stop -t 30 $running >/dev/null 2>&1 || true
+  done
+  sleep 5
+  if running=$(docker ps --format '{{.Names}}' | grep -F -x -f <(awk '{print $2}' "$map")); then
+    echo "   NOT stopped (still running): $running" >&2; exit 1
+  fi
+  echo "   stopped (restart policy set to 'no' until cluster-resume.sh)."
 done
 echo; echo "resume with: scripts/cluster-resume.sh $*"

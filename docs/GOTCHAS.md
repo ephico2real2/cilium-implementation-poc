@@ -3120,6 +3120,35 @@ crossed the old 512 Mi line and lived. The lab's regression check right after: 1
 same `finishedAt` second across clusters; `dmesg` on a node for `CONSTRAINT_MEMCG … tetragon`; the agent's `:2112/metrics`
 `tetragon_events_total` by binary — compiler paths mean a build is running on the kernel.
 
+## <a name="119"></a>119. `cluster-pause.sh` reported "stopped" and every kind node was back "Up" a minute later — kind's `--restart=on-failure:1` treats `docker stop`'s exit 137 as a failure
+
+**Where:** the M5, 2026-09-18 ~20:00 UTC, pausing poc1 and poc2 so the Envoy Gateway lab could have the VM. The
+script printed the IP map and "stopped."; `docker ps -a` showed `Exited (137)` for all four nodes; the operator was
+told the clusters were down. Twenty-five minutes later, the phase 0 run measured the VM and found them:
+
+```text
+poc2-control-plane Up 25 minutes
+poc2-worker Up 25 minutes
+poc1-control-plane Up 25 minutes
+poc1-worker Up 25 minutes
+$ docker inspect poc1-worker -f '{{.HostConfig.RestartPolicy.Name}}:{{.HostConfig.RestartPolicy.MaximumRetryCount}}'
+on-failure:1
+```
+
+**What happened:** kind creates every node container with `--restart=on-failure:1`. `docker stop` sends SIGTERM,
+then SIGKILL after the timeout; a kind node does not exit cleanly on SIGTERM, so it dies of the SIGKILL with exit
+code **137** — non-zero — and Docker's `on-failure` policy starts it again, once. The pause script only ever looked
+at the moment after the stop. (A second wrinkle on Docker Desktop: `docker stop` sometimes answers *"tried to kill
+container, but did not receive an exit event"* and the container is gone anyway on the next `ps`.)
+
+**The fix:** `cluster-pause.sh` runs `docker update --restart=no` on the nodes before stopping them, re-stops
+anything still running, waits five seconds and **verifies** nothing is up before it says "stopped";
+`cluster-resume.sh` restores `on-failure:1` after `docker start`. Measured after the fix: all four `Exited (137)`,
+`RestartPolicy.Name=no`, still down after two minutes.
+
+**The lesson:** "stopped" is the state a second after the command; a container's restart policy is a promise about
+the seconds after that. Read the policy before trusting a stop — and read `docker ps` again a minute later.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**

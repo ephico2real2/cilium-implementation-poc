@@ -1,0 +1,9 @@
+# eg2's issuer. The root itself is minted in eg1; only its Secret is copied here
+# (scripts/eg-up.sh, same shape as lab-up.sh:236–250). Apply AFTER the Secret exists.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: eg-ca-issuer
+spec:
+  ca:
+    secretName: eg-root-ca

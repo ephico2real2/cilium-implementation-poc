@@ -1,0 +1,54 @@
+# Three LoadBalancer Services for the phase-0 coexistence measurement (R0.4).
+# Backend: nginx:1.27-alpine, loaded into eg1 with `kind load`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: probe-nginx
+  namespace: default
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: probe-nginx}}
+  template:
+    metadata: {labels: {app: probe-nginx}}
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          imagePullPolicy: Never
+          ports: [{containerPort: 80}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: probe-kv
+  namespace: default
+  annotations:
+    kube-vip.io/loadbalancerIPs: "172.19.255.200"
+spec:
+  type: LoadBalancer
+  loadBalancerClass: kube-vip.io/kube-vip-class
+  selector: {app: probe-nginx}
+  ports: [{port: 80, targetPort: 80}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: probe-ml
+  namespace: default
+  annotations:
+    metallb.io/loadBalancerIPs: "172.19.255.206"
+spec:
+  type: LoadBalancer
+  loadBalancerClass: metallb.io/metallb
+  selector: {app: probe-nginx}
+  ports: [{port: 80, targetPort: 80}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: probe-noclass
+  namespace: default
+spec:
+  type: LoadBalancer
+  selector: {app: probe-nginx}
+  ports: [{port: 80, targetPort: 80}]

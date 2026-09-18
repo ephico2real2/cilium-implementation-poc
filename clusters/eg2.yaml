@@ -1,0 +1,29 @@
+# eg2 — the second vanilla-lab cluster (enhancement 007). Same shape as clusters/eg1.yaml;
+# disjoint pod/service CIDRs so the two labs could be routed later without renumbering.
+# Phase 0 creates eg1 only; this file is for demo 50.
+#
+# Create with:
+#   KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg kind create cluster --config clusters/eg2.yaml \
+#     --image kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: eg2
+networking:
+  podSubnet: "10.60.0.0/16"
+  serviceSubnet: "10.61.0.0/16"
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        apiVersion: kubeadm.k8s.io/v1beta3
+        kind: InitConfiguration
+        nodeRegistration:
+          taints: []
+      - |
+        apiVersion: kubeadm.k8s.io/v1beta4
+        kind: InitConfiguration
+        nodeRegistration:
+          taints: []
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  - role: worker
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed

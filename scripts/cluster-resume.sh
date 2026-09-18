@@ -22,6 +22,7 @@ for c in "$@"; do
     docker network disconnect "$net" "$name" >/dev/null 2>&1
     docker network connect --ip "$ip" "$net" "$name" || { echo "   could not pin $name to $ip" >&2; exit 1; }
     docker start "$name" >/dev/null
+    docker update --restart=on-failure:1 "$name" >/dev/null   # kind's own policy, turned off by cluster-pause.sh
     got=$(docker inspect "$name" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
     [ "$got" = "$ip" ] && echo "   $name -> $got  ok" || { echo "   $name -> $got  EXPECTED $ip" >&2; exit 1; }
   done < "$map"

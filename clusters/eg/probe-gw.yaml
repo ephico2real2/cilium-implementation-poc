@@ -1,0 +1,19 @@
+# R0.5 step 1 — Gateway with spec.addresses only, no EnvoyProxy.
+# Expected: status.addresses shows .240; the generated Service has externalIPs; nobody ARPs.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: probe-gw
+  namespace: default
+spec:
+  gatewayClassName: eg
+  addresses:
+    - type: IPAddress
+      value: 172.19.255.240
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All

@@ -1,0 +1,39 @@
+# eg1 — the first vanilla-lab cluster (enhancement 007 phase 0): kindnet + kube-proxy iptables,
+# on the `kind-eg` docker network (KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg).
+#
+# Create with:
+#   scripts/eg-net.sh
+#   KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg kind create cluster --config clusters/eg1.yaml \
+#     --image kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+#
+# Kept from clusters/ci/poc1.yaml:
+#   - kubeadmConfigPatches v1beta3 + v1beta4 that clear control-plane taints, so a 1+1 cluster
+#     has two schedulable nodes (kind v1.36 silently ignores a patch whose apiVersion does not
+#     match; both are listed).
+# Dropped from clusters/ci/poc1.yaml:
+#   - extraMounts hostPath /proc → /procHost (Tetragon, demo 17). This cluster has no Tetragon
+#     and no Cilium; the mount would only add a host /proc into the node for nothing.
+#   - disableDefaultCNI / kubeProxyMode: none. Those are the Cilium lab. Here both stay unset
+#     so kind installs kindnet and kube-proxy in its default iptables mode.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: eg1
+networking:
+  podSubnet: "10.50.0.0/16"
+  serviceSubnet: "10.51.0.0/16"
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        apiVersion: kubeadm.k8s.io/v1beta3
+        kind: InitConfiguration
+        nodeRegistration:
+          taints: []
+      - |
+        apiVersion: kubeadm.k8s.io/v1beta4
+        kind: InitConfiguration
+        nodeRegistration:
+          taints: []
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  - role: worker
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed

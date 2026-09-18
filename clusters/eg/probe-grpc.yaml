@@ -1,0 +1,50 @@
+# R0.6 — demo 09's grpc objects, copied into namespace `probe`, attached to probe-gw :80.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: probe
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: grpc, namespace: probe}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: grpc}}
+  template:
+    metadata: {labels: {app: grpc}}
+    spec:
+      containers:
+        - name: app
+          image: routedemo:local
+          imagePullPolicy: Never
+          args: ["-mode", "grpc", "-addr", ":9090"]
+          env: [{name: APP_NAME, value: grpc}]
+          ports: [{containerPort: 9090}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: grpc, namespace: probe}
+spec:
+  selector: {app: grpc}
+  ports:
+    - {port: 9090, targetPort: 9090, appProtocol: kubernetes.io/h2c}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata: {name: grpc, namespace: probe}
+spec:
+  parentRefs: [{name: probe-gw, namespace: default}]
+  hostnames: ["grpc.eg1.poc.local"]
+  rules:
+    - matches:
+        - method:
+            service: grpc.health.v1.Health
+      backendRefs: [{name: grpc, port: 9090}]
+    - matches:
+        - method:
+            service: grpc.reflection.v1alpha.ServerReflection
+      backendRefs: [{name: grpc, port: 9090}]
+    - matches:
+        - method:
+            service: grpc.reflection.v1.ServerReflection
+      backendRefs: [{name: grpc, port: 9090}]
