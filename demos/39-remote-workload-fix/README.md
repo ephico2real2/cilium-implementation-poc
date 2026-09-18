@@ -173,6 +173,13 @@ image. On this lab, 2026-09-18:
 
 On release 1.20.2 the third row is FAIL with `destination_workload=""` — the same script, the same placement.
 
+**And in CI, on a machine nobody touched:** the `lab-regression` Action runs this check whenever the lab's pins name the
+build (`CILIUM_IMAGE` in `versions.env`). Run [35307892865](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/35307892865)
+— a fresh `linux/amd64` GitHub runner, both clusters installed from `ghcr.io/ephico2real2/cilium-dev:1.20.2-remote-workload-1d3a02ab`
+with the CRD applied first — printed the same three PASS rows: client on the worker, backend on the control plane,
+40/40, `destination_workload="shop"` on the worker's agent (`cilium-agent 1.20.2 1d3a02ab … linux/amd64`). The two runs
+before it died at `Init:ImagePullBackOff`: the image had been pushed for arm64 only (§4).
+
 ## 7. What the reviewers said, and where this goes
 
 `docs/REVIEW_CILIUM_FIX.md`. OB1 (Fable 5.1) and Codex agree: correct for a pod on another node of the same cluster

@@ -89,6 +89,6 @@ all three parsers, a cilium-cli connectivity test. Its files do not include `pkg
 - [x] the after-image and README links pinned to commit `4ef5d94` instead of a branch (#40 not yet merged; a pinned
       URL survives the branch's deletion)
 - [x] #48563 re-checked before posting: OPEN, draft, last updated 2026-09-16, `register.go` still not among its files
-- [ ] a CI run on the patched image (the lab's pins now name it; the `lab-regression` Action's next run) — to be added
-      as a follow-up comment once green
+- [x] a CI run on the patched image — green (35307892865, a fresh amd64 runner, demo 39's check 3 PASS) and posted as
+      the follow-up: https://github.com/cilium/cilium/pull/48563#issuecomment-5725439704
 - [x] posted through the operator's `gh` account
