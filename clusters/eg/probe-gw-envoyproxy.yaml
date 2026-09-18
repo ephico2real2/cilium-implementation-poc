@@ -1,0 +1,37 @@
+# R0.5 step 2 — EnvoyProxy that pins the generated Service to kube-vip's class and .240.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: probe-gw-proxy
+  namespace: default
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        loadBalancerClass: kube-vip.io/kube-vip-class
+        annotations:
+          kube-vip.io/loadbalancerIPs: "172.19.255.240"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: probe-gw
+  namespace: default
+spec:
+  gatewayClassName: eg
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: probe-gw-proxy
+  addresses:
+    - type: IPAddress
+      value: 172.19.255.240
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All

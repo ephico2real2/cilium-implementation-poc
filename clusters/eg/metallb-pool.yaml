@@ -1,0 +1,20 @@
+# MetalLB L2 pool for eg1 (enhancement 007 §3.1): gateway leftover .246–.250 plus a
+# services-pool slice .206–.210 so the class-tagged probe Service can pin .206.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: eg1-metallb
+  namespace: metallb-system
+spec:
+  addresses:
+    - 172.19.255.246-172.19.255.250
+    - 172.19.255.206-172.19.255.210
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: eg1-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - eg1-metallb

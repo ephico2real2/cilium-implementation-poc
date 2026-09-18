@@ -1,11 +1,17 @@
 # Enhancement 007 — the vanilla lab: two kind clusters, Envoy Gateway, kube-proxy and kindnet, and the two software load balancers side by side
 
-Status: **plan, revision 1** — tracking issue [#53](https://github.com/ephico2real2/cilium-implementation-poc/issues/53) (2026-09-18) — nothing built. Written from the operator's ask across three messages the same
-day: *"a new 2 cluster kind cluster for using envoy gateway api with default kubeproxy and cni. We are gonna install the
-gateway api crds yaml. We need to do what we [did] with our ip design reservation trick from the same cidr as the node
-network. So we need to create docker network and cidr for this setup"*; *"Kube vip might be our best in lieu of metal lb
-due to its simplicity"*; *"But let us [have] two different demos for both with envoy gateway api"*. Facts below are cited
-to their source (a URL or `file:line`); the two decisions still open for the operator are marked **OPEN** in §5.
+Status: **plan, revision 2** (2026-09-18, after phase 0 — `docs/EG-PHASE0.md`, issue #54) — nothing built beyond eg1
+and the phase 0 probes. **What phase 0 changed:** `crds.enabled=false` also skips Envoy Gateway's own CRDs (install them
+from `gateway-crds-helm` first); the chart creates no `GatewayClass` (apply `eg`); **the two load balancers coexist** —
+three filters are required (kube-vip `--lbClassOnly`, the cloud-provider's `KUBEVIP_ENABLE_LOADBALANCERCLASS=true`,
+MetalLB `--lb-class` on controller and speaker), so the sequential swap is dropped; MetalLB's chart defaults
+`frrk8s.enabled: true` (off for L2); no kube-vip `--taint`; the `EnvoyProxy` with its `loadBalancerClass` must exist
+when the Gateway is created (the class is immutable — recreate, never attach later); `Gateway.spec.addresses` alone →
+`externalIPs`, **0 ARP replies**, the `EnvoyProxy` field → one responder, measured on both LBs; gRPC on `:80` works
+with `appProtocol: kubernetes.io/h2c` and no BackendTrafficPolicy; the Mac's route `172.19/16 → 192.168.64.2` exists
+now (the operator ran it); pins in `scripts/bootstrap/versions-eg.env`; **D1 closed** (poc1/poc2 paused — gotcha #119
+on why the first pause did not hold), **D2 closed** (this repository). Revision 1 (2026-09-18) was written from the
+operator's three messages the same day; facts below are cited to their source.
 
 ## 1. Why, in one paragraph
 
@@ -120,7 +126,7 @@ enforce them — that absence is part of the comparison and is said out loud in 
 
 | Phase | Demo | What it delivers | Scripts / files | Reqs |
 |---|---|---|---|---|
-| 0 — the ground, measured | — (a `docs/EG-PHASE0.md` record) | the Mac's route to `172.19.0.0/16`; `KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg` builds a cluster on the new bridge; kindnet + iptables kube-proxy confirmed (`kubectl -n kube-system get ds kindnet kube-proxy`, the proxy's mode from its ConfigMap); both LBs installed with distinct `loadBalancerClass` and one Service each — one ARP responder per address (or the sequential fallback recorded) | `scripts/eg-net.sh` (the network), `clusters/eg1.yaml`, `clusters/eg2.yaml` | R1, R2, R6 |
+| 0 — the ground, measured — **done 2026-09-18** | — (`docs/EG-PHASE0.md`, transcript `docs/eg-phase0-transcript.txt`) | the Mac's route to `172.19.0.0/16`; `KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg` builds a cluster on the new bridge; kindnet + iptables kube-proxy confirmed (`kubectl -n kube-system get ds kindnet kube-proxy`, the proxy's mode from its ConfigMap); both LBs installed with distinct `loadBalancerClass` and one Service each — one ARP responder per address (or the sequential fallback recorded) | `scripts/eg-net.sh` (the network), `clusters/eg1.yaml`, `clusters/eg2.yaml` | R1, R2, R6 |
 | 1 — the clusters and the CRDs | 50 | `scripts/eg-up.sh`: the network, both clusters, Gateway API standard-channel CRDs from the release YAML, Envoy Gateway with `crds.enabled=false`, cert-manager and the lab root; `versions.env` gains `GATEWAY_API_VERSION`, `ENVOY_GATEWAY_VERSION`, `KUBE_VIP_VERSION`, `METALLB_VERSION`; `check.sh` (nodes Ready, kindnet/kube-proxy present, CRDs at the pinned version, Envoy Gateway Available) | `scripts/eg-up.sh`, `demos/50-eg-clusters/`, `clusters/eg*.yaml` | R1–R3 |
 | 2 — **demo A: kube-vip** | 51 | kube-vip DS + cloud-provider in both clusters, ranges per namespace from §3.1; `eg1-gw`/`eg2-gw` with an `EnvoyProxy` each (`loadBalancerIP`, class kube-vip); the R7 experiment recorded; the shared VIP `.16` Gateway created in eg1 only, moved to eg2 and back (`scripts/eg-vip-move.sh kube-vip eg2`), `arping` proving one responder; `shopapi` behind the doors, `X-Served-By`; **gRPC (R10)**: `routedemo:local` loaded into eg1/eg2, `grpc` Deployment + Service, a `GRPCRoute` per door on `grpc.eg1.poc.local` / `grpc.eg2.poc.local` / `grpc.eg.poc.local` (the VIP), `grpcurl -plaintext -authority … <addr>:80 grpc.health.v1.Health/Check` → `SERVING`, then `-cacert docs/eg-root-ca.crt` on `:443`, and `grpcurl list` through reflection — recorded; `check.sh` rows for both; `RECAP.md` | `demos/51-eg-kube-vip/` (`30-grpc.yaml`, `grpc-check.sh`) | R4, R7, R8, R10 |
 | 3 — **demo B: MetalLB** | 52 | (gRPC repeated once on MetalLB's addresses — the route is LB-independent; the row proves it)  MetalLB in both clusters with `--lb-class`, `IPAddressPool` per cluster from §3.1, `L2Advertisement`; the same Gateways with class metallb and `metallb.io/loadBalancerIPs`; the R7 experiment again; the shared VIP `.17` moved with an `L2Advertisement` that selects the VIP Service (the closer cousin of Cilium's `shop-vip-announce`); the **side-by-side table** — objects, fields, failover time (lease/GARP measured with the same `arping` loop), what each cannot do; `RECAP.md` | `demos/52-eg-metallb/` | R5, R7, R8 |
@@ -135,9 +141,9 @@ the PR.
 
 | # | Decision | Outcome |
 |---|---|---|
-| D1 | **Memory: how two more clusters fit on the 24 GiB VM** — (a) pause poc1/poc2 (`scripts/cluster-pause.sh`) while lab 2 builds and measures (the labs are independent; ~18.9 GiB drops to ~8 GiB); (b) raise the Docker VM to 32 GiB with CRC off | **OPEN** — the plan's default is (a) for the build, then measure whether (b) is needed for running both at once |
-| D2 | **Location** — this repository (`clusters/eg*.yaml`, `scripts/eg-*.sh`, `demos/50–52`, `docs/EG-VS-CILIUM.md`) or a sibling repository | **OPEN** — the plan's default is this repository: the comparison stays honest in one place and the CI pattern is reused |
-| D3 | Two demos, one per load balancer, on the same clusters | **Taken** (operator, 2026-09-18: *"let us [have] two different demos for both with envoy gateway api"*) — coexistence via `loadBalancerClass` measured in phase 0, sequential swap as the fallback |
+| D1 | **Memory: how two more clusters fit on the 24 GiB VM** — (a) pause poc1/poc2 (`scripts/cluster-pause.sh`) while lab 2 builds and measures; (b) raise the Docker VM to 32 GiB with CRC off | **Taken (a)** — the operator, 2026-09-18: *"poc1 and poc2 … should be paused and shutdown for now. Then we focus solely on our envoy gateway api work"*; eg1 alone ≈ 1.8 GiB (phase 0 R0.7, re-measured after the pause) |
+| D2 | **Location** — this repository or a sibling | **Taken** — this repository (the default; the operator did not object): `clusters/eg*.yaml`, `clusters/eg/`, `scripts/eg-*.sh`, `scripts/bootstrap/versions-eg.env`, demos 50–53, `docs/EG-PHASE0.md`, `docs/EG-VS-CILIUM.md` |
+| D3 | Two demos, one per load balancer, on the same clusters | **Taken** (operator, 2026-09-18: *"let us [have] two different demos for both with envoy gateway api"*) — **coexistence measured in phase 0 (R0.4): one ARP responder per address, the class-less Service claimed by neither once all three class filters are set**; the sequential swap is not needed and `scripts/eg-lb.sh` is not written |
 | D4 | kube-vip first (demo A), MetalLB second (demo B) | **Taken** — the operator's preference for kube-vip's simplicity; MetalLB is the more common comparison point, so it is the second column, not the omitted one |
 | D5 | Gateway API CRDs from the release YAML, standard channel; Envoy Gateway's chart without its bundled (experimental) CRDs | **Taken** (operator: *"we are gonna install the gateway api crds yaml"*) |
 | D6 | The reservation trick reused on a new network `172.19.0.0/16` rather than sharing `kind` (`172.18.0.0/16`) | **Taken** — the labs stay independent; sharing the bridge would put four LBs and Cilium's L2 on one segment |

@@ -1,0 +1,2418 @@
+### 2026-09-18T20:03:31Z
+$ echo === R0.1 THE NETWORK ===
+=== R0.1 THE NETWORK ===
+
+### 2026-09-18T20:03:31Z
+$ docker network inspect kind --format {{json .IPAM.Config}}{{"\n"}}options={{json .Options}}
+[{"Subnet":"172.18.0.0/16","IPRange":"172.18.0.0/17","Gateway":"172.18.0.1"},{"Subnet":"fc00:f853:ccd:e793::/64","Gateway":"fc00:f853:ccd:e793::1"}]
+options={"com.docker.network.bridge.enable_ip_masquerade":"true","com.docker.network.driver.mtu":"65535","com.docker.network.enable_ipv4":"true"}
+
+### 2026-09-18T20:03:31Z
+$ scripts/eg-net.sh
+c363476fa0ca160a94aecbe8c4992e7f9d32835b226742be3bbb9a3e55d6ad8e
+created: 172.19.0.0/16 fc00:f853:ccd:e794::/64 
+
+### 2026-09-18T20:03:32Z
+$ docker network inspect kind-eg
+[
+    {
+        "Name": "kind-eg",
+        "Id": "c363476fa0ca160a94aecbe8c4992e7f9d32835b226742be3bbb9a3e55d6ad8e",
+        "Created": "2026-09-18T20:03:31.992586093Z",
+        "Scope": "local",
+        "Driver": "bridge",
+        "EnableIPv4": true,
+        "EnableIPv6": true,
+        "IPAM": {
+            "Driver": "default",
+            "Options": {},
+            "Config": [
+                {
+                    "Subnet": "172.19.0.0/16",
+                    "IPRange": "172.19.0.0/17",
+                    "Gateway": "172.19.0.1"
+                },
+                {
+                    "Subnet": "fc00:f853:ccd:e794::/64",
+                    "Gateway": "fc00:f853:ccd:e794::1"
+                }
+            ]
+        },
+        "Internal": false,
+        "Attachable": false,
+        "Ingress": false,
+        "ConfigFrom": {
+            "Network": ""
+        },
+        "ConfigOnly": false,
+        "Options": {
+            "com.docker.network.bridge.enable_ip_masquerade": "true",
+            "com.docker.network.driver.mtu": "65535",
+            "com.docker.network.enable_ipv4": "true"
+        },
+        "Labels": {},
+        "Containers": {},
+        "Status": {
+            "IPAM": {
+                "Subnets": {
+                    "172.19.0.0/16": {
+                        "IPsInUse": 3,
+                        "DynamicIPsAvailable": 32766
+                    },
+                    "fc00:f853:ccd:e794::/64": {
+                        "IPsInUse": 2,
+                        "DynamicIPsAvailable": 18446744073709551614
+                    }
+                }
+            }
+        }
+    }
+]
+
+### 2026-09-18T20:03:32Z
+$ netstat -rn -f inet
+Routing tables
+
+Internet:
+Destination        Gateway            Flags               Netif Expire
+default            192.168.86.1       UGScg                 en0       
+default            link#24            UCSIg           bridge100      !
+127                127.0.0.1          UCS                   lo0       
+127.0.0.1          127.0.0.1          UH                    lo0       
+169.254            link#15            UCS                   en0      !
+169.254.169.254    link#15            UHRLSW                en0      !
+172.18.255.201     link#24            UHLWIg          bridge100      !
+192.168.64         link#24            UC              bridge100      !
+192.168.64.1       c2.c7.db.81.94.64  UHLWI                 lo0       
+192.168.64.2       aa.a6.36.45.6e.a   UHLWIi          bridge100   1179
+192.168.86         link#15            UCS                   en0      !
+192.168.86.1/32    link#15            UCS                   en0      !
+192.168.86.1       b0:2a:43:b9:fd:fb  UHLWIir               en0   1194
+192.168.86.13/32   link#15            UCS                   en0      !
+192.168.86.13      c0:c7:db:18:ab:2e  UHLWI                 lo0       
+192.168.86.25      22:10:a9:c7:10:28  UHLWIi                en0   1091
+192.168.86.31      e:1a:b3:86:ca:2c   UHLWI                 en0   1193
+192.168.86.35      c8:2b:96:5f:93:80  UHLWI                 en0   1196
+192.168.86.49      link#15            UHLWI                 en0      !
+192.168.86.94      0:1f:54:a7:73:ab   UHLWI                 en0   1150
+224.0.0/4          link#15            UmCS                  en0      !
+224.0.0.251        1:0:5e:0:0:fb      UHmLWI                en0       
+224.0.0.251        1:0:5e:0:0:fb      UHmLWIg         bridge100       
+255.255.255.255/32 link#15            UCS                   en0      !
+255.255.255.255    ff:ff:ff:ff:ff:ff  UHLWbI                en0      !
+
+### 2026-09-18T20:03:32Z
+$ ping -c1 -W1 172.19.0.1
+PING 172.19.0.1 (172.19.0.1): 56 data bytes
+
+--- 172.19.0.1 ping statistics ---
+1 packets transmitted, 0 packets received, 100.0% packet loss
+[exit code: 2]
+
+### 2026-09-18T20:03:33Z
+$ route -n get 172.19.0.1
+   route to: 172.19.0.1
+destination: default
+       mask: default
+    gateway: 192.168.86.1
+  interface: en0
+      flags: <UP,GATEWAY,DONE,STATIC,PRCLONING,GLOBAL>
+ recvpipe  sendpipe  ssthresh  rtt,msec    rttvar  hopcount      mtu     expire
+       0         0         0         0         0         0      1500         0 
+
+### 2026-09-18T20:03:33Z
+$ echo operator must run (do not run from scripts): sudo route -n add -net 172.19.0.0/16 192.168.64.2
+operator must run (do not run from scripts): sudo route -n add -net 172.19.0.0/16 192.168.64.2
+
+### 2026-09-18T20:03:33Z
+$ ifconfig bridge100
+bridge100: flags=8a63<UP,BROADCAST,SMART,RUNNING,ALLMULTI,SIMPLEX,MULTICAST> mtu 1500
+	options=63<RXCSUM,TXCSUM,TSO4,TSO6>
+	ether c2:c7:db:81:94:64
+	inet 192.168.64.1 netmask 0xffffff00 broadcast 192.168.64.255
+	inet6 fe80::c0c7:dbff:fe81:9464%bridge100 prefixlen 64 scopeid 0x18 
+	inet6 fd91:bc73:89ca:fe55:14a2:6b6f:2994:304f prefixlen 64 autoconf secured 
+	Configuration:
+		id 0:0:0:0:0:0 priority 0 hellotime 0 fwddelay 0
+		maxage 0 holdcnt 0 proto stp maxaddr 100 timeout 1200
+		root id 0:0:0:0:0:0 priority 0 ifcost 0 port 0
+		ipfilter disabled flags 0x0
+	member: vmenet0 flags=20803<LEARNING,DISCOVER,PRIVATE,VIRTIO>
+	        ifmaxaddr 0 port 23 priority 0 path cost 0
+	Address cache:
+		aa:a6:36:45:6e:a Vlan1 vmenet0 1197 flags=0<>
+	nd6 options=201<PERFORMNUD,DAD>
+	media: autoselect
+	status: active
+
+### 2026-09-18T20:03:33Z
+$ arp -an -i bridge100
+? (172.18.255.201) at (incomplete) on bridge100 ifscope [bridge]
+? (192.168.64.1) at c2:c7:db:81:94:64 on bridge100 ifscope permanent [bridge]
+? (192.168.64.2) at aa:a6:36:45:6e:a on bridge100 ifscope [bridge]
+? (224.0.0.251) at 1:0:5e:0:0:fb on bridge100 ifscope permanent [ethernet]
+
+### 2026-09-18T20:03:37Z
+$ echo === R0.1 from a container on kind-eg (the path used when the Mac has no route) ===
+=== R0.1 from a container on kind-eg (the path used when the Mac has no route) ===
+
+### 2026-09-18T20:03:37Z
+$ docker run --rm --network kind-eg alpine:3.20 ping -c1 -W2 172.19.0.1
+PING 172.19.0.1 (172.19.0.1): 56 data bytes
+64 bytes from 172.19.0.1: seq=0 ttl=64 time=0.057 ms
+
+--- 172.19.0.1 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.057/0.057/0.057 ms
+
+### 2026-09-18T20:03:37Z
+$ echo === R0.2 KIND ON THE CUSTOM NETWORK ===
+=== R0.2 KIND ON THE CUSTOM NETWORK ===
+
+### 2026-09-18T20:03:37Z
+$ env KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg kind create cluster --config clusters/eg1.yaml --image kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+Creating cluster "eg1" ...
+ • Ensuring node image (kindest/node:v1.36.4) 🖼️  ...
+WARNING: Overriding docker network due to KIND_EXPERIMENTAL_DOCKER_NETWORK
+WARNING: Here be dragons! This is not supported currently.
+ ✓ Ensuring node image (kindest/node:v1.36.4) 🖼️
+ • Preparing nodes 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-eg1"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-eg1
+
+Not sure what to do next? 😅  Check out https://kind.sigs.k8s.io/docs/user/quick-start/
+
+### 2026-09-18T20:04:02Z
+$ kubectl --context kind-eg1 wait --for=condition=Ready nodes --all --timeout=120s
+node/eg1-control-plane condition met
+node/eg1-worker condition met
+
+### 2026-09-18T20:04:09Z
+$ docker inspect eg1-control-plane -f {{json .NetworkSettings.Networks}}
+{"kind-eg":{"IPAMConfig":null,"Links":null,"Aliases":null,"DriverOpts":null,"GwPriority":0,"NetworkID":"c363476fa0ca160a94aecbe8c4992e7f9d32835b226742be3bbb9a3e55d6ad8e","EndpointID":"35429d4b941915630da396c9fe3d084213f31b37624e6f37f785c7b7aa4a6a9e","Gateway":"172.19.0.1","IPAddress":"172.19.0.3","MacAddress":"62:d0:d4:f7:3a:89","IPPrefixLen":16,"IPv6Gateway":"fc00:f853:ccd:e794::1","GlobalIPv6Address":"fc00:f853:ccd:e794::3","GlobalIPv6PrefixLen":64,"DNSNames":["eg1-control-plane","8fc32187e87c"]}}
+
+### 2026-09-18T20:04:09Z
+$ docker inspect eg1-worker -f {{json .NetworkSettings.Networks}}
+{"kind-eg":{"IPAMConfig":null,"Links":null,"Aliases":null,"DriverOpts":null,"GwPriority":0,"NetworkID":"c363476fa0ca160a94aecbe8c4992e7f9d32835b226742be3bbb9a3e55d6ad8e","EndpointID":"1a0c13d44b92242fcf87521fddc0a3c350cfc909c00e55151c77761bc21ee641","Gateway":"172.19.0.1","IPAddress":"172.19.0.2","MacAddress":"32:b7:64:3b:79:5b","IPPrefixLen":16,"IPv6Gateway":"fc00:f853:ccd:e794::1","GlobalIPv6Address":"fc00:f853:ccd:e794::2","GlobalIPv6PrefixLen":64,"DNSNames":["eg1-worker","3e6af3675f90"]}}
+
+### 2026-09-18T20:04:09Z
+$ docker network inspect kind-eg --format {{range .Containers}}{{printf "%-24s %s %s\n" .Name .IPv4Address .MacAddress}}{{end}}
+eg1-worker               172.19.0.2/16 32:b7:64:3b:79:5b
+eg1-control-plane        172.19.0.3/16 62:d0:d4:f7:3a:89
+
+
+### 2026-09-18T20:04:09Z
+$ kubectl --context kind-eg1 -n kube-system get ds kindnet kube-proxy
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   22s
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   23s
+
+### 2026-09-18T20:04:09Z
+$ kubectl --context kind-eg1 -n kube-system get cm kube-proxy -o yaml
+apiVersion: v1
+data:
+  config.conf: |-
+    apiVersion: kubeproxy.config.k8s.io/v1alpha1
+    bindAddress: 0.0.0.0
+    bindAddressHardFail: false
+    clientConnection:
+      acceptContentTypes: ""
+      burst: 0
+      contentType: ""
+      kubeconfig: /var/lib/kube-proxy/kubeconfig.conf
+      qps: 0
+    clusterCIDR: 10.50.0.0/16
+    configSyncPeriod: 0s
+    conntrack:
+      maxPerCore: 0
+      min: null
+      tcpBeLiberal: false
+      tcpCloseWaitTimeout: null
+      tcpEstablishedTimeout: null
+      udpStreamTimeout: 0s
+      udpTimeout: 0s
+    detectLocal:
+      bridgeInterface: ""
+      interfaceNamePrefix: ""
+    detectLocalMode: ""
+    enableProfiling: false
+    healthzBindAddress: ""
+    hostnameOverride: ""
+    iptables:
+      localhostNodePorts: null
+      masqueradeAll: false
+      masqueradeBit: null
+      minSyncPeriod: 1s
+      syncPeriod: 0s
+    ipvs:
+      excludeCIDRs: null
+      minSyncPeriod: 0s
+      scheduler: ""
+      strictARP: false
+      syncPeriod: 0s
+      tcpFinTimeout: 0s
+      tcpTimeout: 0s
+      udpTimeout: 0s
+    kind: KubeProxyConfiguration
+    logging:
+      flushFrequency: 0
+      options:
+        json:
+          infoBufferSize: "0"
+        text:
+          infoBufferSize: "0"
+      verbosity: 0
+    metricsBindAddress: ""
+    mode: iptables
+    nftables:
+      masqueradeAll: false
+      masqueradeBit: null
+      minSyncPeriod: 0s
+      syncPeriod: 0s
+    nodePortAddresses: null
+    oomScoreAdj: null
+    portRange: ""
+    showHiddenMetricsForVersion: ""
+    winkernel:
+      enableDSR: false
+      forwardHealthCheckVip: false
+      networkName: ""
+      rootHnsEndpointName: ""
+      sourceVip: ""
+  kubeconfig.conf: |-
+    apiVersion: v1
+    kind: Config
+    clusters:
+    - cluster:
+        certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        server: https://eg1-control-plane:6443
+      name: default
+    contexts:
+    - context:
+        cluster: default
+        namespace: default
+        user: default
+      name: default
+    current-context: default
+    users:
+    - name: default
+      user:
+        tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+kind: ConfigMap
+metadata:
+  creationTimestamp: "2026-09-18T20:03:46Z"
+  labels:
+    app: kube-proxy
+  name: kube-proxy
+  namespace: kube-system
+  resourceVersion: "244"
+  uid: 7e269483-265a-4964-9062-77c9dbc2deba
+
+### 2026-09-18T20:04:09Z
+$ kubectl --context kind-eg1 get nodes -o wide
+NAME                STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION            CONTAINER-RUNTIME
+eg1-control-plane   Ready    control-plane   26s   v1.36.4   172.19.0.3    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+eg1-worker          Ready    <none>          11s   v1.36.4   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+
+### 2026-09-18T20:04:09Z
+$ kubectl --context kind-eg1 get ds,deploy -A
+NAMESPACE     NAME                        DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kube-system   daemonset.apps/kindnet      2         2         2       2            2           kubernetes.io/os=linux   22s
+kube-system   daemonset.apps/kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   23s
+
+NAMESPACE            NAME                                     READY   UP-TO-DATE   AVAILABLE   AGE
+kube-system          deployment.apps/coredns                  2/2     2            2           23s
+local-path-storage   deployment.apps/local-path-provisioner   1/1     1            1           22s
+
+### 2026-09-18T20:04:14Z
+$ kubectl --context kind-eg1 -n kube-system get cm kube-proxy -o yaml
+scripts/record.sh: line 36: kubectl --context kind-eg1: command not found
+[exit code: 127]
+
+### 2026-09-18T20:04:14Z
+$ bash -c kubectl --context kind-eg1 -n kube-system get cm kube-proxy -o yaml | grep mode
+    mode: iptables
+
+### 2026-09-18T20:04:14Z
+$ echo === R0.3 THE CRDS AND ENVOY GATEWAY ===
+=== R0.3 THE CRDS AND ENVOY GATEWAY ===
+
+### 2026-09-18T20:04:14Z
+$ helm show values oci://docker.io/envoyproxy/gateway-helm --version v1.9.1
+Pulled: docker.io/envoyproxy/gateway-helm:v1.9.1
+Digest: sha256:91bae9aedb91ab34731e987afe01a3ccf454393015abeca705eea8ee15553e86
+# Global settings
+global:
+  # If set, these take highest precedence and change envoyGateway, envoyProxy, and ratelimit's container registry and pull secrets.
+  # -- Global override for image registry
+  imageRegistry: ""
+  # -- Global override for image pull secrets
+  imagePullSecrets: []
+
+  # If set, these override image-specific values: useful when installing the chart in a private registry environment.
+  # Override image-specific values directly if a global override is not desired.
+  images:
+    envoyGateway:
+      # -- Full image for the Envoy Gateway control plane Deployment installed by this chart.
+      image: docker.io/envoyproxy/gateway:v1.9.1
+      # -- Image pull policy for the Envoy Gateway control plane Deployment.
+      # Default behavior: latest images will be Always else IfNotPresent.
+      pullPolicy: IfNotPresent
+      # -- Pull secrets for the Envoy Gateway control plane Deployment.
+      pullSecrets: []
+    ratelimit:
+      # This is the full image name including the hub, repo, and tag.
+      image: "docker.io/envoyproxy/ratelimit:8fe6ea42"
+      # Specify image pull policy if default behavior isn't desired.
+      # Default behavior: latest images will be Always else IfNotPresent.
+      pullPolicy: IfNotPresent
+      # List of secrets in the same namespace of the component that can be used to pull images from private repositories.
+      pullSecrets: []
+    envoyProxy:
+      # -- Full image for the managed Envoy Proxy data plane.
+      # This updates the generated `envoyProxy` config and does not change the `envoy-gateway`
+      # control plane Deployment image. If not specified, the default image built into
+      # `envoy-gateway` is used.
+      image: ""
+      # -- Image pull policy for the managed Envoy Proxy data plane.
+      # Default behavior: IfNotPresent.
+      pullPolicy: ""
+      # -- Pull secrets for the managed Envoy Proxy data plane.
+      pullSecrets: []
+
+# Values for CRDs dependency
+crds:
+  # -- Install Envoy Gateway CRDs, Gateway API CRDs, and Gateway API safe upgrade policy resources. Set to false when these resources are managed separately.
+  enabled: true
+
+# -- Labels to apply to all resources
+commonLabels: {}
+
+podDisruptionBudget:
+  minAvailable: 0
+  # maxUnavailable: 1
+  # unhealthyPodEvictionPolicy: IfHealthyBudget
+
+deployment:
+  annotations: {}
+  envoyGateway:
+    image:
+      # if both this and global.imageRegistry are specified, this has to include both registry and repository explicitly, eg docker.io/envoyproxy/gateway
+      repository: ""
+      tag: ""
+    imagePullPolicy: ""
+    imagePullSecrets: []
+    # -- Additional environment variables for the envoy-gateway container.
+    extraEnv: []
+    resources:
+      limits:
+        memory: 1024Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      privileged: false
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsGroup: 65532
+      runAsUser: 65532
+      seccompProfile:
+        type: RuntimeDefault
+    # -- Volume source for the Wasm module cache mounted at /var/lib/eg/wasm. Defaults to an emptyDir when left empty.
+    # Example: persist the Wasm module cache across controller restarts by backing it with a PersistentVolumeClaim:
+    #   wasmCacheVolume:
+    #     persistentVolumeClaim:
+    #       claimName: envoy-gateway-wasm-cache
+    strategy: {}
+    wasmCacheVolume: {}
+    # Kubernetes best practice for controllers: use a startupProbe with a generous
+    # failure threshold to avoid premature liveness/readiness failures during initialization.
+    # Ref: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/#define-startup-probes
+    startupProbe:
+      httpGet:
+        path: /healthz
+        port: 8081
+      failureThreshold: 30
+      periodSeconds: 1
+      successThreshold: 1
+      timeoutSeconds: 1
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: 8081
+      periodSeconds: 20
+      successThreshold: 1
+      timeoutSeconds: 1
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 8081
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 1
+  ports:
+    - name: grpc
+      port: 18000
+      targetPort: 18000
+    - name: ratelimit
+      port: 18001
+      targetPort: 18001
+    - name: wasm
+      port: 18002
+      targetPort: 18002
+    - name: metrics
+      port: 19001
+      targetPort: 19001
+  priorityClassName: null
+  replicas: 1
+  pod:
+    affinity: {}
+    annotations:
+      prometheus.io/scrape: 'true'
+      prometheus.io/port: '19001'
+    labels: {}
+    topologySpreadConstraints: []
+    tolerations: []
+    nodeSelector: {}
+    # Additional volumeMounts on the deployment definition.
+    extraVolumeMounts: []
+    # - name: foo
+    #   mountPath: "/etc/foo"
+    #   readOnly: true
+    # Additional volumes on the deployment definition.
+    extraVolumes: []
+    # - name: foo
+    #   configMap:
+    #     name: myconfigmap
+    securityContext:
+      runAsNonRoot: true
+      runAsGroup: 65532
+      runAsUser: 65532
+      fsGroup: 65532
+      seccompProfile:
+        type: RuntimeDefault
+
+service:
+  # If set to PreferClose, the Envoy fleet will prioritize connecting to the Envoy Gateway pods that are topologically closest to them.
+  trafficDistribution: ""
+  annotations: {}
+  # -- Service type. Can be set to LoadBalancer with specific IP, e.g.:
+  # type: LoadBalancer
+  # loadBalancerIP: 10.236.90.20
+  type: "ClusterIP"
+
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
+  metrics: []
+  behavior: {}
+
+config:
+# -- EnvoyGateway configuration. Visit https://gateway.envoyproxy.io/docs/api/extension_types/#envoygateway to view all options.
+  envoyGateway:
+    gateway:
+      controllerName: gateway.envoyproxy.io/gatewayclass-controller
+    provider:
+      type: Kubernetes
+    logging:
+      level:
+        default: info
+    extensionApis: {}
+
+createNamespace: false
+
+# -- Override the namespace for resources deployed by the chart.
+# Defaults to the release namespace.
+namespaceOverride: ""
+
+kubernetesClusterDomain: cluster.local
+
+# -- Certgen is used to generate the certificates required by EnvoyGateway. If you want to construct a custom certificate, you can generate a custom certificate through Cert-Manager before installing EnvoyGateway. Certgen will not overwrite the custom certificate. Please do not manually modify `values.yaml` to disable certgen, it may cause EnvoyGateway OIDC,OAuth2,etc. to not work as expected.
+certgen:
+  job:
+    annotations: {}
+    args: []
+    pod:
+      annotations: {}
+      labels: {}
+      securityContext:
+        runAsNonRoot: true
+        runAsGroup: 65532
+        runAsUser: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+    resources: {}
+    affinity: {}
+    tolerations: []
+    nodeSelector: {}
+    ttlSecondsAfterFinished: 30
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+      privileged: false
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsGroup: 65532
+      runAsUser: 65532
+      seccompProfile:
+        type: RuntimeDefault
+  rbac:
+    annotations: {}
+    labels: {}
+
+topologyInjector:
+  enabled: true
+  annotations: {}
+
+
+### 2026-09-18T20:04:21Z
+$ bash -c helm show values oci://docker.io/envoyproxy/gateway-helm --version v1.9.1 | grep -A6 "^crds:"
+Pulled: docker.io/envoyproxy/gateway-helm:v1.9.1
+Digest: sha256:91bae9aedb91ab34731e987afe01a3ccf454393015abeca705eea8ee15553e86
+crds:
+  # -- Install Envoy Gateway CRDs, Gateway API CRDs, and Gateway API safe upgrade policy resources. Set to false when these resources are managed separately.
+  enabled: true
+
+# -- Labels to apply to all resources
+commonLabels: {}
+
+
+### 2026-09-18T20:04:22Z
+$ kubectl --context kind-eg1 apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.2/standard-install.yaml
+customresourcedefinition.apiextensions.k8s.io/backendtlspolicies.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/gatewayclasses.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/gateways.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/grpcroutes.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/httproutes.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/listenersets.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/referencegrants.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/tcproutes.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/tlsroutes.gateway.networking.k8s.io created
+customresourcedefinition.apiextensions.k8s.io/udproutes.gateway.networking.k8s.io created
+validatingadmissionpolicy.admissionregistration.k8s.io/safe-upgrades.gateway.networking.k8s.io created
+validatingadmissionpolicybinding.admissionregistration.k8s.io/safe-upgrades.gateway.networking.k8s.io created
+
+### 2026-09-18T20:04:41Z
+$ kubectl --context kind-eg1 get crd
+NAME                                           CREATED AT
+backendtlspolicies.gateway.networking.k8s.io   2026-09-18T20:04:22Z
+gatewayclasses.gateway.networking.k8s.io       2026-09-18T20:04:22Z
+gateways.gateway.networking.k8s.io             2026-09-18T20:04:22Z
+grpcroutes.gateway.networking.k8s.io           2026-09-18T20:04:22Z
+httproutes.gateway.networking.k8s.io           2026-09-18T20:04:23Z
+listenersets.gateway.networking.k8s.io         2026-09-18T20:04:23Z
+referencegrants.gateway.networking.k8s.io      2026-09-18T20:04:23Z
+tcproutes.gateway.networking.k8s.io            2026-09-18T20:04:23Z
+tlsroutes.gateway.networking.k8s.io            2026-09-18T20:04:23Z
+udproutes.gateway.networking.k8s.io            2026-09-18T20:04:23Z
+
+### 2026-09-18T20:04:41Z
+$ kubectl --context kind-eg1 get crd grpcroutes.gateway.networking.k8s.io -o jsonpath={.metadata.annotations.gateway\.networking\.k8s\.io/bundle-version}{"\n"}
+v1.6.2
+
+### 2026-09-18T20:04:41Z
+$ bash -c helm template eg-crds oci://docker.io/envoyproxy/gateway-crds-helm --version v1.9.1 --set crds.gatewayAPI.enabled=false --set crds.envoyGateway.enabled=true | kubectl --context kind-eg1 apply --server-side -f -
+Pulled: docker.io/envoyproxy/gateway-crds-helm:v1.9.1
+Digest: sha256:45693764cab8aae661bc32f0f706f5c8e5aaa9a151b6d03fb0a468cc535a155c
+customresourcedefinition.apiextensions.k8s.io/backends.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/backendtrafficpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clienttrafficpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/envoyextensionpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/envoypatchpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/envoyproxies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/httproutefilters.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/securitypolicies.gateway.envoyproxy.io serverside-applied
+
+### 2026-09-18T20:04:43Z
+$ helm install eg oci://docker.io/envoyproxy/gateway-helm --version v1.9.1 -n envoy-gateway-system --create-namespace --set crds.enabled=false --kube-context kind-eg1
+Pulled: docker.io/envoyproxy/gateway-helm:v1.9.1
+Digest: sha256:91bae9aedb91ab34731e987afe01a3ccf454393015abeca705eea8ee15553e86
+NAME: eg
+LAST DEPLOYED: Fri Sep 18 15:04:43 2026
+NAMESPACE: envoy-gateway-system
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+TEST SUITE: None
+NOTES:
+**************************************************************************
+*** PLEASE BE PATIENT: Envoy Gateway may take a few minutes to install ***
+**************************************************************************
+
+Envoy Gateway is an open source project for managing Envoy Proxy as a standalone or Kubernetes-based application gateway.
+
+Thank you for installing Envoy Gateway! 🎉
+
+Your release is named: eg. 🎉
+
+Your release is in namespace: envoy-gateway-system. 🎉
+
+To learn more about the release, try:
+
+  $ helm status eg -n envoy-gateway-system
+  $ helm get all eg -n envoy-gateway-system
+
+To have a quickstart of Envoy Gateway, please refer to https://gateway.envoyproxy.io/latest/tasks/quickstart.
+
+To get more details, please visit https://gateway.envoyproxy.io and https://github.com/envoyproxy/gateway.
+
+### 2026-09-18T20:04:55Z
+$ kubectl --context kind-eg1 -n envoy-gateway-system rollout status deploy/envoy-gateway --timeout=180s
+deployment "envoy-gateway" successfully rolled out
+
+### 2026-09-18T20:04:55Z
+$ kubectl --context kind-eg1 get gatewayclass
+No resources found
+
+### 2026-09-18T20:04:55Z
+$ kubectl --context kind-eg1 -n envoy-gateway-system get deploy,po
+NAME                            READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/envoy-gateway   1/1     1            1           5s
+
+NAME                                 READY   STATUS      RESTARTS   AGE
+pod/eg-gateway-helm-certgen-cwb7g    0/1     Completed   0          11s
+pod/envoy-gateway-6fbfccc98d-6544s   1/1     Running     0          5s
+
+### 2026-09-18T20:05:05Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/gatewayclass.yaml
+gatewayclass.gateway.networking.k8s.io/eg created
+
+### 2026-09-18T20:05:05Z
+$ kubectl --context kind-eg1 get gatewayclass
+NAME   CONTROLLER                                      ACCEPTED   AGE
+eg     gateway.envoyproxy.io/gatewayclass-controller   True       0s
+
+### 2026-09-18T20:05:05Z
+$ echo === R0.4 THE TWO LOAD BALANCERS ===
+=== R0.4 THE TWO LOAD BALANCERS ===
+
+### 2026-09-18T20:05:06Z
+$ docker run --rm ghcr.io/kube-vip/kube-vip:v1.2.4 manifest daemonset --interface eth0 --services --arp --inCluster --servicesElection --leaderElection --lbClassOnly --lbClassName kube-vip.io/kube-vip-class
+Unable to find image 'ghcr.io/kube-vip/kube-vip:v1.2.4' locally
+v1.2.4: Pulling from kube-vip/kube-vip
+d5eb50a0c64d: Pulling fs layer
+d94610fc5f1c: Pulling fs layer
+44136fa355b3: Already exists
+fe5c76a0eacc: Download complete
+d94610fc5f1c: Download complete
+d94610fc5f1c: Pull complete
+d5eb50a0c64d: Download complete
+d5eb50a0c64d: Pull complete
+Digest: sha256:dde4c0669d9058c74c69c0bc2f0122e26900e1e4b913c03577cb6e4e28083079
+Status: Downloaded newer image for ghcr.io/kube-vip/kube-vip:v1.2.4
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-vip-ds
+    app.kubernetes.io/version: v1.2.4
+  name: kube-vip-ds
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kube-vip-ds
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kube-vip-ds
+        app.kubernetes.io/version: v1.2.4
+    spec:
+      containers:
+      - args:
+        - manager
+        env:
+        - name: vip_arp
+          value: "true"
+        - name: port
+          value: "6443"
+        - name: vip_nodename
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: vip_interface
+          value: eth0
+        - name: dns_mode
+          value: first
+        - name: dhcp_mode
+          value: ipv4
+        - name: svc_enable
+          value: "true"
+        - name: svc_leasename
+          value: plndr-svcs-lock
+        - name: svc_election
+          value: "true"
+        - name: lb_class_only
+          value: "true"
+        - name: vip_leaderelection
+          value: "true"
+        - name: vip_leasename
+          value: plndr-cp-lock
+        - name: vip_leaseduration
+          value: "15"
+        - name: vip_renewdeadline
+          value: "10"
+        - name: vip_retryperiod
+          value: "2"
+        - name: vip_address
+        - name: prometheus_server
+          value: :2112
+        image: ghcr.io/kube-vip/kube-vip:v1.2.4
+        imagePullPolicy: IfNotPresent
+        name: kube-vip
+        resources: {}
+        securityContext:
+          capabilities:
+            add:
+            - NET_ADMIN
+            - NET_RAW
+            drop:
+            - ALL
+      hostNetwork: true
+      serviceAccountName: kube-vip
+  updateStrategy: {}
+
+
+### 2026-09-18T20:05:12Z
+$ docker run --rm ghcr.io/kube-vip/kube-vip:v1.2.4 manifest daemonset --help
+Generate a DaemonSet manifest to run kube-vip across multiple nodes.
+
+This is the recommended deployment method for production clusters running kube-vip as a service. It ensures that kube-vip runs on all control-plane nodes (or selected nodes via tolerations) and can handle both control-plane HA and service load-balancing.
+
+Flags specific to this subcommand:
+  --taint  : Adds a toleration to the DaemonSet so that pods are scheduled only on nodes with the control-plane taint (node-role.kubernetes.io/control-plane:NoSchedule). This is essential for control-plane-only deployments.
+
+All other standard kube-vip flags (--interface, --vip, --enableARP, --enableBGP, etc.) are respected and embedded into the DaemonSet pod template.
+
+Example:
+  kube-vip manifest daemonset --interface eth0 --vip 192.168.1.100 --controlplane --taint | kubectl apply -f -
+
+Usage:
+  kube-vip manifest daemonset [flags]
+
+Flags:
+  -h, --help    help for daemonset
+      --taint   Taint the manifest for only running on control planes
+
+Global Flags:
+      --address string                                an address (IP or DNS name) to use as a VIP
+      --allowInterfaceNotUp                           Allow kube-vip to start even if the interface is not up
+      --annotations string                            Set Node annotations prefix for parsing
+      --arp                                           Enable Arp for VIP changes
+      --autodetectcp                                  Determine working address for control plane (from loopback)
+      --bgp                                           This will enable BGP support within kube-vip
+      --bgpAttachIPToInterface                        Assign BGP service VIPs to the configured interface
+      --bgpHoldTimer uint                             The hold timer for all bgp peers (it defines the time a session is held) (default 30)
+      --bgpKeepAliveInterval uint                     The keepalive interval for all bgp peers (it defines the heartbeat of keepalive messages) (default 10)
+      --bgpRouterID string                            The routerID for the bgp server
+      --bgppeers strings                              Comma separated BGP Peer, format: address:as:password:multihop
+      --cleanRoutingTable                             Clean routing table of redundant routes on start
+      --config-file string                            Path to a JSON/YAML configuration file to load settings from
+      --controlPlaneHealthCheckAddress string         URL to poll for the control-plane health check when using BGP without leader election
+      --controlPlaneHealthCheckCAPath string          Path to CA certificate for TLS verification when the control-plane health check URL is HTTPS
+      --controlPlaneHealthCheckFailureThreshold int   Consecutive control-plane health check failures before withdrawing the BGP route (default 3)
+      --controlPlaneHealthCheckPeriodSeconds int      Seconds between control-plane health checks (default 5)
+      --controlPlaneHealthCheckTimeoutSeconds int     Timeout for each control-plane health check request (default 3)
+      --controlplane                                  Enable HA for control plane
+      --ddns                                          use Dynamic DNS + DHCP to allocate VIP for address
+      --debounceTime string                           Configures the time that the event debouncer will wait for the events arrival (default 0s - debouncer disabled, enable with min. 200ms) (default "0s")
+      --dhcpBackoffAttempts uint                      number of times DHCP client will try to obtain an IP address (defaults to: 3, 0 for unlimited retries) (default 3)
+      --dhcpMode string                               Mode DHCP resolving will use to obtain IP addresses (ipv4, ipv6, dual)
+      --disableServiceUpdates                         If true, kube-vip will process services as usual, but will not update service's Status.LoadBalancer.Ingress slice
+      --dnsMode string                                Name of the mode that DNS lookup will be performed (first, ipv4, ipv6, dual) (default "first")
+      --egressWithNftables                            Use nftables-based egress implementation (default true)
+      --enableEndpoints                               If enabled, kube-vip will only advertise services, but will use the (deprecated since v1.33) endpoints for IP addresses
+      --enableLoadBalancer                            enable loadbalancing on the VIP with IPVS
+      --enableNodeLabeling                            Enable leader node labeling with "kube-vip.io/has-ip", defaults to false
+      --etcdCACert string                             Verify certificates of TLS-enabled secure servers using this CA bundle file
+      --etcdCert string                               Identify secure client using this TLS certificate file
+      --etcdEndpoints strings                         Etcd member endpoints
+      --etcdKey string                                Identify secure client using this TLS key file
+      --healthCheckPort int                           If set to non-zero (> 1024), then this is the port that the healthcheck will listen on
+      --image string                                  Define a hardcoded image with or without tag for the manifest (default "ghcr.io/kube-vip/kube-vip")
+      --inCluster                                     Use the incluster token to authenticate to Kubernetes
+      --instanceName string                           Unique name for this kube-vip instance (currently used to isolate nftables egress tables)
+      --interface string                              Name of the interface to bind to
+      --k8sConfigPath string                          Path to the configuration file used with the Kubernetes client (default "/etc/kubernetes/admin.conf")
+      --lbClassName string                            Name of load balancer class for kube-VIP, defaults to "kube-vip.io/kube-vip-class" (default "kube-vip.io/kube-vip-class")
+      --lbClassNameLegacyHandling                     Use legacy LoadBalancer class name handling (e.g. accepting services both with empty and non-empty class) (default true)
+      --lbClassOnly                                   Enable load balancing only for services with LoadBalancerClass "kube-vip.io/kube-vip-class"
+      --lbForwardingMethod string                     loadbalancer forwarding method (default "local")
+      --lbPort uint16                                 loadbalancer port for the VIP (default 6443)
+      --leaderElection                                Use the Kubernetes leader election mechanism for clustering
+      --leaderElectionType string                     Defines the backend to run the leader election: kubernetes or etcd. Defaults to kubernetes. (default "kubernetes")
+      --leaseDuration int                             Length of time (in seconds) a Kubernetes leader lease can be held for (default 15)
+      --leaseName string                              Name of the lease that is used for leader election (default "plndr-cp-lock")
+      --leaseRenewDuration int                        Length of time (in seconds) a Kubernetes leader can attempt to renew its lease (default 10)
+      --leaseRetry int                                Length of time (in seconds) the LeaderElector clients should wait between tries of actions (default 2)
+      --loInterfaceGlobalScope                        If true, kube-vip will set global scope when using the lo interface, otherwise a host scope will be used by default
+      --localAS uint32                                The local AS number for the bgp server (default 65000)
+      --log int32                                     Set the level of logging
+      --loseLeadership                                Lose leadership when VIP interface goes down
+      --loseLeadershiptTimeoutSeconds int             Timeout before re-electing a leader when the VIP interface is down (default 30)
+      --mirrorDestInterface string                    network interface where all traffic that traverses the service interface will be mirrored to. Source interface will use default interface is servicesInterface is not set.
+      --multihop                                      This will enable BGP multihop support
+  -n, --namespace string                              The namespace for the configmap defined within the cluster (default "kube-system")
+      --nodeName string                               Name to be used for lease holder. Must be unique for each node/instance
+      --onlyAllowTrafficServicePorts                  Only allow traffic to service ports, others will be dropped, defaults to false
+      --peerAS uint32                                 The AS number for a BGP peer (default 65000)
+      --peerAddress string                            The address of a BGP peer
+      --peerPass string                               The md5 password for a BGP peer
+      --perServiceElectionOnDemand                    Allow kube-vip to use per-service election for annotated services
+      --port uint16                                   Port for the VIP (default 6443)
+      --preserveVipOnLeadershipLoss                   Preserve ARP VIP addresses on interface when leadership is lost (default: false for backward compatibility)
+      --prometheusHTTPServer string                   Host and port used to expose Prometheus metrics via an HTTP server (default ":2112")
+      --routingProtocol int                           The routing protocol value used to create routes (default 248)
+      --serviceInterface string                       Name of the interface to bind to (for services)
+      --services                                      Enable Kubernetes services
+      --servicesElection                              Enable leader election per kubernetes service
+      --servicesLeaseName string                      Name of the lease that is used for leader election for services (in arp mode) (default "plndr-svcs-lock")
+      --sourceIF string                               The source interface for bgp peering (not to be used with sourceIP)
+      --sourceIP string                               The source address for bgp peering (not to be used with sourceIF)
+      --table                                         Enable Routing Table for services VIPs
+      --tableID int                                   The routing table used for all table entries (default 198)
+      --tableType int                                 The type of route that will be added to the routing table (default 1)
+      --vip string                                    The Virtual IP address
+      --vipSubnet string                              The Virtual IP address subnet e.g. /32 /24 /8 etc.. (Default to 32 for IPv4 and 128 for IPv6)
+      --wireguard                                     Enable Wireguard for services VIPs
+      --zebra                                         This will enable Zebra support within kube-vip
+      --zebraSoftwareName string                      Software Name for Zebra (default "frr8.3")
+      --zebraUrl string                               Path to the unix domain socket for connecting to Zebra daemon (default "unix:/var/run/frr/zserv.api")
+      --zebraVersion uint32                           Zebra API Version (default 6)
+
+### 2026-09-18T20:05:23Z
+$ docker run --rm ghcr.io/kube-vip/kube-vip:v1.2.4 manifest rbac
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-vip
+  namespace: kube-system
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: system:kube-vip-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - services/status
+  verbs:
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - services
+  - endpoints
+  verbs:
+  - list
+  - get
+  - watch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - list
+  - get
+  - watch
+  - update
+  - patch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - list
+  - get
+  - watch
+  - update
+  - create
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - list
+  - get
+  - watch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - list
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - servicecidrs
+  verbs:
+  - list
+  - get
+  - watch
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: system:kube-vip-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:kube-vip-role
+subjects:
+- kind: ServiceAccount
+  name: kube-vip
+  namespace: kube-system
+
+
+### 2026-09-18T20:05:39Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/kube-vip-rbac.yaml
+serviceaccount/kube-vip created
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-role created
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-binding created
+
+### 2026-09-18T20:05:40Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/kube-vip-ds.yaml
+daemonset.apps/kube-vip-ds created
+
+### 2026-09-18T20:05:40Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/kubevip-configmap.yaml
+configmap/kubevip created
+
+### 2026-09-18T20:05:40Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/kube-vip-cloud-provider.yaml
+serviceaccount/kube-vip-cloud-controller created
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-role created
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-binding created
+Warning: spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[1].preference.matchExpressions[0].key: node-role.kubernetes.io/master is use "node-role.kubernetes.io/control-plane" instead
+deployment.apps/kube-vip-cloud-provider created
+
+### 2026-09-18T20:05:45Z
+$ bash -c helm show values metallb/metallb --version 0.16.0 | grep -A3 -i "loadBalancerClass\|lb-class\|frrk8s:\|frr:"
+loadBalancerClass: ""
+
+# To configure MetalLB, you must specify ONE of the following two
+# options.
+--
+  frr:
+    enabled: false
+    image:
+      repository: quay.io/frrouting/frr
+--
+frrk8s:
+  # if set, enables frrk8s as a backend. This is mutually exclusive to frr
+  # mode.
+  enabled: true
+
+### 2026-09-18T20:05:45Z
+$ helm install metallb metallb/metallb --version 0.16.0 -n metallb-system --create-namespace --set loadBalancerClass=metallb.io/metallb --set speaker.frr.enabled=false --set frrk8s.enabled=false --kube-context kind-eg1
+NAME: metallb
+LAST DEPLOYED: Fri Sep 18 15:05:45 2026
+NAMESPACE: metallb-system
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+TEST SUITE: None
+NOTES:
+MetalLB is now running in the cluster.
+
+Now you can configure it via its CRs. Please refer to the metallb official docs
+on how to use the CRs.
+
+### 2026-09-18T20:05:49Z
+$ kubectl --context kind-eg1 -n kube-system rollout status ds/kube-vip-ds --timeout=180s
+daemon set "kube-vip-ds" successfully rolled out
+
+### 2026-09-18T20:05:49Z
+$ kubectl --context kind-eg1 -n kube-system rollout status deploy/kube-vip-cloud-provider --timeout=180s
+deployment "kube-vip-cloud-provider" successfully rolled out
+
+### 2026-09-18T20:05:49Z
+$ kubectl --context kind-eg1 -n metallb-system rollout status deploy/metallb-controller --timeout=180s
+Waiting for deployment "metallb-controller" rollout to finish: 0 of 1 updated replicas are available...
+deployment "metallb-controller" successfully rolled out
+
+### 2026-09-18T20:05:59Z
+$ kubectl --context kind-eg1 -n metallb-system rollout status ds/metallb-speaker --timeout=180s
+Waiting for daemon set "metallb-speaker" rollout to finish: 0 of 2 updated pods are available...
+Waiting for daemon set "metallb-speaker" rollout to finish: 1 of 2 updated pods are available...
+daemon set "metallb-speaker" successfully rolled out
+
+### 2026-09-18T20:06:06Z
+$ bash -c kubectl --context kind-eg1 -n metallb-system get deploy,ds -o yaml | grep -E 'lb-class|loadBalancerClass' -n | head -40
+48:          - --lb-class=metallb.io/metallb
+180:          - --lb-class=metallb.io/metallb
+
+### 2026-09-18T20:06:06Z
+$ bash -c kubectl --context kind-eg1 -n kube-system get ds kube-vip-ds -o yaml | grep -E 'lb_class'
+      {"apiVersion":"apps/v1","kind":"DaemonSet","metadata":{"annotations":{},"labels":{"app.kubernetes.io/name":"kube-vip-ds","app.kubernetes.io/version":"v1.2.4"},"name":"kube-vip-ds","namespace":"kube-system"},"spec":{"selector":{"matchLabels":{"app.kubernetes.io/name":"kube-vip-ds"}},"template":{"metadata":{"labels":{"app.kubernetes.io/name":"kube-vip-ds","app.kubernetes.io/version":"v1.2.4"}},"spec":{"containers":[{"args":["manager"],"env":[{"name":"vip_arp","value":"true"},{"name":"port","value":"6443"},{"name":"vip_nodename","valueFrom":{"fieldRef":{"fieldPath":"spec.nodeName"}}},{"name":"vip_interface","value":"eth0"},{"name":"dns_mode","value":"first"},{"name":"dhcp_mode","value":"ipv4"},{"name":"svc_enable","value":"true"},{"name":"svc_leasename","value":"plndr-svcs-lock"},{"name":"svc_election","value":"true"},{"name":"lb_class_only","value":"true"},{"name":"lb_class_name","value":"kube-vip.io/kube-vip-class"},{"name":"vip_leaderelection","value":"true"},{"name":"vip_leasename","value":"plndr-cp-lock"},{"name":"vip_leaseduration","value":"15"},{"name":"vip_renewdeadline","value":"10"},{"name":"vip_retryperiod","value":"2"},{"name":"prometheus_server","value":":2112"}],"image":"ghcr.io/kube-vip/kube-vip:v1.2.4","imagePullPolicy":"IfNotPresent","name":"kube-vip","securityContext":{"capabilities":{"add":["NET_ADMIN","NET_RAW"],"drop":["ALL"]}}}],"hostNetwork":true,"serviceAccountName":"kube-vip"}}}}
+        - name: lb_class_only
+        - name: lb_class_name
+
+### 2026-09-18T20:06:12Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/metallb-pool.yaml
+ipaddresspool.metallb.io/eg1-metallb created
+l2advertisement.metallb.io/eg1-l2 created
+
+### 2026-09-18T20:06:12Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/probe-lb-services.yaml
+deployment.apps/probe-nginx created
+service/probe-kv created
+service/probe-ml created
+service/probe-noclass created
+
+### 2026-09-18T20:06:12Z
+$ kubectl --context kind-eg1 -n default rollout status deploy/probe-nginx --timeout=120s
+Waiting for deployment "probe-nginx" rollout to finish: 0 of 1 updated replicas are available...
+deployment "probe-nginx" successfully rolled out
+
+### 2026-09-18T20:06:20Z
+$ kubectl --context kind-eg1 get svc probe-kv probe-ml probe-noclass -o wide
+NAME            TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE   SELECTOR
+probe-kv        LoadBalancer   10.51.186.82    172.19.255.200   80:30617/TCP   9s    app=probe-nginx
+probe-ml        LoadBalancer   10.51.232.119   172.19.255.206   80:30904/TCP   9s    app=probe-nginx
+probe-noclass   LoadBalancer   10.51.171.149   <pending>        80:32753/TCP   9s    app=probe-nginx
+
+### 2026-09-18T20:06:21Z
+$ kubectl --context kind-eg1 get svc probe-kv probe-ml probe-noclass -o yaml
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kube-vip.io/loadbalancerIPs: 172.19.255.200
+      kube-vip.io/vipHost: eg1-worker
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{"kube-vip.io/loadbalancerIPs":"172.19.255.200"},"name":"probe-kv","namespace":"default"},"spec":{"loadBalancerClass":"kube-vip.io/kube-vip-class","ports":[{"port":80,"targetPort":80}],"selector":{"app":"probe-nginx"},"type":"LoadBalancer"}}
+    creationTimestamp: "2026-09-18T20:06:12Z"
+    name: probe-kv
+    namespace: default
+    resourceVersion: "1189"
+    uid: 7e3b83ea-f7ee-46f9-8f1f-bca985869289
+  spec:
+    allocateLoadBalancerNodePorts: true
+    clusterIP: 10.51.186.82
+    clusterIPs:
+    - 10.51.186.82
+    externalTrafficPolicy: Cluster
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    loadBalancerClass: kube-vip.io/kube-vip-class
+    ports:
+    - nodePort: 30617
+      port: 80
+      protocol: TCP
+      targetPort: 80
+    selector:
+      app: probe-nginx
+    sessionAffinity: None
+    type: LoadBalancer
+  status:
+    loadBalancer:
+      ingress:
+      - ip: 172.19.255.200
+        ipMode: VIP
+        ports:
+        - port: 80
+          protocol: TCP
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{"metallb.io/loadBalancerIPs":"172.19.255.206"},"name":"probe-ml","namespace":"default"},"spec":{"loadBalancerClass":"metallb.io/metallb","ports":[{"port":80,"targetPort":80}],"selector":{"app":"probe-nginx"},"type":"LoadBalancer"}}
+      metallb.io/ip-allocated-from-pool: eg1-metallb
+      metallb.io/loadBalancerIPs: 172.19.255.206
+    creationTimestamp: "2026-09-18T20:06:12Z"
+    name: probe-ml
+    namespace: default
+    resourceVersion: "1155"
+    uid: 64da0c83-0ec1-46b0-b6ce-fb10ea4b24f8
+  spec:
+    allocateLoadBalancerNodePorts: true
+    clusterIP: 10.51.232.119
+    clusterIPs:
+    - 10.51.232.119
+    externalTrafficPolicy: Cluster
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    loadBalancerClass: metallb.io/metallb
+    ports:
+    - nodePort: 30904
+      port: 80
+      protocol: TCP
+      targetPort: 80
+    selector:
+      app: probe-nginx
+    sessionAffinity: None
+    type: LoadBalancer
+  status:
+    loadBalancer:
+      ingress:
+      - ip: 172.19.255.206
+        ipMode: VIP
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kube-vip.io/loadbalancerIPs: 172.19.255.200
+      kubectl.kubernetes.io/last-applied-configuration: |
+        {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"probe-noclass","namespace":"default"},"spec":{"ports":[{"port":80,"targetPort":80}],"selector":{"app":"probe-nginx"},"type":"LoadBalancer"}}
+    creationTimestamp: "2026-09-18T20:06:12Z"
+    finalizers:
+    - service.kubernetes.io/load-balancer-cleanup
+    labels:
+      implementation: kube-vip
+    name: probe-noclass
+    namespace: default
+    resourceVersion: "1163"
+    uid: 08eed96d-40f6-46f0-b4a2-9ac0a13ecdf9
+  spec:
+    allocateLoadBalancerNodePorts: true
+    clusterIP: 10.51.171.149
+    clusterIPs:
+    - 10.51.171.149
+    externalTrafficPolicy: Cluster
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    loadBalancerIP: 172.19.255.200
+    ports:
+    - nodePort: 32753
+      port: 80
+      protocol: TCP
+      targetPort: 80
+    selector:
+      app: probe-nginx
+    sessionAffinity: None
+    type: LoadBalancer
+  status:
+    loadBalancer: {}
+kind: List
+metadata:
+  resourceVersion: ""
+
+### 2026-09-18T20:06:26Z
+$ kubectl --context kind-eg1 describe svc probe-kv
+Name:                     probe-kv
+Namespace:                default
+Labels:                   <none>
+Annotations:              kube-vip.io/loadbalancerIPs: 172.19.255.200
+                          kube-vip.io/vipHost: eg1-worker
+Selector:                 app=probe-nginx
+Type:                     LoadBalancer
+IP Family Policy:         SingleStack
+IP Families:              IPv4
+IP:                       10.51.186.82
+IPs:                      10.51.186.82
+LoadBalancer Ingress:     172.19.255.200 (VIP)
+Port:                     <unset>  80/TCP
+TargetPort:               80/TCP
+NodePort:                 <unset>  30617/TCP
+Endpoints:                10.50.1.5:80
+Session Affinity:         None
+External Traffic Policy:  Cluster
+Internal Traffic Policy:  Cluster
+Events:                   <none>
+
+### 2026-09-18T20:06:26Z
+$ kubectl --context kind-eg1 describe svc probe-ml
+Name:                     probe-ml
+Namespace:                default
+Labels:                   <none>
+Annotations:              metallb.io/ip-allocated-from-pool: eg1-metallb
+                          metallb.io/loadBalancerIPs: 172.19.255.206
+Selector:                 app=probe-nginx
+Type:                     LoadBalancer
+IP Family Policy:         SingleStack
+IP Families:              IPv4
+IP:                       10.51.232.119
+IPs:                      10.51.232.119
+LoadBalancer Ingress:     172.19.255.206 (VIP)
+Port:                     <unset>  80/TCP
+TargetPort:               80/TCP
+NodePort:                 <unset>  30904/TCP
+Endpoints:                10.50.1.5:80
+Session Affinity:         None
+External Traffic Policy:  Cluster
+Internal Traffic Policy:  Cluster
+Events:
+  Type    Reason        Age   From                Message
+  ----    ------        ----  ----                -------
+  Normal  IPAllocated   14s   metallb-controller  Assigned IP ["172.19.255.206"]
+  Normal  nodeAssigned  14s   metallb-speaker     announcing from node "eg1-worker" with protocol "layer2"
+
+### 2026-09-18T20:06:26Z
+$ kubectl --context kind-eg1 describe svc probe-noclass
+Name:                     probe-noclass
+Namespace:                default
+Labels:                   implementation=kube-vip
+Annotations:              kube-vip.io/loadbalancerIPs: 172.19.255.200
+Selector:                 app=probe-nginx
+Type:                     LoadBalancer
+IP Family Policy:         SingleStack
+IP Families:              IPv4
+IP:                       10.51.171.149
+IPs:                      10.51.171.149
+Desired LoadBalancer IP:  172.19.255.200
+Port:                     <unset>  80/TCP
+TargetPort:               80/TCP
+NodePort:                 <unset>  32753/TCP
+Endpoints:                10.50.1.5:80
+Session Affinity:         None
+External Traffic Policy:  Cluster
+Internal Traffic Policy:  Cluster
+Events:
+  Type    Reason                Age                From                Message
+  ----    ------                ----               ----                -------
+  Normal  EnsuringLoadBalancer  14s (x2 over 14s)  service-controller  Ensuring load balancer
+  Normal  EnsuredLoadBalancer   14s (x2 over 14s)  service-controller  Ensured load balancer
+
+### 2026-09-18T20:06:26Z
+$ docker inspect eg1-control-plane -f {{.NetworkSettings.Networks.kind-eg.MacAddress}} {{.NetworkSettings.Networks.kind-eg.IPAddress}}
+template parsing error: template: :1: bad character U+002D '-'
+[exit code: 64]
+
+### 2026-09-18T20:06:26Z
+$ docker inspect eg1-worker -f {{.NetworkSettings.Networks.kind-eg.MacAddress}} {{.NetworkSettings.Networks.kind-eg.IPAddress}}
+template parsing error: template: :1: bad character U+002D '-'
+[exit code: 64]
+
+### 2026-09-18T20:06:26Z
+$ docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 arping -c 3 -I eth0 172.19.255.200
+ARPING 172.19.255.200 from 172.19.0.4 eth0
+Unicast reply from 172.19.255.200 [32:b7:64:3b:79:5b] 0.010ms
+Unicast reply from 172.19.255.200 [32:b7:64:3b:79:5b] 0.012ms
+Unicast reply from 172.19.255.200 [32:b7:64:3b:79:5b] 0.013ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+
+### 2026-09-18T20:06:30Z
+$ docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 arping -c 3 -I eth0 172.19.255.206
+ARPING 172.19.255.206 from 172.19.0.4 eth0
+Unicast reply from 172.19.255.206 [32:b7:64:3b:79:5b] 0.100ms
+Unicast reply from 172.19.255.206 [32:b7:64:3b:79:5b] 0.095ms
+Unicast reply from 172.19.255.206 [32:b7:64:3b:79:5b] 0.095ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+
+### 2026-09-18T20:06:33Z
+$ docker run --rm --network kind-eg alpine:3.20 wget -q -O - -T 5 http://172.19.255.200/
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+<style>
+html { color-scheme: light dark; }
+body { width: 35em; margin: 0 auto;
+font-family: Tahoma, Verdana, Arial, sans-serif; }
+</style>
+</head>
+<body>
+<h1>Welcome to nginx!</h1>
+<p>If you see this page, the nginx web server is successfully installed and
+working. Further configuration is required.</p>
+
+<p>For online documentation and support please refer to
+<a href="http://nginx.org/">nginx.org</a>.<br/>
+Commercial support is available at
+<a href="http://nginx.com/">nginx.com</a>.</p>
+
+<p><em>Thank you for using nginx.</em></p>
+</body>
+</html>
+
+### 2026-09-18T20:06:33Z
+$ docker run --rm --network kind-eg alpine:3.20 wget -q -O - -T 5 http://172.19.255.206/
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+<style>
+html { color-scheme: light dark; }
+body { width: 35em; margin: 0 auto;
+font-family: Tahoma, Verdana, Arial, sans-serif; }
+</style>
+</head>
+<body>
+<h1>Welcome to nginx!</h1>
+<p>If you see this page, the nginx web server is successfully installed and
+working. Further configuration is required.</p>
+
+<p>For online documentation and support please refer to
+<a href="http://nginx.org/">nginx.org</a>.<br/>
+Commercial support is available at
+<a href="http://nginx.com/">nginx.com</a>.</p>
+
+<p><em>Thank you for using nginx.</em></p>
+</body>
+</html>
+
+### 2026-09-18T20:06:40Z
+$ docker inspect eg1-control-plane --format {{.NetworkSettings.Networks.kind-eg.MacAddress}} {{.Name}}
+template parsing error: template: :1: bad character U+002D '-'
+[exit code: 64]
+
+### 2026-09-18T20:06:40Z
+$ docker inspect eg1-worker --format {{.NetworkSettings.Networks.kind-eg.MacAddress}} {{.Name}}
+template parsing error: template: :1: bad character U+002D '-'
+[exit code: 64]
+
+### 2026-09-18T20:06:40Z
+$ echo class-less claimed by kube-vip-cloud-provider; patching KUBEVIP_ENABLE_LOADBALANCERCLASS=true
+class-less claimed by kube-vip-cloud-provider; patching KUBEVIP_ENABLE_LOADBALANCERCLASS=true
+
+### 2026-09-18T20:06:40Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/kube-vip-cloud-provider.yaml
+serviceaccount/kube-vip-cloud-controller unchanged
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-role unchanged
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-binding unchanged
+Warning: spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[1].preference.matchExpressions[0].key: node-role.kubernetes.io/master is use "node-role.kubernetes.io/control-plane" instead
+deployment.apps/kube-vip-cloud-provider configured
+
+### 2026-09-18T20:06:40Z
+$ kubectl --context kind-eg1 -n kube-system rollout status deploy/kube-vip-cloud-provider --timeout=120s
+Waiting for deployment "kube-vip-cloud-provider" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "kube-vip-cloud-provider" rollout to finish: 1 old replicas are pending termination...
+deployment "kube-vip-cloud-provider" successfully rolled out
+
+### 2026-09-18T20:06:41Z
+$ kubectl --context kind-eg1 delete svc probe-noclass --wait=true
+service "probe-noclass" deleted from default namespace
+
+### 2026-09-18T20:08:23Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/probe-lb-services.yaml
+deployment.apps/probe-nginx unchanged
+service/probe-kv unchanged
+service/probe-ml unchanged
+service/probe-noclass created
+
+### 2026-09-18T20:08:31Z
+$ kubectl --context kind-eg1 get svc probe-kv probe-ml probe-noclass -o wide
+NAME            TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE     SELECTOR
+probe-kv        LoadBalancer   10.51.186.82    172.19.255.200   80:30617/TCP   2m19s   app=probe-nginx
+probe-ml        LoadBalancer   10.51.232.119   172.19.255.206   80:30904/TCP   2m19s   app=probe-nginx
+probe-noclass   LoadBalancer   10.51.36.208    <pending>        80:31112/TCP   8s      app=probe-nginx
+
+### 2026-09-18T20:08:31Z
+$ kubectl --context kind-eg1 get svc probe-noclass -o yaml
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"probe-noclass","namespace":"default"},"spec":{"ports":[{"port":80,"targetPort":80}],"selector":{"app":"probe-nginx"},"type":"LoadBalancer"}}
+  creationTimestamp: "2026-09-18T20:08:23Z"
+  name: probe-noclass
+  namespace: default
+  resourceVersion: "1619"
+  uid: b0f338a2-72fa-4343-82f0-31f7fcff9352
+spec:
+  allocateLoadBalancerNodePorts: true
+  clusterIP: 10.51.36.208
+  clusterIPs:
+  - 10.51.36.208
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - nodePort: 31112
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    app: probe-nginx
+  sessionAffinity: None
+  type: LoadBalancer
+status:
+  loadBalancer: {}
+
+### 2026-09-18T20:08:31Z
+$ kubectl --context kind-eg1 describe svc probe-noclass
+Name:                     probe-noclass
+Namespace:                default
+Labels:                   <none>
+Annotations:              <none>
+Selector:                 app=probe-nginx
+Type:                     LoadBalancer
+IP Family Policy:         SingleStack
+IP Families:              IPv4
+IP:                       10.51.36.208
+IPs:                      10.51.36.208
+Port:                     <unset>  80/TCP
+TargetPort:               80/TCP
+NodePort:                 <unset>  31112/TCP
+Endpoints:                10.50.1.5:80
+Session Affinity:         None
+External Traffic Policy:  Cluster
+Internal Traffic Policy:  Cluster
+Events:                   <none>
+
+### 2026-09-18T20:08:42Z
+$ python3 -c import json,subprocess; d=json.loads(subprocess.check_output(["docker","inspect","eg1-control-plane","eg1-worker"]));
+[print(x["Name"], x["NetworkSettings"]["Networks"]["kind-eg"]["MacAddress"], x["NetworkSettings"]["Networks"]["kind-eg"]["IPAddress"]) for x in d]
+/eg1-control-plane 62:d0:d4:f7:3a:89 172.19.0.3
+/eg1-worker 32:b7:64:3b:79:5b 172.19.0.2
+
+### 2026-09-18T20:08:57Z
+$ kubectl --context kind-eg1 get svc probe-noclass -o jsonpath={.status.loadBalancer}{" pending="}{.spec.loadBalancerClass}{" labels="}{.metadata.labels}{"\n"}
+{} pending= labels=
+
+### 2026-09-18T20:08:58Z
+$ echo === R0.5 STATIC-ADDRESS EXPERIMENT ===
+=== R0.5 STATIC-ADDRESS EXPERIMENT ===
+
+### 2026-09-18T20:08:58Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/probe-gw.yaml
+gateway.gateway.networking.k8s.io/probe-gw created
+
+### 2026-09-18T20:09:10Z
+$ kubectl --context kind-eg1 get gateway probe-gw -o yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"gateway.networking.k8s.io/v1","kind":"Gateway","metadata":{"annotations":{},"name":"probe-gw","namespace":"default"},"spec":{"addresses":[{"type":"IPAddress","value":"172.19.255.240"}],"gatewayClassName":"eg","listeners":[{"allowedRoutes":{"namespaces":{"from":"All"}},"name":"http","port":80,"protocol":"HTTP"}]}}
+  creationTimestamp: "2026-09-18T20:08:58Z"
+  generation: 1
+  name: probe-gw
+  namespace: default
+  resourceVersion: "1805"
+  uid: 646de6a2-ec49-4f71-bfb4-ae55a3edcfc4
+spec:
+  addresses:
+  - type: IPAddress
+    value: 172.19.255.240
+  gatewayClassName: eg
+  listeners:
+  - allowedRoutes:
+      namespaces:
+        from: All
+    name: http
+    port: 80
+    protocol: HTTP
+status:
+  addresses:
+  - type: IPAddress
+    value: 172.19.255.240
+  conditions:
+  - lastTransitionTime: "2026-09-18T20:09:09Z"
+    message: The Gateway has been scheduled by Envoy Gateway
+    observedGeneration: 1
+    reason: Accepted
+    status: "True"
+    type: Accepted
+  - lastTransitionTime: "2026-09-18T20:09:09Z"
+    message: Address assigned to the Gateway, 1/1 envoy replicas available
+    observedGeneration: 1
+    reason: Programmed
+    status: "True"
+    type: Programmed
+  listeners:
+  - attachedRoutes: 0
+    conditions:
+    - lastTransitionTime: "2026-09-18T20:09:09Z"
+      message: Sending translated listener configuration to the data plane
+      observedGeneration: 1
+      reason: Programmed
+      status: "True"
+      type: Programmed
+    - lastTransitionTime: "2026-09-18T20:09:09Z"
+      message: Listener has been successfully translated
+      observedGeneration: 1
+      reason: Accepted
+      status: "True"
+      type: Accepted
+    - lastTransitionTime: "2026-09-18T20:09:09Z"
+      message: Listener references have been resolved
+      observedGeneration: 1
+      reason: ResolvedRefs
+      status: "True"
+      type: ResolvedRefs
+    name: http
+    supportedKinds:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+    - group: gateway.networking.k8s.io
+      kind: GRPCRoute
+
+### 2026-09-18T20:09:10Z
+$ kubectl --context kind-eg1 -n envoy-gateway-system get svc -o wide
+NAME                              TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)                                            AGE     SELECTOR
+envoy-default-probe-gw-fef29530   LoadBalancer   10.51.242.251   172.19.255.240   80:32182/TCP                                       12s     app.kubernetes.io/component=proxy,app.kubernetes.io/managed-by=envoy-gateway,app.kubernetes.io/name=envoy,gateway.envoyproxy.io/owning-gateway-name=probe-gw,gateway.envoyproxy.io/owning-gateway-namespace=default
+envoy-gateway                     ClusterIP      10.51.219.109   <none>           18000/TCP,18001/TCP,18002/TCP,19001/TCP,9443/TCP   4m20s   app.kubernetes.io/instance=eg,app.kubernetes.io/name=gateway-helm,control-plane=envoy-gateway
+
+### 2026-09-18T20:09:10Z
+$ kubectl --context kind-eg1 -n envoy-gateway-system get svc -o yaml
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: Service
+  metadata:
+    creationTimestamp: "2026-09-18T20:08:58Z"
+    labels:
+      app.kubernetes.io/component: proxy
+      app.kubernetes.io/managed-by: envoy-gateway
+      app.kubernetes.io/name: envoy
+      gateway.envoyproxy.io/owning-gateway-name: probe-gw
+      gateway.envoyproxy.io/owning-gateway-namespace: default
+    name: envoy-default-probe-gw-fef29530
+    namespace: envoy-gateway-system
+    ownerReferences:
+    - apiVersion: gateway.networking.k8s.io/v1
+      kind: GatewayClass
+      name: eg
+      uid: 9a3cd3d7-d5b9-469c-adb7-0c71a29b79ac
+    resourceVersion: "1740"
+    uid: c85125ca-8259-4699-83e9-68a71bcd3bb4
+  spec:
+    allocateLoadBalancerNodePorts: true
+    clusterIP: 10.51.242.251
+    clusterIPs:
+    - 10.51.242.251
+    externalIPs:
+    - 172.19.255.240
+    externalTrafficPolicy: Local
+    healthCheckNodePort: 31574
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: http-80
+      nodePort: 32182
+      port: 80
+      protocol: TCP
+      targetPort: 10080
+    selector:
+      app.kubernetes.io/component: proxy
+      app.kubernetes.io/managed-by: envoy-gateway
+      app.kubernetes.io/name: envoy
+      gateway.envoyproxy.io/owning-gateway-name: probe-gw
+      gateway.envoyproxy.io/owning-gateway-namespace: default
+    sessionAffinity: None
+    type: LoadBalancer
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      meta.helm.sh/release-name: eg
+      meta.helm.sh/release-namespace: envoy-gateway-system
+    creationTimestamp: "2026-09-18T20:04:50Z"
+    labels:
+      app.kubernetes.io/instance: eg
+      app.kubernetes.io/managed-by: Helm
+      app.kubernetes.io/name: gateway-helm
+      app.kubernetes.io/version: v1.9.1
+      control-plane: envoy-gateway
+      helm.sh/chart: gateway-helm-v1.9.1
+    name: envoy-gateway
+    namespace: envoy-gateway-system
+    resourceVersion: "716"
+    uid: 17adcedd-c0b0-4139-b5d4-4e3b386fa0a9
+  spec:
+    clusterIP: 10.51.219.109
+    clusterIPs:
+    - 10.51.219.109
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    ports:
+    - name: grpc
+      port: 18000
+      protocol: TCP
+      targetPort: 18000
+    - name: ratelimit
+      port: 18001
+      protocol: TCP
+      targetPort: 18001
+    - name: wasm
+      port: 18002
+      protocol: TCP
+      targetPort: 18002
+    - name: metrics
+      port: 19001
+      protocol: TCP
+      targetPort: 19001
+    - name: webhook
+      port: 9443
+      protocol: TCP
+      targetPort: 9443
+    selector:
+      app.kubernetes.io/instance: eg
+      app.kubernetes.io/name: gateway-helm
+      control-plane: envoy-gateway
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+kind: List
+metadata:
+  resourceVersion: ""
+
+### 2026-09-18T20:09:10Z
+$ docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 arping -c 3 -I eth0 172.19.255.240
+ARPING 172.19.255.240 from 172.19.0.4 eth0
+Sent 3 probe(s) (0 broadcast(s))
+Received 0 response(s) (0 request(s), 0 broadcast(s))
+[exit code: 1]
+
+### 2026-09-18T20:09:22Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/probe-gw-envoyproxy.yaml
+envoyproxy.gateway.envoyproxy.io/probe-gw-proxy created
+gateway.gateway.networking.k8s.io/probe-gw configured
+
+### 2026-09-18T20:09:38Z
+$ kubectl --context kind-eg1 get gateway probe-gw -o yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"gateway.networking.k8s.io/v1","kind":"Gateway","metadata":{"annotations":{},"name":"probe-gw","namespace":"default"},"spec":{"addresses":[{"type":"IPAddress","value":"172.19.255.240"}],"gatewayClassName":"eg","infrastructure":{"parametersRef":{"group":"gateway.envoyproxy.io","kind":"EnvoyProxy","name":"probe-gw-proxy"}},"listeners":[{"allowedRoutes":{"namespaces":{"from":"All"}},"name":"http","port":80,"protocol":"HTTP"}]}}
+  creationTimestamp: "2026-09-18T20:08:58Z"
+  generation: 2
+  name: probe-gw
+  namespace: default
+  resourceVersion: "1850"
+  uid: 646de6a2-ec49-4f71-bfb4-ae55a3edcfc4
+spec:
+  addresses:
+  - type: IPAddress
+    value: 172.19.255.240
+  gatewayClassName: eg
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: probe-gw-proxy
+  listeners:
+  - allowedRoutes:
+      namespaces:
+        from: All
+    name: http
+    port: 80
+    protocol: HTTP
+status:
+  addresses:
+  - type: IPAddress
+    value: 172.19.255.240
+  conditions:
+  - lastTransitionTime: "2026-09-18T20:09:23Z"
+    message: The Gateway has been scheduled by Envoy Gateway
+    observedGeneration: 2
+    reason: Accepted
+    status: "True"
+    type: Accepted
+  - lastTransitionTime: "2026-09-18T20:09:23Z"
+    message: Address assigned to the Gateway, 1/1 envoy replicas available
+    observedGeneration: 2
+    reason: Programmed
+    status: "True"
+    type: Programmed
+  listeners:
+  - attachedRoutes: 0
+    conditions:
+    - lastTransitionTime: "2026-09-18T20:09:23Z"
+      message: Sending translated listener configuration to the data plane
+      observedGeneration: 2
+      reason: Programmed
+      status: "True"
+      type: Programmed
+    - lastTransitionTime: "2026-09-18T20:09:23Z"
+      message: Listener has been successfully translated
+      observedGeneration: 2
+      reason: Accepted
+      status: "True"
+      type: Accepted
+    - lastTransitionTime: "2026-09-18T20:09:23Z"
+      message: Listener references have been resolved
+      observedGeneration: 2
+      reason: ResolvedRefs
+      status: "True"
+      type: ResolvedRefs
+    name: http
+    supportedKinds:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+    - group: gateway.networking.k8s.io
+      kind: GRPCRoute
+
+### 2026-09-18T20:09:38Z
+$ kubectl --context kind-eg1 -n envoy-gateway-system get svc envoy-default-probe-gw-fef29530 -o yaml
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: "2026-09-18T20:08:58Z"
+  labels:
+    app.kubernetes.io/component: proxy
+    app.kubernetes.io/managed-by: envoy-gateway
+    app.kubernetes.io/name: envoy
+    gateway.envoyproxy.io/owning-gateway-name: probe-gw
+    gateway.envoyproxy.io/owning-gateway-namespace: default
+  name: envoy-default-probe-gw-fef29530
+  namespace: envoy-gateway-system
+  ownerReferences:
+  - apiVersion: gateway.networking.k8s.io/v1
+    kind: GatewayClass
+    name: eg
+    uid: 9a3cd3d7-d5b9-469c-adb7-0c71a29b79ac
+  resourceVersion: "1740"
+  uid: c85125ca-8259-4699-83e9-68a71bcd3bb4
+spec:
+  allocateLoadBalancerNodePorts: true
+  clusterIP: 10.51.242.251
+  clusterIPs:
+  - 10.51.242.251
+  externalIPs:
+  - 172.19.255.240
+  externalTrafficPolicy: Local
+  healthCheckNodePort: 31574
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: http-80
+    nodePort: 32182
+    port: 80
+    protocol: TCP
+    targetPort: 10080
+  selector:
+    app.kubernetes.io/component: proxy
+    app.kubernetes.io/managed-by: envoy-gateway
+    app.kubernetes.io/name: envoy
+    gateway.envoyproxy.io/owning-gateway-name: probe-gw
+    gateway.envoyproxy.io/owning-gateway-namespace: default
+  sessionAffinity: None
+  type: LoadBalancer
+status:
+  loadBalancer: {}
+
+### 2026-09-18T20:09:38Z
+$ docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 arping -c 3 -I eth0 172.19.255.240
+ARPING 172.19.255.240 from 172.19.0.4 eth0
+Sent 3 probe(s) (0 broadcast(s))
+Received 0 response(s) (0 request(s), 0 broadcast(s))
+[exit code: 1]
+
+### 2026-09-18T20:09:41Z
+$ docker run --rm --network kind-eg alpine:3.20 wget -q -S -O - -T 5 http://172.19.255.240/
+wget: can't connect to remote host (172.19.255.240): Host is unreachable
+[exit code: 1]
+
+### 2026-09-18T20:09:51Z
+$ kubectl --context kind-eg1 get envoyproxy probe-gw-proxy -o yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"gateway.envoyproxy.io/v1alpha1","kind":"EnvoyProxy","metadata":{"annotations":{},"name":"probe-gw-proxy","namespace":"default"},"spec":{"provider":{"kubernetes":{"envoyService":{"annotations":{"kube-vip.io/loadbalancerIPs":"172.19.255.240"},"loadBalancerClass":"kube-vip.io/kube-vip-class"}},"type":"Kubernetes"}}}
+  creationTimestamp: "2026-09-18T20:09:22Z"
+  generation: 1
+  name: probe-gw-proxy
+  namespace: default
+  resourceVersion: "1849"
+  uid: bcd976f8-f289-4daf-9630-31838e49c214
+spec:
+  logging:
+    level:
+      default: warn
+  provider:
+    kubernetes:
+      envoyService:
+        annotations:
+          kube-vip.io/loadbalancerIPs: 172.19.255.240
+        externalTrafficPolicy: Local
+        loadBalancerClass: kube-vip.io/kube-vip-class
+        type: LoadBalancer
+    type: Kubernetes
+status:
+  ancestors:
+  - ancestorRef:
+      group: gateway.networking.k8s.io
+      kind: Gateway
+      name: probe-gw
+      namespace: default
+    conditions:
+    - lastTransitionTime: "2026-09-18T20:09:23Z"
+      message: EnvoyProxy has been accepted.
+      observedGeneration: 1
+      reason: Accepted
+      status: "True"
+      type: Accepted
+
+### 2026-09-18T20:09:51Z
+$ kubectl --context kind-eg1 -n envoy-gateway-system logs deploy/envoy-gateway --tail=40
+2026-09-18T20:09:09.284Z	info	provider	kubernetes/controller.go:1871	processing Gateway	{"runner": "provider", "namespace": "default", "name": "probe-gw"}
+2026-09-18T20:09:09.284Z	info	provider	kubernetes/controller.go:715	processing Backend	{"runner": "provider", "kind": "Service", "namespace": "envoy-gateway-system", "name": "envoy-default-probe-gw-fef29530"}
+2026-09-18T20:09:09.284Z	info	provider	kubernetes/controller.go:734	added Service to resource tree	{"runner": "provider", "kind": "Service", "namespace": "envoy-gateway-system", "name": "envoy-default-probe-gw-fef29530"}
+2026-09-18T20:09:09.284Z	info	provider	kubernetes/controller.go:876	added EndpointSlice to resource tree	{"runner": "provider", "kind": "Service", "namespace": "envoy-gateway-system", "name": "envoy-default-probe-gw-fef29530", "namespace": "envoy-gateway-system", "name": "envoy-default-probe-gw-fef29530-gqpdc"}
+2026-09-18T20:09:09.285Z	info	gateway-api	runner/runner.go:223	received an update	{"runner": "gateway-api", "key": "gateway.envoyproxy.io/gatewayclass-controller"}
+2026-09-18T20:09:09.285Z	info	provider	kubernetes/controller.go:638	reconciled gateways successfully	{"runner": "provider"}
+2026-09-18T20:09:09.285Z	info	infrastructure	runner/runner.go:126	received an update	{"runner": "infrastructure", "key": "default/probe-gw", "delete": false}
+2026-09-18T20:09:09.285Z	info	xds	runner/runner.go:288	received an update	{"runner": "xds"}
+2026-09-18T20:09:09.286Z	info	xds	v3/simple.go:693	open delta watch ID:6 for type.googleapis.com/envoy.config.endpoint.v3.ClusterLoadAssignment Resources:map[default/probe-gw:{}] from nodeID: "envoy-default-probe-gw-fef29530-6df976cd64-mw5wg",  version "3"
+2026-09-18T20:09:09.286Z	info	xds	v3/simple.go:693	open delta watch ID:7 for type.googleapis.com/envoy.config.listener.v3.Listener Resources:map[] from nodeID: "envoy-default-probe-gw-fef29530-6df976cd64-mw5wg",  version "3"
+2026-09-18T20:09:09.289Z	info	provider	message/watchutil.go:190	coalesced updates	{"runner": "provider", "count": 1, "before": 2}
+2026-09-18T20:09:09.290Z	info	provider	kubernetes/status_updater.go:156	received a status update	{"runner": "provider", "namespace": "default", "name": "probe-gw", "kind": "Gateway"}
+2026-09-18T20:09:09.298Z	info	provider	log/warning_handler.go:64	spec.externalIPs is deprecated and may no longer be implemented in some clusters	{"runner": "provider"}
+2026-09-18T20:09:22.760Z	info	provider	kubernetes/controller.go:330	reconciling gateways	{"runner": "provider"}
+2026-09-18T20:09:22.760Z	info	provider	kubernetes/controller.go:1270	processing OIDC HMAC Secret	{"runner": "provider", "namespace": "envoy-gateway-system", "name": "envoy-oidc-hmac"}
+2026-09-18T20:09:22.761Z	info	provider	kubernetes/controller.go:1292	processing Envoy TLS Secret	{"runner": "provider", "namespace": "envoy-gateway-system", "name": "envoy"}
+2026-09-18T20:09:22.761Z	info	provider	kubernetes/controller.go:1871	processing Gateway	{"runner": "provider", "namespace": "default", "name": "probe-gw"}
+2026-09-18T20:09:22.761Z	info	provider	kubernetes/controller.go:715	processing Backend	{"runner": "provider", "kind": "Service", "namespace": "envoy-gateway-system", "name": "envoy-default-probe-gw-fef29530"}
+2026-09-18T20:09:22.761Z	info	provider	kubernetes/controller.go:734	added Service to resource tree	{"runner": "provider", "kind": "Service", "namespace": "envoy-gateway-system", "name": "envoy-default-probe-gw-fef29530"}
+2026-09-18T20:09:22.761Z	info	provider	kubernetes/controller.go:876	added EndpointSlice to resource tree	{"runner": "provider", "kind": "Service", "namespace": "envoy-gateway-system", "name": "envoy-default-probe-gw-fef29530", "namespace": "envoy-gateway-system", "name": "envoy-default-probe-gw-fef29530-gqpdc"}
+2026-09-18T20:09:22.761Z	info	provider	kubernetes/controller.go:638	reconciled gateways successfully	{"runner": "provider"}
+2026-09-18T20:09:22.761Z	info	gateway-api	runner/runner.go:223	received an update	{"runner": "gateway-api", "key": "gateway.envoyproxy.io/gatewayclass-controller"}
+2026-09-18T20:09:22.761Z	info	infrastructure	runner/runner.go:126	received an update	{"runner": "infrastructure", "key": "default/probe-gw", "delete": false}
+2026-09-18T20:09:22.777Z	info	provider	log/warning_handler.go:64	spec.externalIPs is deprecated and may no longer be implemented in some clusters	{"runner": "provider"}
+2026-09-18T20:09:23.132Z	info	provider	kubernetes/controller.go:330	reconciling gateways	{"runner": "provider"}
+2026-09-18T20:09:23.132Z	info	provider	kubernetes/controller.go:1270	processing OIDC HMAC Secret	{"runner": "provider", "namespace": "envoy-gateway-system", "name": "envoy-oidc-hmac"}
+2026-09-18T20:09:23.132Z	info	provider	kubernetes/controller.go:1292	processing Envoy TLS Secret	{"runner": "provider", "namespace": "envoy-gateway-system", "name": "envoy"}
+2026-09-18T20:09:23.132Z	info	provider	kubernetes/controller.go:1871	processing Gateway	{"runner": "provider", "namespace": "default", "name": "probe-gw"}
+2026-09-18T20:09:23.132Z	info	provider	kubernetes/controller.go:3185	processing EnvoyProxy	{"runner": "provider", "namespace": "default", "name": "probe-gw-proxy"}
+2026-09-18T20:09:23.133Z	info	provider	kubernetes/controller.go:715	processing Backend	{"runner": "provider", "kind": "Service", "namespace": "envoy-gateway-system", "name": "envoy-default-probe-gw-fef29530"}
+2026-09-18T20:09:23.133Z	info	provider	kubernetes/controller.go:734	added Service to resource tree	{"runner": "provider", "kind": "Service", "namespace": "envoy-gateway-system", "name": "envoy-default-probe-gw-fef29530"}
+2026-09-18T20:09:23.133Z	info	provider	kubernetes/controller.go:876	added EndpointSlice to resource tree	{"runner": "provider", "kind": "Service", "namespace": "envoy-gateway-system", "name": "envoy-default-probe-gw-fef29530", "namespace": "envoy-gateway-system", "name": "envoy-default-probe-gw-fef29530-gqpdc"}
+2026-09-18T20:09:23.133Z	info	provider	kubernetes/controller.go:638	reconciled gateways successfully	{"runner": "provider"}
+2026-09-18T20:09:23.133Z	info	gateway-api	runner/runner.go:223	received an update	{"runner": "gateway-api", "key": "gateway.envoyproxy.io/gatewayclass-controller"}
+2026-09-18T20:09:23.133Z	info	gateway-api	runner/runner.go:512	update envoyproxy status	{"runner": "gateway-api", "key": {"name":"probe-gw-proxy","namespace":"default"}}
+2026-09-18T20:09:23.133Z	info	provider	kubernetes/status_updater.go:156	received a status update	{"runner": "provider", "namespace": "default", "name": "probe-gw-proxy", "kind": "Unknown"}
+2026-09-18T20:09:23.133Z	info	infrastructure	runner/runner.go:126	received an update	{"runner": "infrastructure", "key": "default/probe-gw", "delete": false}
+2026-09-18T20:09:23.138Z	info	provider	kubernetes/status_updater.go:156	received a status update	{"runner": "provider", "namespace": "default", "name": "probe-gw", "kind": "Gateway"}
+2026-09-18T20:09:23.145Z	error	infrastructure	runner/runner.go:168	failed to create new infra	{"runner": "infrastructure", "error": "failed to create or update service envoy-gateway-system/envoy-default-probe-gw-fef29530: failed to create/update resource with server-side apply for obj &Service{ObjectMeta:{envoy-default-probe-gw-fef29530  envoy-gateway-system    0 0001-01-01 00:00:00 +0000 UTC <nil> <nil> map[app.kubernetes.io/component:proxy app.kubernetes.io/managed-by:envoy-gateway app.kubernetes.io/name:envoy gateway.envoyproxy.io/owning-gateway-name:probe-gw gateway.envoyproxy.io/owning-gateway-namespace:default] map[kube-vip.io/loadbalancerIPs:172.19.255.240] [{gateway.networking.k8s.io/v1 GatewayClass eg 9a3cd3d7-d5b9-469c-adb7-0c71a29b79ac <nil> <nil>}] [] []},Spec:ServiceSpec{Ports:[]ServicePort{ServicePort{Name:http-80,Protocol:TCP,Port:80,TargetPort:{0 10080 },NodePort:0,AppProtocol:nil,},},Selector:map[string]string{app.kubernetes.io/component: proxy,app.kubernetes.io/managed-by: envoy-gateway,app.kubernetes.io/name: envoy,gateway.envoyproxy.io/owning-gateway-name: probe-gw,gateway.envoyproxy.io/owning-gateway-namespace: default,},ClusterIP:,Type:LoadBalancer,ExternalIPs:[172.19.255.240],SessionAffinity:None,LoadBalancerIP:,LoadBalancerSourceRanges:[],ExternalName:,ExternalTrafficPolicy:Local,HealthCheckNodePort:0,PublishNotReadyAddresses:false,SessionAffinityConfig:nil,IPFamilyPolicy:nil,ClusterIPs:[],IPFamilies:[],AllocateLoadBalancerNodePorts:nil,LoadBalancerClass:*kube-vip.io/kube-vip-class,InternalTrafficPolicy:nil,TrafficDistribution:nil,},Status:ServiceStatus{LoadBalancer:LoadBalancerStatus{Ingress:[]LoadBalancerIngress{},},Conditions:[]Condition{},},}: Service \"envoy-default-probe-gw-fef29530\" is invalid: spec.loadBalancerClass: Invalid value: \"kube-vip.io/kube-vip-class\": may not change once set"}
+2026-09-18T20:09:23.145Z	error	infrastructure	message/watchutil.go:138	observed an error	{"runner": "infrastructure", "error": "failed to create or update service envoy-gateway-system/envoy-default-probe-gw-fef29530: failed to create/update resource with server-side apply for obj &Service{ObjectMeta:{envoy-default-probe-gw-fef29530  envoy-gateway-system    0 0001-01-01 00:00:00 +0000 UTC <nil> <nil> map[app.kubernetes.io/component:proxy app.kubernetes.io/managed-by:envoy-gateway app.kubernetes.io/name:envoy gateway.envoyproxy.io/owning-gateway-name:probe-gw gateway.envoyproxy.io/owning-gateway-namespace:default] map[kube-vip.io/loadbalancerIPs:172.19.255.240] [{gateway.networking.k8s.io/v1 GatewayClass eg 9a3cd3d7-d5b9-469c-adb7-0c71a29b79ac <nil> <nil>}] [] []},Spec:ServiceSpec{Ports:[]ServicePort{ServicePort{Name:http-80,Protocol:TCP,Port:80,TargetPort:{0 10080 },NodePort:0,AppProtocol:nil,},},Selector:map[string]string{app.kubernetes.io/component: proxy,app.kubernetes.io/managed-by: envoy-gateway,app.kubernetes.io/name: envoy,gateway.envoyproxy.io/owning-gateway-name: probe-gw,gateway.envoyproxy.io/owning-gateway-namespace: default,},ClusterIP:,Type:LoadBalancer,ExternalIPs:[172.19.255.240],SessionAffinity:None,LoadBalancerIP:,LoadBalancerSourceRanges:[],ExternalName:,ExternalTrafficPolicy:Local,HealthCheckNodePort:0,PublishNotReadyAddresses:false,SessionAffinityConfig:nil,IPFamilyPolicy:nil,ClusterIPs:[],IPFamilies:[],AllocateLoadBalancerNodePorts:nil,LoadBalancerClass:*kube-vip.io/kube-vip-class,InternalTrafficPolicy:nil,TrafficDistribution:nil,},Status:ServiceStatus{LoadBalancer:LoadBalancerStatus{Ingress:[]LoadBalancerIngress{},},Conditions:[]Condition{},},}: Service \"envoy-default-probe-gw-fef29530\" is invalid: spec.loadBalancerClass: Invalid value: \"kube-vip.io/kube-vip-class\": may not change once set"}
+
+### 2026-09-18T20:09:51Z
+$ echo Service loadBalancerClass is immutable; deleting Gateway to recreate with EnvoyProxy from the start
+Service loadBalancerClass is immutable; deleting Gateway to recreate with EnvoyProxy from the start
+
+### 2026-09-18T20:09:51Z
+$ kubectl --context kind-eg1 delete gateway probe-gw --wait=true
+gateway.gateway.networking.k8s.io "probe-gw" deleted from default namespace
+
+### 2026-09-18T20:09:56Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/probe-gw-envoyproxy.yaml
+envoyproxy.gateway.envoyproxy.io/probe-gw-proxy unchanged
+gateway.gateway.networking.k8s.io/probe-gw created
+
+### 2026-09-18T20:10:11Z
+$ kubectl --context kind-eg1 get gateway probe-gw -o yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"gateway.networking.k8s.io/v1","kind":"Gateway","metadata":{"annotations":{},"name":"probe-gw","namespace":"default"},"spec":{"addresses":[{"type":"IPAddress","value":"172.19.255.240"}],"gatewayClassName":"eg","infrastructure":{"parametersRef":{"group":"gateway.envoyproxy.io","kind":"EnvoyProxy","name":"probe-gw-proxy"}},"listeners":[{"allowedRoutes":{"namespaces":{"from":"All"}},"name":"http","port":80,"protocol":"HTTP"}]}}
+  creationTimestamp: "2026-09-18T20:09:56Z"
+  generation: 1
+  name: probe-gw
+  namespace: default
+  resourceVersion: "2062"
+  uid: 0a9d1cf7-8b9a-4b46-a1cf-b0c8b52bc2c3
+spec:
+  addresses:
+  - type: IPAddress
+    value: 172.19.255.240
+  gatewayClassName: eg
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: probe-gw-proxy
+  listeners:
+  - allowedRoutes:
+      namespaces:
+        from: All
+    name: http
+    port: 80
+    protocol: HTTP
+status:
+  addresses:
+  - type: IPAddress
+    value: 172.19.255.240
+  conditions:
+  - lastTransitionTime: "2026-09-18T20:10:07Z"
+    message: The Gateway has been scheduled by Envoy Gateway
+    observedGeneration: 1
+    reason: Accepted
+    status: "True"
+    type: Accepted
+  - lastTransitionTime: "2026-09-18T20:10:07Z"
+    message: Address assigned to the Gateway, 1/1 envoy replicas available
+    observedGeneration: 1
+    reason: Programmed
+    status: "True"
+    type: Programmed
+  listeners:
+  - attachedRoutes: 0
+    conditions:
+    - lastTransitionTime: "2026-09-18T20:10:07Z"
+      message: Sending translated listener configuration to the data plane
+      observedGeneration: 1
+      reason: Programmed
+      status: "True"
+      type: Programmed
+    - lastTransitionTime: "2026-09-18T20:10:07Z"
+      message: Listener has been successfully translated
+      observedGeneration: 1
+      reason: Accepted
+      status: "True"
+      type: Accepted
+    - lastTransitionTime: "2026-09-18T20:10:07Z"
+      message: Listener references have been resolved
+      observedGeneration: 1
+      reason: ResolvedRefs
+      status: "True"
+      type: ResolvedRefs
+    name: http
+    supportedKinds:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+    - group: gateway.networking.k8s.io
+      kind: GRPCRoute
+
+### 2026-09-18T20:10:11Z
+$ kubectl --context kind-eg1 -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=probe-gw -o yaml
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      kube-vip.io/loadbalancerIPs: 172.19.255.240
+      kube-vip.io/vipHost: eg1-worker
+    creationTimestamp: "2026-09-18T20:09:56Z"
+    finalizers:
+    - service.kubernetes.io/load-balancer-cleanup
+    labels:
+      app.kubernetes.io/component: proxy
+      app.kubernetes.io/managed-by: envoy-gateway
+      app.kubernetes.io/name: envoy
+      gateway.envoyproxy.io/owning-gateway-name: probe-gw
+      gateway.envoyproxy.io/owning-gateway-namespace: default
+      implementation: kube-vip
+    name: envoy-default-probe-gw-fef29530
+    namespace: envoy-gateway-system
+    ownerReferences:
+    - apiVersion: gateway.networking.k8s.io/v1
+      kind: GatewayClass
+      name: eg
+      uid: 9a3cd3d7-d5b9-469c-adb7-0c71a29b79ac
+    resourceVersion: "2063"
+    uid: 0084b9d5-75f7-428b-98df-2e28c7200bab
+  spec:
+    allocateLoadBalancerNodePorts: true
+    clusterIP: 10.51.212.74
+    clusterIPs:
+    - 10.51.212.74
+    externalIPs:
+    - 172.19.255.240
+    externalTrafficPolicy: Local
+    healthCheckNodePort: 32321
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    loadBalancerClass: kube-vip.io/kube-vip-class
+    ports:
+    - name: http-80
+      nodePort: 32175
+      port: 80
+      protocol: TCP
+      targetPort: 10080
+    selector:
+      app.kubernetes.io/component: proxy
+      app.kubernetes.io/managed-by: envoy-gateway
+      app.kubernetes.io/name: envoy
+      gateway.envoyproxy.io/owning-gateway-name: probe-gw
+      gateway.envoyproxy.io/owning-gateway-namespace: default
+    sessionAffinity: None
+    type: LoadBalancer
+  status:
+    loadBalancer:
+      ingress:
+      - ip: 172.19.255.240
+        ipMode: VIP
+        ports:
+        - port: 80
+          protocol: TCP
+kind: List
+metadata:
+  resourceVersion: ""
+
+### 2026-09-18T20:10:17Z
+$ docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 arping -c 3 -I eth0 172.19.255.240
+ARPING 172.19.255.240 from 172.19.0.4 eth0
+Unicast reply from 172.19.255.240 [32:b7:64:3b:79:5b] 0.010ms
+Unicast reply from 172.19.255.240 [32:b7:64:3b:79:5b] 0.018ms
+Unicast reply from 172.19.255.240 [32:b7:64:3b:79:5b] 0.014ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+
+### 2026-09-18T20:10:20Z
+$ docker run --rm --network kind-eg alpine:3.20 wget -q -S -O - -T 5 http://172.19.255.240/
+  HTTP/1.1 404 Not Found
+wget: server returned error: HTTP/1.1 404 Not Found
+[exit code: 1]
+
+### 2026-09-18T20:10:20Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/probe-gw-metallb.yaml
+envoyproxy.gateway.envoyproxy.io/probe-gw-metallb-proxy created
+gateway.gateway.networking.k8s.io/probe-gw-metallb created
+
+### 2026-09-18T20:10:35Z
+$ kubectl --context kind-eg1 get gateway probe-gw-metallb -o yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"gateway.networking.k8s.io/v1","kind":"Gateway","metadata":{"annotations":{},"name":"probe-gw-metallb","namespace":"default"},"spec":{"addresses":[{"type":"IPAddress","value":"172.19.255.246"}],"gatewayClassName":"eg","infrastructure":{"parametersRef":{"group":"gateway.envoyproxy.io","kind":"EnvoyProxy","name":"probe-gw-metallb-proxy"}},"listeners":[{"allowedRoutes":{"namespaces":{"from":"All"}},"name":"http","port":80,"protocol":"HTTP"}]}}
+  creationTimestamp: "2026-09-18T20:10:20Z"
+  generation: 1
+  name: probe-gw-metallb
+  namespace: default
+  resourceVersion: "2198"
+  uid: 720a94e2-6680-4f14-be6c-c0fe1b3d759c
+spec:
+  addresses:
+  - type: IPAddress
+    value: 172.19.255.246
+  gatewayClassName: eg
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: probe-gw-metallb-proxy
+  listeners:
+  - allowedRoutes:
+      namespaces:
+        from: All
+    name: http
+    port: 80
+    protocol: HTTP
+status:
+  addresses:
+  - type: IPAddress
+    value: 172.19.255.246
+  conditions:
+  - lastTransitionTime: "2026-09-18T20:10:31Z"
+    message: The Gateway has been scheduled by Envoy Gateway
+    observedGeneration: 1
+    reason: Accepted
+    status: "True"
+    type: Accepted
+  - lastTransitionTime: "2026-09-18T20:10:31Z"
+    message: Address assigned to the Gateway, 1/1 envoy replicas available
+    observedGeneration: 1
+    reason: Programmed
+    status: "True"
+    type: Programmed
+  listeners:
+  - attachedRoutes: 0
+    conditions:
+    - lastTransitionTime: "2026-09-18T20:10:31Z"
+      message: Sending translated listener configuration to the data plane
+      observedGeneration: 1
+      reason: Programmed
+      status: "True"
+      type: Programmed
+    - lastTransitionTime: "2026-09-18T20:10:31Z"
+      message: Listener has been successfully translated
+      observedGeneration: 1
+      reason: Accepted
+      status: "True"
+      type: Accepted
+    - lastTransitionTime: "2026-09-18T20:10:31Z"
+      message: Listener references have been resolved
+      observedGeneration: 1
+      reason: ResolvedRefs
+      status: "True"
+      type: ResolvedRefs
+    name: http
+    supportedKinds:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+    - group: gateway.networking.k8s.io
+      kind: GRPCRoute
+
+### 2026-09-18T20:10:36Z
+$ kubectl --context kind-eg1 -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=probe-gw-metallb -o yaml
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      metallb.io/ip-allocated-from-pool: eg1-metallb
+      metallb.io/loadBalancerIPs: 172.19.255.246
+    creationTimestamp: "2026-09-18T20:10:21Z"
+    labels:
+      app.kubernetes.io/component: proxy
+      app.kubernetes.io/managed-by: envoy-gateway
+      app.kubernetes.io/name: envoy
+      gateway.envoyproxy.io/owning-gateway-name: probe-gw-metallb
+      gateway.envoyproxy.io/owning-gateway-namespace: default
+    name: envoy-default-probe-gw-metallb-4c34e7aa
+    namespace: envoy-gateway-system
+    ownerReferences:
+    - apiVersion: gateway.networking.k8s.io/v1
+      kind: GatewayClass
+      name: eg
+      uid: 9a3cd3d7-d5b9-469c-adb7-0c71a29b79ac
+    resourceVersion: "2135"
+    uid: 97ddc420-4070-41d1-9437-b63144abd304
+  spec:
+    allocateLoadBalancerNodePorts: true
+    clusterIP: 10.51.237.131
+    clusterIPs:
+    - 10.51.237.131
+    externalIPs:
+    - 172.19.255.246
+    externalTrafficPolicy: Local
+    healthCheckNodePort: 31430
+    internalTrafficPolicy: Cluster
+    ipFamilies:
+    - IPv4
+    ipFamilyPolicy: SingleStack
+    loadBalancerClass: metallb.io/metallb
+    ports:
+    - name: http-80
+      nodePort: 31891
+      port: 80
+      protocol: TCP
+      targetPort: 10080
+    selector:
+      app.kubernetes.io/component: proxy
+      app.kubernetes.io/managed-by: envoy-gateway
+      app.kubernetes.io/name: envoy
+      gateway.envoyproxy.io/owning-gateway-name: probe-gw-metallb
+      gateway.envoyproxy.io/owning-gateway-namespace: default
+    sessionAffinity: None
+    type: LoadBalancer
+  status:
+    loadBalancer:
+      ingress:
+      - ip: 172.19.255.246
+        ipMode: VIP
+kind: List
+metadata:
+  resourceVersion: ""
+
+### 2026-09-18T20:10:36Z
+$ docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 arping -c 3 -I eth0 172.19.255.246
+ARPING 172.19.255.246 from 172.19.0.4 eth0
+Unicast reply from 172.19.255.246 [32:b7:64:3b:79:5b] 0.207ms
+Unicast reply from 172.19.255.246 [32:b7:64:3b:79:5b] 0.091ms
+Unicast reply from 172.19.255.246 [32:b7:64:3b:79:5b] 0.124ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+
+### 2026-09-18T20:10:39Z
+$ docker run --rm --network kind-eg alpine:3.20 wget -q -S -O - -T 5 http://172.19.255.246/
+  HTTP/1.1 404 Not Found
+wget: server returned error: HTTP/1.1 404 Not Found
+[exit code: 1]
+
+### 2026-09-18T20:10:48Z
+$ echo === R0.6 GRPC ON :80 ===
+=== R0.6 GRPC ON :80 ===
+
+### 2026-09-18T20:10:48Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/probe-grpc.yaml
+namespace/probe created
+deployment.apps/grpc created
+service/grpc created
+grpcroute.gateway.networking.k8s.io/grpc created
+
+### 2026-09-18T20:10:48Z
+$ kubectl --context kind-eg1 -n probe rollout status deploy/grpc --timeout=120s
+Waiting for deployment "grpc" rollout to finish: 0 of 1 updated replicas are available...
+deployment "grpc" successfully rolled out
+
+### 2026-09-18T20:10:57Z
+$ kubectl --context kind-eg1 get grpcroute -A
+NAMESPACE   NAME   HOSTNAMES                AGE
+probe       grpc   ["grpc.eg1.poc.local"]   9s
+
+### 2026-09-18T20:10:57Z
+$ kubectl --context kind-eg1 -n probe get grpcroute grpc -o yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"gateway.networking.k8s.io/v1","kind":"GRPCRoute","metadata":{"annotations":{},"name":"grpc","namespace":"probe"},"spec":{"hostnames":["grpc.eg1.poc.local"],"parentRefs":[{"name":"probe-gw","namespace":"default"}],"rules":[{"backendRefs":[{"name":"grpc","port":9090}],"matches":[{"method":{"service":"grpc.health.v1.Health"}}]},{"backendRefs":[{"name":"grpc","port":9090}],"matches":[{"method":{"service":"grpc.reflection.v1alpha.ServerReflection"}}]},{"backendRefs":[{"name":"grpc","port":9090}],"matches":[{"method":{"service":"grpc.reflection.v1.ServerReflection"}}]}]}}
+  creationTimestamp: "2026-09-18T20:10:48Z"
+  generation: 1
+  name: grpc
+  namespace: probe
+  resourceVersion: "2297"
+  uid: 482268a1-5bf0-49c7-91e8-60dc8aaea987
+spec:
+  hostnames:
+  - grpc.eg1.poc.local
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: probe-gw
+    namespace: default
+  rules:
+  - backendRefs:
+    - group: ""
+      kind: Service
+      name: grpc
+      port: 9090
+      weight: 1
+    matches:
+    - method:
+        service: grpc.health.v1.Health
+        type: Exact
+  - backendRefs:
+    - group: ""
+      kind: Service
+      name: grpc
+      port: 9090
+      weight: 1
+    matches:
+    - method:
+        service: grpc.reflection.v1alpha.ServerReflection
+        type: Exact
+  - backendRefs:
+    - group: ""
+      kind: Service
+      name: grpc
+      port: 9090
+      weight: 1
+    matches:
+    - method:
+        service: grpc.reflection.v1.ServerReflection
+        type: Exact
+status:
+  parents:
+  - conditions:
+    - lastTransitionTime: "2026-09-18T20:10:49Z"
+      message: Route is accepted
+      observedGeneration: 1
+      reason: Accepted
+      status: "True"
+      type: Accepted
+    - lastTransitionTime: "2026-09-18T20:10:49Z"
+      message: Resolved all the Object references for the Route
+      observedGeneration: 1
+      reason: ResolvedRefs
+      status: "True"
+      type: ResolvedRefs
+    controllerName: gateway.envoyproxy.io/gatewayclass-controller
+    parentRef:
+      group: gateway.networking.k8s.io
+      kind: Gateway
+      name: probe-gw
+      namespace: default
+
+### 2026-09-18T20:10:57Z
+$ kubectl --context kind-eg1 get gateway probe-gw -o jsonpath={.status.listeners}{"\n"}
+[{"attachedRoutes":1,"conditions":[{"lastTransitionTime":"2026-09-18T20:10:48Z","message":"Sending translated listener configuration to the data plane","observedGeneration":1,"reason":"Programmed","status":"True","type":"Programmed"},{"lastTransitionTime":"2026-09-18T20:10:48Z","message":"Listener has been successfully translated","observedGeneration":1,"reason":"Accepted","status":"True","type":"Accepted"},{"lastTransitionTime":"2026-09-18T20:10:48Z","message":"Listener references have been resolved","observedGeneration":1,"reason":"ResolvedRefs","status":"True","type":"ResolvedRefs"}],"name":"http","supportedKinds":[{"group":"gateway.networking.k8s.io","kind":"HTTPRoute"},{"group":"gateway.networking.k8s.io","kind":"GRPCRoute"}]}]
+
+### 2026-09-18T20:10:57Z
+$ docker run --rm --network kind-eg fullstorydev/grpcurl:latest -plaintext -authority grpc.eg1.poc.local 172.19.255.240:80 grpc.health.v1.Health/Check
+{
+  "status": "SERVING"
+}
+
+### 2026-09-18T20:11:06Z
+$ echo === R0.7 RESOURCES ===
+=== R0.7 RESOURCES ===
+
+### 2026-09-18T20:11:06Z
+$ docker stats --no-stream --format table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}
+NAME                 CPU %     MEM USAGE / LIMIT     MEM %
+eg1-worker           4.75%     443.7MiB / 23.43GiB   1.85%
+eg1-control-plane    8.81%     1.126GiB / 23.43GiB   4.80%
+poc2-control-plane   12.95%    2.847GiB / 23.43GiB   12.15%
+poc2-worker          15.51%    2.512GiB / 23.43GiB   10.72%
+poc1-control-plane   40.49%    6.229GiB / 23.43GiB   26.58%
+poc1-worker          21.06%    4.547GiB / 23.43GiB   19.41%
+
+### 2026-09-18T20:11:08Z
+$ docker info --format MemTotal={{.MemTotal}} NCPU={{.NCPU}}
+MemTotal=25159561216 NCPU=10
+
+### 2026-09-18T20:11:08Z
+$ docker ps -a --format table {{.Names}}\t{{.Status}}\t{{.Image}}
+NAMES                STATUS          IMAGE
+eg1-worker           Up 7 minutes    kindest/node:v1.36.4
+eg1-control-plane    Up 7 minutes    kindest/node:v1.36.4
+poc2-control-plane   Up 22 minutes   kindest/node:v1.36.4
+poc2-worker          Up 22 minutes   kindest/node:v1.36.4
+poc1-control-plane   Up 22 minutes   kindest/node:v1.36.4
+poc1-worker          Up 22 minutes   kindest/node:v1.36.4
+
+### 2026-09-18T20:11:08Z
+$ kind get clusters
+eg1
+poc1
+poc2
+
+### 2026-09-18T20:17:04Z
+$ bash -c netstat -rn -f inet | grep -E "^172\.19"
+172.19             192.168.64.2       UGSc            bridge100       
+
+### 2026-09-18T20:17:04Z
+$ ping -c1 -W1 172.19.0.1
+PING 172.19.0.1 (172.19.0.1): 56 data bytes
+64 bytes from 172.19.0.1: icmp_seq=0 ttl=64 time=0.630 ms
+
+--- 172.19.0.1 ping statistics ---
+1 packets transmitted, 1 packets received, 0.0% packet loss
+round-trip min/avg/max/stddev = 0.630/0.630/0.630/0.000 ms
+
+### 2026-09-18T20:17:04Z
+$ bash -c for ip in 172.19.255.200 172.19.255.206 172.19.255.240 172.19.255.246; do printf "%s -> " $ip; curl -s -o /dev/null -m 5 -w "%{http_code}\n" "http://$ip/"; done
+172.19.255.200 -> 200
+172.19.255.206 -> 200
+172.19.255.240 -> 404
+172.19.255.246 -> 404
+
