@@ -479,3 +479,64 @@ Outcome in one line: **…**
   with 1.20.2 and 117 traps; `lab-up.sh`: main's `CILIUM_IMAGE`/CRD block with the chart pin at 1.20.2), the
   `lab-regression` Action run 35311034810 green on chart 1.20.2 + the pinned build (a combination CI had not run),
   merged as e28b63d. The no-automatic-merges rule resumes for everything after this line.
+
+## Part 12 — the merges, the port to main and what the reviewers found, Tetragon, enhancement 002 begins (2026-09-18 05:40 → 09:00)
+
+- **"You can merge the prs"** — #40, #39, gsd #176 merged; #34 had conflicts with the merged main (README line 3 and the
+  docs row; `lab-up.sh`'s `CILIUM_IMAGE` block against the chart pin) — rebased, resolved on main's text with 1.20.2 /
+  117 traps, the `lab-regression` Action green on chart 1.20.2 + the pinned build (run 35311034810), merged `e28b63d`;
+  the session log Parts 9–11 as #41. The no-automatic-merges rule resumed at 05:45.
+- **"Did you open the pr upstream cilium" — no; "I sign off after ob1".** The three v1.20.2 commits ported to
+  cilium/cilium `main` (`cccadb0e70`): six conflicts, all main's pod-UID work landing under ours (`K8sMetadata.PodUID`,
+  the ID-match guard in `updateEndpointFromLocal`, `TransformToCiliumEndpoint` without the tombstone arm,
+  `DeleteOnMetadataMatch` with a `uid`); `--ours` on a conflicted file drops its non-conflicting hunks too (the
+  `Workloads` field and the import came back by hand); `CustomResourceDefinitionSchemaVersion` 1.34.4 → 1.34.5;
+  squashed to two commits with upstream-shaped messages; `make manifests` and `make generate-k8s-api` reproduce the
+  committed files byte for byte. Fork branch `hubble/remote-workload-main`.
+- **Three reviewers, one brief (eleven claims):** the code CONFIRMED everywhere, with two corrections to what I had
+  claimed — my "ok pkg/endpoint" was three SKIPs (`INTEGRATION_TESTS`); OB1 stood up an etcd and ran the writer test:
+  PASS on the branch, FAIL reverted. **The PR text REFUTED ×3:** it said #48563 lacks the L7 half — #48563 has carried
+  it since 2026-09-08, and our own comment there says so; `metrics.rst` named schema 1.33.13 (the v1.20 number — a
+  1.34.4 cluster is "later" and still prunes); the release note prescribed "run the operator before the agents", an
+  order the docs do not have; the declaration claimed a human pass that had not happened. Applied: the doc version
+  with the pruning caveat and an upgrade note, `TestDecodeL7WorkloadsReplacementEndpointKeepsIPCacheWorkload`,
+  `TestUpsertWorkloadOnlyChangeReachesMetadata` (head `63650a0445`), the draft rewritten as a fact sheet with the two
+  routes (feed #48563 first; open ours as the smaller alternative). Rejected with reasons: Codex's synchronizer retry
+  (real — `lastMdl = mdl` after a successful patch — but pre-existing for every CEP status field; `serviceAccount`
+  shipped the same way), `SetPod` on pod updates, and a genuine upstream bug in `pkg/k8s/utils/workload.go` (a label
+  deleted from the cached Pod's shared map) — recorded as its own candidate. `docs/REVIEW_CILIUM_UPSTREAM_PR.md`.
+- **The clause we had missed:** `cilium/community/AI-POLICY.md` *Unacceptable Use* — no communicating in Cilium
+  spaces with content "substantially written using Generative AI tools … Slack or GitHub". The three posts of the
+  night before were AI-drafted and posted verbatim on the operator's word. From here a draft is a fact sheet and the
+  operator writes the words; §2a of `docs/upstream/README.md` and the memory say so (PR #45).
+- **Enhancement 002, revision 4** (PR #43, issue #42): the lab re-measured — demos renumbered 40–45; poc2 already had
+  the Gateway API, L2, its pools and metrics-server; cf2cnp 0.9.0 has `fromCIDR`; poc1 is 1 CP + 1 worker; revision
+  3's addresses did not sit in the design's /26 blocks (`.160`, `.170–.173` in poc2's service range, `.245`/`.243` in
+  poc1's Gateway-only pool) — redone: VIP `.16`, shop gateways `.242`/`.177`, egress IPs `.40–.43` node-held.
+  Resources: the Docker VM at 17.0 of 24 GiB, ~1.1 cores; the platform adds ≈ 1–2 GiB; no resize.
+- **"Tetragon must be crazy":** my first reading ("a warning loop since 09-15") was wrong — Prometheus had the pod at
+  0.01 cores until 06:12 UTC. At 06:12:58 the Cilium builder's `go test` started on the same Docker VM; at 06:13:21–22
+  **all four Tetragon agents, both clusters, were OOM-killed** at the chart's 512 Mi (`dmesg` `CONSTRAINT_MEMCG`,
+  anon-rss 425–475 MiB) — they share the kernel, and Tetragon's exec sensor is on the kernel; the poc2-worker agent's
+  own counters afterwards: 3071 `go vet` + 1716 `compile` execs from the builder. After the restart the policy filter's
+  cgroup lookup fell through to `filepath.WalkDir` over the VM's whole cgroup tree (`pkg/cgroups/fsscan`,
+  `pkg/policyfilter/state.go` v1.7.1) — the 1.6–4.2 cores and the `failed to find cgroup id` line. Gotcha #118 (PR
+  #44); `values-tetragon-ci.yaml` 512Mi → 1Gi rolled on both clusters; **the killing test rerun cold** (the 2.0 GB
+  build cache emptied): peak RSS 524 Mi — above the old limit — 0 restarts, `dmesg` count unchanged; the regression
+  check 14 PASS. The rule: no build containers on the VM while a demo measures.
+- **Demo 40 — phase 0 of 002** (branch `demo-40-shop-mesh-phase0`, Cursor from a 1,800-word brief): measured first
+  that a Gateway with two `spec.addresses` gets both IPs on one Service, and that an L2 policy selects Services, not
+  IPs — so the VIP lives on its own `shop-vip-gw` per cluster, both `kind-l2-announce` policies exclude it, and
+  `cilium/l2-shop-vip-announce.yaml` is applied in exactly one cluster (`scripts/vip-takeover.sh`, delete-other-first;
+  measured: the lease moved to `poc2-worker` and back; dying leases linger ~15 s with an empty holder). The shared pool
+  `.16–.31` in both clusters; `shop-tls` from the common root (`clustermesh-root-ca`, the same fingerprint in both) with
+  the three SANs — a wildcard would not cover the two-label names; four Gateways Programmed, answering 404 until demo
+  41; `shopapi` (Go, pgx 5.11, distroless nonroot) loaded on all four nodes; `shopctl` in Go and Python; `check.sh` 21
+  PASS on both clusters. Cursor's measured differences from the brief: the L2 selector change moved no existing lease;
+  the Mac never ARPs for the VIP (the host route's next hop is the VM). Reviewed by OB1 + Codex + Grok (`docs/REVIEW_DEMO40.md`): the wire confirmed — one ARP responder for the VIP
+  (`arping` from the bridge), poc1's leaf on `.16`, the lease flip in ~40 ms; eleven findings applied from the
+  reviewers' snippets — the worst: `check.sh` PASSing an unreachable door (`000000`); `vip-takeover.sh` with no way
+  through when the other cluster's API is down (`--force`, UNKNOWN); `shopapi` opening a pool per request with no
+  connect timeout; the clients disagreeing on `--duration 3` vs `3s`; `cleanup.sh` leaving the Secret; `record.sh`'s
+  deliberate return-0 contract kept, with a `RECORD_STRICT=1` opt-in for `apply.sh`. After the fixes: 21 PASS on both
+  clusters, regression 14 PASS. The operator, twice now: *"dont poll the back job — set up a watcher"* — in memory.

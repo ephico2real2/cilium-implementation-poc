@@ -1,0 +1,77 @@
+# poc1's two doors. Two Gateways, not one: measured 2026-09-18 (Cilium 1.20.2) a Gateway with two
+# spec.addresses gets BOTH IPs on its single Service, and a CiliumL2AnnouncementPolicy selects that
+# Service, not an IP — so a combined Gateway would have poc2 announce the VIP too. shop-gw holds
+# the per-cluster address (.242, announced by kind-l2-announce); shop-vip-gw holds the VIP (.16,
+# announced only where shop-vip-announce is applied).
+#
+# NO HTTPRoutes and NO backends in phase 0. The doors exist and are Programmed; they answer 404
+# until demo 41 attaches the platform. The HTTP :80 listener is here so that 301 route (demo 37's
+# pattern) has somewhere to attach; it is not created in this phase.
+#
+# Address and hostname differ per cluster, so this file is poc1's and 30-gateways-poc2.yaml is
+# poc2's — two files a junior can read, no Helm, no kustomize, no sed.
+#
+#   kubectl --context kind-poc1 apply -f demos/40-shop-mesh-phase0/30-gateways-poc1.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: shop-gw
+  namespace: shop-edge
+spec:
+  addresses:
+    - type: IPAddress
+      value: "172.18.255.242"             # poc1 gateway-pool; announced by kind-l2-announce
+  gatewayClassName: cilium
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: api.poc1.shop.poc.local
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: shop-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector: {matchLabels: {gateway-access: shop-gw}}
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector: {matchLabels: {gateway-access: shop-gw}}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: shop-vip-gw
+  namespace: shop-edge
+spec:
+  addresses:
+    - type: IPAddress
+      value: "172.18.255.16"              # shared-vip-pool; announced only by shop-vip-announce
+  gatewayClassName: cilium
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: api.shop.poc.local
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: shop-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector: {matchLabels: {gateway-access: shop-gw}}
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector: {matchLabels: {gateway-access: shop-gw}}

@@ -17,6 +17,9 @@
 #     failing (a curl that times out is how an L3 policy denial looks).
 #   - a UTC timestamp is written per command so a transcript can be lined up against `hubble observe`
 #     output, which is timestamped in the same way.
+#   - RECORD_STRICT=1 (opt-in): after tee, exit with the wrapped command's rc so a `set -e`
+#     caller (apply.sh) fails on a failed wait. The default stays 0 — demos prove things by
+#     failing, so record.sh must not abort a set -e caller unless asked.
 set -uo pipefail
 
 if [ "$#" -lt 2 ]; then
@@ -36,4 +39,7 @@ mkdir -p "$(dirname "$OUT")"
     printf '[exit code: %s]\n' "$rc"
   fi
   printf '\n'
+  if [ "${RECORD_STRICT:-}" = 1 ]; then
+    exit "$rc"
+  fi
 } | tee -a "$OUT"

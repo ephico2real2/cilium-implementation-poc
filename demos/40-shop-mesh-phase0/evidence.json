@@ -1,0 +1,22 @@
+{
+  "captures": [
+    {
+      "name": "vip-https-404",
+      "url": "https://api.shop.poc.local/",
+      "wait": "text:",
+      "look": "empty shop-vip-gw at 172.18.255.16: HTTP 404 (no routes in phase 0), leaf issuer CN=clustermesh-root-ca with SANs api.shop.poc.local, api.poc1.shop.poc.local, api.poc2.shop.poc.local"
+    },
+    {
+      "name": "poc1-door-https-404",
+      "url": "https://api.poc1.shop.poc.local/",
+      "wait": "text:",
+      "look": "empty shop-gw at 172.18.255.242: HTTP 404, same enterprise leaf"
+    },
+    {
+      "name": "poc2-door-https-404",
+      "url": "https://api.poc2.shop.poc.local/",
+      "wait": "text:",
+      "look": "empty shop-gw at 172.18.255.177: HTTP 404, same enterprise leaf"
+    }
+  ]
+}

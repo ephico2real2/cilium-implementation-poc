@@ -1,0 +1,39 @@
+# Shared VIP pool — the SAME CiliumLoadBalancerIPPool in EVERY cluster that may hold the shop VIP.
+#
+# Apply with:
+#   kubectl --context kind-poc1 apply -f cilium/lb-ippool-shared.yaml
+#   kubectl --context kind-poc2 apply -f cilium/lb-ippool-shared.yaml
+#
+# WHY A POOL PRESENT IN BOTH CLUSTERS IS SAFE. The pool's block is 172.18.255.16–.31, inside the
+# shared /26 172.18.255.0/26 (NETWORKING_DESIGN.md §3 item 4, enhancement 002 §8.1). A Gateway that
+# requests a static address via spec.addresses lands in the pool that HOLDS that address — LB IPAM
+# will not pick .16 out of poc1's gateway-pool (.240–.250) or poc2's (.176–.186). The Service is
+# created in both clusters (each has a shop-vip-gw), so both *could* answer ARP for .16. They do
+# not, because announcement is a different object: kind-l2-announce in each cluster excludes
+# owning-gateway=shop-vip-gw, and cilium/l2-shop-vip-announce.yaml is applied in exactly one
+# cluster. Two announcers for one address is the failure the whole design avoids.
+#
+# WHY THIS SELECTOR. Measured 2026-09-18 on poc1, Cilium 1.20.2: a Gateway with two spec.addresses
+# gets BOTH IPs on its single Service (cilium-gateway-two-addr lb=172.18.255.246 172.18.255.247,
+# Programmed=True). A CiliumL2AnnouncementPolicy selects SERVICES, not IPs, so a Gateway that
+# carried the VIP and the per-cluster address on one Service would have the other cluster announce
+# the VIP too. Hence two Gateways: shop-gw (per-cluster address, announced by kind-l2-announce) and
+# shop-vip-gw (the VIP, announced only where shop-vip-announce is applied). This pool's selector
+# admits ONLY that VIP Gateway's Service — a pinned address is only honoured inside a pool whose
+# selector matches (cilium/lb-ippool-poc1.yaml header).
+#
+# The .40–.47 slice of the same /26 is a node-held reservation, not a pool (egress IPs and similar);
+# it is never allocated by LB IPAM.
+apiVersion: "cilium.io/v2"
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: shared-vip-pool
+spec:
+  blocks:
+    - start: "172.18.255.16"
+      stop: "172.18.255.31"               # 16 addresses; the shop VIP is the first, .16
+  serviceSelector:
+    matchExpressions:
+      - key: io.cilium.gateway/owning-gateway
+        operator: In
+        values: [shop-vip-gw]             # ONLY the VIP Gateway's Service may land here

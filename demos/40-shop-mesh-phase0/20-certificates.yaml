@@ -1,0 +1,28 @@
+# One leaf, three names, the same file on both clusters. Each cluster's cert-manager issues its own
+# Secret shop-tls from ClusterIssuer/ca-issuer. Measured: both clusters' ca-issuer sign from the
+# same root (secret clustermesh-root-ca, sha256
+# F4:FD:F8:B7:78:D9:D3:9E:69:53:E1:CB:FB:26:CD:1A:9B:85:48:66:D4:48:8D:08:0F:E9:73:7E:8A:97:BF:27
+# in both), so a client that trusts that root accepts either door.
+#
+# WHY NOT A WILDCARD. `*.shop.poc.local` covers `api.shop.poc.local` (one label) and does NOT cover
+# `api.poc1.shop.poc.local` or `api.poc2.shop.poc.local` (two labels under shop.poc.local). TLS
+# wildcards are single-label (RFC 6125, demo 37). The three dnsNames are listed in full.
+#
+#   kubectl --context kind-poc1 apply -f demos/40-shop-mesh-phase0/20-certificates.yaml
+#   kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/20-certificates.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: shop-tls
+  namespace: shop-edge
+spec:
+  secretName: shop-tls
+  commonName: api.shop.poc.local
+  dnsNames:
+    - api.shop.poc.local
+    - api.poc1.shop.poc.local
+    - api.poc2.shop.poc.local
+  issuerRef:
+    name: ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io

@@ -1,0 +1,15 @@
+# shop-edge is the namespace of the doors (shop-gw, shop-vip-gw) and of the leaf they present.
+# Labels: app.kubernetes.io/part-of=shop is what demo 35 already stamps on this namespace;
+# gateway-access=shop-gw is what the Gateways' allowedRoutes selector admits. Apply is a merge, so
+# an existing demo-35 shop-edge keeps its workloads and gains the access label. Cleanup does NOT
+# delete this namespace.
+#
+#   kubectl --context kind-poc1 apply -f demos/40-shop-mesh-phase0/00-namespaces.yaml
+#   kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/00-namespaces.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shop-edge
+  labels:
+    app.kubernetes.io/part-of: shop
+    gateway-access: shop-gw
