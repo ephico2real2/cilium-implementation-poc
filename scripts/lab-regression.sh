@@ -26,6 +26,8 @@ set -uo pipefail; cd "$(dirname "$0")/.." || exit 1
 # with lab-up.sh), or CILIUM_VERSION when the caller exports it — not lab-stack.sh's default, a third copy nothing checks
 # (OB1's review, 2026-09-18)
 EXPECT_CILIUM="${EXPECT_CILIUM:-${CILIUM_VERSION:-$(sed -n 's/^CILIUM_VERSION=//p' scripts/bootstrap/versions.env | head -1)}}"
+# the lab may run its own build of that version (CILIUM_IMAGE in versions.env, demo 39): then row 1 expects that image
+EXPECT_IMAGE="${CILIUM_IMAGE:-$(sed -n 's/^CILIUM_IMAGE=//p' scripts/bootstrap/versions.env | head -1)}"
 # same idea: the default in lab-policies.sh, overridable by CF2CNP_VERSION
 CF2CNP_VERSION="${CF2CNP_VERSION:-$(grep -m1 'CF2CNP_VERSION="${CF2CNP_VERSION:-' scripts/lab-policies.sh | sed -E 's/.*:-([^}"]+).*/\1/')}"
 CTX="${CTX:-kind-poc1}"
@@ -73,21 +75,29 @@ prom_query() { # PromQL — instant query through Grafana's Prometheus proxy
 }
 
 check_cilium_version() {
-  local ctx c img ver ready dest parts ok=1
+  local ctx c img ver ready dest parts rule ok=1
   parts=""
   for ctx in "$CTX" "$PEER_CTX"; do
     c=${ctx#kind-}
     img=$(kubectl --context "$ctx" -n kube-system get ds cilium -o jsonpath='{.spec.template.spec.containers[0].image}' 2>&1) || { row fail "Both clusters run the expected Cilium version" "$(oneline "$img")" "image contains :v${EXPECT_CILIUM}@ and ready==desired on both"; return 0; }
     ready=$(kubectl --context "$ctx" -n kube-system get ds cilium -o jsonpath='{.status.numberReady}' 2>/dev/null || echo 0)
     dest=$(kubectl --context "$ctx" -n kube-system get ds cilium -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo 0)
-    ver=$(printf '%s' "$img" | sed -n 's/.*:\(v[0-9][0-9.]*\).*/\1/p')
+    if [ -n "$EXPECT_IMAGE" ]; then
+      # the lab's own build: the DaemonSet's image is exactly the pinned repo:tag (no digest — a local build has none)
+      ver=${img#*:}; ver=${ver%%@*}
+      [ "$img" = "$EXPECT_IMAGE" ] || ok=0
+      rule="image is ${EXPECT_IMAGE} (the lab's build of ${EXPECT_CILIUM}) and ready==desired on both"
+    else
+      ver=$(printf '%s' "$img" | sed -n 's/.*:\(v[0-9][0-9.]*\).*/\1/p')
+      case "$img" in *":v${EXPECT_CILIUM}@"*) ;; *) ok=0 ;; esac
+      rule="image contains :v${EXPECT_CILIUM}@ and ready==desired on both"
+    fi
     ver=${ver:-?}
     parts="${parts:+$parts, }${c} ${ver} ${ready}/${dest}"
-    case "$img" in *":v${EXPECT_CILIUM}@"*) ;; *) ok=0 ;; esac
     [ "${dest:-0}" -gt 0 ] && [ "$ready" = "$dest" ] || ok=0
   done
-  if [ "$ok" = 1 ]; then row ok "Both clusters run the expected Cilium version" "$parts" "image contains :v${EXPECT_CILIUM}@ and ready==desired on both"
-  else row fail "Both clusters run the expected Cilium version" "$parts" "image contains :v${EXPECT_CILIUM}@ and ready==desired on both"; fi
+  if [ "$ok" = 1 ]; then row ok "Both clusters run the expected Cilium version" "$parts" "$rule"
+  else row fail "Both clusters run the expected Cilium version" "$parts" "$rule"; fi
 }
 
 check_agent_health() {
