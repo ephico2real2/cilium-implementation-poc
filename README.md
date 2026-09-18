@@ -1,7 +1,7 @@
 # cilium-implementation-poc
 
 A reproducible proof of concept of what **Cilium 1.20.2** and **Hubble** give you over a stock CNI + kube-proxy
-cluster — **measured, not quoted**. Two kind clusters in a ClusterMesh with no kube-proxy and no other CNI, 41 demos
+cluster — **measured, not quoted**. Two kind clusters in a ClusterMesh with no kube-proxy and no other CNI, 42 demos
 from the first Hubble flow to policies generated from observed traffic, every command with its recorded output, and a
 GitHub Action that builds and exercises the whole lab from the same scripts a laptop uses.
 
@@ -168,6 +168,8 @@ on the one before.
 | 40 | [The shop platform on the mesh — phase 0: the ground under it](demos/40-shop-mesh-phase0/README.md) | one public URL on a VIP that only one cluster announces, a door per cluster, the same enterprise leaf in both, `shopapi` and both `shopctl`s built; the doors exist and answer 404 until demo 41 attaches the platform | [RECAP.md](demos/40-shop-mesh-phase0/RECAP.md) (plain English), [`output/transcript.txt`](demos/40-shop-mesh-phase0/output/transcript.txt), `check.sh` |
 | 41 | [The shop platform on the mesh — phase 1: the platform behind the doors](demos/41-shop-mesh-phase1/README.md) | the same platform in both clusters, every stateless Service global with affinity local, one URL, a door per cluster, `X-Served-By` naming the door that answered, policies generated from flows | [RECAP.md](demos/41-shop-mesh-phase1/RECAP.md) (plain English), [`output/transcript.txt`](demos/41-shop-mesh-phase1/output/transcript.txt), `check.sh` |
 | 53 | [gRPC parity on the Cilium clusters](demos/53-grpc-parity/README.md) | demo 09's gRPC test re-run on poc1; poc2's first `GRPCRoute` on `shop-gw` (`grpc.poc2.shop.poc.local`, plaintext h2c and TLS) so both Cilium doors answer `SERVING` the same way demos 51/52 will on Envoy Gateway | [RECAP.md](demos/53-grpc-parity/RECAP.md), [`output/transcript.txt`](demos/53-grpc-parity/output/transcript.txt), `check.sh` |
+| | **The vanilla lab — Envoy Gateway, kindnet, two software load balancers** | | |
+| 50 | [The vanilla lab's clusters](demos/50-eg-clusters/README.md) | two kind clusters on `kind-eg` (reservation trick, kindnet + kube-proxy iptables, no Cilium), Gateway API standard-channel CRDs, Envoy Gateway's eight CRDs and the controller, `GatewayClass eg`, cert-manager and the shared lab root; no load balancers, no Gateways, no apps | [RECAP.md](demos/50-eg-clusters/RECAP.md) (plain English), [`output/transcript.txt`](demos/50-eg-clusters/output/transcript.txt), `check.sh` |
 | | **Observability** — hub on poc1, poc2 a spoke | | |
 | 10 | [Flow export → OpenTelemetry](demos/10-tracing/README.md) | Hubble's dynamic exporter per node tailed by a Collector into OTLP; every flow persistent and queryable — events, not spans (gotcha #30) | [pods + output](demos/10-tracing/README.md#evidence) |
 | 16 | [Prometheus + Grafana, then Hubble on dashboards](demos/16-monitoring/README.md) | kube-prometheus-stack, then one Cilium Helm change: 6 ServiceMonitors, 6 dashboards, 52/52 targets, exemplars proven with a `traceparent` | [11 captures](demos/16-monitoring/README.md#evidence) |

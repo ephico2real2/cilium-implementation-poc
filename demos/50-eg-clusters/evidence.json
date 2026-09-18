@@ -1,0 +1,55 @@
+{
+  "demo": 50,
+  "enhancement": "007",
+  "phase": 1,
+  "issue": 55,
+  "recorded": "2026-09-18T22:41:16Z/2026-09-18T22:43:56Z",
+  "destroyed": {
+    "command": "scripts/eg-down.sh",
+    "deleted": ["eg1-worker", "eg1-control-plane", "kind-eg"],
+    "untouched": ["poc1", "poc2", "kind"]
+  },
+  "network": {
+    "name": "kind-eg",
+    "subnet": "172.19.0.0/16",
+    "ipRange": "172.19.0.0/17",
+    "gateway": "172.19.0.1",
+    "subnet6": "fc00:f853:ccd:e794::/64",
+    "hostRoute": "172.19 -> 192.168.64.2 on bridge100"
+  },
+  "clusters": {
+    "eg1": {
+      "nodes": {"eg1-control-plane": "172.19.0.2", "eg1-worker": "172.19.0.3"},
+      "kubeProxyMode": "iptables",
+      "kindnet": "2/2",
+      "ciliumDaemonSets": 0
+    },
+    "eg2": {
+      "nodes": {"eg2-control-plane": "172.19.0.4", "eg2-worker": "172.19.0.5"},
+      "kubeProxyMode": "iptables",
+      "kindnet": "2/2",
+      "ciliumDaemonSets": 0
+    }
+  },
+  "crds": {
+    "gatewayAPI": {"count": 10, "channel": "standard", "bundleVersion": "v1.6.2", "apply": "server-side --force-conflicts"},
+    "envoyGateway": {"count": 8, "source": "helm template | kubectl apply --server-side"},
+    "egCrdsHelmRelease": false,
+    "egCrdsHelmRefusal": "Secret sh.helm.release.v1.eg-crds.v1 is invalid: data: Too long: may not be more than 1048576 bytes"
+  },
+  "helm": {
+    "eg": "gateway-helm-v1.9.1",
+    "eg-crds": null,
+    "cert-manager": "v1.21.1"
+  },
+  "gatewayClass": {"name": "eg", "accepted": true},
+  "root": {
+    "cn": "eg-root-ca",
+    "clusterIssuer": "eg-ca-issuer",
+    "export": ".tmp/eg-root-ca.crt",
+    "committed": false,
+    "sha256": "6A:37:32:53:17:91:45:80:66:4D:9F:0B:6B:05:59:64:43:16:BA:05:93:0E:0F:CD:7C:70:87:F8:C0:2B:67:16",
+    "identicalInBothClusters": true
+  },
+  "check": {"fail": 0, "note": "no load balancers, no Gateways, no apps — demos 51/52"}
+}
