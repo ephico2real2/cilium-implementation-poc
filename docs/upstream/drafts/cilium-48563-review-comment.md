@@ -44,9 +44,38 @@ all three parsers, a cilium-cli connectivity test. Its files do not include `pkg
 >
 > ![before: Cilium's L7-by-Workload dashboard, No data on every panel for a backend on the other node](https://raw.githubusercontent.com/ephico2real2/cilium-implementation-poc/main/docs/upstream/images/l7-by-workload-team-a-no-data.png)
 >
-> ![after: the same dashboard filled — red the Destination Workload selector, orange requests/s, yellow success rate, blue latency](https://raw.githubusercontent.com/ephico2real2/cilium-implementation-poc/main/demos/39-remote-workload-fix/output/l7-by-workload-shop-team-a-highlighted.png) Happy to run this PR's
-> branch on the same lab and report, if that helps it out of draft. Details and the exact commands:
-> <link to demos/39-remote-workload-fix/README.md on main>.
+> ![after: the same dashboard filled — red the Destination Workload selector, orange requests/s, yellow success rate, blue latency](https://raw.githubusercontent.com/ephico2real2/cilium-implementation-poc/demo-39-remote-workload/demos/39-remote-workload-fix/output/l7-by-workload-shop-team-a-highlighted.png)
+>
+> **How it was tested** (two kind clusters on one machine, Cilium v1.20.2 + the three commits of
+> `ephico2real2/cilium@hubble/remote-workload-via-cep`; the image built with `make dev-docker-image`, loaded into all
+> four nodes; the regenerated CEP CRD applied and labelled `io.cilium.k8s.crd.schema.version=1.33.13` on both clusters
+> before the agents rolled; the same image on both clusters):
+>
+> 1. Unit tests, run as `linux/arm64` test binaries in a container (Darwin cannot run them): the new
+>    `TestResolveEndpointRemoteWorkloads` (common resolver, remote branch), `TestDecodeL7Workloads` with three cases —
+>    remote from the ipcache, a local pod overriding, a local *ownerless* pod clearing a stale value — and the CEP
+>    watcher / status-writer tests. All pass; each fails with its change reverted.
+> 2. The cluster measurement, before and after — the `shop` backends of `team-a` and `team-b` on the control-plane
+>    node, the client pod on the worker calling the two Gateways (`curl --resolve … https://shop-a.poc.local/`, 40
+>    requests each), then the **worker's** agent's `hubble_http_requests_total` read directly
+>    (`curl http://<node-ip>:9965/metrics`):
+>    - release v1.20.2: `destination_namespace="team-a" … destination_workload="" source="reserved:ingress"` (and the
+>      same for team-b) — the bug;
+>    - commit 1 only (CEP + ipcache + the common resolver): `hubble observe` on an L3/L4 flow to the same pod shows
+>      `destination.workloads=[{Deployment shop}]`, the Envoy-reported series still `destination_workload=""`;
+>    - all three commits: `destination_workload="shop"` on both teams' series, 40/40, reporter `client`,
+>      `source="reserved:ingress"`.
+> 3. The chart's *Hubble L7 HTTP Metrics by Workload* dashboard for that selection: the two pictures above.
+> 4. The lab's regression check on the patched clusters (14 rows — versions, agent health, mesh, the Gateway's names,
+>    listeners, L2 leases, Hubble metrics from both clusters, drops and forwards, the flow observer, dashboards):
+>    13 PASS and 1 FAIL — the FAIL being the version row, which correctly says the image is not the release;
+>    `cilium status` OK and ClusterMesh OK on both.
+>
+> What is NOT tested here: CiliumEndpointSlices (the branch does not carry the field on the slice) and a backend in
+> the *other* cluster of the mesh (the kvstore path) — the two things this PR covers and ours does not, which is why
+> this is a comment and not a competing PR. Happy to run this PR's branch on the same lab and report, if that helps it
+> out of draft. Details, the exact commands and the capture scripts:
+> https://github.com/ephico2real2/cilium-implementation-poc/blob/demo-39-remote-workload/demos/39-remote-workload-fix/README.md
 >
 > (AI assistance, declared under the Cilium AI policy: I directed the work and designed the test cases — the remote
 > placement of the backend, the client on the other node, the same image on both clusters, the before/after
@@ -57,8 +86,10 @@ all three parsers, a cilium-cli connectivity test. Its files do not include `pkg
 ## Before posting
 
 - [ ] the operator has read this file and said "post"
-- [ ] the lab's demo 39 is on `main` so the link and the two image URLs resolve (until #40 merges they are on the
-      `demo-39-remote-workload` branch: replace `/main/` with `/demo-39-remote-workload/` to preview)
+- [ ] #40 merged: replace `demo-39-remote-workload` with `main` in the after-image URL and the README link (the
+      before-image is on `main` already); the branch URLs are there now so the preview renders
 - [ ] re-check #48563's state (`gh pr view 48563 -R cilium/cilium --json state,isDraft,files`) — if `register.go` has
       appeared or the PR merged, drop or rewrite point 2
+- [ ] a CI run on the patched image (the `lab-regression` Action with `cilium_image` set — pending the image push to
+      ghcr) added as a link under "How it was tested", if it exists by then
 - [ ] the operator posts it, or says who does
