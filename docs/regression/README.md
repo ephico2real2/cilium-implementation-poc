@@ -139,6 +139,22 @@ tutorial's 30 panels all have data, demo 37's two doors are up at their addresse
 failure was the log scan explained above. The RULE column is the script's own one-line rule for each row, as it
 prints it.
 
+## The slim Action, as it happened — three runs in one night
+
+The `lab-regression` Action was reviewed before its first run by OB1 (Anthropic's Fable 5.1, in Claude Code), Codex and
+Grok (`docs/REVIEW_REGRESSION.md`). OB1 predicted from the code that the first run "cannot go green" and named why;
+the runs then showed it:
+
+| Run | What changed | Result | Why |
+|---|---|---|---|
+| [35294125733](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/35294125733) — the version before the review | — | **7 PASS, 6 FAIL** | exactly OB1's list: the runner did not trust the lab's certificate (`curl: (60) SSL certificate problem`), could not resolve `grafana.poc.local` (`curl: (6)`), printed `000000` for cf2cnp, and counted 0 tutorial panels |
+| [35295439873](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/35295439873) — after the review's fixes | the root trusted, the names resolved, row 4 checks only deployed names, the success regex, `→ ERR` counted | **13 PASS, 0 FAIL, 1 WARN** (the WARN: the optional connectivity test was not run) — the check itself is green on a fresh machine | the one red step was the screenshot of the observer dashboard: the observer had written 36 lines, but they had not yet travelled through the log shipper into Loki, so six panels still said "No data" |
+| the third run | a step that waits until Loki has the observer's lines before taking the pictures | see the issue #38 for the link | |
+
+Two lessons for a newcomer: a reviewer who reads the code can predict a CI failure before the first run — and a "No
+data" panel is often a **timing** problem (the data is on its way), not a missing feature; so a test that reads a
+dashboard must first wait for the pipeline behind it.
+
 ## What "regression testing a lot" means here
 
 Not one big test once. Three habits:

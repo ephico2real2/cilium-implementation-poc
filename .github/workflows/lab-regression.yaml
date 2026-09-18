@@ -104,6 +104,19 @@ jobs:
           echo "gw=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}')" >> "$GITHUB_OUTPUT"
           echo "gw_b=$(kubectl --context kind-poc1 -n team-b get gateway team-b-gw -o jsonpath='{.status.addresses[0].value}')" >> "$GITHUB_OUTPUT"
 
+      # the observer's lines reach Loki through the log shipper a minute or more after they are written; the second run
+      # captured the observer dashboard before any had arrived (run 35295439873: 36 lines written, "No data" on 6 panels)
+      - name: Loki has the observer's flow lines
+        run: |
+          pw=poc-grafana; gw=${{ steps.addr.outputs.gw }}
+          loki=$(curl -s --resolve grafana.poc.local:443:$gw -u admin:$pw https://grafana.poc.local/api/datasources | jq -r '.[] | select(.type=="loki") | .uid' | head -1)
+          for i in $(seq 1 36); do
+            n=$(curl -s -G --resolve grafana.poc.local:443:$gw -u admin:$pw "https://grafana.poc.local/api/datasources/proxy/uid/$loki/loki/api/v1/query" \
+                 --data-urlencode 'query=sum(count_over_time({namespace="hubble-observer",container="hubble-observer"}[10m]))' | jq -r '.data.result[0].value[1] // 0')
+            echo "  +$((i*10))s: $n observer lines in Loki (last 10 min)"; [ "${n:-0}" -gt 0 ] && break; sleep 10
+          done
+          [ "${n:-0}" -gt 0 ] || echo "::warning::Loki still has no observer lines after 6 minutes — the observer page will say No data"
+
       - name: Captures — the dashboards the rows touch, with their expectations
         uses: ./.github/actions/browser-walk
         with:
