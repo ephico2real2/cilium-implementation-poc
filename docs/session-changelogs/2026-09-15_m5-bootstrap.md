@@ -567,3 +567,27 @@ Outcome in one line: **…**
   regenerate reproduces every applied ingress rule; a cf2cnp defect found on the way (an empty-selector egress policy
   for a `reserved:ingress` source — cf2cnp#7). After: `check.sh` 33 PASS both clusters, regression 15 PASS; the VM at
   ~18.9 GiB / ~1 core (+1.9 GiB for the platform ×2).
+
+## Part 14 — recaps as a skill, the two new plans, demo 53, the stale root (2026-09-18 15:00 → 20:00)
+
+- **"Walk me through it" became a habit:** the `demo-recap` skill (`.claude/skills/demo-recap/SKILL.md`) and `RECAP.md`
+  for demos 40 and 41 (PR #48 merged, #47 merged); the operator asked for the DNS records, the certificate spec (CN and
+  SANs — one Certificate per cluster, two in total, the product name as CN) and a diagram of the doors → the
+  "reference card" section, now part of the skill for any demo that creates names, addresses, certificates or Gateways.
+- **Two plans, each from research:** enhancement 006 (the BGP tutorial — the source cloned and read file by file, no
+  licence → clean-room; four FRR routers in Compose, the leaves on the node LAN, Cilium BGP beside L2, the network team's
+  sheet; PR #50, issue #52) and enhancement 007 (the vanilla lab — two kind clusters on their own network with the
+  reservation trick, Envoy Gateway on kindnet + kube-proxy, kube-vip and MetalLB as two demos, the static-address
+  experiment, gRPC parity; PR #51, issue #53 with demo issues #54–#59). The operator on the Cilium "magic": L2
+  announcements explained from the docs — leases, ARP, one node per address, gratuitous ARP on failover.
+- **Demo 53 — gRPC parity** (branch, PR next): poc2's first `GRPCRoute` on `shop-gw` through a third listener for
+  `grpc.poc2.shop.poc.local` (an HTTPRoute and a GRPCRoute may not share a hostname on one listener); a
+  CiliumNetworkPolicy because demo 41's default-deny caught the new pod (Hubble showed the drop); poc1's demo 09 route
+  was in fact absent and restored. `SERVING` on both clusters, plaintext and TLS; regression row 15; 16 PASS.
+- **The review (Codex + Grok; OB1 blocked by the Fable limit again):** the transcript was truncated on every apply, so
+  quoted evidence lived nowhere — replaced by recorded, reversible proofs (`policy-proof.sh`, `tls-proof.sh`); Cilium
+  1.20.2 appears not to implement the Gateway API's HTTPRoute/GRPCRoute arbitration (read from its code, cited as such);
+  the regression WARN classifier matched `command not found`; demo 40's door rule had been failing since demo 41.
+- **Found on the way:** `docs/root-ca.crt` is the 09-11 root; the M5 rebuild re-issued the CA on 09-15 — every
+  `--cacert docs/root-ca.crt` in the READMEs verifies nothing (macOS curl hid it via the Keychain) — issue #60.
+- **The operator:** *"I hope you shut down poc1 and poc2 for now"* — paused after demo 53's last check.

@@ -357,12 +357,16 @@ check_grpc_door() {
   lookup=$(kubectl --context "$PEER_CTX" -n shop-edge get grpcroute grpc 2>&1)
   rc=$?
   if [ "$rc" -ne 0 ]; then
-    if printf '%s' "$lookup" | grep -qiE '(\bNotFound\b|not found)'; then
+    if printf '%s' "$lookup" | grep -Fq 'Error from server (NotFound):' &&
+       printf '%s' "$lookup" |
+         grep -Eq 'grpcroutes(\.[^ ]+)? "grpc" not found'; then
       row warn "gRPC answers through a Cilium door" \
-        "grpcroute/grpc absent" "SKIP only when the GRPCRoute resource is absent"
+        "grpcroute/grpc absent" \
+        "SKIP only when the API reports grpcroute/grpc NotFound"
     else
       row fail "gRPC answers through a Cilium door" \
-        "$(oneline "$lookup")" "GRPCRoute lookup succeeds, or returns NotFound for the optional demo"
+        "$(oneline "$lookup")" \
+        "GRPCRoute lookup succeeds, or the API reports grpcroute/grpc NotFound"
     fi
     return 0
   fi
@@ -370,7 +374,8 @@ check_grpc_door() {
   out=$(docker run --rm --network kind fullstorydev/grpcurl:latest \
     -plaintext -max-time 10 -authority grpc.poc2.shop.poc.local \
     172.18.255.177:80 grpc.health.v1.Health/Check 2>&1) || true
-  if printf '%s' "$out" | tr -d '[:space:]' | grep -q '"status":"SERVING"'; then
+  if printf '%s' "$out" | tr -d '[:space:]' |
+       grep -q '"status":"SERVING"'; then
     row ok "gRPC answers through a Cilium door" \
       "$(oneline "$out")" \
       "grpcurl -plaintext Health/Check → SERVING"

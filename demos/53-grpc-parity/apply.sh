@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# apply.sh — land demo 53 on poc2: demo 40's door gains the gRPC listener and leaf, then the
-# app and GRPCRoute. poc1 is read-only (demo 09's route is re-measured, not re-applied).
+# apply.sh — land demo 53 on the Cilium clusters: restore demo 09's app and route
+# on poc1 when absent; add poc2's gRPC listener, leaf, app, policy and GRPCRoute.
 # Idempotent. No docker build (gotcha #118: routedemo:local is already on the nodes).
 #
 #   demos/53-grpc-parity/apply.sh
@@ -10,7 +10,9 @@ export RECORD_STRICT=1
 HERE=demos/53-grpc-parity
 TRANSCRIPT=$HERE/output/transcript.txt
 mkdir -p "$(dirname "$TRANSCRIPT")"
-: > "$TRANSCRIPT"
+touch "$TRANSCRIPT"
+printf '\n### %s — idempotent apply run\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  >>"$TRANSCRIPT"
 rec() { scripts/record.sh "$TRANSCRIPT" "$@"; }
 
 CTX=kind-poc2
@@ -112,3 +114,9 @@ unset -f unmatched
 
 echo "== 5. check.sh (PASS/FAIL rows; a FAIL row fails this script — demo 41's lesson)"
 rec "$HERE/check.sh"
+
+echo "== 6. policy-proof.sh — every apply re-proves CNP grpc (reversible delete / Health fail / Hubble DROPPED / re-apply / SERVING)"
+rec "$HERE/policy-proof.sh"
+
+echo "== 7. tls-proof.sh — leaf SAN/issuer/fingerprint/dates; live root OK; docs/root-ca.crt failed (issue #60)"
+rec "$HERE/tls-proof.sh"

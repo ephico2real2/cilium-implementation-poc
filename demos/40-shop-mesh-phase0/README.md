@@ -131,6 +131,7 @@ poc2     shop-vip-gw  172.18.255.16    True         True         poc1
 ```
 
 404 is a PASS in phase 0: the door exists. 000 is a FAIL. Demo 41 is where a 200 is the goal.
+After demo 41 attaches routes the doors return 200; `check.sh` PASSes on 404 (no routes yet) or 200 (routes attached) and FAILs on 000 or any other code, with MEASURED showing the code and which phase it implies.
 
 `hosts-entries.sh` never writes `/etc/hosts`. From live state this run:
 

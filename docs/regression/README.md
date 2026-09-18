@@ -11,7 +11,7 @@ them.
 
 | Layer | What it is | How long | When |
 |---|---|---|---|
-| **1. The quick check** — `scripts/lab-regression.sh` | fifteen questions in plain English, each answered PASS or FAIL with the number that decided it | about a minute (the two saved runs started 62 s apart) | after any change, before saying "done" |
+| **1. The quick check** — `scripts/lab-regression.sh` | sixteen questions in plain English, each answered PASS or FAIL with the number that decided it | about a minute (the two saved runs started 62 s apart) | after any change, before saying "done" |
 | **2. Cilium's own connectivity test** — `cilium connectivity test --multi-cluster` | Cilium's 87 tests, 512 actions: pods talking to pods, services, the other cluster, the outside world, with and without policies | 13 minutes on this Mac | after an upgrade of Cilium itself |
 | **3. The whole lab from nothing** — the `lab-observability` GitHub Action | a fresh runner builds both clusters, installs every demo, generates traffic, generates and applies policies, checks every page, screenshots every dashboard | about 55 minutes | started by hand (`gh workflow run`) on the branch that changes a version pin; the slimmer `lab-regression` Action runs by itself on a push that touches the check or the pins |
 
