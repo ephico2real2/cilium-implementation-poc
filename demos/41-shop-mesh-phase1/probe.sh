@@ -29,21 +29,39 @@ GO_BIN="demos/40-shop-mesh-phase0/client/go/shopctl/bin/shopctl-${os}-${arch}"
 echo "== hosts-entries.sh (the four names this probe needs)"
 rec demos/40-shop-mesh-phase0/hosts-entries.sh
 
-resolved=0
-if [ "$(uname -s)" = Darwin ]; then
-  if dscacheutil -q host -a name "$HOST" 2>/dev/null | grep -q 'ip_address:'; then
-    resolved=1
+live_vip() {
+  kubectl --context "${VIP_CONTEXT:-kind-poc1}" -n shop-edge \
+    get gateway shop-vip-gw -o jsonpath='{.status.addresses[0].value}' \
+    2>/dev/null
+}
+
+resolved_addresses() {
+  local host=$1
+  if [ "$(uname -s)" = Darwin ]; then
+    dscacheutil -q host -a name "$host" 2>/dev/null |
+      awk '$1=="ip_address:" {print $2}'
+  else
+    getent hosts "$host" 2>/dev/null | awk '{print $1}'
   fi
-else
-  if getent hosts "$HOST" >/dev/null 2>&1; then
-    resolved=1
-  fi
+}
+
+check_resolution() {
+  local host=$1 expected=$2 addresses
+  addresses=$(resolved_addresses "$host")
+  [ -n "$addresses" ] || return 1
+  printf '%s\n' "$addresses" | grep -Fxq "$expected"
+}
+
+VIP=$(live_vip || true)
+if [ -z "$VIP" ]; then
+  echo "probe.sh: cannot read the live address of shop-edge/shop-vip-gw." >&2
+  exit 2
 fi
-if [ "$resolved" -ne 1 ]; then
-  echo "probe.sh: $HOST does not resolve on this host." >&2
-  echo "Add the block above to /etc/hosts (the script never writes it):" >&2
+if ! check_resolution "$HOST" "$VIP"; then
+  actual=$(resolved_addresses "$HOST" | paste -sd, -)
+  echo "probe.sh: $HOST resolves to ${actual:-nothing}; live VIP is $VIP." >&2
+  echo "Replace the stale hosts entry with the block above:" >&2
   echo "  demos/40-shop-mesh-phase0/hosts-entries.sh | sudo tee -a /etc/hosts" >&2
-  echo "On Darwin the resolver is dscacheutil; on Linux, getent. Then re-run." >&2
   exit 2
 fi
 

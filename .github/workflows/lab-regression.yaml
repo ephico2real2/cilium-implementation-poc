@@ -23,6 +23,8 @@ on:
       - scripts/capture/regression.yaml
       - demos/25-hubble-observer-loki/dashboard-design.py
       - demos/38-grafana-visual-grammar/**
+      - demos/40-shop-mesh-phase0/**
+      - demos/41-shop-mesh-phase1/**
       - .github/workflows/lab-regression.yaml
 
 permissions:

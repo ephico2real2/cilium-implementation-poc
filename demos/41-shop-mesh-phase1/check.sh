@@ -110,58 +110,236 @@ else
   row fail "https://api.poc2.shop.poc.local @ $POC2_GW" "http_code=${c177:-000} X-Served-By=${s177:-absent}" "200 and X-Served-By=poc2"
 fi
 
-# (e) catalog's cilium-dbg service list shows ≥ 1 remote backend on poc1 and on poc2
-count_remote() { # ctx — print "local=N remote=N list=..."
-  local ctx=$1 cip local_ip pfx list remote=0 localn=0 ip
-  cip=$(kubectl --context "$ctx" -n shop-core get svc catalog -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
-  local_ip=$(kubectl --context "$ctx" -n shop-core get pod -l app=catalog -o jsonpath='{.items[0].status.podIP}' 2>/dev/null || true)
-  pfx=$(printf '%s' "$local_ip" | awk -F. '{print $1"."$2}')
-  list=$(kubectl --context "$ctx" -n kube-system exec ds/cilium -c cilium-agent -- \
-    cilium-dbg service list 2>/dev/null | grep -A20 "$cip" | head -16 || true)
-  # backends look like "10.20.1.69:80/TCP" — count those whose first two octets differ from the local pod
-  while read -r ip; do
-    [ -z "$ip" ] && continue
-    case "$ip" in
-      "$cip":*) continue ;;
-      "$pfx".*) localn=$((localn + 1)) ;;
-      *)        remote=$((remote + 1)) ;;
-    esac
-  done < <(printf '%s\n' "$list" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+' || true)
-  printf 'local=%s remote=%s cip=%s pfx=%s\n%s' "$localn" "$remote" "$cip" "$pfx" "$list"
+# (d2) :80 with the HTTP Host header → 301 Location https://<host>/ (optional :443)
+curl_redirect() { # host addr — print code|location-count|location
+  local host=$1 addr=$2 hdr code locations n location
+  hdr=$(curl -sS --resolve "$host:80:$addr" "http://$host/" \
+    -D - -o /dev/null --connect-timeout 5 --max-time 10 2>/dev/null || true)
+  code=$(printf '%s' "$hdr" | awk 'BEGIN{c="000"} NR==1 && /HTTP/{c=$2} END{print c}')
+  locations=$(printf '%s' "$hdr" |
+    awk 'tolower($0) ~ /^location:/ {sub(/\r$/,""); sub(/^[^:]*:[[:space:]]*/,""); print}')
+  n=$(printf '%s\n' "$locations" | grep -c . || true)
+  location=$(printf '%s\n' "$locations" | head -1)
+  printf '%s|%s|%s' "${code:-000}" "$n" "$location"
 }
-for ctx in kind-poc1 kind-poc2; do
-  out=$(count_remote "$ctx")
-  hdr=$(printf '%s\n' "$out" | head -1)
-  remote=$(printf '%s' "$hdr" | sed -n 's/.*remote=\([0-9]*\).*/\1/p')
-  if [ "${remote:-0}" -ge 1 ]; then
-    row ok "${ctx#kind-} catalog has a remote backend" "$hdr" "cilium-dbg service list shows ≥ 1 backend outside the local pod CIDR"
+
+for spec in \
+  "api.shop.poc.local|$VIP" \
+  "api.poc1.shop.poc.local|$POC1_GW" \
+  "api.poc2.shop.poc.local|$POC2_GW"; do
+  host=${spec%%|*}
+  addr=${spec#*|}
+  got=$(curl_redirect "$host" "$addr")
+  code=${got%%|*}
+  rest=${got#*|}
+  count=${rest%%|*}
+  location=${rest#*|}
+  loc_ok=0
+  case "$location" in
+    "https://$host/"*|"https://$host:443/"*) loc_ok=1 ;;
+  esac
+  if [ "$code" = 301 ] && [ "$count" = 1 ] && [ "$loc_ok" = 1 ]; then
+    row ok "http://$host @ $addr redirects" \
+      "http_code=$code Location=$location" \
+      "301 and exactly one Location beginning https://$host/ (optional :443)"
   else
-    glob=$(kubectl --context "$ctx" -n shop-core get svc catalog -o jsonpath='{.metadata.annotations.service\.cilium\.io/global}' 2>/dev/null || true)
-    aff=$(kubectl --context "$ctx" -n shop-core get svc catalog -o jsonpath='{.metadata.annotations.service\.cilium\.io/affinity}' 2>/dev/null || true)
-    if [ "$glob" = true ] && [ "$aff" = local ]; then
-      # measured 2026-09-18, Cilium 1.20.2: affinity:local omits remote backends from
-      # `cilium-dbg service list` while a local backend is healthy. They appear the
-      # moment the affinity annotation is removed. Not a FAIL of the platform.
-      row warn "${ctx#kind-} catalog remote backends omitted under affinity:local" "$hdr global=$glob affinity=$aff" "1.20.2 hides remotes in service list while local is healthy (measured); annotations still global+local"
-    else
-      row fail "${ctx#kind-} catalog has a remote backend" "$hdr global=${glob:-?} affinity=${aff:-?}" "cilium-dbg service list shows ≥ 1 remote backend, or global+affinity annotations present"
-    fi
+    row fail "http://$host @ $addr redirects" \
+      "http_code=${code:-000} locations=${count:-0} Location=${location:-absent}" \
+      "301 and exactly one Location beginning https://$host/ (optional :443)"
   fi
 done
 
-# (f) enforced policies exist in both clusters; /healthz still 200
+# (e) affinity:local — remote backends are known in statedb, not selected in bpf lb
+# while a local one is Active (pkg/clustermesh/selectbackends.go).
+catalog_backends() { # ctx — print known=N (clustermesh=N) selected=N local|mixed|remote|none
+  local ctx=$1 cip local_ips statedb bpf tmp
+  cip=$(kubectl --context "$ctx" -n shop-core get svc catalog \
+    -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)
+  local_ips=$(kubectl --context "$ctx" -n shop-core get pods -l app=catalog \
+    -o jsonpath='{range .items[*]}{.status.podIP}{" "}{end}' 2>/dev/null || true)
+  statedb=$(kubectl --context "$ctx" -n kube-system exec ds/cilium -c cilium-agent -- \
+    cilium-dbg statedb backends 2>/dev/null || true)
+  bpf=$(kubectl --context "$ctx" -n kube-system exec ds/cilium -c cilium-agent -- \
+    cilium-dbg bpf lb list -o json 2>/dev/null || true)
+  tmp=$(mktemp -d)
+  printf '%s' "$statedb" >"$tmp/statedb.json"
+  printf '%s' "$bpf" >"$tmp/bpf.json"
+  python3 -c '
+import json, sys
+cip, local_text, statedb_path, bpf_path = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+local_ips = set(local_text.split())
+raw = open(statedb_path).read()
+rows = []
+try:
+    data = json.loads(raw)
+    if isinstance(data, dict):
+        rows = list(data.get("backends") or [])
+    elif isinstance(data, list):
+        rows = data
+except Exception:
+    rows = []
+    for line in raw.splitlines():
+        s = line.strip().rstrip(",")
+        try:
+            obj = json.loads(s)
+        except Exception:
+            continue
+        if isinstance(obj, dict):
+            rows.append(obj)
+cat = [b for b in rows if isinstance(b, dict)
+       and b.get("ServiceName") == "shop-core/catalog" and "Source" in b]
+known = len(cat)
+cm = sum(1 for b in cat if b.get("Source") == "clustermesh")
+selected = []
+try:
+    bpf = json.loads(open(bpf_path).read() or "{}")
+except Exception:
+    bpf = {}
+if isinstance(bpf, dict):
+    for key, vals in bpf.items():
+        if not str(key).startswith(cip + ":80"):
+            continue
+        for val in vals or []:
+            ip = str(val).split(":")[0].strip()
+            if ip and ip != "0.0.0.0":
+                selected.append(ip)
+seen = set()
+sel = []
+for ip in selected:
+    if ip not in seen:
+        seen.add(ip)
+        sel.append(ip)
+kind = "none"
+if sel:
+    loc = sum(1 for ip in sel if ip in local_ips)
+    if loc == len(sel):
+        kind = "local"
+    elif loc == 0:
+        kind = "remote"
+    else:
+        kind = "mixed"
+print("known=%d (clustermesh=%d) selected=%d %s" % (known, cm, len(sel), kind))
+' "$cip" "$local_ips" "$tmp/statedb.json" "$tmp/bpf.json"
+  rm -rf "$tmp"
+}
+
 for ctx in kind-poc1 kind-poc2; do
-  n=0
-  for ns in shop-edge shop-core shop-payments shop-merchant shop-reviews; do
-    c=$(kubectl --context "$ctx" -n "$ns" get cnp -l app.kubernetes.io/managed-by=cf2cnp --no-headers 2>/dev/null | wc -l | tr -d ' ')
-    n=$((n + ${c:-0}))
-  done
-  if [ "${n:-0}" -ge 6 ]; then
-    row ok "${ctx#kind-} enforced shop policies exist" "cnp count=$n" "generated CiliumNetworkPolicies applied in the shop namespaces"
+  hdr=$(catalog_backends "$ctx")
+  known=$(printf '%s' "$hdr" | sed -n 's/.*known=\([0-9]*\).*/\1/p')
+  cm=$(printf '%s' "$hdr" | sed -n 's/.*clustermesh=\([0-9]*\).*/\1/p')
+  seln=$(printf '%s' "$hdr" | sed -n 's/.*selected=\([0-9]*\).*/\1/p')
+  kind=$(printf '%s' "$hdr" | awk '{print $NF}')
+  if [ "${known:-0}" -ge 2 ] && [ "${cm:-0}" -ge 1 ] &&
+     [ "${seln:-0}" -ge 1 ] && [ "$kind" = local ]; then
+    row ok "${ctx#kind-} catalog backends under affinity:local" \
+      "$hdr" \
+      "affinity local — remote backends known, not selected while a local one is Active (pkg/clustermesh/selectbackends.go)"
   else
-    row fail "${ctx#kind-} enforced shop policies exist" "cnp count=${n:-0}" "generated CiliumNetworkPolicies applied in the shop namespaces"
+    row fail "${ctx#kind-} catalog backends under affinity:local" \
+      "$hdr" \
+      "affinity local — remote backends known, not selected while a local one is Active (pkg/clustermesh/selectbackends.go)"
   fi
 done
+
+# BEGIN policy checks
+EXPECTED_GENERATED=(
+  shop-edge/api-gateway
+  shop-core/backend
+  shop-core/catalog
+  shop-core/orders
+  shop-payments/payment-gateway
+  shop-merchant/merchant
+  shop-reviews/reviews
+)
+SHOP_ENDPOINTS=(
+  shop-edge/api-gateway
+  shop-core/backend
+  shop-core/catalog
+  shop-core/orders
+  shop-payments/payment-gateway
+  shop-merchant/merchant
+  shop-reviews/reviews
+  shop-reviews/ratings
+)
+
+endpoint_policy_state() { # ctx namespace app-name
+  local ctx=$1 ns=$2 app=$3 pod node agent json
+  pod=$(kubectl --context "$ctx" -n "$ns" get pod \
+    -l "app.kubernetes.io/name=$app" --field-selector status.phase=Running \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+  [ -n "$pod" ] || { printf 'missing-pod'; return; }
+  node=$(kubectl --context "$ctx" -n "$ns" get pod "$pod" \
+    -o jsonpath='{.spec.nodeName}' 2>/dev/null || true)
+  agent=$(kubectl --context "$ctx" -n kube-system get pod -l k8s-app=cilium \
+    --field-selector "spec.nodeName=$node" -o name 2>/dev/null | head -1)
+  json=$(kubectl --context "$ctx" -n kube-system exec "$agent" -c cilium-agent -- \
+    cilium-dbg endpoint get "cep-name:$ns/$pod" -o json 2>/dev/null || true)
+  printf '%s' "$json" | python3 -c '
+import json, sys
+try:
+    value=json.load(sys.stdin)
+    endpoint=value[0] if isinstance(value,list) else value
+    enabled=endpoint["status"]["policy"]["realized"]["policy-enabled"]
+    audit=endpoint["status"]["realized"]["options"]["PolicyAuditMode"]
+    print(f"{enabled}|{audit}")
+except Exception:
+    print("unreadable|unreadable")
+'
+}
+
+check_policies() {
+  local ctx expected actual n good spec ns app state enabled audit
+  expected=$(printf '%s\n' "${EXPECTED_GENERATED[@]}" | sort)
+  for ctx in kind-poc1 kind-poc2; do
+    actual=$(kubectl --context "$ctx" get cnp -A \
+      -l app.kubernetes.io/managed-by=cf2cnp -o json 2>/dev/null |
+      python3 -c '
+import json, sys
+shop={"shop-edge","shop-core","shop-payments","shop-merchant","shop-reviews"}
+try:
+    data=json.load(sys.stdin)
+except Exception:
+    data={"items":[]}
+for item in data.get("items",[]):
+    ns=item["metadata"].get("namespace","")
+    if ns in shop:
+        print("{}/{}".format(ns, item["metadata"]["name"]))
+' | sort)
+    n=$(printf '%s\n' "$actual" | grep -c . || true)
+    if [ "$actual" = "$expected" ]; then
+      row ok "${ctx#kind-} has exactly the seven generated shop policies" \
+        "$n/7 exact names" "exact generated policy inventory, managed-by=cf2cnp"
+    else
+      row fail "${ctx#kind-} has exactly the seven generated shop policies" \
+        "$n/7; actual=$(printf '%s' "$actual" | tr '\n' ',')" \
+        "exact generated policy inventory, managed-by=cf2cnp"
+      continue
+    fi
+
+    good=0
+    for spec in "${SHOP_ENDPOINTS[@]}"; do
+      ns=${spec%%/*}
+      app=${spec##*/}
+      state=$(endpoint_policy_state "$ctx" "$ns" "$app")
+      enabled=${state%%|*}
+      audit=${state#*|}
+      case "$enabled|$audit" in
+        ingress\|Disabled|both\|Disabled) good=$((good + 1)) ;;
+      esac
+    done
+    if [ "$good" = "${#SHOP_ENDPOINTS[@]}" ]; then
+      row ok "${ctx#kind-} shop endpoints enforce ingress policy" \
+        "$good/${#SHOP_ENDPOINTS[@]} policy-enabled, PolicyAuditMode=Disabled" \
+        "every service endpoint and ratings enforces policy with audit disabled"
+    else
+      row fail "${ctx#kind-} shop endpoints enforce ingress policy" \
+        "$good/${#SHOP_ENDPOINTS[@]} policy-enabled, PolicyAuditMode=Disabled" \
+        "every service endpoint and ratings enforces policy with audit disabled"
+    fi
+  done
+}
+check_policies
+# END policy checks
 
 hz_hdr=$(curl -sk --resolve api.shop.poc.local:443:$VIP https://api.shop.poc.local/healthz -D - -o /dev/null --connect-timeout 5 --max-time 10 2>/dev/null || true)
 hz_code=$(printf '%s' "$hz_hdr" | awk 'BEGIN{c="000"} NR==1 && /HTTP/{c=$2} END{print c}')

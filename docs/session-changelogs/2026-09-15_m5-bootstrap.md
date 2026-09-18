@@ -540,3 +540,30 @@ Outcome in one line: **…**
   connect timeout; the clients disagreeing on `--duration 3` vs `3s`; `cleanup.sh` leaving the Secret; `record.sh`'s
   deliberate return-0 contract kept, with a `RECORD_STRICT=1` opt-in for `apply.sh`. After the fixes: 21 PASS on both
   clusters, regression 14 PASS. The operator, twice now: *"dont poll the back job — set up a watcher"* — in memory.
+
+## Part 13 — "merge all", demo 40 in plain English, demo 41 built and reviewed (2026-09-18 09:00 → 15:00)
+
+- **"Pls merge all and start phase1 in the background"** — #44, #43, #45 merged; #46 rebased (the plan file had been
+  edited on the pre-revision-4 base — resolved on revision 4 with demo 40's measured facts) and merged `c34a63c`;
+  the "(PR #44)" qualifiers on gotcha #118 dropped once it was on main. **"I mean walk me through it"** — demo 40
+  explained in plain English (the address that can move, the two doors per cluster because the L2 policy picks
+  Services not IPs, one announcer proven by `arping`, the switch for DR, the certificates, the empty doors on
+  purpose, the two programs built now so later measurements stay clean). **"Pls dont poll the back job. Pls set up a
+  watcher"** — the second time; in memory; every long job since has a Monitor.
+- **Demo 41 — phase 1**, Cursor from the brief: demo 35's platform cluster-neutral and global in both clusters
+  (`service.cilium.io/global` + `affinity: local`), `backend` on `shopapi`, HTTPRoutes on both doors with the Gateway
+  setting `X-Served-By`, the :80 301; the VIP, `.242` and `.177` answer 200 naming the serving cluster; seven policies
+  per cluster generated with cf2cnp and enforced; regression row 15 and the CI step 40 → 41.
+- **The measured surprise, decided from the source:** with `affinity: local` the remote backends are *known* (statedb:
+  2 catalog backends, one `clustermesh`) and *not selected* (BPF: 1) while a local one is Active —
+  `pkg/clustermesh/selectbackends.go`, `useRemote = localActiveBackends == 0 && remoteBackends > 0`. Cursor's first
+  wording ("hidden in the list") corrected; the WARN rows became a real measurement.
+- **The review (Codex + Grok; OB1 blocked by the Fable limit — its pass owed):** the same class of defects demo 40's
+  first cut had — a catalog parser reading past its service (`local=12 remote=12` on its own transcript), a policy row
+  accepting 6 of 7 with no audit check, a re-run wiping the enforced policies, no 301 rows, a probe accepting a stale
+  hosts entry, an API error reported as "Gateway absent", the workflow paths without demos 40/41, a final table that
+  printed `X-Served-By=-`; and the flow files **mixed across clusters through the mesh relay** (poc1's held 136 poc2
+  flows). All fixed from the reviewers' snippets; poc1's provenance completed from poc1 alone (43 + 30 flows) and the
+  regenerate reproduces every applied ingress rule; a cf2cnp defect found on the way (an empty-selector egress policy
+  for a `reserved:ingress` source — cf2cnp#7). After: `check.sh` 33 PASS both clusters, regression 15 PASS; the VM at
+  ~18.9 GiB / ~1 core (+1.9 GiB for the platform ×2).

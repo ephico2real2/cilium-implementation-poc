@@ -44,13 +44,32 @@ routes_file() {
 
 echo "== 0. no docker build in this phase (gotcha #118). shopapi:local and shopctl are from demo 40."
 
-echo "== 1. drop leftover demo-35 policies so the new paths (Gateway → api-gateway, → backend) are not dropped"
-for ctx in "${CTX_ARR[@]}"; do
-  for ns in "${SHOP_NS[@]}"; do
+echo "== 1. remove legacy demo-35 policies only on the first phase-1 transition"
+remove_legacy_policies() {
+  local ctx=$1 spec ns name
+  # backend exists only in the phase-1 generated set. Once it is present, a rerun
+  # must preserve the enforced phase-1 policy state.
+  if kubectl --context "$ctx" -n shop-core get cnp backend >/dev/null 2>&1; then
+    echo "$ctx: phase-1 backend policy present; preserving all shop policies"
+    return 0
+  fi
+
+  for spec in \
+    shop-edge/api-gateway shop-edge/default-deny-ingress \
+    shop-core/catalog shop-core/orders shop-core/default-deny-ingress \
+    shop-payments/payment-gateway shop-payments/default-deny-ingress \
+    shop-merchant/merchant shop-merchant/default-deny-ingress \
+    shop-reviews/reviews shop-reviews/default-deny-ingress; do
+    ns=${spec%%/*}
+    name=${spec##*/}
     if kubectl --context "$ctx" get ns "$ns" >/dev/null 2>&1; then
-      rec kubectl --context "$ctx" -n "$ns" delete ciliumnetworkpolicy --all --ignore-not-found
+      rec kubectl --context "$ctx" -n "$ns" delete ciliumnetworkpolicy "$name" \
+        --ignore-not-found
     fi
   done
+}
+for ctx in "${CTX_ARR[@]}"; do
+  remove_legacy_policies "$ctx"
 done
 
 echo "== 2. ConfigMap/shop-cluster (the only per-cluster value), then the byte-identical platform"
@@ -131,8 +150,10 @@ rec bash -c 'probe_door "$@"' bash api.poc1.shop.poc.local "$POC1_GW"
 rec bash -c 'probe_door "$@"' bash api.poc2.shop.poc.local "$POC2_GW"
 unset -f probe_door
 
-echo "== 8. measure global services: shopper → catalog, then cilium-dbg service list (remote backends)"
-rec kubectl --context kind-poc1 -n shop-clients exec shopper -- wget -qO- --timeout=5 http://catalog.shop-core.svc.cluster.local/healthz
+echo "== 8. measure global services: shopper → catalog ClusterIP, then cilium-dbg (statedb + bpf lb)"
+# Under enforced phase-1 policy shopper is not a catalog caller (it goes through api-gateway).
+# The wget is kept as the measurement; it must not abort the rest of the run.
+rec kubectl --context kind-poc1 -n shop-clients exec shopper -- wget -qO- --timeout=5 http://catalog.shop-core.svc.cluster.local/healthz || true
 echo
 show_svc() {
   local ctx=$1
@@ -157,7 +178,7 @@ for s in json.load(sys.stdin):
             print(" backend", b.get("ip"), "state="+str(b.get("state")), "preferred="+str(b.get("preferred")))
         n=len((s.get("spec") or {}).get("backend-addresses") or [])
         if n<=1:
-            print("MEASURED: affinity:local omits remote backends from this list while a local backend is healthy (Cilium 1.20.2). They appear if the affinity annotation is removed.")
+            print("MEASURED: realized frontend has the selected local backend only; remote ClusterMesh backends stay in statedb (pkg/clustermesh/selectbackends.go).")
         break
 '
   echo "-- cilium-dbg bpf lb list (no affinity column on 1.20.2; flags are [ClusterIP, non-routable])"
@@ -172,11 +193,18 @@ unset -f show_svc
 echo "== 9. final table: cluster, deployments available/desired, HTTPRoutes accepted, three probes"
 final_table() {
   local ctx c ns name avail des acc res vip_code vip_hdr d242_code d242_hdr d177_code d177_hdr
-  header_of() { # host addr — print STATUS|X-Served-By
+  header_of() { # host addr — print STATUS|X-Served-By (HTTP/2 lower-case, strip CR)
     local host=$1 addr=$2 hdr code served
     hdr=$(curl -sk --resolve "$host:443:$addr" "https://$host/" -D - -o /dev/null --connect-timeout 5 --max-time 10 2>/dev/null || true)
+    hdr=$(printf '%s' "$hdr" | tr -d '\r')
     code=$(printf '%s' "$hdr" | awk 'BEGIN{c="000"} NR==1 && /HTTP/{c=$2} END{print c}')
-    served=$(printf '%s' "$hdr" | awk 'tolower($0) ~ /^x-served-by:/ {print $2}' | tr -d '\r')
+    served=$(printf '%s' "$hdr" | awk '
+      tolower($0) ~ /^[[:space:]]*x-served-by:[[:space:]]*/ {
+        sub(/^[^:]*:[[:space:]]*/, "")
+        gsub(/[[:space:]]+$/, "")
+        print
+        exit
+      }')
     printf '%s|%s' "${code:-000}" "${served:--}"
   }
   vip_pair=$(header_of api.shop.poc.local 172.18.255.16)
@@ -223,3 +251,6 @@ print(f"{ok}/{len(ps)} resolved")
 export -f final_table
 rec bash -c 'final_table "$@"' bash "${CTX_ARR[@]}"
 unset -f final_table
+
+echo "== 10. check.sh (PASS/FAIL rows; exit is FAIL count)"
+rec "$HERE/check.sh" || true

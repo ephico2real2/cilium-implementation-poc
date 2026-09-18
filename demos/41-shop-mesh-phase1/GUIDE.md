@@ -16,14 +16,13 @@ for ctx in kind-poc1 kind-poc2; do
 done
 ```
 
-*Expect:* each cluster's eBPF table lists the **local** catalog pod. Remote backends in the
-other cluster's pod CIDR (`10.10.x` is poc1, `10.20.x` is poc2 — the same reading as demo 07)
-are the proof the Service is global — **but** on Cilium 1.20.2 they are omitted from
-`cilium-dbg service list` while `affinity: local` is set and a local backend is healthy.
-They appeared the moment the affinity annotation was removed (measured 2026-09-18), and
-vanished again when it was restored. `cilium-dbg bpf lb list` has no affinity column; the
-flags read `[ClusterIP, non-routable]`. Hubble's `destination.cluster_name` is how you would
-see a remote pick; that measurement is phase 5.
+*Expect:* `cilium-dbg statedb backends` lists both the local catalog pod and the other
+cluster's copy (`Source: clustermesh`). `cilium-dbg bpf lb list` for the ClusterIP:80
+frontend selects only the local pod while it is Active. That is
+`pkg/clustermesh/selectbackends.go`: `useRemote = localActiveBackends == 0 && remoteBackends > 0`
+and the yield loop skips `be.Source == source.ClusterMesh` until the last local backend
+dies (phase 5's S2). `cilium-dbg service list` prints the realized (selected) set, not
+the full backend table.
 
 ## Exercise 2 — hit the three doors and read `X-Served-By`
 

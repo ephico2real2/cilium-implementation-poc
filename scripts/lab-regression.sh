@@ -315,24 +315,40 @@ check_demo37_doors() {
 }
 
 check_shop_url() {
-  local code served hdr
-  if ! kubectl --context "$CTX" -n shop-edge get gateway shop-vip-gw >/dev/null 2>&1; then
-    row warn "The shop's public URL answers from a cluster" "shop-vip-gw absent" "SKIP when demos 40/41 are not applied"
+  local code served hdr lookup rc
+  lookup=$(kubectl --context "$CTX" -n shop-edge get gateway shop-vip-gw 2>&1)
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    if printf '%s' "$lookup" | grep -qiE '(\bNotFound\b|not found)'; then
+      row warn "The shop's public URL answers from a cluster" \
+        "shop-vip-gw absent" "SKIP only when the Gateway resource is absent"
+    else
+      row fail "The shop's public URL answers from a cluster" \
+        "$(oneline "$lookup")" "Gateway lookup succeeds, or returns NotFound for the optional demo"
+    fi
     return 0
   fi
-  hdr=$(curl -sk --resolve api.shop.poc.local:443:172.18.255.16 https://api.shop.poc.local/ \
-          -D - -o /dev/null --connect-timeout 5 --max-time 10 2>/dev/null || true)
-  code=$(printf '%s' "$hdr" | awk 'BEGIN{c="000"} NR==1 && /HTTP/{c=$2} END{print c}')
-  served=$(printf '%s' "$hdr" | awk 'tolower($0) ~ /^x-served-by:/ {print $2}' | tr -d '\r')
+
+  hdr=$(curl -sk --resolve api.shop.poc.local:443:172.18.255.16 \
+    https://api.shop.poc.local/ -D - -o /dev/null \
+    --connect-timeout 5 --max-time 10 2>/dev/null || true)
+  code=$(printf '%s' "$hdr" |
+    awk 'BEGIN{c="000"} NR==1 && /HTTP/{c=$2} END{print c}')
+  served=$(printf '%s' "$hdr" |
+    awk 'tolower($0) ~ /^x-served-by:/ {print $2}' | tr -d '\r')
   case "$served" in
     poc1|poc2)
       if [ "$code" = 200 ]; then
-        row ok "The shop's public URL answers from a cluster" "http_code=$code X-Served-By=$served" "200 and X-Served-By in {poc1,poc2}"
+        row ok "The shop's public URL answers from a cluster" \
+          "http_code=$code X-Served-By=$served" \
+          "200 and X-Served-By in {poc1,poc2}"
         return 0
       fi
       ;;
   esac
-  row fail "The shop's public URL answers from a cluster" "http_code=${code:-000} X-Served-By=${served:-absent}" "200 and X-Served-By in {poc1,poc2}"
+  row fail "The shop's public URL answers from a cluster" \
+    "http_code=${code:-000} X-Served-By=${served:-absent}" \
+    "200 and X-Served-By in {poc1,poc2}"
 }
 
 check_connectivity() {

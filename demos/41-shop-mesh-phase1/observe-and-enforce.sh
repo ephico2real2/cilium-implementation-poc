@@ -78,4 +78,72 @@ rec bash -c 'curl -sk --resolve api.shop.poc.local:443:172.18.255.16 https://api
 rec bash -c 'curl -sk --resolve api.poc1.shop.poc.local:443:172.18.255.242 https://api.poc1.shop.poc.local/healthz -D - -o /dev/null --connect-timeout 5 --max-time 10' || true
 rec bash -c 'curl -sk --resolve api.poc2.shop.poc.local:443:172.18.255.177 https://api.poc2.shop.poc.local/healthz -D - -o /dev/null --connect-timeout 5 --max-time 10' || true
 
+verify_enforcement() {
+  local ctx=$1 denied rc dropped forwarded
+  if denied=$(kubectl --context "$ctx" -n shop-clients exec stranger -- \
+      wget -qO- --timeout=3 http://catalog.shop-core/healthz 2>&1); then
+    printf 'stranger -> catalog: UNEXPECTED SUCCESS: %s\n' "$denied"
+    return 1
+  else
+    rc=$?
+    printf 'stranger -> catalog: expected failure rc=%s output=%s\n' \
+      "$rc" "${denied:-<none>}"
+  fi
+
+  kubectl --context "$ctx" -n shop-clients exec shopper -- \
+    wget -qO- --timeout=3 http://api-gateway.shop-edge/catalog/healthz
+  sleep 2
+
+  dropped=$(hubble observe -P --kube-context "$ctx" --to-namespace shop-core \
+    --verdict DROPPED --last 50 -o json 2>/dev/null || true)
+  forwarded=$(hubble observe -P --kube-context "$ctx" --to-namespace shop-core \
+    --verdict FORWARDED --last 50 -o json 2>/dev/null || true)
+
+  printf '%s\n' "$dropped" | grep -q '"stranger"' &&
+    printf '%s\n' "$dropped" | grep -q '"catalog"' || {
+      echo "missing DROPPED stranger -> catalog flow" >&2
+      return 1
+    }
+  printf '%s\n' "$forwarded" | grep -q '"api-gateway"' &&
+    printf '%s\n' "$forwarded" | grep -q '"catalog"' || {
+      echo "missing FORWARDED api-gateway -> catalog flow" >&2
+      return 1
+    }
+  echo "-- DROPPED stranger->catalog (from hubble observe --verdict DROPPED):"
+  printf '%s\n' "$dropped" | python3 -c '
+import json,sys
+for line in sys.stdin:
+    try:
+        f=json.loads(line)["flow"]
+    except Exception:
+        continue
+    src=(f.get("source") or {})
+    dst=(f.get("destination") or {})
+    sl=" ".join(src.get("labels") or [])
+    if "stranger" in sl and (dst.get("namespace")=="shop-core" or "catalog" in " ".join(dst.get("labels") or [])):
+        print("  DROPPED", src.get("pod_name") or src.get("identity"), "->", dst.get("pod_name"), dst.get("namespace"), f.get("verdict"))
+'
+  echo "-- FORWARDED api-gateway->catalog (from hubble observe --verdict FORWARDED):"
+  printf '%s\n' "$forwarded" | python3 -c '
+import json,sys
+for line in sys.stdin:
+    try:
+        f=json.loads(line)["flow"]
+    except Exception:
+        continue
+    src=(f.get("source") or {})
+    dst=(f.get("destination") or {})
+    sl=" ".join(src.get("labels") or [])
+    dl=" ".join(dst.get("labels") or [])
+    if "api-gateway" in sl and "catalog" in dl:
+        print("  FORWARDED", src.get("pod_name"), "->", dst.get("pod_name"), f.get("verdict"))
+'
+  echo "$ctx: DROPPED stranger->catalog and FORWARDED api-gateway->catalog observed"
+}
+export -f verify_enforcement
+for ctx in "${CTX_ARR[@]}"; do
+  rec bash -c 'verify_enforcement "$1"' bash "$ctx"
+done
+unset -f verify_enforcement
+
 echo "== observe-and-enforce.sh done. Read policies/*/cnp-shop-intent.yaml descriptions, then check.sh."

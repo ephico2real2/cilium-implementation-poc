@@ -188,6 +188,8 @@ spec:
           livenessProbe:  {httpGet: {path: /healthz, port: 80}, initialDelaySeconds: 3, periodSeconds: 10}
           readinessProbe: {httpGet: {path: /healthz, port: 80}, initialDelaySeconds: 2, periodSeconds: 5}
           resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+        # Caller sidecars (and the ratings/shopper/stranger pods) are traffic generators, not
+        # Services: they have no probes on purpose.
         - name: caller                         # orders reads the catalog, charges through payments, and hits backend (the §3 edge)
           image: alpine:3.20
           command: ["sh", "-c", "while true; do wget -qO- --timeout=2 http://catalog.shop-core/items >/dev/null 2>&1; wget -qO- --timeout=2 http://payment-gateway.shop-payments/charge >/dev/null 2>&1; wget -qO- --timeout=2 http://backend.shop-core/healthz >/dev/null 2>&1; sleep 5; done"]
@@ -380,6 +382,8 @@ metadata:
     service.cilium.io/affinity: local    # prefer healthy local backends; remote only when none are
 spec: {selector: {app: reviews}, ports: [{port: 80, targetPort: 80}]}
 ---
+# ratings is a caller-only Pod. R1 deliberately lists seven Kubernetes Services and does not
+# include ratings: nothing calls ratings, and this container does not listen on a port.
 apiVersion: v1
 kind: Pod
 metadata: {name: ratings, namespace: shop-reviews, labels: {app: ratings, app.kubernetes.io/name: ratings, app.kubernetes.io/part-of: shop}}

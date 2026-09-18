@@ -106,8 +106,10 @@ flowchart LR
 ```
 
 Namespaces are identical in poc1 and poc2 (R1). The R8 box is demo 43's own lab (§3.5). Solid arrows are the calls the application makes; dotted arrows
-are what Cilium adds or what DR changes: cross-cluster backends for the global services, used only when the local
-ones are gone (R2), and the public VIP served by poc2 after the takeover (R5, S4). The database is on the far side
+are what Cilium adds or what DR changes: remote ClusterMesh backends are known and held in reserve, not in the path,
+until the last local one dies — `pkg/clustermesh/selectbackends.go` sets `useRemote = localActiveBackends == 0 &&
+remoteBackends > 0` and the yield loop skips `be.Source == source.ClusterMesh` while a local backend is Active (R2;
+phase 5's S2 shows the switch), and the public VIP served by poc2 after the takeover (R5, S4). The database is on the far side
 of a Gateway for **everyone** — the backends in both clusters and the DBA on the MacBook reach the same address
 and name (R3).
 
@@ -134,7 +136,8 @@ and name (R3).
 | shop-core | **shop-db** (PostgreSQL) | postgres:16-alpine (on the nodes) | **poc1 only** | ClusterIP for the TCPRoute only; `db-gw` Gateway, listener 5432, address `172.18.255.244`, name `db-service.poc.local` | `pg_isready` | none |
 | shop-payments | payment-gateway | nginx + ConfigMap | poc1, poc2 | global, affinity local | as above | 1–3 |
 | shop-merchant | merchant | nginx + ConfigMap | poc1, poc2 | global, affinity local | as above | 1–3 |
-| shop-reviews | reviews, ratings | nginx + ConfigMap; alpine caller | poc1, poc2 | global, affinity local | as above | 1–3 |
+| shop-reviews | reviews | nginx + ConfigMap | poc1, poc2 | global, affinity local | `/healthz`, `/ready` | 1–3 |
+| shop-reviews | ratings (caller-only Pod) | alpine caller | poc1, poc2 | no Kubernetes Service; calls reviews | — | — |
 | shop-clients | shopper, stranger | alpine callers | poc1, poc2 | — | — | — |
 | ns1, ns2 (demo 43) | caller (alpine, calls the receivers) | alpine | poc1, poc2 | egress IPs `172.18.255.40–173`, one per (namespace, cluster) | — | — |
 | receivers (demo 43) | receiver (nginx logging `$remote_addr`) | nginx + ConfigMap | poc1 (`LB VIP .205`), poc2 (`LB VIP .145`), a container on the bridge (`172.18.0.250`) | LB IPAM static addresses | `/healthz` | — |

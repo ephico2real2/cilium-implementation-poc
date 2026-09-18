@@ -52,15 +52,31 @@ for ctx in "${CTX_ARR[@]}"; do
   echo "== $ctx → $out"
   captured=0
   for ns in shop-edge shop-core shop-payments shop-merchant shop-reviews; do
-    err=$(mktemp)
-    if hubble observe -P --kube-context "$ctx" --to-namespace "$ns" --verdict AUDIT --last "$LAST" -o json >> "$out" 2>"$err"; then
+    err=$(mktemp); raw=$(mktemp)
+    # hubble CLI has --cluster (and --from-cluster/--to-cluster/--node-name). Capture
+    # through the mesh relay is filtered to this cluster: --cluster plus node_name
+    # "<cluster>/<node>" (measured: .flow.node_name).
+    if hubble observe -P --kube-context "$ctx" --cluster "$c" --to-namespace "$ns" --verdict AUDIT --last "$LAST" -o json >"$raw" 2>"$err"; then
+      python3 - "$raw" "$c" >> "$out" <<'PY'
+import json,sys
+want=sys.argv[2]
+for line in open(sys.argv[1]):
+    try:
+        obj=json.loads(line)
+        f=obj.get("flow") or {}
+        node=f.get("node_name") or obj.get("node_name") or ""
+    except Exception:
+        continue
+    if node.startswith(want):
+        sys.stdout.write(line)
+PY
       captured=1
     else
       echo "  hubble observe --kube-context $ctx --to-namespace $ns failed:" >&2
       cat "$err" >&2 || true
       rc=1
     fi
-    rm -f "$err"
+    rm -f "$err" "$raw"
   done
   summarise "$out"
   n=$(wc -l < "$out" | tr -d ' ')
