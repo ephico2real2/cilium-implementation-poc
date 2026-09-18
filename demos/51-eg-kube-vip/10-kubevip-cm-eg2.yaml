@@ -1,0 +1,12 @@
+# kube-vip cloud-provider ranges for eg2 (enhancement 007 §3.1).
+# Same phase 0 kube-vip objects as eg1; only the ranges change.
+#
+#   kubectl --context kind-eg2 apply -f demos/51-eg-kube-vip/10-kubevip-cm-eg2.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubevip
+  namespace: kube-system
+data:
+  range-default: 172.19.255.136-172.19.255.141
+  range-envoy-gateway-system: 172.19.255.176-172.19.255.181

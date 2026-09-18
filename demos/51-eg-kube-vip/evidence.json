@@ -1,0 +1,135 @@
+{
+  "demo": 51,
+  "enhancement": "007",
+  "phase": 2,
+  "issue": 56,
+  "parent": 53,
+  "recorded": "2026-09-18T23:53:53Z/2026-09-18T23:56:44Z",
+  "kubeVip": {
+    "sourceOfTruth": [
+      "clusters/eg/kube-vip-rbac.yaml",
+      "clusters/eg/kube-vip-ds.yaml",
+      "clusters/eg/kube-vip-cloud-provider.yaml"
+    ],
+    "daemonSet": "v1.2.4",
+    "cloudProvider": "v0.0.12",
+    "lbClassOnly": true,
+    "lbClassName": "kube-vip.io/kube-vip-class",
+    "taint": false,
+    "svcElection": true,
+    "interface": "eth0",
+    "enableLoadBalancerClass": true,
+    "metallbSystem": false,
+    "ranges": {
+      "eg1": {
+        "range-envoy-gateway-system": "172.19.255.240-172.19.255.245",
+        "range-default": "172.19.255.200-172.19.255.205"
+      },
+      "eg2": {
+        "range-envoy-gateway-system": "172.19.255.176-172.19.255.181",
+        "range-default": "172.19.255.136-172.19.255.141"
+      }
+    }
+  },
+  "r7": {
+    "eg1": {
+      "address": "172.19.255.245",
+      "externalIPs": ["172.19.255.245"],
+      "statusLoadBalancer": {},
+      "arpReplies": 0
+    },
+    "eg2": {
+      "address": "172.19.255.181",
+      "externalIPs": ["172.19.255.181"],
+      "statusLoadBalancer": {},
+      "arpReplies": 0
+    }
+  },
+  "vipMove": {
+    "eg1toEg2": {
+      "beforeMac": "6e:8c:28:fa:31:1f",
+      "beforeNode": "eg1-worker",
+      "afterMac": "1e:c6:bf:d8:18:97",
+      "afterNode": "eg2-control-plane",
+      "samples": 32,
+      "ok": 23,
+      "fail": 9,
+      "gapSeconds": 10.486
+    },
+    "eg2toEg1": {
+      "beforeMac": "1e:c6:bf:d8:18:97",
+      "beforeNode": "eg2-control-plane",
+      "afterMac": "6e:8c:28:fa:31:1f",
+      "afterNode": "eg1-worker",
+      "samples": 32,
+      "ok": 24,
+      "fail": 8,
+      "gapSeconds": 8.976
+    },
+    "homeAfter": "eg1",
+    "inUseRejection": false
+  },
+  "doors": {
+    "eg1-gw": {
+      "address": "172.19.255.240",
+      "programmed": true,
+      "loadBalancerClass": "kube-vip.io/kube-vip-class",
+      "announcedBy": "eg1-worker",
+      "https": "200/eg1",
+      "grpcH2c": "SERVING",
+      "grpcTls": "SERVING"
+    },
+    "eg-vip-gw": {
+      "address": "172.19.255.16",
+      "programmed": true,
+      "loadBalancerClass": "kube-vip.io/kube-vip-class",
+      "announcedBy": "eg1-worker",
+      "https": "200/eg1",
+      "grpcH2c": "SERVING",
+      "grpcTls": "SERVING",
+      "cluster": "eg1"
+    },
+    "eg2-gw": {
+      "address": "172.19.255.176",
+      "programmed": true,
+      "loadBalancerClass": "kube-vip.io/kube-vip-class",
+      "announcedBy": "eg2-worker",
+      "https": "200/eg2",
+      "grpcH2c": "SERVING",
+      "grpcTls": "SERVING"
+    },
+    "twoHttpsListenersOn443": true,
+    "backendTrafficPolicyRequired": false
+  },
+  "certificate": {
+    "namespace": "shop",
+    "cn": "api.eg.poc.local",
+    "dnsNames": [
+      "api.eg.poc.local",
+      "api.eg1.poc.local",
+      "api.eg2.poc.local",
+      "grpc.eg1.poc.local",
+      "grpc.eg2.poc.local",
+      "grpc.eg.poc.local"
+    ],
+    "issuer": "eg-ca-issuer",
+    "secretName": "eg-tls",
+    "referenceGrant": false,
+    "valid": "2026-09-18T23:54:09Z/2026-12-17T23:54:09Z",
+    "sha256": {
+      "eg1": "09:91:08:A6:4C:1B:51:F2:97:16:2E:FF:B9:FA:65:1D:AD:C1:B5:79:DD:F6:18:5C:14:6D:3C:96:4F:30:A2:43",
+      "eg2": "2C:20:A5:38:46:18:D5:63:3E:44:4B:A2:83:27:60:91:61:05:C6:06:E1:F1:79:F4:12:EA:68:32:05:6D:69:AE"
+    }
+  },
+  "probeNoclass": {
+    "standingExhibit": true,
+    "file": "15-probe-noclass.yaml",
+    "pending": true
+  },
+  "shopctl": {
+    "hostsPresent": false,
+    "warned": true
+  },
+  "untouched": ["poc1", "poc2", "kind", "crc"],
+  "check": {"fail": 0, "pass": 39}
+}

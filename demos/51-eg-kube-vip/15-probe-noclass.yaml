@@ -1,0 +1,20 @@
+# D11 standing exhibit: a type=LoadBalancer Service with no loadBalancerClass.
+# kube-vip runs class-only (`lb_class_only=true` + KUBEVIP_ENABLE_LOADBALANCERCLASS=true),
+# so this Service stays <pending>. apply.sh keeps it; check.sh asserts it; cleanup.sh
+# deletes it. GUIDE exercise 1 is "look at this, then create a second one".
+#
+#   kubectl --context kind-eg1 apply -f demos/51-eg-kube-vip/15-probe-noclass.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: probe-noclass
+  namespace: shop
+  labels:
+    app.kubernetes.io/name: probe-noclass
+    app.kubernetes.io/part-of: shop
+spec:
+  type: LoadBalancer
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80

@@ -1,0 +1,106 @@
+# eg1's routes. Two files a junior can read (demo 40 / 41's choice): hostname and
+# X-Served-By differ per cluster. VIP routes (shop-api-vip, shop-redirect-vip,
+# grpc-vip) are applied only where eg-vip-gw exists — apply.sh / eg-vip-move.sh
+# select them; applying them here against a cluster with no VIP Gateway would
+# leave Accepted=False parents.
+#
+# shop-redirect hostnames are the API names only, so the hostname-less :80
+# listener still carries plaintext gRPC for grpc.eg1.poc.local (Gateway API:
+# HTTPRoute and GRPCRoute may not share an intersecting hostname).
+#
+#   kubectl --context kind-eg1 apply -f demos/51-eg-kube-vip/50-routes-eg1.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: shop-api, namespace: shop}
+spec:
+  parentRefs:
+    - {name: eg1-gw, sectionName: https}
+  hostnames: ["api.eg1.poc.local"]
+  rules:
+    - backendRefs: [{name: shopapi, port: 80}]
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier: {set: [{name: X-Served-By, value: eg1}]}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: shop-api-vip, namespace: shop}
+spec:
+  parentRefs:
+    - {name: eg-vip-gw, sectionName: https}
+  hostnames: ["api.eg.poc.local"]
+  rules:
+    - backendRefs: [{name: shopapi, port: 80}]
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier: {set: [{name: X-Served-By, value: eg1}]}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: shop-redirect, namespace: shop}
+spec:
+  parentRefs:
+    - {name: eg1-gw, sectionName: http}
+  hostnames: ["api.eg1.poc.local"]
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect: {scheme: https, statusCode: 301}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: shop-redirect-vip, namespace: shop}
+spec:
+  parentRefs:
+    - {name: eg-vip-gw, sectionName: http}
+  hostnames: ["api.eg.poc.local"]
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect: {scheme: https, statusCode: 301}
+---
+# Method matches from demos/09-routes/03-routes.yaml: Health + both reflection
+# services, so grpcurl list works with no .proto.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata: {name: grpc, namespace: shop}
+spec:
+  parentRefs:
+    - {name: eg1-gw, sectionName: https-grpc}
+    - {name: eg1-gw, sectionName: http}
+  hostnames: ["grpc.eg1.poc.local"]
+  rules:
+    - matches:
+        - method:
+            service: grpc.health.v1.Health
+      backendRefs: [{name: grpc, port: 9090}]
+    - matches:
+        - method:
+            service: grpc.reflection.v1alpha.ServerReflection
+      backendRefs: [{name: grpc, port: 9090}]
+    - matches:
+        - method:
+            service: grpc.reflection.v1.ServerReflection
+      backendRefs: [{name: grpc, port: 9090}]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata: {name: grpc-vip, namespace: shop}
+spec:
+  parentRefs:
+    - {name: eg-vip-gw, sectionName: https-grpc}
+    - {name: eg-vip-gw, sectionName: http}
+  hostnames: ["grpc.eg.poc.local"]
+  rules:
+    - matches:
+        - method:
+            service: grpc.health.v1.Health
+      backendRefs: [{name: grpc, port: 9090}]
+    - matches:
+        - method:
+            service: grpc.reflection.v1alpha.ServerReflection
+      backendRefs: [{name: grpc, port: 9090}]
+    - matches:
+        - method:
+            service: grpc.reflection.v1.ServerReflection
+      backendRefs: [{name: grpc, port: 9090}]

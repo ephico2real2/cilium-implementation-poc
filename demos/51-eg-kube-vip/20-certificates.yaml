@@ -1,0 +1,33 @@
+# One leaf per cluster, six names, the same file on both. ClusterIssuer/eg-ca-issuer
+# (demo 50 / D8) signs from the lab root exported at .tmp/eg-root-ca.crt (gitignored —
+# issue #60). Gateways live in `shop` with this Secret, so no ReferenceGrant is needed.
+#
+# WHY NOT A WILDCARD. Demo 40: `*.eg.poc.local` covers `api.eg.poc.local` (one label)
+# and does NOT cover `api.eg1.poc.local` (two labels). TLS wildcards are single-label
+# (RFC 6125). The six dnsNames are listed in full.
+#
+# WHY SIX NAMES, NOT THREE. Demo 53: an HTTPRoute and a GRPCRoute may not share a
+# hostname on one listener (Gateway API: if both types attach and hostnames intersect,
+# the implementation accepts exactly one). gRPC therefore has its own names
+# (grpc.eg1 / grpc.eg2 / grpc.eg). One Certificate covers every name this demo uses.
+#
+#   kubectl --context kind-eg1 apply -f demos/51-eg-kube-vip/20-certificates.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: eg-tls
+  namespace: shop
+spec:
+  secretName: eg-tls
+  commonName: api.eg.poc.local
+  dnsNames:
+    - api.eg.poc.local
+    - api.eg1.poc.local
+    - api.eg2.poc.local
+    - grpc.eg1.poc.local
+    - grpc.eg2.poc.local
+    - grpc.eg.poc.local
+  issuerRef:
+    name: eg-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
