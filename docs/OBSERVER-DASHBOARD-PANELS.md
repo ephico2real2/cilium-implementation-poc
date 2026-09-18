@@ -30,19 +30,22 @@ hubble observe flows --verdict DROPPED --not --drop-reason-desc 'UNSUPPORTED_L3_
    traffic_direction, node_name, Type, Summary, IP, l4, l7, source.{namespace,pod_name,labels,identity,cluster_name},
    destination.{…}, destination_names, egress_denied_by, ingress_denied_by` — chosen as the smallest set that still
    feeds every panel. A panel that needs a field outside the mask can never fill.
-3. **Loki's `json` parser flattens objects and skips arrays.** `flow.destination_names[0]` and
-   `flow.egress_denied_by[0].name` are reached with the JSON-path form (`| json x="flow.destination_names[0]"`), which
-   is why two panels carry their own `| json` after `$logparser` (demo 25 Part 7c).
+3. **Loki's `json` parser flattens objects and skips arrays.** Every panel starts with the dashboard's `$logparser`
+   variable — a LogQL fragment that strips the container-runtime prefix from each line and runs `| json`, which turns
+   `flow.verdict` into the label `flow_verdict` and so on. Arrays are skipped by that parser, so the two fields that live
+   in arrays — `flow.destination_names[0]` and `flow.egress_denied_by[0].name` — need a second `| json` with an explicit
+   JSON path (`| json x="flow.destination_names[0]"`); that is why two panels carry their own after `$logparser`
+   (demo 25 Part 7c).
 
 ## 2. What the fields mean — from `api/v1/flow/flow.proto` at v1.20.2
 
 | Field | Definition (quoted from the proto) | What it means on this dashboard |
 |---|---|---|
-| `verdict` | `FORWARDED` "the trace point has forwarded this packet"; `DROPPED` "the connection or packet has been dropped (e.g. … rejected by a network policy). The exact drop reason may be found in drop_reason_desc"; `AUDIT` "flows that would have been dropped by policy if audit mode was turned off"; `REDIRECTED` "redirected to the proxy"; `ERROR`, `TRACED`, `TRANSLATED` | with the default filter only DROPPED arrives; AUDIT is the interesting second value for the "observe first, then enforce" workflow of demos 26–35 |
-| `traffic_direction` | `INGRESS = 1; EGRESS = 2` — the direction of the flow at the point where Cilium observed it | for a drop: **EGRESS** = dropped as it left the source endpoint (the source's egress policy, or default-deny egress); **INGRESS** = dropped as it arrived at the destination endpoint (the destination's ingress policy). It says whose policy decided. Demo 26's default-deny-ingress lab is 100 % INGRESS; demo 31's `pos` FQDN drops are EGRESS |
-| `drop_reason_desc` | "only applicable to Verdict = DROPPED"; `POLICY_DENIED = 133`, `STALE_OR_UNROUTABLE_IP = 151`, `UNSUPPORTED_L3_PROTOCOL = 139`, `CT_*` … | `POLICY_DENIED` is the datapath's "no rule allowed this" (default deny); `POLICY_DENY` an explicit deny rule; `STALE_OR_UNROUTABLE_IP` a destination that no longer exists — measured today: 11 drops between 22:34:11 and 22:35:20 UTC, `poc2`'s edge Prometheus → `10.20.0.109:9962`, the **clustermesh-apiserver pod the 1.20.2 rollout replaced at 22:33:41**; the scraper kept the old pod IP for ~90 s until discovery caught up (the 9962 port and the start time from `kubectl get pods -A -o json` on poc2); `UNSUPPORTED_L3_PROTOCOL` is filtered out by the observer's command (IPv6 RS/RA noise) |
-| `destination_names` | "all names the destination IP can have" | filled by Cilium's **DNS proxy**: only when the source is under an L7 DNS rule (`rules: dns:`) does Cilium see the lookup and remember name → IP for that endpoint. Without such a policy on the dropped sources the field is absent and *Flows per Destination* is empty — which is what the lab showed until today |
-| `egress_denied_by` / `ingress_denied_by` | "The CiliumNetworkPolicies denying the egress/ingress of the flow" (`repeated Policy`, with `name`, `kind`, `revision`, labels) | named only for an **explicit** deny rule. A default-deny drop is decided by the *absence* of an allow rule, so both arrays are `[]` — gotcha #82, measured in demo 26 (`ingress_denied_by: []` on every one of the lab's drops). The panel's `label_format` turns that into "default deny (no matching allow)" |
+| `verdict` | `FORWARDED` "the trace point has forwarded this packet"; `DROPPED` "the connection or packet has been dropped (e.g. due to a malformed packet, it being rejected by a network policy etc). The exact drop reason may be found in drop_reason_desc"; `AUDIT` "flows that would have been dropped by policy if audit mode was turned off"; `REDIRECTED` "redirected to the proxy"; `ERROR`, `TRACED`, `TRANSLATED` | with the default filter only DROPPED arrives; AUDIT is the interesting second value for the "observe first, then enforce" workflow of demos 26–35 |
+| `traffic_direction` | `TRAFFIC_DIRECTION_UNKNOWN = 0; INGRESS = 1; EGRESS = 2` — the direction of the flow at the point where Cilium observed it | for a **policy** drop: **EGRESS** = dropped as it left the source endpoint (the source's egress policy, or default-deny egress); **INGRESS** = dropped as it arrived at the destination endpoint (the destination's ingress policy) — it says whose policy decided. For a datapath drop (`STALE_OR_UNROUTABLE_IP`, `CT_*`) it is only where the packet was seen. Measured: demo 26's default-deny-ingress lab is 100 % INGRESS; demo 31's `pos` FQDN drops are EGRESS |
+| `drop_reason_desc` | "only applicable to Verdict = DROPPED"; `POLICY_DENIED = 133`, `STALE_OR_UNROUTABLE_IP = 151`, `UNSUPPORTED_L3_PROTOCOL = 139`, `CT_*` … | `POLICY_DENIED` (133) is the datapath's "no rule allowed this" (default deny); `POLICY_DENY` (181, `flow.proto:495`) an explicit deny rule — two enum values, not one; `STALE_OR_UNROUTABLE_IP` a destination that no longer exists — measured today: 11 drops between 22:34:11 and 22:35:20 UTC, `poc2`'s edge Prometheus → `10.20.0.109:9962`, the **clustermesh-apiserver pod the 1.20.2 rollout replaced at 22:33:41**; the scraper kept the old pod IP for ~90 s until discovery caught up (the 9962 port and the start time from `kubectl get pods -A -o json` on poc2); `UNSUPPORTED_L3_PROTOCOL` is filtered out by the observer's command (IPv6 RS/RA noise) |
+| `destination_names` | "all names the destination IP can have" | filled by Cilium's **DNS proxy**: the agent sees the lookup and remembers name → IP for that endpoint only when the source's policy sends its DNS through the proxy — the `rules: dns:` clause Cilium's DNS guide pairs with every `toFQDNs` rule (`Documentation/security/dns.rst`: "`rules: dns` instructs Cilium to inspect and allow DNS lookups"). Without such a policy on the dropped sources the field is absent and *Flows per Destination* is empty — which is what the lab showed until today |
+| `egress_denied_by` / `ingress_denied_by` | "The CiliumNetworkPolicies denying the egress of the flow" and "… denying the ingress of the flow" (`repeated Policy`, with `name`, `kind`, `revision`, labels) | named only for an **explicit** deny rule. A default-deny drop is decided by the *absence* of an allow rule, so both arrays are `[]` — gotcha #82, measured in demo 26 (`ingress_denied_by: []` on every one of the lab's drops). The panel's `label_format` turns that into "default deny (no matching allow)" |
 | `is_reply` | "this was a packet (L4) or message (L7) in the reply direction" | kept in the mask since PR #14 because cf2cnp refuses replies by it; not shown on any panel |
 | `Type` / `Summary` | `FlowType` L3_L4 / L7; `Summary` deprecated | not on any panel; `Type` would separate datapath drops from proxy (L7) drops |
 
@@ -54,16 +57,17 @@ comparisons**; the stat is "for big stats and optional sparkline"; the gauge sho
 threshold" — which no panel here has (a drop count has no threshold that means anything without a baseline).
 
 **The colour defect, measured.** Three pies (*Direction*, *Source Namespace*, *Destination*) ran an **instant** Loki
-query with the pie's *All values* option, so Grafana received one table (label column, value column) and coloured
-its rows; the other three (*Verdict*, *Drop Reason*, *Denying policy*) ran a **range** query with *Calculate*, one
-series per label, and coloured per series. Read from the DOM on poc1 (Grafana 13.2.1):
+query with the pie's *All values* option; the other three (*Verdict*, *Drop Reason*, *Denying policy*) ran a **range**
+query with *Calculate*. What was read from the DOM on poc1 (Grafana 13.2.1) is the colours below; the explanation —
+an instant query arrives as one table whose rows are coloured by value, a range query as one series per label coloured
+per series — is the reading of those colours that the fix confirmed, not a line from Grafana's code:
 
 | Panel | Series and colour as rendered |
 |---|---|
 | Flows per Source Namespace (instant, All values) | `cf2cnp-lab27` rgb(242,204,12) · `cf2cnp-lab30` **rgb(87,148,242)** · `shop-clients` **rgb(87,148,242)** · `cf2cnp-lab` rgb(115,191,105) — the two 28 % slices share a colour |
 | Flows per Destination (instant, All values) | `example.com`, `example.org`, `www.cilium.io` **all** rgb(115,191,105) — three equal 33 % slices, one colour |
 | the same panels with the range query and *Calculate* | four and three distinct colours (yellow, blue, orange, green; green, yellow, blue) |
-| `palette-classic-by-name` on the instant shape | every slice the same colour — the name Grafana hashes is the field's, not the row's |
+| `palette-classic-by-name` on the instant shape | every slice the same colour — consistent with one table field being hashed rather than each row's label (an inference from the render, not something read from Grafana's code) |
 
 The same behaviour is reported by other users ([Grafana community: "Pie chart shows identical colors for different
 labels"](https://community.grafana.com/t/pie-chart-shows-identitical-colors-for-different-labels/100320) — "coloring
@@ -75,18 +79,18 @@ workaround: it is making the three panels the same shape as the three that were 
 
 The captions are Grafana **text panels** (markdown, transparent, three grid rows high) placed under each Statistics
 panel — a `description` shows only on hover, and the operator asked for something a reader sees. Two things the first
-attempt got wrong and the measurement caught: a caption whose HTML-comment marker shared the line with its text
-rendered as raw markdown (CommonMark treats the line as an HTML block — the marker now sits on its own line), and a
-bar gauge fed by a range query did not sort (`sortBy` orders rows inside one frame; a range query gives one frame per
-series — the gauges run an instant query so the labels are rows of a single table).
+attempt got wrong and the measurement caught. The captions rendered as raw markdown: the HTML-comment marker shared
+the line with the text, and CommonMark treats such a line as an HTML block — the marker now sits on its own line. The
+bar gauges did not sort: fed by a range query they got one frame per series, and `sortBy` orders rows inside a
+single frame — so the gauges run an instant query, which returns the labels as rows of one table.
 
 | Panel | What it counts | Fills when / empty when | Was | Now |
 |---|---|---|---|---|
-| **Total Flows** | flow lines in the range after the filters | always, if the observer writes | stat, no context | stat + caption "Dropped flows … every panel here counts drops, not traffic"; description |
+| **Total Flows** | flow lines in the range after the filters | always, if the observer writes | stat, no context | stat + caption "**Dropped flows** in the range — the observer streams `verdict=DROPPED` only"; description says every panel counts drops |
 | **Flows per Verdict** | `sum by (flow_verdict)` | one slice with the default filter | pie, 100 % DROPPED, red by override | kept (upstream's panel; informative with `verdictFilter: none`); fixed semantic colours for every verdict; caption says why it is one colour |
-| **Flows per Direction** | `sum by (flow_traffic_direction)` | INGRESS and/or EGRESS | pie, instant + All values (the colour defect) | pie, range + Calculate; INGRESS blue, EGRESS orange; caption "whose policy decided" |
+| **Flows per Direction** | `sum by (flow_traffic_direction)` | INGRESS and/or EGRESS | pie, instant + All values (the colour defect) | pie, range + Calculate; INGRESS blue, EGRESS orange; caption "Whose policy dropped it: EGRESS = at the source, INGRESS = at the destination" |
 | **Flows per Source Namespace** | `sum by (flow_source_namespace)`, `!=""` | any drop with a pod source | pie, instant + All values; four near-equal slices, two the same blue | **bar gauge**, `topk(10)`, sorted by the count (instant query, one table frame, `sortBy Value #A`), one muted colour — length carries the magnitude, a heat gradient would add an alarm the count does not justify; the count beside each name. A ranking, which is the question ("who is being denied") |
-| **Flows per Destination** | `sum by (flow.destination_names[0])` | only DNS-proxied destinations | pie, empty on this lab until a DNS-visibility source was dropped | **bar gauge**, the same shape; caption names the condition (L7 DNS rule on the source) and how to get data (demo 31's `pos`: `wget https://example.org` → `DROPPED POLICY_DENIED pos → example.org:443`, measured) |
+| **Flows per Destination** | `sum by (flow.destination_names[0])` | only DNS-proxied destinations | pie, empty on this lab until a DNS-visibility source was dropped | **bar gauge**, the same shape; caption names the condition ("an L7 DNS rule on the source … Empty = no DNS-visibility policy on the dropped sources"); how to get data is §5's test (demo 31's `pos`: `wget https://example.org` → `DROPPED POLICY_DENIED pos → example.org:443`, measured) |
 | **Flows per Drop Reason** | `sum by (drop_reason)` with the L7 fallback | always for drops | pie, range + Calculate, palette colours | kept; POLICY_DENIED red, POLICY_DENY dark-red, STALE_OR_UNROUTABLE_IP orange, `CT_*` purple, unknown grey; caption defines the three you will see |
 | **Policy drops by denying policy** | `sum by (denied_by)` over POLICY_DEN(Y\|IED) | named for explicit denies; "default deny" otherwise | pie | kept; "default deny (no matching allow)" grey so a named policy stands out; caption quotes gotcha #82 |
 | **Flows over time, by verdict** | drops per 30 s | always | bars | kept; verdict colours as the pie; caption on how to read a step |
