@@ -1,6 +1,6 @@
 # lab-regression — the plain-English regression check of the lab, on its own: two kind clusters meshed, the stack the
 # check needs (routes, monitoring, spoke, tempo + collectors — the Loki shipper — loki-observer, the hubble CLI), demo 37's two doors, demos 40+41 (the shop doors and the platform), the tutorial dashboards,
-# one round of the labs' traffic so drops and forwards exist, then scripts/lab-regression.sh (fifteen PASS/FAIL rows)
+# one round of the labs' traffic so drops and forwards exist, then scripts/lab-regression.sh (sixteen PASS/FAIL rows)
 # and a browser walk of the dashboards the rows touch (scripts/capture/regression.yaml) — captures on the run page.
 # About 35 minutes; the full lab (lab-observability.yaml) is 55 and does everything else too. docs/regression/README.md
 # explains every row in simple words. Tracked in issue #38.
@@ -25,6 +25,7 @@ on:
       - demos/38-grafana-visual-grammar/**
       - demos/40-shop-mesh-phase0/**
       - demos/41-shop-mesh-phase1/**
+      - demos/53-grpc-parity/**
       - .github/workflows/lab-regression.yaml
 
 permissions:
@@ -88,6 +89,13 @@ jobs:
           demos/40-shop-mesh-phase0/apply.sh 2>&1 | tee demo40.log
           demos/41-shop-mesh-phase1/apply-both.sh 2>&1 | tee demo41.log
 
+      # demo 53: gRPC on shop-gw. routedemo:local is already on the nodes from lab-images.sh
+      # (docker build is allowed in CI; not repeated here). Row 15 is WARN/SKIP until the route exists.
+      - name: Demo 53 — gRPC parity on the Cilium clusters
+        run: |
+          set -o pipefail
+          demos/53-grpc-parity/apply.sh 2>&1 | tee demo53.log
+
       - name: The tutorial dashboards (demo 38) and one round of the labs' traffic — so drops and forwards exist
         run: |
           set -o pipefail
@@ -113,7 +121,7 @@ jobs:
           demos/39-remote-workload-fix/check.sh 2>&1 | tee demo39.log || echo "demo39_fails=$?" >> "$GITHUB_ENV"
           { echo '## Demo 39 — the remote workload'; echo; echo '```text'; grep -E 'backend:|probe:|requests:|STATUS|PASS|FAIL|WARN|agent' demo39.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: The regression check — fifteen rows, PASS or FAIL with the number that decided it
+      - name: The regression check — sixteen rows, PASS or FAIL with the number that decided it
         id: check
         run: |
           set -o pipefail
@@ -173,6 +181,7 @@ jobs:
             demo39.log
             demo40.log
             demo41.log
+            demo53.log
             output/regression/
             captures/
           if-no-files-found: ignore

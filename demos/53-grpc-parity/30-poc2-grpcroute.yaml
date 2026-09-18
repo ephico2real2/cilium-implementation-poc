@@ -1,0 +1,39 @@
+# poc2's first GRPCRoute. Attaches to shop-gw's https-grpc listener (TLS, SNI
+# grpc.poc2.shop.poc.local) AND to the hostname-less http listener (plaintext h2c on :80).
+# The three method matches are demo 09's: Health plus both reflection services, so grpcurl
+# works with no .proto. Backend is Service/grpc:9090 (appProtocol kubernetes.io/h2c).
+#
+# WHY NOT THE EXISTING https LISTENER. That listener's hostname is api.poc2.shop.poc.local.
+# Gateway API GRPCRouteSpec.hostnames: if both the Listener and the GRPCRoute specify
+# hostnames, there MUST be at least one intersecting hostname or the route is not accepted.
+# grpc.poc2.shop.poc.local does not intersect api.poc2.shop.poc.local. And even on a shared
+# hostname: "If a Route (A) of type HTTPRoute or GRPCRoute is attached to a Listener and
+# that listener already has another Route (B) of the other type attached and the
+# intersection of the hostnames of A and B is non-empty, then the implementation MUST
+# accept exactly one of these two routes" (Gateway API v1.6.1 CRD,
+# crds/gateway-api/v1.6.1/gateway.networking.k8s.io_grpcroutes.yaml). shop-api already
+# occupies api.poc2.shop.poc.local on https. A different hostname on a third listener is
+# the way both HTTP and gRPC share one door.
+#
+#   kubectl --context kind-poc2 apply -f demos/53-grpc-parity/30-poc2-grpcroute.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata: {name: grpc, namespace: shop-edge}
+spec:
+  parentRefs:
+    - {name: shop-gw, sectionName: https-grpc}
+    - {name: shop-gw, sectionName: http}
+  hostnames: ["grpc.poc2.shop.poc.local"]
+  rules:
+    - matches:
+        - method:
+            service: grpc.health.v1.Health
+      backendRefs: [{name: grpc, port: 9090}]
+    - matches:
+        - method:
+            service: grpc.reflection.v1alpha.ServerReflection
+      backendRefs: [{name: grpc, port: 9090}]
+    - matches:
+        - method:
+            service: grpc.reflection.v1.ServerReflection
+      backendRefs: [{name: grpc, port: 9090}]

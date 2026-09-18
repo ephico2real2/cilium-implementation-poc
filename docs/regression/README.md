@@ -91,7 +91,8 @@ The script prints one row per question. Here is what each row is really asking, 
 | 12 | The tutorial dashboards' queries return data | Do the 30 tutorial panels all have data — none says "No data", and none of the queries failed outright? |
 | 13 | Demo 37's two Gateway doors still behave | Are both doors up at their pinned addresses? |
 | 14 | The shop's public URL answers from a cluster | Does `https://api.shop.poc.local` return 200 with `X-Served-By` naming poc1 or poc2? WARN (not FAIL) when `shop-vip-gw` is absent — the CI lab before demos 40/41. |
-| 15 | Cilium's connectivity test result | If we ran layer 2, what did it say? |
+| 15 | gRPC answers through a Cilium door | Does poc2's `shop-gw` answer `grpc.health.v1.Health/Check` with `SERVING` for `grpc.poc2.shop.poc.local`? WARN when `grpcroute/grpc` is absent in `shop-edge`. |
+| 16 | Cilium's connectivity test result | If we ran layer 2, what did it say? |
 
 The real run after the upgrade is pasted below, unedited.
 

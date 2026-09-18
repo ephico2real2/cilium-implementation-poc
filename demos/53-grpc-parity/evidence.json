@@ -1,0 +1,28 @@
+{
+  "captures": [
+    {
+      "name": "poc1-grpc-h2c-serving",
+      "url": "h2c://grpc.poc.local @ 172.18.255.240:80",
+      "wait": "text:",
+      "look": "grpcurl -plaintext -authority grpc.poc.local 172.18.255.240:80 grpc.health.v1.Health/Check → {\"status\":\"SERVING\"} (demo 09 re-run)"
+    },
+    {
+      "name": "poc1-grpc-tls-serving",
+      "url": "https://grpc.poc.local @ 172.18.255.240:443",
+      "wait": "text:",
+      "look": "grpcurl -cacert .tmp/root-ca.crt -authority grpc.poc.local 172.18.255.240:443 Health/Check → SERVING; live root F4:FD:F8:B7… (docs/root-ca.crt 72:16:61:3E… does not verify)"
+    },
+    {
+      "name": "poc2-grpc-h2c-serving",
+      "url": "h2c://grpc.poc2.shop.poc.local @ 172.18.255.177:80",
+      "wait": "text:",
+      "look": "grpcurl -plaintext -authority grpc.poc2.shop.poc.local 172.18.255.177:80 Health/Check → SERVING; shop-gw http listener, GRPCRoute accepted on sectionName http"
+    },
+    {
+      "name": "poc2-grpc-tls-serving",
+      "url": "https://grpc.poc2.shop.poc.local @ 172.18.255.177:443",
+      "wait": "text:",
+      "look": "TLS through listener https-grpc, Certificate grpc-tls CN+SAN grpc.poc2.shop.poc.local issuer CN=clustermesh-root-ca fingerprint DD:A5:35:55… valid 2026-09-18 → 2026-12-17, Health/Check → SERVING"
+    }
+  ]
+}

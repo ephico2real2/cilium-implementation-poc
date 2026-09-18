@@ -1,0 +1,69 @@
+### 2026-09-18T19:04:41Z
+$ scripts/lab-trust.sh export kind-poc2
+the issuer's root from kind-poc2 → .tmp/root-ca.crt: subject=CN=clustermesh-root-ca sha256 Fingerprint=F4:FD:F8:B7:78:D9:D3:9E:69:53:E1:CB:FB:26:CD:1A:9B:85:48:66:D4:48:8D:08:0F:E9:73:7E:8A:97:BF:27 
+
+### 2026-09-18T19:04:41Z
+$ kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/20-certificates.yaml
+certificate.cert-manager.io/shop-tls unchanged
+certificate.cert-manager.io/grpc-tls unchanged
+
+### 2026-09-18T19:04:41Z
+$ kubectl --context kind-poc2 -n shop-edge wait certificate/shop-tls --for=condition=Ready --timeout=90s
+certificate.cert-manager.io/shop-tls condition met
+
+### 2026-09-18T19:04:42Z
+$ kubectl --context kind-poc2 -n shop-edge wait certificate/grpc-tls --for=condition=Ready --timeout=90s
+certificate.cert-manager.io/grpc-tls condition met
+
+### 2026-09-18T19:04:42Z
+$ kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/30-gateways-poc2.yaml
+gateway.gateway.networking.k8s.io/shop-gw configured
+gateway.gateway.networking.k8s.io/shop-vip-gw configured
+
+### 2026-09-18T19:04:42Z
+$ kubectl --context kind-poc2 -n shop-edge wait --for=condition=Programmed gateway/shop-gw --timeout=120s
+gateway.gateway.networking.k8s.io/shop-gw condition met
+
+### 2026-09-18T19:04:42Z
+$ bash -c wait_listeners
+kind-poc2 gateway/shop-gw: 3/3 listeners Programmed
+
+### 2026-09-18T19:04:42Z
+$ kubectl --context kind-poc2 apply -f demos/53-grpc-parity/10-poc2-grpc-app.yaml
+deployment.apps/grpc unchanged
+service/grpc unchanged
+ciliumnetworkpolicy.cilium.io/grpc created
+
+### 2026-09-18T19:04:42Z
+$ kubectl --context kind-poc2 -n shop-edge wait deploy/grpc --for=condition=Available --timeout=120s
+deployment.apps/grpc condition met
+
+### 2026-09-18T19:04:45Z
+$ kubectl --context kind-poc2 apply -f demos/53-grpc-parity/30-poc2-grpcroute.yaml
+grpcroute.gateway.networking.k8s.io/grpc configured
+
+### 2026-09-18T19:04:45Z
+$ bash -c wait_route
+kind-poc2 grpcroute/grpc: all parents Accepted+ResolvedRefs
+
+### 2026-09-18T19:04:46Z
+$ bash -c unmatched
+Error invoking method "routedemo.Echo/DoesNotExist": target server does not expose service "routedemo.Echo"
+
+### 2026-09-18T19:04:46Z
+$ demos/53-grpc-parity/check.sh
+
+== demo 53 — gRPC parity on the Cilium clusters (poc1 re-run, poc2 first GRPCRoute)
+  STATUS WHAT                                                                   MEASURED                                             RULE
+  PASS   root CA for TLS rows                                                   .tmp/root-ca.crt (live)                              clustermesh-root-ca via scripts/lab-trust.sh export; docs/root-ca.crt only if fingerprints match
+  PASS   poc1 h2c Health/Check @ 172.18.255.240:80                              { "status": "SERVING" }                              grpcurl -plaintext -authority grpc.poc.local 172.18.255.240:80 → {"status":"SERVING"}
+  PASS   poc1 TLS Health/Check @ 172.18.255.240:443                             { "status": "SERVING" }                              grpcurl -cacert .tmp/root-ca.crt -authority grpc.poc.local 172.18.255.240:443 → {"status":"SERVING"}
+  PASS   poc1 grpcurl list via reflection                                       grpc.health.v1.Health grpc.reflection.v1.ServerReflection grpc.reflection.v1alph list shows grpc.health.v1.Health and both ServerReflection services (demo 09)
+  PASS   poc2 h2c Health/Check @ 172.18.255.177:80                              { "status": "SERVING" }                              grpcurl -plaintext -authority grpc.poc2.shop.poc.local 172.18.255.177:80 → {"status":"SERVING"}
+  PASS   poc2 TLS Health/Check @ 172.18.255.177:443                             { "status": "SERVING" }                              grpcurl -cacert .tmp/root-ca.crt -authority grpc.poc2.shop.poc.local 172.18.255.177:443 → {"status":"SERVING"}
+  PASS   poc2 grpcurl list via reflection                                       grpc.health.v1.Health grpc.reflection.v1.ServerReflection grpc.reflection.v1alph list shows grpc.health.v1.Health and both ServerReflection services (demo 09)
+  PASS   poc2 grpcroute/grpc Accepted on both parents                           accepted=2/2 resolved=2/2                            every parent Accepted=True and ResolvedRefs=True (≥ 2 parents: https-grpc and http)
+  PASS   poc2 shop-gw listener https-grpc Programmed                            Programmed=True                                      status.listeners[name=https-grpc] Programmed=True
+  PASS   poc2 grpc-tls Ready                                                    Ready=True                                           Certificate grpc-tls Ready=True
+  WARN   Mac grpcurl (not installed)                                            command -v grpcurl: not found                        skip: brew install grpcurl, then grpcurl -plaintext -authority grpc.poc2.shop.poc.local 172.18.255.177:80 grpc.health.v1.Health/Check
+
