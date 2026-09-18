@@ -1,0 +1,416 @@
+# Demo 41 — the shop platform, cluster-neutral and global. Byte-identical in poc1 and poc2.
+# The ONLY per-cluster value is CLUSTER for backend, and that lives in ConfigMap/shop-cluster
+# (written by apply-both.sh: data.name=poc1 / poc2), not here.
+#
+# Every stateless Service is global + affinity local (R1, R2). The same name + namespace in both
+# clusters is what makes a Service global; affinity local keeps traffic home while local backends
+# are healthy. backend is shopapi:local (built in demo 40; do not rebuild — gotcha #118).
+# /ready on backend is 503 until phase 2 (no database); readiness this phase is /healthz.
+#
+#   kubectl --context kind-poc1 apply -f demos/41-shop-mesh-phase1/10-platform.yaml
+#   kubectl --context kind-poc2 apply -f demos/41-shop-mesh-phase1/10-platform.yaml
+apiVersion: v1
+kind: Namespace
+metadata: {name: shop-edge, labels: {app.kubernetes.io/part-of: shop, gateway-access: shop-gw}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: shop-core, labels: {app.kubernetes.io/part-of: shop}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: shop-payments, labels: {app.kubernetes.io/part-of: shop}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: shop-merchant, labels: {app.kubernetes.io/part-of: shop}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: shop-reviews, labels: {app.kubernetes.io/part-of: shop}}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: shop-clients}
+---
+# ---- api-gateway: nginx reverse proxy. /healthz is local; /ready and /orders go to backend so
+# shopctl's contract holds end to end (/healthz 200, /ready and /orders 503 until phase 2).
+# /catalog /orders/ /reviews /pay keep demo 35's call graph (orders/ prefix → orders, which itself
+# proxies to backend — §3: api-gateway → orders → backend).
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: api-gateway-nginx, namespace: shop-edge}
+data:
+  default.conf: |
+    server {
+      listen 80;
+      resolver kube-dns.kube-system.svc.cluster.local valid=10s ipv6=off;
+      location = /            { return 200 "api-gateway\n"; }
+      location = /healthz     { return 200 "ok\n"; }
+      location = /ready {
+        set $backend backend.shop-core.svc.cluster.local;
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 3s;
+        proxy_pass http://$backend;
+      }
+      location = /orders {
+        set $backend backend.shop-core.svc.cluster.local;
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 3s;
+        proxy_pass http://$backend;
+      }
+      location /catalog/ {
+        set $catalog catalog.shop-core.svc.cluster.local;
+        proxy_pass http://$catalog/;
+      }
+      location /orders/ {
+        set $orders orders.shop-core.svc.cluster.local;
+        proxy_pass http://$orders/;
+      }
+      location /reviews/ {
+        set $reviews reviews.shop-reviews.svc.cluster.local;
+        proxy_pass http://$reviews/;
+      }
+      location /pay/ {
+        set $pay payment-gateway.shop-payments.svc.cluster.local;
+        proxy_pass http://$pay/;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: api-gateway, namespace: shop-edge, labels: {app.kubernetes.io/name: api-gateway, app.kubernetes.io/part-of: shop}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: api-gateway}}
+  template:
+    metadata: {labels: {app: api-gateway, app.kubernetes.io/name: api-gateway, app.kubernetes.io/part-of: shop}}
+    spec:
+      volumes: [{name: conf, configMap: {name: api-gateway-nginx}}]
+      containers:
+        - name: gateway
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          volumeMounts: [{name: conf, mountPath: /etc/nginx/conf.d}]
+          livenessProbe:  {httpGet: {path: /healthz, port: 80}, initialDelaySeconds: 3, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /healthz, port: 80}, initialDelaySeconds: 2, periodSeconds: 5}
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: shop-edge
+  annotations:
+    service.cilium.io/global: "true"     # same name+namespace in both clusters: one service across the mesh
+    service.cilium.io/affinity: local    # prefer healthy local backends; remote only when none are
+spec: {selector: {app: api-gateway}, ports: [{port: 80, targetPort: 80}]}
+---
+# ---- catalog (shared nginx shape plus /healthz for probes)
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: catalog-nginx, namespace: shop-core}
+data:
+  default.conf: |
+    server {
+      listen 80;
+      location = /            { return 200 "$hostname\n"; }
+      location = /healthz     { return 200 "ok\n"; }
+      location = /ready       { return 200 "ok\n"; }
+      location /items         { return 200 "items\n"; }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: catalog, namespace: shop-core, labels: {app.kubernetes.io/name: catalog, app.kubernetes.io/part-of: shop}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: catalog}}
+  template:
+    metadata: {labels: {app: catalog, app.kubernetes.io/name: catalog, app.kubernetes.io/part-of: shop}}
+    spec:
+      volumes: [{name: conf, configMap: {name: catalog-nginx}}]
+      containers:
+        - name: catalog
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          volumeMounts: [{name: conf, mountPath: /etc/nginx/conf.d}]
+          livenessProbe:  {httpGet: {path: /healthz, port: 80}, initialDelaySeconds: 3, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /healthz, port: 80}, initialDelaySeconds: 2, periodSeconds: 5}
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog
+  namespace: shop-core
+  annotations:
+    service.cilium.io/global: "true"     # same name+namespace in both clusters: one service across the mesh
+    service.cilium.io/affinity: local    # prefer healthy local backends; remote only when none are
+spec: {selector: {app: catalog}, ports: [{port: 80, targetPort: 80}]}
+---
+# ---- orders: nginx plus a path that proxies to backend (the §3 call graph: orders → backend)
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: orders-nginx, namespace: shop-core}
+data:
+  default.conf: |
+    server {
+      listen 80;
+      resolver kube-dns.kube-system.svc.cluster.local valid=10s ipv6=off;
+      location = /            { return 200 "$hostname\n"; }
+      location = /healthz     { return 200 "ok\n"; }
+      location = /ready       { return 200 "ok\n"; }
+      location /place         { return 200 "placed\n"; }
+      location /backend/ {
+        set $backend backend.shop-core.svc.cluster.local;
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 3s;
+        proxy_pass http://$backend/;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: orders, namespace: shop-core, labels: {app.kubernetes.io/name: orders, app.kubernetes.io/part-of: shop}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: orders}}
+  template:
+    metadata: {labels: {app: orders, app.kubernetes.io/name: orders, app.kubernetes.io/part-of: shop}}
+    spec:
+      volumes: [{name: conf, configMap: {name: orders-nginx}}]
+      containers:
+        - name: orders
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          volumeMounts: [{name: conf, mountPath: /etc/nginx/conf.d}]
+          livenessProbe:  {httpGet: {path: /healthz, port: 80}, initialDelaySeconds: 3, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /healthz, port: 80}, initialDelaySeconds: 2, periodSeconds: 5}
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+        # Caller sidecars (and the ratings/shopper/stranger pods) are traffic generators, not
+        # Services: they have no probes on purpose.
+        - name: caller                         # orders reads the catalog, charges through payments, and hits backend (the §3 edge)
+          image: alpine:3.20
+          command: ["sh", "-c", "while true; do wget -qO- --timeout=2 http://catalog.shop-core/items >/dev/null 2>&1; wget -qO- --timeout=2 http://payment-gateway.shop-payments/charge >/dev/null 2>&1; wget -qO- --timeout=2 http://backend.shop-core/healthz >/dev/null 2>&1; sleep 5; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders
+  namespace: shop-core
+  annotations:
+    service.cilium.io/global: "true"     # same name+namespace in both clusters: one service across the mesh
+    service.cilium.io/affinity: local    # prefer healthy local backends; remote only when none are
+spec: {selector: {app: orders}, ports: [{port: 80, targetPort: 80}]}
+---
+# ---- backend: shopapi:local. CLUSTER from ConfigMap/shop-cluster (apply-both.sh). DB_URL unset
+# (shopapi default). /ready is 503 until phase 2. Readiness THIS phase is /healthz — phase 2
+# moves it to /ready so a backend that cannot reach the DB is taken out of the Service.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: backend, namespace: shop-core, labels: {app.kubernetes.io/name: backend, app.kubernetes.io/part-of: shop}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: backend}}
+  template:
+    metadata: {labels: {app: backend, app.kubernetes.io/name: backend, app.kubernetes.io/part-of: shop}}
+    spec:
+      containers:
+        - name: backend
+          image: shopapi:local
+          imagePullPolicy: IfNotPresent
+          ports: [{containerPort: 8080}]
+          env:
+            - name: CLUSTER
+              valueFrom:
+                configMapKeyRef: {name: shop-cluster, key: name}
+          livenessProbe:  {httpGet: {path: /healthz, port: 8080}, initialDelaySeconds: 3, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, initialDelaySeconds: 2, periodSeconds: 5}   # phase 2: /ready
+          resources: {requests: {cpu: 25m, memory: 32Mi}, limits: {memory: 96Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: shop-core
+  annotations:
+    service.cilium.io/global: "true"     # same name+namespace in both clusters: one service across the mesh
+    service.cilium.io/affinity: local    # prefer healthy local backends; remote only when none are
+spec: {selector: {app: backend}, ports: [{port: 80, targetPort: 8080}]}
+---
+# ---- payment-gateway
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: service-nginx, namespace: shop-payments}
+data:
+  default.conf: |
+    server {
+      listen 80;
+      location = /            { return 200 "$hostname\n"; }
+      location = /healthz     { return 200 "ok\n"; }
+      location = /ready       { return 200 "ok\n"; }
+      location /charge        { return 200 "charged\n"; }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: payment-gateway, namespace: shop-payments, labels: {app.kubernetes.io/name: payment-gateway, app.kubernetes.io/part-of: shop}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: payment-gateway}}
+  template:
+    metadata: {labels: {app: payment-gateway, app.kubernetes.io/name: payment-gateway, app.kubernetes.io/part-of: shop}}
+    spec:
+      volumes: [{name: conf, configMap: {name: service-nginx}}]
+      containers:
+        - name: payment-gateway
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          volumeMounts: [{name: conf, mountPath: /etc/nginx/conf.d}]
+          livenessProbe:  {httpGet: {path: /healthz, port: 80}, initialDelaySeconds: 3, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /healthz, port: 80}, initialDelaySeconds: 2, periodSeconds: 5}
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+        - name: caller                         # a charge settles with the merchant (another namespace)
+          image: alpine:3.20
+          command: ["sh", "-c", "while true; do wget -qO- --timeout=2 http://merchant.shop-merchant/settle >/dev/null 2>&1; sleep 6; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-gateway
+  namespace: shop-payments
+  annotations:
+    service.cilium.io/global: "true"     # same name+namespace in both clusters: one service across the mesh
+    service.cilium.io/affinity: local    # prefer healthy local backends; remote only when none are
+spec: {selector: {app: payment-gateway}, ports: [{port: 80, targetPort: 80}]}
+---
+# ---- merchant
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: service-nginx, namespace: shop-merchant}
+data:
+  default.conf: |
+    server {
+      listen 80;
+      location = /            { return 200 "$hostname\n"; }
+      location = /healthz     { return 200 "ok\n"; }
+      location = /ready       { return 200 "ok\n"; }
+      location /settle        { return 200 "settled\n"; }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: merchant, namespace: shop-merchant, labels: {app.kubernetes.io/name: merchant, app.kubernetes.io/part-of: shop}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: merchant}}
+  template:
+    metadata: {labels: {app: merchant, app.kubernetes.io/name: merchant, app.kubernetes.io/part-of: shop}}
+    spec:
+      volumes: [{name: conf, configMap: {name: service-nginx}}]
+      containers:
+        - name: merchant
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          volumeMounts: [{name: conf, mountPath: /etc/nginx/conf.d}]
+          livenessProbe:  {httpGet: {path: /healthz, port: 80}, initialDelaySeconds: 3, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /healthz, port: 80}, initialDelaySeconds: 2, periodSeconds: 5}
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+        - name: caller                         # the merchant portal reads the shared catalog
+          image: alpine:3.20
+          command: ["sh", "-c", "while true; do wget -qO- --timeout=2 http://catalog.shop-core/items >/dev/null 2>&1; sleep 7; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: merchant
+  namespace: shop-merchant
+  annotations:
+    service.cilium.io/global: "true"     # same name+namespace in both clusters: one service across the mesh
+    service.cilium.io/affinity: local    # prefer healthy local backends; remote only when none are
+spec: {selector: {app: merchant}, ports: [{port: 80, targetPort: 80}]}
+---
+# ---- reviews + ratings
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: service-nginx, namespace: shop-reviews}
+data:
+  default.conf: |
+    server {
+      listen 80;
+      location = /            { return 200 "$hostname\n"; }
+      location = /healthz     { return 200 "ok\n"; }
+      location = /ready       { return 200 "ok\n"; }
+      location /latest        { return 200 "latest reviews\n"; }
+      location /stars         { return 200 "4.7\n"; }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: reviews, namespace: shop-reviews, labels: {app.kubernetes.io/name: reviews, app.kubernetes.io/part-of: shop}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: reviews}}
+  template:
+    metadata: {labels: {app: reviews, app.kubernetes.io/name: reviews, app.kubernetes.io/part-of: shop}}
+    spec:
+      volumes: [{name: conf, configMap: {name: service-nginx}}]
+      containers:
+        - name: reviews
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          volumeMounts: [{name: conf, mountPath: /etc/nginx/conf.d}]
+          livenessProbe:  {httpGet: {path: /healthz, port: 80}, initialDelaySeconds: 3, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /healthz, port: 80}, initialDelaySeconds: 2, periodSeconds: 5}
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+        - name: caller                         # reviews are about catalog items
+          image: alpine:3.20
+          command: ["sh", "-c", "while true; do wget -qO- --timeout=2 http://catalog.shop-core/items >/dev/null 2>&1; sleep 8; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reviews
+  namespace: shop-reviews
+  annotations:
+    service.cilium.io/global: "true"     # same name+namespace in both clusters: one service across the mesh
+    service.cilium.io/affinity: local    # prefer healthy local backends; remote only when none are
+spec: {selector: {app: reviews}, ports: [{port: 80, targetPort: 80}]}
+---
+# ratings is a caller-only Pod. R1 deliberately lists seven Kubernetes Services and does not
+# include ratings: nothing calls ratings, and this container does not listen on a port.
+apiVersion: v1
+kind: Pod
+metadata: {name: ratings, namespace: shop-reviews, labels: {app: ratings, app.kubernetes.io/name: ratings, app.kubernetes.io/part-of: shop}}
+spec:
+  containers:
+    - name: client                             # ratings aggregates reviews (same namespace)
+      image: alpine:3.20
+      command: ["sh", "-c", "while true; do wget -qO- --timeout=2 http://reviews.shop-reviews/stars >/dev/null 2>&1; sleep 6; done"]
+      resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+# ---- the clients: the shopper goes through the gateway; the stranger goes straight to the catalog
+apiVersion: v1
+kind: Pod
+metadata: {name: shopper, namespace: shop-clients, labels: {app: shopper, app.kubernetes.io/name: shopper}}
+spec:
+  containers:
+    - name: client
+      image: alpine:3.20
+      command: ["sh", "-c", "while true; do for p in catalog/items orders/place reviews/latest pay/charge; do wget -qO- --timeout=2 http://api-gateway.shop-edge/$p >/dev/null 2>&1; done; sleep 5; done"]
+      resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: stranger, namespace: shop-clients, labels: {app: stranger, app.kubernetes.io/name: stranger}}
+spec:
+  containers:
+    - name: client
+      image: alpine:3.20
+      command: ["sh", "-c", "while true; do wget -qO- --timeout=2 http://catalog.shop-core/items >/dev/null 2>&1; wget -qO- --timeout=2 http://payment-gateway.shop-payments/charge >/dev/null 2>&1; sleep 7; done"]
+      resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}

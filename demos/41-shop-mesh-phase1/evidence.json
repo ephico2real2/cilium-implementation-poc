@@ -1,0 +1,22 @@
+{
+  "captures": [
+    {
+      "name": "vip-https-200",
+      "url": "https://api.shop.poc.local/",
+      "wait": "text:api-gateway",
+      "look": "shop-vip-gw at 172.18.255.16: HTTP 200, X-Served-By names the cluster that announced the VIP (poc1 in phase 1), body api-gateway"
+    },
+    {
+      "name": "poc1-door-https-200",
+      "url": "https://api.poc1.shop.poc.local/",
+      "wait": "text:api-gateway",
+      "look": "shop-gw at 172.18.255.242: HTTP 200, X-Served-By: poc1 — the header names the door, not the backend's cluster"
+    },
+    {
+      "name": "poc2-door-https-200",
+      "url": "https://api.poc2.shop.poc.local/",
+      "wait": "text:api-gateway",
+      "look": "shop-gw at 172.18.255.177: HTTP 200, X-Served-By: poc2"
+    }
+  ]
+}

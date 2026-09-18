@@ -1,0 +1,38 @@
+# poc1's HTTPRoutes. Two files a junior can read (demo 40's choice): address and hostname differ
+# per cluster, so this file is poc1's and 20-routes-poc2.yaml is poc2's — no Helm, no kustomize, no sed.
+#
+# shop-api attaches to BOTH doors: shop-vip-gw (hostname api.shop.poc.local) and shop-gw
+# (hostname api.poc1.shop.poc.local). The ResponseHeaderModifier SETS X-Served-By to the cluster
+# that served the DOOR (the Gateway this request entered). Whether the backend behind api-gateway
+# was local or remote is a different question, answered by Hubble's destination.cluster_name
+# (measured in phase 5).
+#
+# shop-redirect is demo 37's :80 → 301 on both doors.
+#
+#   kubectl --context kind-poc1 apply -f demos/41-shop-mesh-phase1/20-routes-poc1.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: shop-api, namespace: shop-edge}
+spec:
+  parentRefs:
+    - {name: shop-vip-gw, sectionName: https}
+    - {name: shop-gw, sectionName: https}
+  hostnames: ["api.shop.poc.local", "api.poc1.shop.poc.local"]
+  rules:
+    - backendRefs: [{name: api-gateway, port: 80}]
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier: {set: [{name: X-Served-By, value: poc1}]}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: shop-redirect, namespace: shop-edge}
+spec:
+  parentRefs:
+    - {name: shop-vip-gw, sectionName: http}
+    - {name: shop-gw, sectionName: http}
+  hostnames: ["api.shop.poc.local", "api.poc1.shop.poc.local"]
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect: {scheme: https, statusCode: 301}

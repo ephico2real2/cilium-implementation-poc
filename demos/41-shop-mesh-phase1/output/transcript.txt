@@ -1,0 +1,417 @@
+### 2026-09-18T14:32:06Z
+$ kubectl --context kind-poc1 apply -f demos/41-shop-mesh-phase1/output/shop-cluster-poc1.yaml
+namespace/shop-core unchanged
+configmap/shop-cluster unchanged
+
+### 2026-09-18T14:32:06Z
+$ kubectl --context kind-poc1 apply -f demos/41-shop-mesh-phase1/10-platform.yaml
+namespace/shop-edge unchanged
+namespace/shop-core unchanged
+namespace/shop-payments unchanged
+namespace/shop-merchant unchanged
+namespace/shop-reviews unchanged
+namespace/shop-clients unchanged
+configmap/api-gateway-nginx unchanged
+deployment.apps/api-gateway unchanged
+service/api-gateway unchanged
+configmap/catalog-nginx unchanged
+deployment.apps/catalog unchanged
+service/catalog unchanged
+configmap/orders-nginx unchanged
+deployment.apps/orders unchanged
+service/orders unchanged
+deployment.apps/backend unchanged
+service/backend unchanged
+configmap/service-nginx unchanged
+deployment.apps/payment-gateway unchanged
+service/payment-gateway unchanged
+configmap/service-nginx unchanged
+deployment.apps/merchant unchanged
+service/merchant unchanged
+configmap/service-nginx unchanged
+deployment.apps/reviews unchanged
+service/reviews unchanged
+pod/ratings unchanged
+pod/shopper unchanged
+pod/stranger unchanged
+
+### 2026-09-18T14:32:07Z
+$ kubectl --context kind-poc2 apply -f demos/41-shop-mesh-phase1/output/shop-cluster-poc2.yaml
+namespace/shop-core unchanged
+configmap/shop-cluster unchanged
+
+### 2026-09-18T14:32:07Z
+$ kubectl --context kind-poc2 apply -f demos/41-shop-mesh-phase1/10-platform.yaml
+namespace/shop-edge unchanged
+namespace/shop-core unchanged
+namespace/shop-payments unchanged
+namespace/shop-merchant unchanged
+namespace/shop-reviews unchanged
+namespace/shop-clients unchanged
+configmap/api-gateway-nginx unchanged
+deployment.apps/api-gateway unchanged
+service/api-gateway unchanged
+configmap/catalog-nginx unchanged
+deployment.apps/catalog unchanged
+service/catalog unchanged
+configmap/orders-nginx unchanged
+deployment.apps/orders unchanged
+service/orders unchanged
+deployment.apps/backend unchanged
+service/backend unchanged
+configmap/service-nginx unchanged
+deployment.apps/payment-gateway unchanged
+service/payment-gateway unchanged
+configmap/service-nginx unchanged
+deployment.apps/merchant unchanged
+service/merchant unchanged
+configmap/service-nginx unchanged
+deployment.apps/reviews unchanged
+service/reviews unchanged
+pod/ratings unchanged
+pod/shopper unchanged
+pod/stranger unchanged
+
+### 2026-09-18T14:32:07Z
+$ kubectl --context kind-poc1 -n shop-edge wait deploy/api-gateway --for=condition=Available --timeout=180s
+deployment.apps/api-gateway condition met
+
+### 2026-09-18T14:32:08Z
+$ kubectl --context kind-poc1 -n shop-core wait deploy/catalog --for=condition=Available --timeout=180s
+deployment.apps/catalog condition met
+
+### 2026-09-18T14:32:08Z
+$ kubectl --context kind-poc1 -n shop-core wait deploy/orders --for=condition=Available --timeout=180s
+deployment.apps/orders condition met
+
+### 2026-09-18T14:32:08Z
+$ kubectl --context kind-poc1 -n shop-core wait deploy/backend --for=condition=Available --timeout=180s
+deployment.apps/backend condition met
+
+### 2026-09-18T14:32:08Z
+$ kubectl --context kind-poc1 -n shop-payments wait deploy/payment-gateway --for=condition=Available --timeout=180s
+deployment.apps/payment-gateway condition met
+
+### 2026-09-18T14:32:08Z
+$ kubectl --context kind-poc1 -n shop-merchant wait deploy/merchant --for=condition=Available --timeout=180s
+deployment.apps/merchant condition met
+
+### 2026-09-18T14:32:08Z
+$ kubectl --context kind-poc1 -n shop-reviews wait deploy/reviews --for=condition=Available --timeout=180s
+deployment.apps/reviews condition met
+
+### 2026-09-18T14:32:09Z
+$ kubectl --context kind-poc1 -n shop-clients wait pod/shopper --for=condition=Ready --timeout=180s
+pod/shopper condition met
+
+### 2026-09-18T14:32:09Z
+$ kubectl --context kind-poc2 -n shop-edge wait deploy/api-gateway --for=condition=Available --timeout=180s
+deployment.apps/api-gateway condition met
+
+### 2026-09-18T14:32:09Z
+$ kubectl --context kind-poc2 -n shop-core wait deploy/catalog --for=condition=Available --timeout=180s
+deployment.apps/catalog condition met
+
+### 2026-09-18T14:32:09Z
+$ kubectl --context kind-poc2 -n shop-core wait deploy/orders --for=condition=Available --timeout=180s
+deployment.apps/orders condition met
+
+### 2026-09-18T14:32:09Z
+$ kubectl --context kind-poc2 -n shop-core wait deploy/backend --for=condition=Available --timeout=180s
+deployment.apps/backend condition met
+
+### 2026-09-18T14:32:09Z
+$ kubectl --context kind-poc2 -n shop-payments wait deploy/payment-gateway --for=condition=Available --timeout=180s
+deployment.apps/payment-gateway condition met
+
+### 2026-09-18T14:32:10Z
+$ kubectl --context kind-poc2 -n shop-merchant wait deploy/merchant --for=condition=Available --timeout=180s
+deployment.apps/merchant condition met
+
+### 2026-09-18T14:32:10Z
+$ kubectl --context kind-poc2 -n shop-reviews wait deploy/reviews --for=condition=Available --timeout=180s
+deployment.apps/reviews condition met
+
+### 2026-09-18T14:32:10Z
+$ kubectl --context kind-poc2 -n shop-clients wait pod/shopper --for=condition=Ready --timeout=180s
+pod/shopper condition met
+
+### 2026-09-18T14:32:10Z
+$ kubectl --context kind-poc1 apply -f demos/41-shop-mesh-phase1/20-routes-poc1.yaml
+httproute.gateway.networking.k8s.io/shop-api configured
+httproute.gateway.networking.k8s.io/shop-redirect configured
+
+### 2026-09-18T14:32:10Z
+$ kubectl --context kind-poc2 apply -f demos/41-shop-mesh-phase1/20-routes-poc2.yaml
+httproute.gateway.networking.k8s.io/shop-api configured
+httproute.gateway.networking.k8s.io/shop-redirect configured
+
+### 2026-09-18T14:32:10Z
+$ bash -c wait_route "$@" bash kind-poc1 shop-api
+kind-poc1 httproute/shop-api: all parents Accepted+ResolvedRefs
+
+### 2026-09-18T14:32:10Z
+$ bash -c wait_route "$@" bash kind-poc1 shop-redirect
+kind-poc1 httproute/shop-redirect: all parents Accepted+ResolvedRefs
+
+### 2026-09-18T14:32:11Z
+$ bash -c wait_route "$@" bash kind-poc2 shop-api
+kind-poc2 httproute/shop-api: all parents Accepted+ResolvedRefs
+
+### 2026-09-18T14:32:11Z
+$ bash -c wait_route "$@" bash kind-poc2 shop-redirect
+kind-poc2 httproute/shop-redirect: all parents Accepted+ResolvedRefs
+
+### 2026-09-18T14:32:11Z
+$ demos/40-shop-mesh-phase0/hosts-entries.sh
+# ---- cilium-kind-poc demo40 (generated 2026-09-18T14:32Z by demos/40-shop-mesh-phase0/hosts-entries.sh) ----
+172.18.255.16  api.shop.poc.local
+172.18.255.242  api.poc1.shop.poc.local
+172.18.255.177  api.poc2.shop.poc.local
+# db-service.poc.local  — phase 2 (db-gw does not exist yet)
+# ---- end cilium-kind-poc demo40 ----
+
+### 2026-09-18T14:32:11Z
+$ bash -c probe_door "$@" bash api.shop.poc.local 172.18.255.16
+HTTP/2 200 
+server: envoy
+date: Fri, 18 Sep 2026 14:32:11 GMT
+content-type: application/octet-stream
+content-length: 12
+x-envoy-upstream-service-time: 0
+x-served-by: poc1
+
+
+### 2026-09-18T14:32:11Z
+$ bash -c probe_door "$@" bash api.poc1.shop.poc.local 172.18.255.242
+HTTP/2 200 
+server: envoy
+date: Fri, 18 Sep 2026 14:32:11 GMT
+content-type: application/octet-stream
+content-length: 12
+x-envoy-upstream-service-time: 0
+x-served-by: poc1
+
+
+### 2026-09-18T14:32:11Z
+$ bash -c probe_door "$@" bash api.poc2.shop.poc.local 172.18.255.177
+HTTP/2 200 
+server: envoy
+date: Fri, 18 Sep 2026 14:32:11 GMT
+content-type: application/octet-stream
+content-length: 12
+x-envoy-upstream-service-time: 0
+x-served-by: poc2
+
+
+### 2026-09-18T14:32:11Z
+$ kubectl --context kind-poc1 -n shop-clients exec shopper -- wget -qO- --timeout=5 http://catalog.shop-core.svc.cluster.local/healthz
+wget: download timed out
+command terminated with exit code 1
+[exit code: 1]
+
+### 2026-09-18T14:32:16Z
+$ bash -c show_svc "$@" bash kind-poc1
+-- kind-poc1 catalog ClusterIP=10.11.58.134
+-- annotations global=true affinity=local
+-- cilium-dbg service list
+172   10.11.58.134:80/TCP       ClusterIP      1 => 10.10.0.46:80/TCP (active)       
+-- cilium-dbg service list -o json (backend IPs, preferred, state)
+flags: {'extTrafficPolicy': 'Cluster', 'intTrafficPolicy': 'Cluster', 'name': 'catalog', 'namespace': 'shop-core', 'trafficPolicy': 'Cluster', 'type': 'ClusterIP'}
+ backend 10.10.0.46 state=active preferred=True
+MEASURED: affinity:local omits remote backends from this list while a local backend is healthy (Cilium 1.20.2). They appear if the affinity annotation is removed.
+-- cilium-dbg bpf lb list (no affinity column on 1.20.2; flags are [ClusterIP, non-routable])
+10.11.58.134:80/TCP (1)       10.10.0.46:80/TCP (172) (1)                                                                
+10.11.58.134:80/TCP (0)       0.0.0.0:0 (172) (0) [ClusterIP, non-routable]                                              
+10.11.58.134:0/ANY (0)        0.0.0.0:0 (0) (0) [ClusterIP, non-routable]                                                
+
+### 2026-09-18T14:32:16Z
+$ bash -c show_svc "$@" bash kind-poc2
+-- kind-poc2 catalog ClusterIP=10.21.123.1
+-- annotations global=true affinity=local
+-- cilium-dbg service list
+95   10.21.123.1:80/TCP       ClusterIP      1 => 10.20.0.135:80/TCP (active)      
+-- cilium-dbg service list -o json (backend IPs, preferred, state)
+flags: {'extTrafficPolicy': 'Cluster', 'intTrafficPolicy': 'Cluster', 'name': 'catalog', 'namespace': 'shop-core', 'trafficPolicy': 'Cluster', 'type': 'ClusterIP'}
+ backend 10.20.0.135 state=active preferred=True
+MEASURED: affinity:local omits remote backends from this list while a local backend is healthy (Cilium 1.20.2). They appear if the affinity annotation is removed.
+-- cilium-dbg bpf lb list (no affinity column on 1.20.2; flags are [ClusterIP, non-routable])
+10.21.123.1:0/ANY (0)        0.0.0.0:0 (0) (0) [ClusterIP, non-routable]                                               
+10.21.123.1:80/TCP (0)       0.0.0.0:0 (95) (0) [ClusterIP, non-routable]                                              
+10.21.123.1:80/TCP (1)       10.20.0.135:80/TCP (95) (1)                                                               
+
+### 2026-09-18T14:32:17Z
+$ bash -c final_table "$@" bash kind-poc1 kind-poc2
+CLUSTER  DEPLOYMENTS    HTTPROUTES             VIP                          POC1_DOOR                    POC2_DOOR                   
+poc1     7/7            2/2 accepted, 2/2 resolved 200 X-Served-By=poc1         200 X-Served-By=poc1         200 X-Served-By=poc2        
+poc2     7/7            2/2 accepted, 2/2 resolved 200 X-Served-By=poc1         200 X-Served-By=poc1         200 X-Served-By=poc2        
+
+### 2026-09-18T14:32:18Z
+$ demos/41-shop-mesh-phase1/check.sh
+
+== demo 41 — the shop platform on the mesh, phase 1 (the platform behind the doors)
+  STATUS WHAT                                                                   MEASURED                                             RULE
+  PASS   poc1/shop-edge/api-gateway Available                                   1/1                                                  availableReplicas == spec.replicas ≥ 1
+  PASS   poc1/shop-core/catalog Available                                       1/1                                                  availableReplicas == spec.replicas ≥ 1
+  PASS   poc1/shop-core/orders Available                                        1/1                                                  availableReplicas == spec.replicas ≥ 1
+  PASS   poc1/shop-core/backend Available                                       1/1                                                  availableReplicas == spec.replicas ≥ 1
+  PASS   poc1/shop-payments/payment-gateway Available                           1/1                                                  availableReplicas == spec.replicas ≥ 1
+  PASS   poc1/shop-merchant/merchant Available                                  1/1                                                  availableReplicas == spec.replicas ≥ 1
+  PASS   poc1/shop-reviews/reviews Available                                    1/1                                                  availableReplicas == spec.replicas ≥ 1
+  PASS   poc2/shop-edge/api-gateway Available                                   1/1                                                  availableReplicas == spec.replicas ≥ 1
+  PASS   poc2/shop-core/catalog Available                                       1/1                                                  availableReplicas == spec.replicas ≥ 1
+  PASS   poc2/shop-core/orders Available                                        1/1                                                  availableReplicas == spec.replicas ≥ 1
+  PASS   poc2/shop-core/backend Available                                       1/1                                                  availableReplicas == spec.replicas ≥ 1
+  PASS   poc2/shop-payments/payment-gateway Available                           1/1                                                  availableReplicas == spec.replicas ≥ 1
+  PASS   poc2/shop-merchant/merchant Available                                  1/1                                                  availableReplicas == spec.replicas ≥ 1
+  PASS   poc2/shop-reviews/reviews Available                                    1/1                                                  availableReplicas == spec.replicas ≥ 1
+  PASS   poc1/shop-api Accepted on both doors                                   accepted=2/2 resolved=2/2                            every parent Accepted=True and ResolvedRefs=True (≥ 2 parents)
+  PASS   poc1/shop-redirect Accepted on both doors                              accepted=2/2 resolved=2/2                            every parent Accepted=True and ResolvedRefs=True (≥ 2 parents)
+  PASS   poc2/shop-api Accepted on both doors                                   accepted=2/2 resolved=2/2                            every parent Accepted=True and ResolvedRefs=True (≥ 2 parents)
+  PASS   poc2/shop-redirect Accepted on both doors                              accepted=2/2 resolved=2/2                            every parent Accepted=True and ResolvedRefs=True (≥ 2 parents)
+  PASS   VIP https://api.shop.poc.local @ 172.18.255.16                         http_code=200 X-Served-By=poc1 announcer=poc1        200 and X-Served-By equals vip-takeover.sh --status
+  PASS   X-Served-By never absent on the VIP                                    X-Served-By=poc1                                     the Gateway filter SET the header
+  PASS   https://api.poc1.shop.poc.local @ 172.18.255.242                       http_code=200 X-Served-By=poc1                       200 and X-Served-By=poc1
+  PASS   https://api.poc2.shop.poc.local @ 172.18.255.177                       http_code=200 X-Served-By=poc2                       200 and X-Served-By=poc2
+  PASS   http://api.shop.poc.local @ 172.18.255.16 redirects                    http_code=301 Location=https://api.shop.poc.local:443/ 301 and exactly one Location beginning https://api.shop.poc.local/ (optional :443)
+  PASS   http://api.poc1.shop.poc.local @ 172.18.255.242 redirects              http_code=301 Location=https://api.poc1.shop.poc.local:443/ 301 and exactly one Location beginning https://api.poc1.shop.poc.local/ (optional :443)
+  PASS   http://api.poc2.shop.poc.local @ 172.18.255.177 redirects              http_code=301 Location=https://api.poc2.shop.poc.local:443/ 301 and exactly one Location beginning https://api.poc2.shop.poc.local/ (optional :443)
+  PASS   poc1 catalog backends under affinity:local                             known=2 (clustermesh=1) selected=1 local             affinity local — remote backends known, not selected while a local one is Active (pkg/clustermesh/selectbackends.go)
+  PASS   poc2 catalog backends under affinity:local                             known=2 (clustermesh=1) selected=1 local             affinity local — remote backends known, not selected while a local one is Active (pkg/clustermesh/selectbackends.go)
+  PASS   poc1 has exactly the seven generated shop policies                     7/7 exact names                                      exact generated policy inventory, managed-by=cf2cnp
+  PASS   poc1 shop endpoints enforce ingress policy                             8/8 policy-enabled, PolicyAuditMode=Disabled         every service endpoint and ratings enforces policy with audit disabled
+  PASS   poc2 has exactly the seven generated shop policies                     7/7 exact names                                      exact generated policy inventory, managed-by=cf2cnp
+  PASS   poc2 shop endpoints enforce ingress policy                             8/8 policy-enabled, PolicyAuditMode=Disabled         every service endpoint and ratings enforces policy with audit disabled
+  PASS   VIP /healthz still 200 after policies                                  http_code=200 X-Served-By=poc1                       probe /healthz is 200 with the header
+  PASS   X-Served-By never absent on /healthz                                   X-Served-By=poc1                                     the Gateway filter SET the header
+
+### 2026-09-18T14:32:29Z
+$ bash -c verify_enforcement "$1" bash kind-poc1
+stranger -> catalog: expected failure rc=1 output=wget: download timed out
+command terminated with exit code 1
+catalog-5799bdf56f-qsd4p
+kind-poc1: DROPPED stranger->catalog and FORWARDED api-gateway->catalog observed
+
+### 2026-09-18T14:32:35Z
+$ bash -c verify_enforcement "$1" bash kind-poc2
+stranger -> catalog: expected failure rc=1 output=wget: download timed out
+command terminated with exit code 1
+catalog-5799bdf56f-qbv7m
+kind-poc2: DROPPED stranger->catalog and FORWARDED api-gateway->catalog observed
+
+### 2026-09-18T14:32:51Z
+$ bash -c verify_enforcement "$1" bash kind-poc1
+stranger -> catalog: expected failure rc=1 output=wget: download timed out
+command terminated with exit code 1
+catalog-5799bdf56f-qsd4p
+-- DROPPED stranger->catalog (from hubble observe --verdict DROPPED):
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+-- FORWARDED api-gateway->catalog (from hubble observe --verdict FORWARDED):
+  FORWARDED api-gateway-c448767bb-sljk4 -> catalog-5799bdf56f-qsd4p FORWARDED
+  FORWARDED api-gateway-c448767bb-sljk4 -> catalog-5799bdf56f-qsd4p FORWARDED
+  FORWARDED api-gateway-c448767bb-sljk4 -> catalog-5799bdf56f-qsd4p FORWARDED
+  FORWARDED api-gateway-c448767bb-sljk4 -> catalog-5799bdf56f-qsd4p FORWARDED
+  FORWARDED api-gateway-c448767bb-sljk4 -> catalog-5799bdf56f-qsd4p FORWARDED
+  FORWARDED api-gateway-c448767bb-sljk4 -> catalog-5799bdf56f-qsd4p FORWARDED
+  FORWARDED api-gateway-c448767bb-sljk4 -> catalog-5799bdf56f-qsd4p FORWARDED
+  FORWARDED api-gateway-c448767bb-sljk4 -> catalog-5799bdf56f-qsd4p FORWARDED
+  FORWARDED api-gateway-c448767bb-sljk4 -> catalog-5799bdf56f-qsd4p FORWARDED
+  FORWARDED api-gateway-c448767bb-sljk4 -> catalog-5799bdf56f-qsd4p FORWARDED
+kind-poc1: DROPPED stranger->catalog and FORWARDED api-gateway->catalog observed
+
+### 2026-09-18T14:32:56Z
+$ bash -c verify_enforcement "$1" bash kind-poc2
+stranger -> catalog: expected failure rc=1 output=wget: download timed out
+command terminated with exit code 1
+catalog-5799bdf56f-qbv7m
+-- DROPPED stranger->catalog (from hubble observe --verdict DROPPED):
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qsd4p shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+-- FORWARDED api-gateway->catalog (from hubble observe --verdict FORWARDED):
+  FORWARDED api-gateway-c448767bb-sljk4 -> catalog-5799bdf56f-qsd4p FORWARDED
+  FORWARDED api-gateway-c448767bb-sljk4 -> catalog-5799bdf56f-qsd4p FORWARDED
+  FORWARDED api-gateway-c448767bb-sljk4 -> catalog-5799bdf56f-qsd4p FORWARDED
+  FORWARDED api-gateway-c448767bb-sljk4 -> catalog-5799bdf56f-qsd4p FORWARDED
+  FORWARDED api-gateway-c448767bb-sljk4 -> catalog-5799bdf56f-qsd4p FORWARDED
+  FORWARDED api-gateway-c448767bb-htl4d -> catalog-5799bdf56f-qbv7m FORWARDED
+  FORWARDED api-gateway-c448767bb-htl4d -> catalog-5799bdf56f-qbv7m FORWARDED
+  FORWARDED api-gateway-c448767bb-htl4d -> catalog-5799bdf56f-qbv7m FORWARDED
+  FORWARDED api-gateway-c448767bb-htl4d -> catalog-5799bdf56f-qbv7m FORWARDED
+  FORWARDED api-gateway-c448767bb-htl4d -> catalog-5799bdf56f-qbv7m FORWARDED
+kind-poc2: DROPPED stranger->catalog and FORWARDED api-gateway->catalog observed
+
