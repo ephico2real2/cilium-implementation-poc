@@ -8,8 +8,8 @@ reported, never used.
 from __future__ import annotations
 
 import argparse
+import re
 import ssl
-import statistics
 import sys
 import time
 import urllib.error
@@ -18,6 +18,26 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 PROBE_PATHS = ("/healthz", "/ready", "/orders")
 DEFAULT_TIMEOUT = 2.0
+
+_UNITS = {"ns": 1e-9, "us": 1e-6, "µs": 1e-6, "ms": 1e-3, "s": 1.0, "m": 60.0, "h": 3600.0}
+_DURATION = re.compile(r"^(\d+(?:\.\d*)?|\.\d+)(ns|us|µs|ms|s|m|h)$")
+
+
+def parse_duration(text: str) -> float:
+    """Seconds as a number ("3", "0.5") or a Go duration ("3s", "500ms", "1m") — the same
+    spelling the Go sibling accepts, so a runbook line works verbatim with either client."""
+    try:
+        v = float(text)
+    except ValueError:
+        v = None
+    if v is None:
+        parts = [_DURATION.match(tok) for tok in re.findall(r"[\d.]+[a-zµ]+", text)]
+        if not text or not parts or any(m is None for m in parts) or "".join(m.group(0) for m in parts) != text:
+            raise argparse.ArgumentTypeError(f"{text!r} is neither seconds (3, 0.5) nor a duration (3s, 500ms, 1m)")
+        v = sum(float(m.group(1)) * _UNITS[m.group(2)] for m in parts)
+    if v < 0:
+        raise argparse.ArgumentTypeError(f"negative duration {text!r}")
+    return v
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -31,7 +51,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         p.add_argument("--url", required=True, help="base URL of the door")
         p.add_argument("--cacert", default="", help="PEM file of the CA to trust")
         p.add_argument("-k", "--insecure", action="store_true", help="skip CA verification (the operator's flag)")
-        p.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, help="per-request timeout in seconds (default 2)")
+        p.add_argument("--timeout", type=parse_duration, default=DEFAULT_TIMEOUT, help="per-request timeout: seconds or a duration such as 500ms (default 2)")
 
     probe = sub.add_parser("probe", help="hit /healthz, /ready, /orders once")
     add_common(probe)
@@ -39,7 +59,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     load = sub.add_parser("load", help="N req/s for M seconds")
     add_common(load)
     load.add_argument("--rate", type=int, required=True, help="requests per second")
-    load.add_argument("--duration", type=float, required=True, help="seconds to run")
+    load.add_argument("--duration", type=parse_duration, required=True, help="how long to run: seconds or a duration such as 1m")
     load.add_argument("--path", default="/healthz", help="path to hit (default /healthz)")
     return parser.parse_args(argv)
 
@@ -96,15 +116,23 @@ def aggregate_second(second: int, hits: list[dict]) -> dict:
     return {"second": second, "ok": ok, "fail": fail, "served": served}
 
 
+def percentile(sorted_ms: list[float], p: float) -> float:
+    """Nearest lower rank, no interpolation — the Go sibling's percentile(), so both clients print
+    the same numbers for the same samples (statistics.quantiles would interpolate: 5.5 where Go says 5)."""
+    if not sorted_ms:
+        return 0.0
+    if p <= 0:
+        return sorted_ms[0]
+    if p >= 100:
+        return sorted_ms[-1]
+    return sorted_ms[int((p / 100.0) * (len(sorted_ms) - 1))]
+
+
 def latency_summary(hits: list[dict]) -> tuple[float, float, float, float]:
-    ms = [h["latency_ms"] for h in hits]
+    ms = sorted(h["latency_ms"] for h in hits)
     if not ms:
         return 0.0, 0.0, 0.0, 0.0
-    if len(ms) == 1:
-        v = ms[0]
-        return v, v, v, v
-    q = statistics.quantiles(ms, n=100, method="inclusive")
-    return q[49], q[94], q[98], max(ms)
+    return percentile(ms, 50), percentile(ms, 95), percentile(ms, 99), ms[-1]
 
 
 def run_probe(base: str, timeout: float, ctx: ssl.SSLContext | None, out=sys.stdout) -> int:

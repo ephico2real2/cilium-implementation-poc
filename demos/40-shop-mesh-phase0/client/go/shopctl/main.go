@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,11 +39,41 @@ type config struct {
 	path     string
 }
 
+// durationValue is the shared spelling of --timeout and --duration: a bare number is SECONDS
+// (what the Python sibling and argparse take: "3", "0.5"), a Go duration keeps its unit ("3s",
+// "500ms", "1m"). One flag type, one contract, so a runbook line works verbatim with either client.
+type durationValue time.Duration
+
+func parseDuration(s string) (time.Duration, error) {
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		if f < 0 {
+			return 0, fmt.Errorf("negative duration %q", s)
+		}
+		return time.Duration(f * float64(time.Second)), nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("%q is neither seconds (3, 0.5) nor a duration (3s, 500ms, 1m)", s)
+	}
+	return d, nil
+}
+
+func (d *durationValue) String() string { return time.Duration(*d).String() }
+
+func (d *durationValue) Set(s string) error {
+	v, err := parseDuration(s)
+	if err != nil {
+		return err
+	}
+	*d = durationValue(v)
+	return nil
+}
+
 func usage() {
 	fmt.Fprintf(os.Stderr, `shopctl — probe or load an HTTPS door. The client knows only --url.
 
-  shopctl probe --url URL [--cacert FILE] [--insecure|-k] [--timeout DURATION]
-  shopctl load  --url URL --rate N --duration M [--path PATH] [--cacert FILE] [--insecure|-k] [--timeout DURATION]
+  shopctl probe --url URL [--cacert FILE] [--insecure|-k] [--timeout SECONDS|DURATION]
+  shopctl load  --url URL --rate N --duration SECONDS|DURATION [--path PATH] [--cacert FILE] [--insecure|-k] [--timeout SECONDS|DURATION]
 
 probe prints PATH STATUS X-SERVED-BY for /healthz, /ready, /orders.
 load prints SECOND OK FAIL X-SERVED-BY per second, then latency_ms p50 p95 p99 max;
@@ -65,10 +96,10 @@ func parseArgs(args []string) (*config, error) {
 	fs.StringVar(&cfg.cacert, "cacert", "", "PEM file of the CA to trust")
 	fs.BoolVar(&cfg.insecure, "insecure", false, "skip CA verification")
 	fs.BoolVar(&cfg.insecure, "k", false, "skip CA verification (the operator's flag)")
-	fs.DurationVar(&cfg.timeout, "timeout", defaultTimeout, "per-request timeout (default 2s)")
+	fs.Var((*durationValue)(&cfg.timeout), "timeout", "per-request timeout: seconds or a duration (default 2s)")
 	if cmd == "load" {
 		fs.IntVar(&cfg.rate, "rate", 0, "requests per second")
-		fs.DurationVar(&cfg.duration, "duration", 0, "how long to run")
+		fs.Var((*durationValue)(&cfg.duration), "duration", "how long to run: seconds or a duration")
 		fs.StringVar(&cfg.path, "path", "/healthz", "path to hit (default /healthz)")
 	}
 	if err := fs.Parse(args[1:]); err != nil {

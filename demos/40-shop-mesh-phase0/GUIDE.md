@@ -14,8 +14,8 @@ scripts/vip-takeover.sh poc1
 ```
 
 *Expect:* `--status` says poc1, with `shop-vip-announce` present only there and
-`lease holder=poc1-control-plane`. After `poc2`, the VIP lease is on a poc2 node (measured:
-`poc2-worker`) and poc1's policy is gone. `arp -n 172.18.255.16` on this Mac has **no entry** —
+`lease holder=poc1-worker`. After `poc2`, the VIP lease is on a poc2 node (measured:
+`poc2-control-plane`) and poc1's policy is gone. `arp -n 172.18.255.16` on this Mac has **no entry** —
 the host route's next hop is the Docker VM, so the Mac never ARPs for the VIP. `curl -sk
 --resolve api.shop.poc.local:443:172.18.255.16 https://api.shop.poc.local/` still returns 404
 from whichever cluster now announces. Flip back to poc1 before leaving the exercise. A short gap

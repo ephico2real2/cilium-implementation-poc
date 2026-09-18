@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # build.sh — shopapi:local, then kind load into both clusters (four nodes). A build on the Docker
-# VM is allowed in this phase (gotcha #118); measurements start in demo 41 after builds are done.
+# VM is allowed in this phase (gotcha #118 (PR #44)); measurements start in demo 41 after builds are done.
 #   demos/40-shop-mesh-phase0/shopapi/build.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"

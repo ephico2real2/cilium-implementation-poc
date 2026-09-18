@@ -37,6 +37,9 @@ spec:
     matchExpressions:
       - key: io.cilium.gateway/owning-gateway
         operator: Exists          # only Services Cilium generated for a Gateway
+      - key: io.cilium.gateway/owning-gateway
+        operator: NotIn
+        values: [shop-vip-gw]     # shop-vip-gw also matches shared-vip-pool; a static request lands in the pool holding the address either way, but one Service, one pool is the design
 ---
 # L2 ANNOUNCEMENTS: make the addresses above actually answerable on the bridge (covers both of THIS
 # cluster's pools). serviceSelector excludes shop-vip-gw: a CiliumL2AnnouncementPolicy selects

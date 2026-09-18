@@ -11,6 +11,9 @@ for ctx in kind-poc1 kind-poc2; do
   echo "== $ctx"
   kubectl --context "$ctx" -n shop-edge delete gateway shop-gw shop-vip-gw --ignore-not-found
   kubectl --context "$ctx" -n shop-edge delete certificate shop-tls --ignore-not-found
+  # cert-manager here runs WITHOUT --enable-certificate-owner-ref (measured: the Secret has no
+  # ownerReferences), so deleting the Certificate leaves its Secret behind. Delete it explicitly.
+  kubectl --context "$ctx" -n shop-edge delete secret shop-tls --ignore-not-found
   kubectl --context "$ctx" delete ciliuml2announcementpolicy shop-vip-announce --ignore-not-found
   kubectl --context "$ctx" delete ciliumloadbalancerippool shared-vip-pool --ignore-not-found
 done
@@ -33,4 +36,4 @@ spec:
 EOF
 done
 
-echo "phase 0 removed (namespaces kept: demo 35's shop-edge on poc1, and shop-edge on poc2 if apply.sh created it)"
+echo "phase 0 removed (KEPT: namespace shop-edge on both clusters, and the gateway-access: shop-gw label apply.sh added to it)"

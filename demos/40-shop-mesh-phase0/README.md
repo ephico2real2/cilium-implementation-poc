@@ -5,7 +5,7 @@ revision 4, tracking issue #42. Demo 35 is the platform this builds on; demo 41 
 platform behind these doors and starts measuring. This phase only lays the ground.
 
 Builds happen here (`shopapi:local`, both `shopctl`s). That is a build on the Docker VM, and it is
-allowed in this phase (gotcha #118). Measurements start in demo 41, after the VM is quiet.
+allowed in this phase (gotcha #118 (PR #44)). Measurements start in demo 41, after the VM is quiet.
 
 ## Summary context — the enterprise case
 
@@ -58,6 +58,32 @@ file, so applying the pool on poc2 cannot start a second announcer.
 | [`shopapi/`](shopapi/) | Go backend (`/healthz`, `/ready`, `/orders`); image loaded, no Deployment |
 | [`client/go/shopctl/`](client/go/shopctl/) / [`client/python/shopctl.py`](client/python/shopctl.py) | one contract, same table columns |
 
+## The clients
+
+Go and Python accept the same `--duration` / `--timeout` spelling (a bare number is seconds, or a
+Go duration: `3`, `3s`, `500ms`) and print the same nearest-rank percentiles on the same sample.
+M seconds = M one-second batches; the run ends after the last batch.
+
+Against `python3 -m http.server` (default path `/healthz` is 404, so every second is a fail):
+
+Go `shopctl load --rate 5 --duration 2 --timeout 500ms`:
+
+```text
+SECOND   OK     FAIL   X-SERVED-BY
+1        0      5      -
+2        0      5      -
+latency_ms  p50=2.6  p95=9.8  p99=9.8  max=9.8
+```
+
+Python `shopctl.py load --rate 5 --duration 2 --timeout 500ms`:
+
+```text
+SECOND   OK     FAIL   X-SERVED-BY
+1        0      5      -
+2        0      5      -
+latency_ms  p50=4.1  p95=10.2  p99=10.2  max=11.0
+```
+
 ## Steps
 
 From the repo root, both clusters up (Gateway API and L2 already on poc2):
@@ -84,7 +110,8 @@ poc2     shop-gw      172.18.255.177   True         True         -
 poc2     shop-vip-gw  172.18.255.16    True         True         poc1
 ```
 
-`check.sh` (exit 0), recorded 2026-09-18:
+`check.sh` (exit 0), recorded 2026-09-18 (condensed; the lease line is verbatim from
+[`output/transcript.txt`](output/transcript.txt)):
 
 ```text
   PASS   shared-vip-pool on poc1 / poc2                                         172.18.255.16–172.18.255.31
@@ -93,7 +120,7 @@ poc2     shop-vip-gw  172.18.255.16    True         True         poc1
   PASS   poc1/shop-vip-gw Programmed at 172.18.255.16
   PASS   poc2/shop-gw Programmed at 172.18.255.177
   PASS   poc2/shop-vip-gw Programmed at 172.18.255.16
-  PASS   exactly one cluster holds the VIP l2announce lease                     poc1 holder=poc1-control-plane
+  PASS   exactly one cluster holds the VIP l2announce lease                     poc1 holder=poc1-worker
   PASS   VIP https://api.shop.poc.local @ 172.18.255.16 answers                  http_code=404
   PASS   VIP leaf issuer is clustermesh-root-ca                                 issuer=CN=clustermesh-root-ca
   PASS   per-cluster doors @ .242 and .177                                      http_code=404, same issuer
@@ -122,7 +149,7 @@ poc2     shop-vip-gw  172.18.255.16    True         True         poc1
 
 **Lease movement when the L2 selector changed.** Applying the edited `kind-l2-announce` (NotIn
 `shop-vip-gw`) on a live cluster re-evaluates leases. Before and after on poc1, the four existing
-holders were unchanged — same names, same nodes, same ages (`2d13h` / `47h`). poc2's
+holders were unchanged — same names, same nodes, same ages (`2d14h` / `2d`). poc2's
 `rebel-base-lb` lease likewise did not move. The selector excluded a Service that did not exist yet;
 nothing had to be dropped. New leases appeared only when the Gateways were created:
 `cilium-l2announce-shop-edge-cilium-gateway-shop-gw` (both clusters) and
@@ -137,9 +164,22 @@ present `issuer=CN=clustermesh-root-ca` with SANs
 in full.
 
 **`vip-takeover.sh poc2`, then back to poc1.** Delete-from-the-other-first: poc2 acquired the VIP
-lease on `poc2-worker` at 0s; poc1's lease lingered ~15 s (`leaseDurationSeconds: 15`) with an
-empty holder, then vanished. `--status` therefore counts a non-empty `holderIdentity`, not the
-object name — a dying lease is not a second announcer. Restored to poc1 (`poc1-control-plane`).
+lease on `poc2-control-plane` at 0s; poc1's lease lingered with an empty holder (`27s` age in the
+same listing) then vanished. Immediately after the flip, `--status` printed
+`announced by: poc2` — a dying lease is not a second announcer. After 20 s:
+
+```text
+== VIP 172.18.255.16 announced by: poc2
+-- poc1
+  shop-vip-announce: absent
+  lease: none
+-- poc2
+  shop-vip-announce: present
+  lease holder=poc2-control-plane
+```
+
+Restored to poc1 (`poc1-worker` at 0s). After 20 s: `announced by: poc1`,
+`lease holder=poc1-worker`, poc2 `lease: none`.
 
 **`arp -n 172.18.255.16` on this Mac: no entry.** The Mac does not ARP for the VIP. The host route
 (NETWORKING_DESIGN §4.3) sends `172.18.0.0/16` to the Docker VM; the next hop in `arp -n` is the
@@ -150,19 +190,31 @@ reachable. On a Linux box on the kind bridge, `ip neigh` would show the node tha
 `--resolve`. `check.sh` pins the name with `curl --resolve` and sees 404. After
 `hosts-entries.sh | sudo tee -a /etc/hosts`, `shopctl probe` sees the same 404s (GUIDE exercise 3).
 
+## Known limitations
+
+The VIP marker is the Gateway **name** via Cilium's `io.cilium.gateway/owning-gateway` label —
+another namespace's Gateway named `shop-vip-gw` would match the shared pool and the announce
+policy. The lab has one `shop-edge` namespace. A propagated `spec.infrastructure.labels` marker
+is the hardening to measure in a later phase (rejected for phase 0: not measured on Cilium 1.20.2
+yet).
+
+The lab regression's lease row (`scripts/lab-regression.sh:186–196`) fails on **any** empty-holder
+lease, so a takeover's ~15 s dying lease inside a regression window would trip it. A note for
+phase 5, not a change now.
+
 ## Cleanup
 
 ```bash
 demos/40-shop-mesh-phase0/cleanup.sh
 ```
 
-Removes the Gateways, the certificate, `shop-vip-announce`, and `shared-vip-pool` from both
-clusters, and restores `kind-l2-announce` **without** the exclusion (an inline manifest — the
-on-disk pool files keep the exclusion for the next `apply.sh`). Leaves demo 35's namespaces alone,
-including `shop-edge` on poc1.
+Removes the Gateways, the certificate, the leftover `Secret/shop-tls`, `shop-vip-announce`, and
+`shared-vip-pool` from both clusters, and restores `kind-l2-announce` **without** the exclusion
+(an inline manifest — the on-disk pool files keep the exclusion for the next `apply.sh`). KEPT:
+namespace `shop-edge` and the `gateway-access: shop-gw` label apply.sh added to it.
 
 ## Where phase 1 starts
 
 Demo 41 deploys the shop platform in both clusters, attaches HTTPRoutes to these doors, and starts
 measuring. The image `shopapi:local` is already on all four nodes; both clients are already built.
-Do not rebuild during that demo (gotcha #118).
+Do not rebuild during that demo (gotcha #118 (PR #44)).

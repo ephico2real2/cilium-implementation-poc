@@ -50,7 +50,7 @@ done
 # (c) 4 Gateways Programmed with the expected addresses
 expect_gw() { # ctx name want_addr
   local ctx=$1 name=$2 want=$3
-  local addr prog
+  local addr prog extra
   addr=$(kubectl --context "$ctx" -n shop-edge get gateway "$name" -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
   prog=$(kubectl --context "$ctx" -n shop-edge get gateway "$name" -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' 2>/dev/null || true)
   extra=$(kubectl --context "$ctx" -n shop-edge get gateway "$name" -o jsonpath='{.status.addresses[*].value}' 2>/dev/null || true)
@@ -82,53 +82,81 @@ else
 fi
 
 # (e) VIP door from the Mac: 404 is a PASS (the door exists); 000 is a FAIL. Leaf issuer is the shared root.
-vip_code=$(curl -sk --resolve api.shop.poc.local:443:$VIP "https://api.shop.poc.local/" -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 2>/dev/null || echo 000)
-if [ "$vip_code" != "000" ] && [ -n "$vip_code" ]; then
-  row ok "VIP https://api.shop.poc.local @ $VIP answers" "http_code=$vip_code" "404 is PASS in phase 0 (no routes); 000 is FAIL"
+http_code() { # host addr — return 000 on curl failure, never concatenate the fallback onto a printed code
+  local host=$1 addr=$2 code
+  if ! code=$(curl -sk --resolve "$host:443:$addr" "https://$host/" \
+      -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 2>/dev/null); then
+    printf '000'
+    return
+  fi
+  printf '%s' "$code"
+}
+
+vip_code=$(http_code api.shop.poc.local "$VIP")
+if [ "$vip_code" = "404" ]; then
+  row ok "VIP https://api.shop.poc.local @ $VIP answers" \
+    "http_code=$vip_code" "http_code=404 in phase 0"
 else
-  row fail "VIP https://api.shop.poc.local @ $VIP answers" "http_code=${vip_code:-000}" "404 is PASS in phase 0 (no routes); 000 is FAIL"
+  row fail "VIP https://api.shop.poc.local @ $VIP answers" \
+    "http_code=${vip_code:-000}" "http_code=404 in phase 0; 000 means unreachable"
 fi
-vip_issuer=$(echo | openssl s_client -servername api.shop.poc.local -connect ${VIP}:443 2>/dev/null | openssl x509 -noout -issuer 2>/dev/null || true)
+
+vip_issuer=$(echo | openssl s_client -servername api.shop.poc.local \
+  -connect "${VIP}:443" 2>/dev/null |
+  openssl x509 -noout -issuer 2>/dev/null || true)
 if echo "$vip_issuer" | grep -q clustermesh-root-ca; then
-  row ok "VIP leaf issuer is clustermesh-root-ca" "$vip_issuer" "openssl x509 -noout -issuer contains clustermesh-root-ca"
+  row ok "VIP leaf issuer is clustermesh-root-ca" "$vip_issuer" \
+    "openssl x509 -noout -issuer contains clustermesh-root-ca"
 else
-  row fail "VIP leaf issuer is clustermesh-root-ca" "${vip_issuer:-no certificate}" "openssl x509 -noout -issuer contains clustermesh-root-ca"
+  row fail "VIP leaf issuer is clustermesh-root-ca" \
+    "${vip_issuer:-no certificate}" \
+    "openssl x509 -noout -issuer contains clustermesh-root-ca"
 fi
 
 # (f) per-cluster doors the same way
 door() { # host addr
   local host=$1 addr=$2 code issuer
-  code=$(curl -sk --resolve "$host:443:$addr" "https://$host/" -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 2>/dev/null || echo 000)
-  if [ "$code" != "000" ] && [ -n "$code" ]; then
-    row ok "https://$host @ $addr answers" "http_code=$code" "404 is PASS in phase 0; 000 is FAIL"
+  code=$(http_code "$host" "$addr")
+  if [ "$code" = "404" ]; then
+    row ok "https://$host @ $addr answers" "$code" "http_code=404 in phase 0"
   else
-    row fail "https://$host @ $addr answers" "http_code=${code:-000}" "404 is PASS in phase 0; 000 is FAIL"
+    row fail "https://$host @ $addr answers" "${code:-000}" \
+      "http_code=404 in phase 0; 000 means unreachable"
   fi
-  issuer=$(echo | openssl s_client -servername "$host" -connect "${addr}:443" 2>/dev/null | openssl x509 -noout -issuer 2>/dev/null || true)
+
+  issuer=$(echo | openssl s_client -servername "$host" \
+    -connect "${addr}:443" 2>/dev/null |
+    openssl x509 -noout -issuer 2>/dev/null || true)
   if echo "$issuer" | grep -q clustermesh-root-ca; then
-    row ok "$host leaf issuer is clustermesh-root-ca" "$issuer" "same root as the VIP"
+    row ok "$host leaf issuer is clustermesh-root-ca" "$issuer" \
+      "same root as the VIP"
   else
-    row fail "$host leaf issuer is clustermesh-root-ca" "${issuer:-no certificate}" "same root as the VIP"
+    row fail "$host leaf issuer is clustermesh-root-ca" \
+      "${issuer:-no certificate}" "same root as the VIP"
   fi
 }
 door api.poc1.shop.poc.local "$POC1_GW"
 door api.poc2.shop.poc.local "$POC2_GW"
 
 # (g) shopapi:local on all four nodes; both clients run --help
-nodes=$(kind get nodes --name poc1; kind get nodes --name poc2)
-missing=""
-while IFS= read -r node; do
-  [ -z "$node" ] && continue
+# Fixed list: `kind get nodes` failing used to silently drop these four rows.
+nodes=(
+  poc1-control-plane
+  poc1-worker
+  poc2-control-plane
+  poc2-worker
+)
+for node in "${nodes[@]}"; do
   imgs=$(docker exec "$node" crictl images 2>/dev/null || true)
   if printf '%s\n' "$imgs" | grep -q shopapi; then
-    row ok "shopapi:local on $node" "crictl images | grep shopapi matched" "image present on every kind node"
+    row ok "shopapi:local on $node" \
+      "crictl images | grep shopapi matched" \
+      "docker exec $node crictl images contains shopapi"
   else
-    row fail "shopapi:local on $node" "not found" "docker exec $node crictl images | grep shopapi"
-    missing=1
+    row fail "shopapi:local on $node" "not found" \
+      "docker exec $node crictl images contains shopapi"
   fi
-done <<EOF
-$nodes
-EOF
+done
 
 go_bin=demos/40-shop-mesh-phase0/client/go/shopctl/bin/shopctl-darwin-arm64
 [ "$(uname -s)" != Darwin ] && go_bin=demos/40-shop-mesh-phase0/client/go/shopctl/bin/shopctl-linux-amd64

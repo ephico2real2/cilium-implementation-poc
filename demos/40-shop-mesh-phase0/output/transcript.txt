@@ -1,4 +1,4 @@
-### 2026-09-18T12:45:51Z
+### 2026-09-18T13:20:26Z
 $ demos/40-shop-mesh-phase0/shopapi/build.sh
 #0 building with "desktop-linux" instance using docker driver
 
@@ -6,51 +6,57 @@ $ demos/40-shop-mesh-phase0/shopapi/build.sh
 #1 transferring dockerfile: 1.10kB done
 #1 DONE 0.0s
 
-#2 [internal] load metadata for gcr.io/distroless/static-debian12:nonroot
-#2 DONE 0.3s
+#2 [internal] load metadata for docker.io/library/golang:1.25-alpine
+#2 ...
 
-#3 [auth] library/golang:pull token for registry-1.docker.io
-#3 DONE 0.0s
+#3 [internal] load metadata for gcr.io/distroless/static-debian12:nonroot
+#3 DONE 0.2s
 
-#4 [internal] load metadata for docker.io/library/golang:1.25-alpine
-#4 DONE 0.6s
+#4 [auth] library/golang:pull token for registry-1.docker.io
+#4 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/golang:1.25-alpine
+#2 DONE 0.6s
 
 #5 [internal] load .dockerignore
 #5 transferring context: 2B done
 #5 DONE 0.0s
 
-#6 [stage-1 1/2] FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
-#6 resolve gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab 0.0s done
-#6 CACHED
+#6 [build 1/8] FROM docker.io/library/golang:1.25-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59
+#6 resolve docker.io/library/golang:1.25-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 0.0s done
+#6 DONE 0.0s
 
-#7 [build 1/8] FROM docker.io/library/golang:1.25-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59
-#7 resolve docker.io/library/golang:1.25-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 0.0s done
+#7 [stage-1 1/2] FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+#7 resolve gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab 0.0s done
 #7 DONE 0.0s
 
 #8 [internal] load build context
-#8 transferring context: 16.65kB done
+#8 transferring context: 5.57kB done
 #8 DONE 0.0s
 
-#9 [build 2/8] WORKDIR /src
+#9 [build 4/8] COPY 40-shop-mesh-phase0/shopapi/go.mod 40-shop-mesh-phase0/shopapi/go.sum ./40-shop-mesh-phase0/shopapi/
 #9 CACHED
 
-#10 [build 3/8] COPY shared/jsonview/ ./shared/jsonview/
+#10 [build 5/8] WORKDIR /src/40-shop-mesh-phase0/shopapi
 #10 CACHED
 
-#11 [build 4/8] COPY 40-shop-mesh-phase0/shopapi/go.mod 40-shop-mesh-phase0/shopapi/go.sum ./40-shop-mesh-phase0/shopapi/
-#11 DONE 0.0s
+#11 [build 2/8] WORKDIR /src
+#11 CACHED
 
-#12 [build 5/8] WORKDIR /src/40-shop-mesh-phase0/shopapi
-#12 DONE 0.0s
+#12 [build 3/8] COPY shared/jsonview/ ./shared/jsonview/
+#12 CACHED
 
 #13 [build 6/8] RUN go mod download
-#13 DONE 1.1s
+#13 CACHED
 
 #14 [build 7/8] COPY 40-shop-mesh-phase0/shopapi/main.go .
 #14 DONE 0.0s
 
 #15 [build 8/8] RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /shopapi .
-#15 DONE 4.6s
+#15 DONE 4.8s
+
+#7 [stage-1 1/2] FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+#7 CACHED
 
 #16 [stage-1 2/2] COPY --from=build /shopapi /shopapi
 #16 DONE 0.0s
@@ -58,130 +64,130 @@ $ demos/40-shop-mesh-phase0/shopapi/build.sh
 #17 exporting to image
 #17 exporting layers
 #17 exporting layers 0.2s done
-#17 exporting manifest sha256:b3eb022cba99b6d8c8d0092f3236c00f3b2efdfec2a3438cf31c291227500eee done
-#17 exporting config sha256:c32cc3df4dd0917125789845d100e67b7cc792966cd5c70d5365fa667cfa33a0 done
-#17 exporting attestation manifest sha256:4c7d5ca6f095067281552b9ba4dae6c17139952634f0d2dab058d9e7f4b44a2d done
-#17 exporting manifest list sha256:3da61e257e73ea50686fae5bb9255bff577ad7473ac93ddf908d11cfc4c8ced4 done
+#17 exporting manifest sha256:000130f93862510801766265ce440474b6338affefaad15a09dd26b0222f66d1 done
+#17 exporting config sha256:0fe505058b3662534f6a431d2848ad3dd7d7d03b76e021bb7320f12421bbc2a4 done
+#17 exporting attestation manifest sha256:6b7f586162f2c9884289eb1e68d4bd38e2765e3190c600adfc39dbb0608f7832 done
+#17 exporting manifest list sha256:a18c0904a8767fc195926b31b6337a3c7de70644be7daaf84acf072c7c252b4d done
 #17 naming to docker.io/library/shopapi:local done
 #17 unpacking to docker.io/library/shopapi:local 0.0s done
 #17 DONE 0.3s
 
-View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/xe9r3agchamxua2m0g9lxfque
-Image: "shopapi:local" with ID "sha256:3da61e257e73ea50686fae5bb9255bff577ad7473ac93ddf908d11cfc4c8ced4" not yet present on node "poc1-control-plane", loading...
-Image: "shopapi:local" with ID "sha256:3da61e257e73ea50686fae5bb9255bff577ad7473ac93ddf908d11cfc4c8ced4" not yet present on node "poc1-worker", loading...
-Image: "shopapi:local" with ID "sha256:3da61e257e73ea50686fae5bb9255bff577ad7473ac93ddf908d11cfc4c8ced4" not yet present on node "poc2-control-plane", loading...
-Image: "shopapi:local" with ID "sha256:3da61e257e73ea50686fae5bb9255bff577ad7473ac93ddf908d11cfc4c8ced4" not yet present on node "poc2-worker", loading...
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/wazloa5ergc6uh21uta1unzbg
+Image: "shopapi:local" with ID "sha256:a18c0904a8767fc195926b31b6337a3c7de70644be7daaf84acf072c7c252b4d" not yet present on node "poc1-control-plane", loading...
+Image: "shopapi:local" with ID "sha256:a18c0904a8767fc195926b31b6337a3c7de70644be7daaf84acf072c7c252b4d" not yet present on node "poc1-worker", loading...
+Image: "shopapi:local" with ID "sha256:a18c0904a8767fc195926b31b6337a3c7de70644be7daaf84acf072c7c252b4d" not yet present on node "poc2-control-plane", loading...
+Image: "shopapi:local" with ID "sha256:a18c0904a8767fc195926b31b6337a3c7de70644be7daaf84acf072c7c252b4d" not yet present on node "poc2-worker", loading...
 shopapi:local loaded into poc1 and poc2
 
-### 2026-09-18T12:46:00Z
+### 2026-09-18T13:20:34Z
 $ demos/40-shop-mesh-phase0/client/go/shopctl/build.sh
 wrote bin/shopctl-darwin-arm64 bin/shopctl-linux-amd64
 
-### 2026-09-18T12:46:07Z
+### 2026-09-18T13:20:35Z
 $ kubectl --context kind-poc1 apply -f cilium/lb-ippool-shared.yaml
 ciliumloadbalancerippool.cilium.io/shared-vip-pool created
 
-### 2026-09-18T12:46:07Z
+### 2026-09-18T13:20:35Z
 $ kubectl --context kind-poc2 apply -f cilium/lb-ippool-shared.yaml
 ciliumloadbalancerippool.cilium.io/shared-vip-pool created
 
-### 2026-09-18T12:46:07Z
+### 2026-09-18T13:20:35Z
 $ bash -c kubectl --context kind-poc1 -n kube-system get leases | grep l2announce || true
-cilium-l2announce-default-cilium-gateway-sw-gateway   poc1-control-plane                                                              2d13h
-cilium-l2announce-kube-system-hubble-ui               poc1-control-plane                                                              2d13h
-cilium-l2announce-routes-cilium-gateway-routes-gw     poc1-control-plane                                                              2d13h
-cilium-l2announce-team-b-cilium-gateway-team-b-gw     poc1-control-plane                                                              47h
+cilium-l2announce-default-cilium-gateway-sw-gateway   poc1-control-plane                                                              2d14h
+cilium-l2announce-kube-system-hubble-ui               poc1-control-plane                                                              2d14h
+cilium-l2announce-routes-cilium-gateway-routes-gw     poc1-control-plane                                                              2d14h
+cilium-l2announce-team-b-cilium-gateway-team-b-gw     poc1-control-plane                                                              2d
 
-### 2026-09-18T12:46:08Z
+### 2026-09-18T13:20:35Z
 $ kubectl --context kind-poc1 apply -f cilium/lb-ippool-poc1.yaml
 ciliumloadbalancerippool.cilium.io/kind-docker-pool unchanged
-ciliumloadbalancerippool.cilium.io/gateway-pool unchanged
+ciliumloadbalancerippool.cilium.io/gateway-pool configured
 ciliuml2announcementpolicy.cilium.io/kind-l2-announce configured
 
-### 2026-09-18T12:46:09Z
+### 2026-09-18T13:20:35Z
 $ bash -c kubectl --context kind-poc1 -n kube-system get leases | grep l2announce || true
-cilium-l2announce-default-cilium-gateway-sw-gateway   poc1-control-plane                                                              2d13h
-cilium-l2announce-kube-system-hubble-ui               poc1-control-plane                                                              2d13h
-cilium-l2announce-routes-cilium-gateway-routes-gw     poc1-control-plane                                                              2d13h
-cilium-l2announce-team-b-cilium-gateway-team-b-gw     poc1-control-plane                                                              47h
+cilium-l2announce-default-cilium-gateway-sw-gateway   poc1-control-plane                                                              2d14h
+cilium-l2announce-kube-system-hubble-ui               poc1-control-plane                                                              2d14h
+cilium-l2announce-routes-cilium-gateway-routes-gw     poc1-control-plane                                                              2d14h
+cilium-l2announce-team-b-cilium-gateway-team-b-gw     poc1-control-plane                                                              2d
 
-### 2026-09-18T12:46:09Z
+### 2026-09-18T13:20:35Z
 $ bash -c kubectl --context kind-poc2 -n kube-system get leases | grep l2announce || true
-cilium-l2announce-default-rebel-base-lb   poc2-control-plane                                                              2d13h
+cilium-l2announce-default-rebel-base-lb   poc2-control-plane                                                              2d14h
 
-### 2026-09-18T12:46:09Z
+### 2026-09-18T13:20:35Z
 $ kubectl --context kind-poc2 apply -f cilium/lb-ippool-poc2.yaml
 ciliumloadbalancerippool.cilium.io/kind-docker-pool unchanged
-ciliumloadbalancerippool.cilium.io/gateway-pool unchanged
+ciliumloadbalancerippool.cilium.io/gateway-pool configured
 ciliuml2announcementpolicy.cilium.io/kind-l2-announce configured
 
-### 2026-09-18T12:46:09Z
+### 2026-09-18T13:20:35Z
 $ bash -c kubectl --context kind-poc2 -n kube-system get leases | grep l2announce || true
-cilium-l2announce-default-rebel-base-lb   poc2-control-plane                                                              2d13h
+cilium-l2announce-default-rebel-base-lb   poc2-control-plane                                                              2d14h
 
-### 2026-09-18T12:46:09Z
+### 2026-09-18T13:20:35Z
 $ kubectl --context kind-poc1 apply -f demos/40-shop-mesh-phase0/00-namespaces.yaml
-namespace/shop-edge configured
+namespace/shop-edge unchanged
 
-### 2026-09-18T12:46:10Z
+### 2026-09-18T13:20:36Z
 $ kubectl --context kind-poc1 apply -f demos/40-shop-mesh-phase0/20-certificates.yaml
 certificate.cert-manager.io/shop-tls created
 
-### 2026-09-18T12:46:10Z
+### 2026-09-18T13:20:36Z
 $ kubectl --context kind-poc1 -n shop-edge wait certificate/shop-tls --for=condition=Ready --timeout=90s
 certificate.cert-manager.io/shop-tls condition met
 
-### 2026-09-18T12:46:10Z
+### 2026-09-18T13:20:36Z
 $ kubectl --context kind-poc1 apply -f demos/40-shop-mesh-phase0/30-gateways-poc1.yaml
 gateway.gateway.networking.k8s.io/shop-gw created
 gateway.gateway.networking.k8s.io/shop-vip-gw created
 
-### 2026-09-18T12:46:10Z
+### 2026-09-18T13:20:36Z
 $ kubectl --context kind-poc1 -n shop-edge wait --for=condition=Programmed gateway/shop-gw --timeout=120s
 gateway.gateway.networking.k8s.io/shop-gw condition met
 
-### 2026-09-18T12:46:10Z
+### 2026-09-18T13:20:36Z
 $ kubectl --context kind-poc1 -n shop-edge wait --for=condition=Programmed gateway/shop-vip-gw --timeout=120s
 gateway.gateway.networking.k8s.io/shop-vip-gw condition met
 
-### 2026-09-18T12:46:10Z
+### 2026-09-18T13:20:36Z
 $ kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/00-namespaces.yaml
-namespace/shop-edge created
+namespace/shop-edge unchanged
 
-### 2026-09-18T12:46:10Z
+### 2026-09-18T13:20:36Z
 $ kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/20-certificates.yaml
 certificate.cert-manager.io/shop-tls created
 
-### 2026-09-18T12:46:10Z
+### 2026-09-18T13:20:36Z
 $ kubectl --context kind-poc2 -n shop-edge wait certificate/shop-tls --for=condition=Ready --timeout=90s
 certificate.cert-manager.io/shop-tls condition met
 
-### 2026-09-18T12:46:10Z
+### 2026-09-18T13:20:37Z
 $ kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/30-gateways-poc2.yaml
 gateway.gateway.networking.k8s.io/shop-gw created
 gateway.gateway.networking.k8s.io/shop-vip-gw created
 
-### 2026-09-18T12:46:11Z
+### 2026-09-18T13:20:37Z
 $ kubectl --context kind-poc2 -n shop-edge wait --for=condition=Programmed gateway/shop-gw --timeout=120s
 gateway.gateway.networking.k8s.io/shop-gw condition met
 
-### 2026-09-18T12:46:11Z
+### 2026-09-18T13:20:37Z
 $ kubectl --context kind-poc2 -n shop-edge wait --for=condition=Programmed gateway/shop-vip-gw --timeout=120s
 gateway.gateway.networking.k8s.io/shop-vip-gw condition met
 
-### 2026-09-18T12:46:11Z
+### 2026-09-18T13:20:37Z
 $ kubectl --context kind-poc2 delete ciliuml2announcementpolicy shop-vip-announce --ignore-not-found
 
-### 2026-09-18T12:46:11Z
+### 2026-09-18T13:20:37Z
 $ kubectl --context kind-poc1 apply -f cilium/l2-shop-vip-announce.yaml
 ciliuml2announcementpolicy.cilium.io/shop-vip-announce created
 
-### 2026-09-18T12:46:14Z
+### 2026-09-18T13:20:40Z
 $ scripts/vip-takeover.sh --status
 == VIP 172.18.255.16 announced by: poc1
 -- poc1
   shop-vip-announce: present
-lease.coordination.k8s.io/cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw
+  lease holder=poc1-worker
 -- poc2
   shop-vip-announce: absent
   lease: none
@@ -189,12 +195,15 @@ lease.coordination.k8s.io/cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw
 172.18.255.16 (172.18.255.16) -- no entry
 (no ARP entry for 172.18.255.16 yet)
 
+### 2026-09-18T13:20:40Z
+$ bash -c final_table "$@" bash kind-poc1 kind-poc2
 CLUSTER  GATEWAY      ADDRESS          PROGRAMMED   CERT_READY   VIP_BY
 poc1     shop-gw      172.18.255.242   True         True         -
 poc1     shop-vip-gw  172.18.255.16    True         True         poc1
 poc2     shop-gw      172.18.255.177   True         True         -
 poc2     shop-vip-gw  172.18.255.16    True         True         poc1
-### 2026-09-18T12:47:22Z
+
+### 2026-09-18T13:21:02Z
 $ demos/40-shop-mesh-phase0/check.sh
 
 == demo 40 — the shop platform on the mesh, phase 0 (the ground under it)
@@ -207,78 +216,100 @@ $ demos/40-shop-mesh-phase0/check.sh
   PASS   poc1/shop-vip-gw Programmed at 172.18.255.16                           addr=172.18.255.16 Programmed=True (172.18.255.16)   Programmed=True and status.addresses[0]=172.18.255.16
   PASS   poc2/shop-gw Programmed at 172.18.255.177                              addr=172.18.255.177 Programmed=True (172.18.255.177) Programmed=True and status.addresses[0]=172.18.255.177
   PASS   poc2/shop-vip-gw Programmed at 172.18.255.16                           addr=172.18.255.16 Programmed=True (172.18.255.16)   Programmed=True and status.addresses[0]=172.18.255.16
-  PASS   exactly one cluster holds the VIP l2announce lease                     poc1 has cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw present in one context, absent in the other
-  PASS   VIP https://api.shop.poc.local @ 172.18.255.16 answers                 http_code=404                                        404 is PASS in phase 0 (no routes); 000 is FAIL
+  PASS   exactly one cluster holds the VIP l2announce lease                     poc1 holder=poc1-worker                              lease cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw has a holderIdentity in one context, none in the other
+  PASS   VIP https://api.shop.poc.local @ 172.18.255.16 answers                 http_code=404                                        http_code=404 in phase 0
   PASS   VIP leaf issuer is clustermesh-root-ca                                 issuer=CN=clustermesh-root-ca                        openssl x509 -noout -issuer contains clustermesh-root-ca
-  PASS   https://api.poc1.shop.poc.local @ 172.18.255.242 answers               http_code=404                                        404 is PASS in phase 0; 000 is FAIL
+  PASS   https://api.poc1.shop.poc.local @ 172.18.255.242 answers               404                                                  http_code=404 in phase 0
   PASS   api.poc1.shop.poc.local leaf issuer is clustermesh-root-ca             issuer=CN=clustermesh-root-ca                        same root as the VIP
-  PASS   https://api.poc2.shop.poc.local @ 172.18.255.177 answers               http_code=404                                        404 is PASS in phase 0; 000 is FAIL
+  PASS   https://api.poc2.shop.poc.local @ 172.18.255.177 answers               404                                                  http_code=404 in phase 0
   PASS   api.poc2.shop.poc.local leaf issuer is clustermesh-root-ca             issuer=CN=clustermesh-root-ca                        same root as the VIP
-  PASS   shopapi:local on poc1-control-plane                                    crictl images | grep shopapi matched                 image present on every kind node
-  PASS   shopapi:local on poc1-worker                                           crictl images | grep shopapi matched                 image present on every kind node
-  PASS   shopapi:local on poc2-control-plane                                    crictl images | grep shopapi matched                 image present on every kind node
-  PASS   shopapi:local on poc2-worker                                           crictl images | grep shopapi matched                 image present on every kind node
+  PASS   shopapi:local on poc1-control-plane                                    crictl images | grep shopapi matched                 docker exec poc1-control-plane crictl images contains shopapi
+  PASS   shopapi:local on poc1-worker                                           crictl images | grep shopapi matched                 docker exec poc1-worker crictl images contains shopapi
+  PASS   shopapi:local on poc2-control-plane                                    crictl images | grep shopapi matched                 docker exec poc2-control-plane crictl images contains shopapi
+  PASS   shopapi:local on poc2-worker                                           crictl images | grep shopapi matched                 docker exec poc2-worker crictl images contains shopapi
   PASS   shopctl (Go) --help                                                    demos/40-shop-mesh-phase0/client/go/shopctl/bin/shopctl-darwin-arm64 the darwin-arm64 / linux-amd64 binary runs --help
   PASS   shopctl.py --help                                                      demos/40-shop-mesh-phase0/client/python/shopctl.py   the Python client runs --help
 
-### 2026-09-18T12:47:23Z
+### 2026-09-18T13:21:03Z
+$ scripts/vip-takeover.sh --status
+== VIP 172.18.255.16 announced by: poc1
+-- poc1
+  shop-vip-announce: present
+  lease holder=poc1-worker
+-- poc2
+  shop-vip-announce: absent
+  lease: none
+== arp -n 172.18.255.16
+172.18.255.16 (172.18.255.16) -- no entry
+(no ARP entry for 172.18.255.16 yet)
+
+### 2026-09-18T13:21:04Z
 $ scripts/vip-takeover.sh poc2
 == takeover: poc2 will announce 172.18.255.16 (delete poc1 first)
 ciliuml2announcementpolicy.cilium.io "shop-vip-announce" deleted
 ciliuml2announcementpolicy.cilium.io/shop-vip-announce created
 == l2announce leases after
 -- poc2 l2announce leases
-cilium-l2announce-default-rebel-base-lb                  poc2-control-plane                                                              2d13h
-cilium-l2announce-shop-edge-cilium-gateway-shop-gw       poc2-control-plane                                                              72s
-cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw   poc2-worker                                                                     0s
+cilium-l2announce-default-rebel-base-lb                  poc2-control-plane                                                              2d14h
+cilium-l2announce-shop-edge-cilium-gateway-shop-gw       poc2-control-plane                                                              27s
+cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw   poc2-control-plane                                                              0s
 -- poc1 l2announce leases
-cilium-l2announce-default-cilium-gateway-sw-gateway      poc1-control-plane                                                              2d13h
-cilium-l2announce-kube-system-hubble-ui                  poc1-control-plane                                                              2d13h
-cilium-l2announce-routes-cilium-gateway-routes-gw        poc1-control-plane                                                              2d13h
-cilium-l2announce-shop-edge-cilium-gateway-shop-gw       poc1-control-plane                                                              73s
-cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw                                                                                   72s
-cilium-l2announce-team-b-cilium-gateway-team-b-gw        poc1-control-plane                                                              47h
+cilium-l2announce-default-cilium-gateway-sw-gateway      poc1-control-plane                                                              2d14h
+cilium-l2announce-kube-system-hubble-ui                  poc1-control-plane                                                              2d14h
+cilium-l2announce-routes-cilium-gateway-routes-gw        poc1-control-plane                                                              2d14h
+cilium-l2announce-shop-edge-cilium-gateway-shop-gw       poc1-control-plane                                                              28s
+cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw                                                                                   27s
+cilium-l2announce-team-b-cilium-gateway-team-b-gw        poc1-control-plane                                                              2d
 == arp -n 172.18.255.16
 172.18.255.16 (172.18.255.16) -- no entry
 (no ARP entry for 172.18.255.16 yet)
-== VIP 172.18.255.16 announced by: BOTH (poc1 and poc2)
+== VIP 172.18.255.16 announced by: poc2
 
-### 2026-09-18T12:47:23Z
-$ demos/40-shop-mesh-phase0/hosts-entries.sh
-# ---- cilium-kind-poc demo40 (generated 2026-09-18T12:47Z by demos/40-shop-mesh-phase0/hosts-entries.sh) ----
-172.18.255.16  api.shop.poc.local
-172.18.255.242  api.poc1.shop.poc.local
-172.18.255.177  api.poc2.shop.poc.local
-# db-service.poc.local  — phase 2 (db-gw does not exist yet)
-# ---- end cilium-kind-poc demo40 ----
+### 2026-09-18T13:21:24Z
+$ scripts/vip-takeover.sh --status
+== VIP 172.18.255.16 announced by: poc2
+-- poc1
+  shop-vip-announce: absent
+  lease: none
+-- poc2
+  shop-vip-announce: present
+  lease holder=poc2-control-plane
+== arp -n 172.18.255.16
+172.18.255.16 (172.18.255.16) -- no entry
+(no ARP entry for 172.18.255.16 yet)
 
-### 2026-09-18T12:47:24Z
-$ demos/40-shop-mesh-phase0/client/go/shopctl/bin/shopctl-darwin-arm64 probe --url https://api.shop.poc.local --insecure
-PATH       STATUS   X-SERVED-BY
-/healthz   000      -
-/ready     000      -
-/orders    000      -
-[exit code: 3]
-
-### 2026-09-18T12:47:29Z
+### 2026-09-18T13:21:24Z
 $ scripts/vip-takeover.sh poc1
 == takeover: poc1 will announce 172.18.255.16 (delete poc2 first)
 ciliuml2announcementpolicy.cilium.io "shop-vip-announce" deleted
 ciliuml2announcementpolicy.cilium.io/shop-vip-announce created
 == l2announce leases after
 -- poc1 l2announce leases
-cilium-l2announce-default-cilium-gateway-sw-gateway      poc1-control-plane                                                              2d13h
-cilium-l2announce-kube-system-hubble-ui                  poc1-control-plane                                                              2d13h
-cilium-l2announce-routes-cilium-gateway-routes-gw        poc1-control-plane                                                              2d13h
-cilium-l2announce-shop-edge-cilium-gateway-shop-gw       poc1-control-plane                                                              79s
-cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw   poc1-control-plane                                                              78s
-cilium-l2announce-team-b-cilium-gateway-team-b-gw        poc1-control-plane                                                              47h
+cilium-l2announce-default-cilium-gateway-sw-gateway      poc1-control-plane                                                              2d14h
+cilium-l2announce-kube-system-hubble-ui                  poc1-control-plane                                                              2d14h
+cilium-l2announce-routes-cilium-gateway-routes-gw        poc1-control-plane                                                              2d14h
+cilium-l2announce-shop-edge-cilium-gateway-shop-gw       poc1-control-plane                                                              48s
+cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw   poc1-worker                                                                     0s
+cilium-l2announce-team-b-cilium-gateway-team-b-gw        poc1-control-plane                                                              2d
 -- poc2 l2announce leases
-cilium-l2announce-default-rebel-base-lb                  poc2-control-plane                                                              2d13h
-cilium-l2announce-shop-edge-cilium-gateway-shop-gw       poc2-control-plane                                                              78s
-cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw                                                                                   6s
+cilium-l2announce-default-rebel-base-lb                  poc2-control-plane                                                              2d14h
+cilium-l2announce-shop-edge-cilium-gateway-shop-gw       poc2-control-plane                                                              47s
+cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw                                                                                   20s
 == arp -n 172.18.255.16
 172.18.255.16 (172.18.255.16) -- no entry
 (no ARP entry for 172.18.255.16 yet)
-== VIP 172.18.255.16 announced by: BOTH (poc1 and poc2)
+== VIP 172.18.255.16 announced by: poc1
+
+### 2026-09-18T13:21:44Z
+$ scripts/vip-takeover.sh --status
+== VIP 172.18.255.16 announced by: poc1
+-- poc1
+  shop-vip-announce: present
+  lease holder=poc1-worker
+-- poc2
+  shop-vip-announce: absent
+  lease: none
+== arp -n 172.18.255.16
+172.18.255.16 (172.18.255.16) -- no entry
+(no ARP entry for 172.18.255.16 yet)
 
