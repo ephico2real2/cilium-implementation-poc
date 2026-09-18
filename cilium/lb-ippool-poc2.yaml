@@ -38,7 +38,12 @@ spec:
       - key: io.cilium.gateway/owning-gateway
         operator: Exists          # only Services Cilium generated for a Gateway
 ---
-# L2 ANNOUNCEMENTS: make the addresses above actually answerable on the bridge (covers both pools).
+# L2 ANNOUNCEMENTS: make the addresses above actually answerable on the bridge (covers both of THIS
+# cluster's pools). serviceSelector excludes shop-vip-gw: a CiliumL2AnnouncementPolicy selects
+# SERVICES, not IPs, so without this NotIn both clusters would ARP for the shared VIP
+# (172.18.255.16) — the conflict the split-Gateway design exists to avoid. The VIP is announced only
+# by cilium/l2-shop-vip-announce.yaml, in one cluster. Editing this selector on a live cluster
+# re-evaluates leases; apply.sh prints them before and after.
 apiVersion: "cilium.io/v2alpha1"
 kind: CiliumL2AnnouncementPolicy
 metadata:
@@ -48,3 +53,8 @@ spec:
     - ^eth0$
   externalIPs: false
   loadBalancerIPs: true
+  serviceSelector:
+    matchExpressions:
+      - key: io.cilium.gateway/owning-gateway
+        operator: NotIn
+        values: [shop-vip-gw]             # NotIn still matches Services that lack the key (plain LBs, other Gateways)

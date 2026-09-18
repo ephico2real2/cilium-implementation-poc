@@ -1,0 +1,68 @@
+# poc2's two doors. Same shape as 30-gateways-poc1.yaml; only the per-cluster address and hostname
+# change (.177 in poc2's gateway-pool, api.poc2.shop.poc.local). The VIP Gateway is identical
+# (.16, api.shop.poc.local) — both clusters hold it, one announces it.
+#
+#   kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/30-gateways-poc2.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: shop-gw
+  namespace: shop-edge
+spec:
+  addresses:
+    - type: IPAddress
+      value: "172.18.255.177"             # poc2 gateway-pool; announced by kind-l2-announce
+  gatewayClassName: cilium
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: api.poc2.shop.poc.local
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: shop-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector: {matchLabels: {gateway-access: shop-gw}}
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector: {matchLabels: {gateway-access: shop-gw}}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: shop-vip-gw
+  namespace: shop-edge
+spec:
+  addresses:
+    - type: IPAddress
+      value: "172.18.255.16"              # shared-vip-pool; announced only by shop-vip-announce
+  gatewayClassName: cilium
+  listeners:
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: api.shop.poc.local
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: shop-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector: {matchLabels: {gateway-access: shop-gw}}
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector: {matchLabels: {gateway-access: shop-gw}}

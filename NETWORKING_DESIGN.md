@@ -227,7 +227,8 @@ Three things to read off that output, because they are the design:
    | `172.18.255.192/26` | poc1 | `.200–.239` | `.240–.250` | `cilium/lb-ippool-poc1.yaml` |
    | `172.18.255.128/26` | poc2 | `.136–.175` | `.176–.186` | `cilium/lb-ippool-poc2.yaml` |
    | `172.18.255.64/26` | poc3, when a third cluster exists | `.72–.111` | `.112–.122` | — |
-   | `172.18.255.0/26` | shared VIPs — a pool present in every cluster that announces them | | | enhancement 002 |
+   | `172.18.255.0/26` | shared VIPs | `.16–.31` (`shared-vip-pool`, selector `owning-gateway In [shop-vip-gw]`) | — | `cilium/lb-ippool-shared.yaml` |
+   | `172.18.255.0/26` | node-held reservation | `.40–.47` (never a pool; secondary addresses on gateway nodes, not LB IPAM) | — | — |
 
    The CI lab creates the docker network with `--ip-range 172.18.0.0/17` (`scripts/lab-up.sh`), so
    Docker can never allocate a container address in the top half at all. This is the enterprise

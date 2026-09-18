@@ -1,0 +1,26 @@
+# L2 announcement for the shop VIP (172.18.255.16) — applied to EXACTLY ONE cluster at a time.
+#
+# Apply with:
+#   scripts/vip-takeover.sh poc1          # or poc2; deletes from the other FIRST
+#   kubectl --context kind-poc1 apply -f cilium/l2-shop-vip-announce.yaml   # phase 0 default
+#
+# WHY ITS OWN FILE. cilium/lb-ippool-shared.yaml is applied to BOTH clusters; this policy must not
+# be. Applying the pool file on poc2 would otherwise start a second announcer for .16. Phase 0's
+# apply.sh puts this on poc1; scripts/vip-takeover.sh is the flip (phase 5 / demo 45).
+#
+# The selector is the complement of kind-l2-announce's NotIn: only the Service Cilium generates for
+# Gateway/shop-vip-gw is announced. interfaces ^eth0$ matches the kind node's bridge NIC.
+apiVersion: "cilium.io/v2alpha1"
+kind: CiliumL2AnnouncementPolicy
+metadata:
+  name: shop-vip-announce
+spec:
+  interfaces:
+    - ^eth0$
+  externalIPs: false
+  loadBalancerIPs: true
+  serviceSelector:
+    matchExpressions:
+      - key: io.cilium.gateway/owning-gateway
+        operator: In
+        values: [shop-vip-gw]

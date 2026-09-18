@@ -1,0 +1,21 @@
+# Same shape as demo 09 / demo 15: static Go binary on distroless. golang:1.25 — pgx v5.11 requires
+# go >= 1.25 (the bank app's go.mod says so); a 1.24 builder fails at `go mod download`.
+# Layout mirrors the repo (WORKDIR /src/40-shop-mesh-phase0/shopapi) so
+# replace jsonview => ../../shared/jsonview resolves both on the host and in the image.
+#
+#   docker build -t shopapi:local -f demos/40-shop-mesh-phase0/shopapi/Containerfile demos
+#   kind load docker-image shopapi:local --name poc1
+#   kind load docker-image shopapi:local --name poc2
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+COPY shared/jsonview/ ./shared/jsonview/
+COPY 40-shop-mesh-phase0/shopapi/go.mod 40-shop-mesh-phase0/shopapi/go.sum ./40-shop-mesh-phase0/shopapi/
+WORKDIR /src/40-shop-mesh-phase0/shopapi
+RUN go mod download
+COPY 40-shop-mesh-phase0/shopapi/main.go .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /shopapi .
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /shopapi /shopapi
+USER nonroot:nonroot
+ENTRYPOINT ["/shopapi"]

@@ -7,3 +7,5 @@ out/
 # Built binaries of the demo app (build with: go build -o routedemo ./demos/09-routes/app)
 demos/09-routes/app/routedemo
 bin/
+# demo 40 shopctl cross-compiled binaries (build.sh writes these; bin/ also matches)
+demos/40-shop-mesh-phase0/client/go/shopctl/bin/
