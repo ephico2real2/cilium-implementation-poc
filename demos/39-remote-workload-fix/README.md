@@ -3,7 +3,9 @@
 The other demos use Cilium. This one changes it: takes a bug the lab measured (cilium/cilium#25676 — Hubble's
 `destination_workload` is empty when the backend pod runs on a different node from the agent that reports the flow),
 finds the lines that cause it, fixes them in a fork, builds the agent image on this Mac, runs it on `poc1`, and measures
-the same thing again. Written so a junior engineer can follow each step and see the number change.
+the same thing again. Written so a junior engineer can follow each step and see the number change. The operator directed the work and
+designed the test cases — the remote placement, the client on the other node, the same image on both clusters, the
+before/after captures; the assistant carried them out.
 
 | | |
 |---|---|
@@ -141,6 +143,21 @@ latency percentiles — the three panels that said "No data". The unmarked full 
 
 1.71 req/s, 100 % non-5xx, P50/P95/P99. The one empty panel, *CPU Usage by Source*, reads kube-state-metrics for the
 source's workload — the client is a bare pod, so by the third commit's rule it has none: correct, not a gap.
+
+## 6b. The measurement as a script — `check.sh`
+
+[`check.sh`](check.sh) does §6 unattended and prints three PASS/FAIL rows: it finds the backend pod and its node,
+starts a curl pod on the **other** node, sends the Gateway requests from there, reads that node's agent's Hubble
+metrics and names the build that answered (`cilium-agent 1.20.2 1d3a02ab`). It is what the CI runs on the patched
+image. On this lab, 2026-09-18:
+
+```text
+  PASS   The reporting agent is on a different node than the backend            client on poc1-worker, backend on poc1-control-plane
+  PASS   Gateway requests reached the backend                                    40/40 HTTP 200
+  PASS   Hubble names the remote backend's workload on the Envoy-reported flow   destination_workload="shop" (3 series)
+```
+
+On release 1.20.2 the third row is FAIL with `destination_workload=""` — the same script, the same placement.
 
 ## 7. What the reviewers said, and where this goes
 
