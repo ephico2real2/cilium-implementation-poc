@@ -495,6 +495,38 @@ from the fork's `develop` (29 commits ahead, 0 behind): the #16 dashboard (open 
 dashboard's `Container` variable that makes it safe, and cf2cnp ≥ 0.7.0. Both charts say `2.7.0`; they are not the same
 chart. The comparison, commit by commit: [`docs/upstream/releases/hubble-observer-2.7.0.md`](../../docs/upstream/releases/hubble-observer-2.7.0.md).
 
+## Part 10d — the dashboard made to mean something: captions, rankings, colours that keep their meaning (2026-09-17)
+
+The operator, reading the dashboard after the 1.20.2 upgrade: *"flow per source namespace have the same colours for
+different namespaces"* and *"some of the panels have no data, measurement stats or gauge or the right comparisons …
+it needs to mean something, so maybe a little legend can be added below each"*. The research —
+[`docs/OBSERVER-DASHBOARD-PANELS.md`](../../docs/OBSERVER-DASHBOARD-PANELS.md) — read each panel's field from Cilium's
+`flow.proto`, the observer's command (`--verdict DROPPED`: every panel counts drops), and Grafana's own guidance on
+which visualization answers which question; then measured. The colours: three pies ran an *instant* query with the
+pie's *All values* option, so Grafana coloured the rows of one table by value — two 28 % slices both rgb(87,148,242),
+three 33 % slices all rgb(115,191,105), read from the DOM. The three pies that were right ran a *range* query with
+*Calculate*, one series per label.
+
+[`dashboard-design.py`](dashboard-design.py) applies the design to the fork's dashboard file (fork branch
+`dashboard/meaning-and-colours`, deployed to poc1 and read back):
+
+- a **caption strip** under every Statistics panel — what it counts and what makes it empty ("Dropped flows … every
+  panel here counts drops, not traffic"; "whose policy decided"; "only flows whose destination IP was resolved through
+  Cilium's DNS proxy carry a name"; POLICY_DENIED vs POLICY_DENY vs STALE_OR_UNROUTABLE_IP; "a default-deny drop names
+  no policy — gotcha #82") and a hover description on every panel that had none;
+- the two **rankings** — who is being dropped (by namespace), where to (by DNS name) — as horizontal **bar gauges**,
+  `topk(10)`, sorted by the count, one muted colour: a ranking is a categorical comparison, which Grafana's guide gives
+  to bars, not pies; the near-equal slices (28/28/27/18) that looked alike now read as lengths with numbers;
+- the remaining pies (verdict, direction, drop reason, denying policy) in the range + Calculate shape, with **fixed
+  colours per meaning**: DROPPED red, FORWARDED green, AUDIT yellow; INGRESS blue, EGRESS orange; POLICY_DENIED red,
+  POLICY_DENY dark red, STALE_OR_UNROUTABLE_IP orange; "default deny (no matching allow)" grey so a named policy stands
+  out — the same meaning, the same colour on every load;
+- and the test that fills the empty panel: from demo 31's `pos` (an L7 DNS rule, `toFQDNs` for `example.com:443`
+  only), `wget https://example.org` → `DROPPED POLICY_DENIED cf2cnp-lab/pos → example.org:443` twelve times, and *Top
+  dropped destinations — by DNS name* shows three names within fifteen seconds. Also found in the data: eleven
+  `STALE_OR_UNROUTABLE_IP` drops at 22:34–22:35 UTC were poc2's edge Prometheus scraping `10.20.0.109:9962` — the
+  clustermesh-apiserver pod the 1.20.2 rollout had just replaced.
+
 ## Part 11 — cf2cnp through its UI, through Grafana, and through the API: learned from the project, then done
 
 cf2cnp ([onzack/cf2cnp](https://github.com/onzack/cf2cnp), Apache-2.0) "generates CiliumNetworkPolicies from
