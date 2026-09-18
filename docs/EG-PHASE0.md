@@ -560,20 +560,30 @@ Revision 2 of enhancement 007, from this record:
    to false when these resources are managed separately"* — all or nothing; `gateway-crds-helm` has the granular
    switches `crds.envoyGateway.enabled` and `crds.gatewayAPI.enabled` (+ `channel: standard|experimental`). So the
    guide's sequence, in `scripts/eg-up.sh` from demo 50 on: (1) the Gateway API **standard** CRDs from upstream's
-   `standard-install.yaml`; (2) `helm install eg-crds oci://docker.io/envoyproxy/gateway-crds-helm --set
-   crds.envoyGateway.enabled=true` — Envoy Gateway's eight CRDs; (3) `helm install eg oci://docker.io/envoyproxy/gateway-helm
+   `standard-install.yaml`; (2) `helm template eg-crds oci://docker.io/envoyproxy/gateway-crds-helm --set
+   crds.envoyGateway.enabled=true --set crds.gatewayAPI.enabled=false | kubectl apply --server-side` — Envoy
+   Gateway's eight CRDs, **the vendor's method** ([install-helm](https://gateway.envoyproxy.io/docs/install/install-helm/):
+   "We're using helm template piped into kubectl apply instead of helm install due to a known Helm limitation
+   ([helm/helm#12277](https://github.com/helm/helm/issues/12277)) related to large CRDs"), not a fallback — a Helm
+   release of this chart is impossible at v1.9.1 (`Secret "sh.helm.release.v1.eg-crds.v1" is invalid: data: Too long:
+   may not be more than 1048576 bytes`, measured both clusters); (3) `helm install eg oci://docker.io/envoyproxy/gateway-helm
    --set crds.enabled=false` — the controller, told its CRDs are managed by (1) and (2); (4) the `GatewayClass eg`.
    Alternative for a one-owner install: step (2) with `crds.gatewayAPI.enabled=true crds.gatewayAPI.channel=standard`
-   replaces step (1) — the same upstream content, Helm-managed; the guide names it as a note and keeps the YAML.
+   replaces step (1) — the same upstream content; the guide names it as a note and keeps the YAML (that variant is
+   still a `helm template` pipe: a Helm release of the CRD chart does not fit).
    Nothing of Envoy Gateway's is skipped: eg1 has all eight `gateway.envoyproxy.io` CRDs and two `EnvoyProxy` objects.
    **Standard channel only** (the operator, 2026-09-18: no experimental features in this lab; another lab later):
    measured — every `gateway.networking.k8s.io` CRD on eg1 carries `channel: standard`, `bundle-version: v1.6.2`; demo 50's
    `check.sh` asserts it on every CRD so the experimental set cannot arrive unnoticed.
    **Rendered, not inferred** (the operator asked; `helm template` at v1.9.1, 2026-09-18 21:05 UTC): `gateway-crds-helm`
    with `crds.envoyGateway.enabled=true crds.gatewayAPI.enabled=false` emits **0** `gateway.networking.k8s.io` CRDs and
-   **8** `gateway.envoyproxy.io` CRDs; the same chart with `crds.gatewayAPI.enabled=true` (its default channel) emits 10
-   Gateway API CRDs annotated **13 × `channel: experimental`, 2 × `standard`** — the mix this lab avoids; `gateway-helm`
-   with `crds.enabled=false` emits **0** CRDs of any kind. The only source of Gateway API CRDs on eg1 is upstream's
+   **8** `gateway.envoyproxy.io` CRDs; the same chart with `crds.gatewayAPI.enabled=true` (its default channel) emits **13
+   CRDs annotated `channel: experimental`** — the ten `gateway.networking.k8s.io` kinds plus `xbackends`,
+   `xbackendtrafficpolicies` and `xmeshes` of `gateway.networking.x-k8s.io` — every one at `bundle-version: v1.6.1` (not
+   the v1.6.2 this lab installs), and **2 objects annotated `standard` that are not CRDs** (the `safe-upgrades`
+   ValidatingAdmissionPolicy and its Binding); a `grep -c` of the channel lines reads 13/2 — the mix this lab avoids;
+   `gateway-helm` with `crds.enabled=false` emits **0** CRDs of any kind. The only source of Gateway API CRDs on eg1 is
+   upstream's
    `standard-install.yaml`.
 3. **The chart does not create GatewayClass `eg`.** Apply it (`controllerName:
    gateway.envoyproxy.io/gatewayclass-controller`).

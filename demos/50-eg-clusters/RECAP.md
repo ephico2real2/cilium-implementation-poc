@@ -1,6 +1,6 @@
 # What demo 50 did — the walk-through
 
-**The goal.** Enhancement 007 builds a second lab next to the Cilium one: two kind
+**The goal** — Enhancement 007 builds a second lab next to the Cilium one: two kind
 clusters, stock networking (kindnet and kube-proxy in iptables mode), the
 Gateway API CRDs from the standard channel, and Envoy Gateway as the
 implementation — so that demos 51 and 52 can put kube-vip and MetalLB in
@@ -29,7 +29,7 @@ because no IPv6 `--ip-range` was set; the check reads the IPv4 block only.
 `KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg` still prints "Here be dragons".
 eg1's nodes are `172.19.0.2` and `172.19.0.3`; eg2's are `172.19.0.4` and
 `172.19.0.5`. kindnet and kube-proxy are 2/2 on both; kube-proxy's ConfigMap
-says `mode: iptables`; `kubectl get ds -A | grep -c cilium` is 0. That is the
+says `mode: iptables`; no Cilium DaemonSet or CRD (`ds=0 crd=0`). That is the
 vanilla stack: a CNI that is not Cilium, a kube-proxy that is still there.
 
 **4. "Installing Envoy Gateway" is three commands, and the middle one cannot be a Helm release.**
@@ -37,10 +37,12 @@ The Gateway API CRDs come from upstream's `standard-install.yaml` v1.6.2,
 applied server-side so a rerun does not fight an older field manager. All ten
 CRDs are annotated `channel: standard` and `bundle-version: v1.6.2` — the
 check fails if either annotation drifts (D10). Envoy Gateway's own eight CRDs
-were supposed to be a Helm release (`gateway-crds-helm`, Gateway API left
-off). Helm refused: `Secret "sh.helm.release.v1.eg-crds.v1" is invalid: data:
-Too long: may not be more than 1048576 bytes`. The guide fell back to phase
-0's `helm template | kubectl apply --server-side` and recorded why. The
+are installed the way the vendor prescribes (`gateway-crds-helm`, Gateway
+API left off, `helm template | kubectl apply --server-side`). A Helm release
+of that chart is impossible: `Secret "sh.helm.release.v1.eg-crds.v1" is
+invalid: data: Too long: may not be more than 1048576 bytes` (measured on
+the first build). That 1 MiB Secret is why the pipe is the method
+([helm/helm#12277](https://github.com/helm/helm/issues/12277)). The
 controller chart installs as release `eg` with `crds.enabled=false` — its only
 switch is all-or-nothing, so it must be told the CRDs are already there. The
 chart does not create `GatewayClass eg`; that is a separate apply, Accepted on
@@ -87,7 +89,7 @@ they will announce from.
 | `gateway.networking.k8s.io` | 10 | `channel: standard`, `bundle-version: v1.6.2`, from `standard-install.yaml` | no — `kubectl apply --server-side` |
 | `gateway.envoyproxy.io` | 8 | `gateway-crds-helm` with `crds.gatewayAPI.enabled=false` | no — Helm Secret would exceed 1 MiB |
 | Envoy Gateway controller | — | `gateway-helm` `crds.enabled=false` | **yes** — release `eg` |
-| Gateway API from the CRD chart with `gatewayAPI.enabled=true` | 10 + mix | **13 × experimental, 2 × standard** (phase 0 render) | not installed |
+| Gateway API from the CRD chart with `gatewayAPI.enabled=true` | 13 | **all 13 `channel: experimental`** (10 core + 3 `x-k8s.io`), `bundle-version: v1.6.1`; the 2 `standard` lines are the safe-upgrades policy and its binding (phase 0 render) | not installed |
 
 *The root.* One CA, minted on eg1, copied to eg2. Not a leaf, not per cluster.
 
@@ -130,11 +132,29 @@ it.
                          reserved .0/26 shared VIP  (empty)
 ```
 
-**What the review caught.** The review pass has not run (PR #62 is still
-open). One implementation catch changed the check: `docker network inspect`
-prints `invalid Prefix` for the IPv6 `IPRange`, so concatenating every
-`.IPRange` looked like `172.19.0.0/17invalid Prefix` and failed a correct
-network. The check now reads the IPv4 block only.
+**What the review caught** (Codex, Grok, and OB3 — Opus 5 standing in while
+the Fable quota is out; OB1/OB2 owe a second reading of this pass):
+
+- `eg-up.sh eg2` minted a second lab root on eg2 and exported it over the
+  shared PEM. The root now lives on eg1 always; any other cluster copies it
+  or dies telling the operator to run `eg-up.sh eg1` first. The copy is
+  server-side so the CA key does not land in last-applied-configuration.
+- `helm repo add/update` bypassed the transcript and hid a failure behind
+  `|| true`. Both calls now go through `rec helm_r` and fail the script.
+- The guide tried `helm upgrade --install eg-crds` every run — a
+  deterministic Secret-too-long failure — then called the pipe a fallback.
+  The pipe is the vendor's method; the 1 MiB Secret is why.
+- The "no Cilium" row treated a dead kubectl as PASS (`grep -c` on nothing
+  is 0 — demo 40's class). The listing is captured first; a failed query is
+  a FAIL; DaemonSets and CRDs are both counted in one row.
+- The cert-manager RULE named no requirement number.
+- Docs said the CRD chart emits "10 Gateway API CRDs annotated 13 ×
+  experimental, 2 × standard". Rendered: 13 CRDs, all experimental, at
+  bundle-version v1.6.1, plus a ValidatingAdmissionPolicy and Binding
+  annotated standard (not CRDs).
+- The README's `check.sh` block was a paraphrase typeset as output.
+- The plan still named a committed root PEM (issue #60) and `versions.env`
+  for this lab's pins.
 
 **What you can do with it right now.**
 

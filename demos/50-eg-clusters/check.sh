@@ -89,12 +89,21 @@ for c in "${CLUSTER_ARR[@]}"; do
     row fail "$c kube-proxy mode iptables" "ds=${kp:-absent} mode=${mode:-?}" "R2 — kube-proxy present, mode iptables"
   fi
 
-  # R2 — no Cilium anywhere
-  cilium_ds=$(kubectl --context "$ctx" get ds -A 2>/dev/null | grep -c cilium || true)
-  if [ "${cilium_ds:-0}" -eq 0 ]; then
-    row ok "$c no Cilium DaemonSet" "grep -c cilium=$cilium_ds" "R2 — kubectl get ds -A | grep -c cilium = 0"
+  # R2 — no Cilium anywhere. The listings are captured before they are counted, so a
+  # kubectl that cannot reach the cluster is a FAIL and not "0 matches" (demo 40's
+  # lesson: a failed capture must never read as a PASS). DaemonSets and CRDs in
+  # one row so the check stays at 27.
+  if ds_all=$(kubectl --context "$ctx" get ds -A -o name 2>/dev/null) \
+     && crd_all=$(kubectl --context "$ctx" get crd -o name 2>/dev/null); then
+    cilium_ds=$(printf '%s\n' "$ds_all" | grep -c cilium || true)
+    cilium_crd=$(printf '%s\n' "$crd_all" | grep -c cilium || true)
+    if [ "$cilium_ds" -eq 0 ] && [ "$cilium_crd" -eq 0 ]; then
+      row ok "$c no Cilium DaemonSet or CRD" "ds=$cilium_ds crd=$cilium_crd" "R2 — kubectl get ds -A / get crd | grep -c cilium = 0"
+    else
+      row fail "$c no Cilium DaemonSet or CRD" "ds=$cilium_ds crd=$cilium_crd" "R2 — kubectl get ds -A / get crd | grep -c cilium = 0"
+    fi
   else
-    row fail "$c no Cilium DaemonSet" "grep -c cilium=$cilium_ds" "R2 — kubectl get ds -A | grep -c cilium = 0"
+    row fail "$c no Cilium DaemonSet or CRD" "kubectl get ds -A / get crd failed" "R2 — kubectl get ds -A / get crd | grep -c cilium = 0"
   fi
 
   # R3 / D5 / D10 — 10 Gateway API CRDs at the pin, every one channel: standard
@@ -163,9 +172,9 @@ for c in "${CLUSTER_ARR[@]}"; do
   # cert-manager Available
   cm_av=$(kubectl --context "$ctx" -n cert-manager get deploy cert-manager -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null || true)
   if [ "$cm_av" = True ]; then
-    row ok "$c cert-manager Deployment Available" "Available=$cm_av" "lab-up.sh form — cert-manager $CERT_MANAGER_VERSION Available"
+    row ok "$c cert-manager Deployment Available" "Available=$cm_av" "D8 — cert-manager $CERT_MANAGER_VERSION Available for the lab root"
   else
-    row fail "$c cert-manager Deployment Available" "Available=${cm_av:-?}" "lab-up.sh form — cert-manager $CERT_MANAGER_VERSION Available"
+    row fail "$c cert-manager Deployment Available" "Available=${cm_av:-?}" "D8 — cert-manager $CERT_MANAGER_VERSION Available for the lab root"
   fi
 
   # D8 — ClusterIssuer Ready

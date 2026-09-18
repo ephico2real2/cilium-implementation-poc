@@ -597,3 +597,477 @@ $ demos/50-eg-clusters/check.sh
 
 demo 50 check: 0 FAIL
 
+
+=== eg-up.sh start 2026-09-18T23:15:29Z clusters=eg1 eg2 ===
+=== THIS SCRIPT STOPS AT THE CONTROLLER, THE GATEWAYCLASS, CERT-MANAGER AND THE LAB ROOT ===
+=== no load balancers, no Gateways, no apps — those are demos 51 (kube-vip) and 52 (MetalLB) ===
+=== pins: GATEWAY_API=v1.6.2 ENVOY_GATEWAY=v1.9.1 CERT_MANAGER=v1.21.1 ===
+### 2026-09-18T23:15:29Z
+$ scripts/eg-net.sh
+exists with 172.19.0.0/16, kept
+
+### 2026-09-18T23:15:30Z
+$ docker network inspect kind-eg --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+subnet=172.19.0.0/16 ip-range=172.19.0.0/17 gateway=172.19.0.1
+subnet=fc00:f853:ccd:e794::/64 ip-range=invalid Prefix gateway=fc00:f853:ccd:e794::1
+
+
+### 2026-09-18T23:15:30Z
+$ kubectl --context kind-eg1 wait --for=condition=Ready nodes --all --timeout=180s
+node/eg1-control-plane condition met
+node/eg1-worker condition met
+
+### 2026-09-18T23:15:30Z
+$ kubectl --context kind-eg1 get nodes -o wide
+NAME                STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION            CONTAINER-RUNTIME
+eg1-control-plane   Ready    control-plane   34m   v1.36.4   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+eg1-worker          Ready    <none>          33m   v1.36.4   172.19.0.3    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+
+node IPv4 InternalIPs (must be in 172.19.0.0/17, none in 172.19.255.0/24):
+eg1-control-plane 172.19.0.2
+eg1-worker 172.19.0.3
+### 2026-09-18T23:15:30Z
+$ kubectl --context kind-eg1 -n kube-system get ds kindnet kube-proxy
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   34m
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   34m
+
+### 2026-09-18T23:15:30Z
+$ bash -c kubectl --context kind-eg1 -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+    mode: iptables
+
+### 2026-09-18T23:15:30Z
+$ kubectl --context kind-eg2 wait --for=condition=Ready nodes --all --timeout=180s
+node/eg2-control-plane condition met
+node/eg2-worker condition met
+
+### 2026-09-18T23:15:30Z
+$ kubectl --context kind-eg2 get nodes -o wide
+NAME                STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION            CONTAINER-RUNTIME
+eg2-control-plane   Ready    control-plane   33m   v1.36.4   172.19.0.4    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+eg2-worker          Ready    <none>          33m   v1.36.4   172.19.0.5    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+
+node IPv4 InternalIPs (must be in 172.19.0.0/17, none in 172.19.255.0/24):
+eg2-control-plane 172.19.0.4
+eg2-worker 172.19.0.5
+### 2026-09-18T23:15:31Z
+$ kubectl --context kind-eg2 -n kube-system get ds kindnet kube-proxy
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   33m
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   33m
+
+### 2026-09-18T23:15:31Z
+$ bash -c kubectl --context kind-eg2 -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+    mode: iptables
+
+### 2026-09-18T23:15:31Z
+$ helm_r repo add jetstack https://charts.jetstack.io --force-update
+"jetstack" has been added to your repositories
+
+### 2026-09-18T23:15:31Z
+$ helm_r repo update jetstack
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "jetstack" chart repository
+Update Complete. ⎈Happy Helming!⎈
+
+### 2026-09-18T23:15:31Z
+$ kubectl --context kind-eg1 apply --server-side --force-conflicts -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.2/standard-install.yaml
+customresourcedefinition.apiextensions.k8s.io/backendtlspolicies.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gatewayclasses.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gateways.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/grpcroutes.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/httproutes.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/listenersets.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/referencegrants.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/tcproutes.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/tlsroutes.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/udproutes.gateway.networking.k8s.io serverside-applied
+validatingadmissionpolicy.admissionregistration.k8s.io/safe-upgrades.gateway.networking.k8s.io serverside-applied
+validatingadmissionpolicybinding.admissionregistration.k8s.io/safe-upgrades.gateway.networking.k8s.io serverside-applied
+
+### 2026-09-18T23:15:32Z
+$ bash -c 
+set -euo pipefail
+n=$(kubectl --context kind-eg1 get crd -o name | grep -c '\.gateway\.networking\.k8s\.io$' || true)
+echo "gateway.networking.k8s.io CRDs: $n (want 10)"
+[ "$n" -eq 10 ] || { echo "D10: expected 10 Gateway API CRDs, got $n" >&2; exit 1; }
+fail=0
+while read -r crd; do
+  ch=$(kubectl --context kind-eg1 get "$crd" -o jsonpath='{.metadata.annotations.gateway\.networking\.k8s\.io/channel}')
+  ver=$(kubectl --context kind-eg1 get "$crd" -o jsonpath='{.metadata.annotations.gateway\.networking\.k8s\.io/bundle-version}')
+  echo "$crd channel=$ch bundle-version=$ver"
+  if [ "$ch" != standard ] || [ "$ver" != "v1.6.2" ]; then
+    echo "D10 FAIL: $crd channel=$ch bundle-version=$ver (want channel=standard bundle-version=v1.6.2)" >&2
+    fail=1
+  fi
+done < <(kubectl --context kind-eg1 get crd -o name | grep '\.gateway\.networking\.k8s\.io$')
+exit $fail
+
+gateway.networking.k8s.io CRDs: 10 (want 10)
+customresourcedefinition.apiextensions.k8s.io/backendtlspolicies.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/gatewayclasses.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/gateways.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/grpcroutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/httproutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/listenersets.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/referencegrants.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/tcproutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/tlsroutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/udproutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+
+### 2026-09-18T23:15:33Z
+$ bash -c helm template eg-crds oci://docker.io/envoyproxy/gateway-crds-helm --version v1.9.1 --set crds.gatewayAPI.enabled=false --set crds.envoyGateway.enabled=true | kubectl --context kind-eg1 apply --server-side --force-conflicts -f -
+Pulled: docker.io/envoyproxy/gateway-crds-helm:v1.9.1
+Digest: sha256:45693764cab8aae661bc32f0f706f5c8e5aaa9a151b6d03fb0a468cc535a155c
+customresourcedefinition.apiextensions.k8s.io/backends.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/backendtrafficpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clienttrafficpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/envoyextensionpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/envoypatchpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/envoyproxies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/httproutefilters.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/securitypolicies.gateway.envoyproxy.io serverside-applied
+
+### 2026-09-18T23:15:35Z
+$ bash -c 
+set -euo pipefail
+n=$(kubectl --context kind-eg1 get crd -o name | grep -c '\.gateway\.envoyproxy\.io$' || true)
+echo "gateway.envoyproxy.io CRDs: $n (want 8)"
+kubectl --context kind-eg1 get crd -o name | grep '\.gateway\.envoyproxy\.io$'
+[ "$n" -eq 8 ] || { echo "expected 8 gateway.envoyproxy.io CRDs, got $n" >&2; exit 1; }
+
+gateway.envoyproxy.io CRDs: 8 (want 8)
+customresourcedefinition.apiextensions.k8s.io/backends.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/backendtrafficpolicies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/clienttrafficpolicies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/envoyextensionpolicies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/envoypatchpolicies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/envoyproxies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/httproutefilters.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/securitypolicies.gateway.envoyproxy.io
+
+### 2026-09-18T23:15:35Z
+$ helm_r upgrade --install eg oci://docker.io/envoyproxy/gateway-helm --version v1.9.1 -n envoy-gateway-system --create-namespace --kube-context kind-eg1 --set crds.enabled=false
+Pulled: docker.io/envoyproxy/gateway-helm:v1.9.1
+Digest: sha256:91bae9aedb91ab34731e987afe01a3ccf454393015abeca705eea8ee15553e86
+Release "eg" has been upgraded. Happy Helming!
+NAME: eg
+LAST DEPLOYED: Fri Sep 18 18:15:36 2026
+NAMESPACE: envoy-gateway-system
+STATUS: deployed
+REVISION: 2
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+NOTES:
+**************************************************************************
+*** PLEASE BE PATIENT: Envoy Gateway may take a few minutes to install ***
+**************************************************************************
+
+Envoy Gateway is an open source project for managing Envoy Proxy as a standalone or Kubernetes-based application gateway.
+
+Thank you for installing Envoy Gateway! 🎉
+
+Your release is named: eg. 🎉
+
+Your release is in namespace: envoy-gateway-system. 🎉
+
+To learn more about the release, try:
+
+  $ helm status eg -n envoy-gateway-system
+  $ helm get all eg -n envoy-gateway-system
+
+To have a quickstart of Envoy Gateway, please refer to https://gateway.envoyproxy.io/latest/tasks/quickstart.
+
+To get more details, please visit https://gateway.envoyproxy.io and https://github.com/envoyproxy/gateway.
+
+### 2026-09-18T23:15:39Z
+$ kubectl --context kind-eg1 -n envoy-gateway-system rollout status deploy/envoy-gateway --timeout=180s
+deployment "envoy-gateway" successfully rolled out
+
+### 2026-09-18T23:15:39Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/gatewayclass.yaml
+gatewayclass.gateway.networking.k8s.io/eg unchanged
+
+### 2026-09-18T23:15:40Z
+$ kubectl --context kind-eg1 wait --for=condition=Accepted gatewayclass/eg --timeout=60s
+gatewayclass.gateway.networking.k8s.io/eg condition met
+
+### 2026-09-18T23:15:40Z
+$ helm_r upgrade --install cert-manager jetstack/cert-manager --version v1.21.1 --namespace cert-manager --create-namespace --kube-context kind-eg1 --set crds.enabled=true --wait --timeout 5m
+Release "cert-manager" has been upgraded. Happy Helming!
+NAME: cert-manager
+LAST DEPLOYED: Fri Sep 18 18:15:40 2026
+NAMESPACE: cert-manager
+STATUS: deployed
+REVISION: 2
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+NOTES:
+cert-manager v1.21.1 has been deployed successfully!
+
+In order to begin issuing certificates, you will need to set up a ClusterIssuer
+or Issuer resource (for example, by creating a 'letsencrypt-staging' issuer).
+
+More information on the different types of issuers and how to configure them
+can be found in our documentation:
+
+https://cert-manager.io/docs/configuration/
+
+For information on how to configure cert-manager to automatically provision
+Certificates for Ingress resources, take a look at the `ingress-shim`
+documentation:
+
+https://cert-manager.io/docs/usage/ingress/
+
+For information on how to configure cert-manager to automatically provision
+Certificates for Gateway API resources, take a look at the `gateway resource`
+documentation:
+
+https://cert-manager.io/docs/usage/gateway/
+
+### 2026-09-18T23:15:41Z
+$ kubectl --context kind-eg1 -n cert-manager wait deploy --all --for=condition=Available --timeout=180s
+deployment.apps/cert-manager condition met
+deployment.apps/cert-manager-cainjector condition met
+deployment.apps/cert-manager-webhook condition met
+
+### 2026-09-18T23:15:42Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/eg-root-ca.yaml
+issuer.cert-manager.io/selfsigned-bootstrap unchanged
+certificate.cert-manager.io/eg-root-ca unchanged
+clusterissuer.cert-manager.io/eg-ca-issuer unchanged
+
+### 2026-09-18T23:15:42Z
+$ kubectl --context kind-eg1 -n cert-manager wait certificate/eg-root-ca --for=condition=Ready --timeout=120s
+certificate.cert-manager.io/eg-root-ca condition met
+
+### 2026-09-18T23:15:42Z
+$ kubectl --context kind-eg1 wait clusterissuer/eg-ca-issuer --for=condition=Ready --timeout=120s
+clusterissuer.cert-manager.io/eg-ca-issuer condition met
+
+### 2026-09-18T23:15:42Z
+$ kubectl --context kind-eg2 apply --server-side --force-conflicts -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.2/standard-install.yaml
+customresourcedefinition.apiextensions.k8s.io/backendtlspolicies.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gatewayclasses.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gateways.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/grpcroutes.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/httproutes.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/listenersets.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/referencegrants.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/tcproutes.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/tlsroutes.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/udproutes.gateway.networking.k8s.io serverside-applied
+validatingadmissionpolicy.admissionregistration.k8s.io/safe-upgrades.gateway.networking.k8s.io serverside-applied
+validatingadmissionpolicybinding.admissionregistration.k8s.io/safe-upgrades.gateway.networking.k8s.io serverside-applied
+
+### 2026-09-18T23:15:43Z
+$ bash -c 
+set -euo pipefail
+n=$(kubectl --context kind-eg2 get crd -o name | grep -c '\.gateway\.networking\.k8s\.io$' || true)
+echo "gateway.networking.k8s.io CRDs: $n (want 10)"
+[ "$n" -eq 10 ] || { echo "D10: expected 10 Gateway API CRDs, got $n" >&2; exit 1; }
+fail=0
+while read -r crd; do
+  ch=$(kubectl --context kind-eg2 get "$crd" -o jsonpath='{.metadata.annotations.gateway\.networking\.k8s\.io/channel}')
+  ver=$(kubectl --context kind-eg2 get "$crd" -o jsonpath='{.metadata.annotations.gateway\.networking\.k8s\.io/bundle-version}')
+  echo "$crd channel=$ch bundle-version=$ver"
+  if [ "$ch" != standard ] || [ "$ver" != "v1.6.2" ]; then
+    echo "D10 FAIL: $crd channel=$ch bundle-version=$ver (want channel=standard bundle-version=v1.6.2)" >&2
+    fail=1
+  fi
+done < <(kubectl --context kind-eg2 get crd -o name | grep '\.gateway\.networking\.k8s\.io$')
+exit $fail
+
+gateway.networking.k8s.io CRDs: 10 (want 10)
+customresourcedefinition.apiextensions.k8s.io/backendtlspolicies.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/gatewayclasses.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/gateways.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/grpcroutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/httproutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/listenersets.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/referencegrants.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/tcproutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/tlsroutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/udproutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+
+### 2026-09-18T23:15:44Z
+$ bash -c helm template eg-crds oci://docker.io/envoyproxy/gateway-crds-helm --version v1.9.1 --set crds.gatewayAPI.enabled=false --set crds.envoyGateway.enabled=true | kubectl --context kind-eg2 apply --server-side --force-conflicts -f -
+Pulled: docker.io/envoyproxy/gateway-crds-helm:v1.9.1
+Digest: sha256:45693764cab8aae661bc32f0f706f5c8e5aaa9a151b6d03fb0a468cc535a155c
+customresourcedefinition.apiextensions.k8s.io/backends.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/backendtrafficpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clienttrafficpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/envoyextensionpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/envoypatchpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/envoyproxies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/httproutefilters.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/securitypolicies.gateway.envoyproxy.io serverside-applied
+
+### 2026-09-18T23:15:45Z
+$ bash -c 
+set -euo pipefail
+n=$(kubectl --context kind-eg2 get crd -o name | grep -c '\.gateway\.envoyproxy\.io$' || true)
+echo "gateway.envoyproxy.io CRDs: $n (want 8)"
+kubectl --context kind-eg2 get crd -o name | grep '\.gateway\.envoyproxy\.io$'
+[ "$n" -eq 8 ] || { echo "expected 8 gateway.envoyproxy.io CRDs, got $n" >&2; exit 1; }
+
+gateway.envoyproxy.io CRDs: 8 (want 8)
+customresourcedefinition.apiextensions.k8s.io/backends.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/backendtrafficpolicies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/clienttrafficpolicies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/envoyextensionpolicies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/envoypatchpolicies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/envoyproxies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/httproutefilters.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/securitypolicies.gateway.envoyproxy.io
+
+### 2026-09-18T23:15:46Z
+$ helm_r upgrade --install eg oci://docker.io/envoyproxy/gateway-helm --version v1.9.1 -n envoy-gateway-system --create-namespace --kube-context kind-eg2 --set crds.enabled=false
+Pulled: docker.io/envoyproxy/gateway-helm:v1.9.1
+Digest: sha256:91bae9aedb91ab34731e987afe01a3ccf454393015abeca705eea8ee15553e86
+Release "eg" has been upgraded. Happy Helming!
+NAME: eg
+LAST DEPLOYED: Fri Sep 18 18:15:46 2026
+NAMESPACE: envoy-gateway-system
+STATUS: deployed
+REVISION: 2
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+NOTES:
+**************************************************************************
+*** PLEASE BE PATIENT: Envoy Gateway may take a few minutes to install ***
+**************************************************************************
+
+Envoy Gateway is an open source project for managing Envoy Proxy as a standalone or Kubernetes-based application gateway.
+
+Thank you for installing Envoy Gateway! 🎉
+
+Your release is named: eg. 🎉
+
+Your release is in namespace: envoy-gateway-system. 🎉
+
+To learn more about the release, try:
+
+  $ helm status eg -n envoy-gateway-system
+  $ helm get all eg -n envoy-gateway-system
+
+To have a quickstart of Envoy Gateway, please refer to https://gateway.envoyproxy.io/latest/tasks/quickstart.
+
+To get more details, please visit https://gateway.envoyproxy.io and https://github.com/envoyproxy/gateway.
+
+### 2026-09-18T23:15:50Z
+$ kubectl --context kind-eg2 -n envoy-gateway-system rollout status deploy/envoy-gateway --timeout=180s
+deployment "envoy-gateway" successfully rolled out
+
+### 2026-09-18T23:15:50Z
+$ kubectl --context kind-eg2 apply -f clusters/eg/gatewayclass.yaml
+gatewayclass.gateway.networking.k8s.io/eg unchanged
+
+### 2026-09-18T23:15:50Z
+$ kubectl --context kind-eg2 wait --for=condition=Accepted gatewayclass/eg --timeout=60s
+gatewayclass.gateway.networking.k8s.io/eg condition met
+
+### 2026-09-18T23:15:50Z
+$ helm_r upgrade --install cert-manager jetstack/cert-manager --version v1.21.1 --namespace cert-manager --create-namespace --kube-context kind-eg2 --set crds.enabled=true --wait --timeout 5m
+Release "cert-manager" has been upgraded. Happy Helming!
+NAME: cert-manager
+LAST DEPLOYED: Fri Sep 18 18:15:50 2026
+NAMESPACE: cert-manager
+STATUS: deployed
+REVISION: 2
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+NOTES:
+cert-manager v1.21.1 has been deployed successfully!
+
+In order to begin issuing certificates, you will need to set up a ClusterIssuer
+or Issuer resource (for example, by creating a 'letsencrypt-staging' issuer).
+
+More information on the different types of issuers and how to configure them
+can be found in our documentation:
+
+https://cert-manager.io/docs/configuration/
+
+For information on how to configure cert-manager to automatically provision
+Certificates for Ingress resources, take a look at the `ingress-shim`
+documentation:
+
+https://cert-manager.io/docs/usage/ingress/
+
+For information on how to configure cert-manager to automatically provision
+Certificates for Gateway API resources, take a look at the `gateway resource`
+documentation:
+
+https://cert-manager.io/docs/usage/gateway/
+
+### 2026-09-18T23:15:51Z
+$ kubectl --context kind-eg2 -n cert-manager wait deploy --all --for=condition=Available --timeout=180s
+deployment.apps/cert-manager condition met
+deployment.apps/cert-manager-cainjector condition met
+deployment.apps/cert-manager-webhook condition met
+
+### 2026-09-18T23:15:52Z
+$ bash -c kubectl --context kind-eg1 -n cert-manager get secret eg-root-ca -o json | python3 -c '
+import json, sys
+s = json.load(sys.stdin)
+print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "kubernetes.io/tls"),
+  "metadata": {"name": s["metadata"]["name"], "namespace": "cert-manager"}, "data": s["data"]}))' | kubectl --context kind-eg2 apply --server-side --force-conflicts -f -
+secret/eg-root-ca serverside-applied
+
+### 2026-09-18T23:15:52Z
+$ kubectl --context kind-eg2 apply -f clusters/eg/eg-ca-issuer.yaml
+clusterissuer.cert-manager.io/eg-ca-issuer unchanged
+
+### 2026-09-18T23:15:52Z
+$ kubectl --context kind-eg2 wait clusterissuer/eg-ca-issuer --for=condition=Ready --timeout=120s
+clusterissuer.cert-manager.io/eg-ca-issuer condition met
+
+### 2026-09-18T23:15:52Z
+$ bash -c kubectl --context kind-eg1 -n cert-manager get secret eg-root-ca -o jsonpath='{.data.tls\.crt}' | base64 -d > .tmp/eg-root-ca.crt
+
+### 2026-09-18T23:15:52Z
+$ openssl x509 -in .tmp/eg-root-ca.crt -noout -subject -issuer -fingerprint -sha256
+subject=CN=eg-root-ca
+issuer=CN=eg-root-ca
+sha256 Fingerprint=6A:37:32:53:17:91:45:80:66:4D:9F:0B:6B:05:59:64:43:16:BA:05:93:0E:0F:CD:7C:70:87:F8:C0:2B:67:16
+
+root PEM is .tmp/eg-root-ca.crt (gitignored). A committed copy drifts on every rebuild (issue #60).
+CLUSTER  NODES/IPs                                        KUBEPROXY  GW_API       EG_CRDS  GATEWAYCLASS ENVOY-GATEWAY  CERT-MANAGER   ROOT_SHA256
+eg1      eg1-control-plane=172.19.0.2 eg1-worker=172.19.0.3  iptables   10@v1.6.2    8        Accepted=True 1/1            Available=True 6A:37:32:53:17:91:45:80:66:4D:9F:0B:6B:05:59:64:43:16:BA:05:93:0E:0F:CD:7C:70:87:F8:C0:2B:67:16
+eg2      eg2-control-plane=172.19.0.4 eg2-worker=172.19.0.5  iptables   10@v1.6.2    8        Accepted=True 1/1            Available=True 6A:37:32:53:17:91:45:80:66:4D:9F:0B:6B:05:59:64:43:16:BA:05:93:0E:0F:CD:7C:70:87:F8:C0:2B:67:16
+eg-up: done. Demos 51/52 install the load balancers and the Gateways.
+### 2026-09-18T23:15:58Z
+$ demos/50-eg-clusters/check.sh
+
+== demo 50 — the vanilla lab's clusters (enhancement 007 phase 1)
+  STATUS WHAT                                                                   MEASURED                                             RULE
+  PASS   eg1 nodes Ready                                                        Ready=2                                              R2 — every node Ready
+  PASS   eg1 node IPs in 172.19.0.0/17, none in 172.19.255.0/24                 eg1-control-plane=172.19.0.2 eg1-worker=172.19.0.3   R1 / §3.1 — Docker --ip-range 172.19.0.0/17
+  PASS   eg1 kindnet DaemonSet                                                  ready=2/2                                            R2 — kindnet present
+  PASS   eg1 kube-proxy mode iptables                                           ds=2/2 mode=iptables                                 R2 — kube-proxy present, mode iptables
+  PASS   eg1 no Cilium DaemonSet or CRD                                         ds=0 crd=0                                           R2 — kubectl get ds -A / get crd | grep -c cilium = 0
+  PASS   eg1 10 Gateway API CRDs channel=standard v1.6.2                        n=10 bad=0 ver=v1.6.2                                D10 / R3 — every gateway.networking.k8s.io CRD channel: standard, bundle-version v1.6.2
+  PASS   eg1 8 gateway.envoyproxy.io CRDs                                       n=8                                                  R3 — Envoy Gateway's own CRDs from gateway-crds-helm
+  PASS   eg1 helm list shows eg (eg-crds not a release)                         eg                                                   R3 — helm list -n envoy-gateway-system shows eg (and eg-crds if a release)
+  PASS   eg1 GatewayClass eg Accepted                                           Accepted=True                                        R3 — GatewayClass eg Accepted (chart does not create it)
+  PASS   eg1 envoy-gateway Deployment Available                                 Available=True                                       R3 — envoy-gateway Deployment Available
+  PASS   eg1 cert-manager Deployment Available                                  Available=True                                       D8 — cert-manager v1.21.1 Available for the lab root
+  PASS   eg1 ClusterIssuer eg-ca-issuer Ready                                   Ready=True                                           D8 — ClusterIssuer eg-ca-issuer Ready
+  PASS   eg2 nodes Ready                                                        Ready=2                                              R2 — every node Ready
+  PASS   eg2 node IPs in 172.19.0.0/17, none in 172.19.255.0/24                 eg2-control-plane=172.19.0.4 eg2-worker=172.19.0.5   R1 / §3.1 — Docker --ip-range 172.19.0.0/17
+  PASS   eg2 kindnet DaemonSet                                                  ready=2/2                                            R2 — kindnet present
+  PASS   eg2 kube-proxy mode iptables                                           ds=2/2 mode=iptables                                 R2 — kube-proxy present, mode iptables
+  PASS   eg2 no Cilium DaemonSet or CRD                                         ds=0 crd=0                                           R2 — kubectl get ds -A / get crd | grep -c cilium = 0
+  PASS   eg2 10 Gateway API CRDs channel=standard v1.6.2                        n=10 bad=0 ver=v1.6.2                                D10 / R3 — every gateway.networking.k8s.io CRD channel: standard, bundle-version v1.6.2
+  PASS   eg2 8 gateway.envoyproxy.io CRDs                                       n=8                                                  R3 — Envoy Gateway's own CRDs from gateway-crds-helm
+  PASS   eg2 helm list shows eg (eg-crds not a release)                         eg                                                   R3 — helm list -n envoy-gateway-system shows eg (and eg-crds if a release)
+  PASS   eg2 GatewayClass eg Accepted                                           Accepted=True                                        R3 — GatewayClass eg Accepted (chart does not create it)
+  PASS   eg2 envoy-gateway Deployment Available                                 Available=True                                       R3 — envoy-gateway Deployment Available
+  PASS   eg2 cert-manager Deployment Available                                  Available=True                                       D8 — cert-manager v1.21.1 Available for the lab root
+  PASS   eg2 ClusterIssuer eg-ca-issuer Ready                                   Ready=True                                           D8 — ClusterIssuer eg-ca-issuer Ready
+  PASS   root fingerprint identical in both clusters                            6A:37:32:53:17:91:45:80:66:4D:9F:0B:6B:05:59:64:43:16:BA:05:93:0E:0F:CD:7C:70:87:F8:C0:2B:67:16 D8 — the SAME root in both clusters (copied Secret)
+  PASS   kind-eg ip-range is 172.19.0.0/17                                      172.19.0.0/17                                        R1 / §3.1 — docker network inspect kind-eg ip-range
+  PASS   host route 172.19/16 present                                           172.19             192.168.64.2       UGSc            bridge100        phase 0 item 1 — Mac route 172.19/16 (WARN if absent)
+
+demo 50 check: 0 FAIL
+

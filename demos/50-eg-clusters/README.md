@@ -82,8 +82,9 @@ scripts/eg-up.sh                   # the guide — both clusters, default
 demos/50-eg-clusters/check.sh
 ```
 
-`eg-up.sh` is idempotent (`scripts/eg-up.sh [eg1 eg2]`). Every command is
-recorded through `scripts/record.sh` into
+`eg-up.sh` is idempotent (`scripts/eg-up.sh [eg1 eg2]`; eg1 is always built
+first and holds the root — `eg-up.sh eg2` copies it, never mints one). Every
+command is recorded through `scripts/record.sh` into
 [`output/transcript.txt`](output/transcript.txt) (append, never truncate).
 
 ### The destroy of phase 0's eg1 (quoted)
@@ -123,16 +124,22 @@ does not fight phase 0's client-side field manager and so the CRDs do not
 depend on the last-applied-configuration annotation. The URL is the same
 `standard-install.yaml` v1.6.2 phase 0 applied.
 
-The CRD chart **refused** `helm upgrade --install` on both clusters. Helm
-stores a release in a Secret; the rendered CRDs exceed the 1 MiB limit:
+The CRD chart is installed the way the vendor prescribes — `helm template |
+kubectl apply --server-side` — not as a Helm release. Helm stores a release
+in a Secret; at v1.9.1 the rendered CRDs exceed the 1 MiB limit (measured
+on the first build, both clusters):
 
 ```text
 Error: create: failed to create: Secret "sh.helm.release.v1.eg-crds.v1" is invalid: data: Too long: may not be more than 1048576 bytes
 ```
 
-The guide fell back to phase 0's form — `helm template | kubectl apply
---server-side` — and recorded why. `helm list -n envoy-gateway-system` therefore
-shows `eg` (the controller) and not `eg-crds`. The eight CRDs are present.
+That measurement is why the pipe is the method
+([install-helm](https://gateway.envoyproxy.io/docs/install/install-helm/):
+"We're using helm template piped into kubectl apply instead of helm install
+due to a known Helm limitation
+([helm/helm#12277](https://github.com/helm/helm/issues/12277)) related to
+large CRDs"). `helm list -n envoy-gateway-system` therefore shows `eg` (the
+controller) and not `eg-crds`. The eight CRDs are present.
 
 Final table from this run:
 
@@ -142,17 +149,39 @@ eg1      eg1-control-plane=172.19.0.2 eg1-worker=172.19.0.3  iptables   10@v1.6.
 eg2      eg2-control-plane=172.19.0.4 eg2-worker=172.19.0.5  iptables   10@v1.6.2    8        Accepted=True 1/1            Available=True 6A:37:32:53:17:91:45:80:66:4D:9F:0B:6B:05:59:64:43:16:BA:05:93:0E:0F:CD:7C:70:87:F8:C0:2B:67:16
 ```
 
-`check.sh` (exit 0), recorded 2026-09-18T22:43:56Z:
+`check.sh` (exit 0), recorded 2026-09-18T23:15:58Z — the 27 rows verbatim:
 
 ```text
-  PASS   eg1 / eg2 nodes Ready                                                  Ready=2
-  PASS   node IPs in 172.19.0.0/17, none in 172.19.255.0/24                     .2/.3 and .4/.5
-  PASS   kindnet 2/2, kube-proxy mode iptables, grep -c cilium=0
-  PASS   10 Gateway API CRDs channel=standard v1.6.2, 8 gateway.envoyproxy.io
-  PASS   helm list shows eg (eg-crds not a release)
-  PASS   GatewayClass eg Accepted, envoy-gateway Available, cert-manager Available
-  PASS   ClusterIssuer eg-ca-issuer Ready; root fingerprint identical
-  PASS   kind-eg ip-range 172.19.0.0/17; host route 172.19/16 present
+== demo 50 — the vanilla lab's clusters (enhancement 007 phase 1)
+  STATUS WHAT                                                                   MEASURED                                             RULE
+  PASS   eg1 nodes Ready                                                        Ready=2                                              R2 — every node Ready
+  PASS   eg1 node IPs in 172.19.0.0/17, none in 172.19.255.0/24                 eg1-control-plane=172.19.0.2 eg1-worker=172.19.0.3   R1 / §3.1 — Docker --ip-range 172.19.0.0/17
+  PASS   eg1 kindnet DaemonSet                                                  ready=2/2                                            R2 — kindnet present
+  PASS   eg1 kube-proxy mode iptables                                           ds=2/2 mode=iptables                                 R2 — kube-proxy present, mode iptables
+  PASS   eg1 no Cilium DaemonSet or CRD                                         ds=0 crd=0                                           R2 — kubectl get ds -A / get crd | grep -c cilium = 0
+  PASS   eg1 10 Gateway API CRDs channel=standard v1.6.2                        n=10 bad=0 ver=v1.6.2                                D10 / R3 — every gateway.networking.k8s.io CRD channel: standard, bundle-version v1.6.2
+  PASS   eg1 8 gateway.envoyproxy.io CRDs                                       n=8                                                  R3 — Envoy Gateway's own CRDs from gateway-crds-helm
+  PASS   eg1 helm list shows eg (eg-crds not a release)                         eg                                                   R3 — helm list -n envoy-gateway-system shows eg (and eg-crds if a release)
+  PASS   eg1 GatewayClass eg Accepted                                           Accepted=True                                        R3 — GatewayClass eg Accepted (chart does not create it)
+  PASS   eg1 envoy-gateway Deployment Available                                 Available=True                                       R3 — envoy-gateway Deployment Available
+  PASS   eg1 cert-manager Deployment Available                                  Available=True                                       D8 — cert-manager v1.21.1 Available for the lab root
+  PASS   eg1 ClusterIssuer eg-ca-issuer Ready                                   Ready=True                                           D8 — ClusterIssuer eg-ca-issuer Ready
+  PASS   eg2 nodes Ready                                                        Ready=2                                              R2 — every node Ready
+  PASS   eg2 node IPs in 172.19.0.0/17, none in 172.19.255.0/24                 eg2-control-plane=172.19.0.4 eg2-worker=172.19.0.5   R1 / §3.1 — Docker --ip-range 172.19.0.0/17
+  PASS   eg2 kindnet DaemonSet                                                  ready=2/2                                            R2 — kindnet present
+  PASS   eg2 kube-proxy mode iptables                                           ds=2/2 mode=iptables                                 R2 — kube-proxy present, mode iptables
+  PASS   eg2 no Cilium DaemonSet or CRD                                         ds=0 crd=0                                           R2 — kubectl get ds -A / get crd | grep -c cilium = 0
+  PASS   eg2 10 Gateway API CRDs channel=standard v1.6.2                        n=10 bad=0 ver=v1.6.2                                D10 / R3 — every gateway.networking.k8s.io CRD channel: standard, bundle-version v1.6.2
+  PASS   eg2 8 gateway.envoyproxy.io CRDs                                       n=8                                                  R3 — Envoy Gateway's own CRDs from gateway-crds-helm
+  PASS   eg2 helm list shows eg (eg-crds not a release)                         eg                                                   R3 — helm list -n envoy-gateway-system shows eg (and eg-crds if a release)
+  PASS   eg2 GatewayClass eg Accepted                                           Accepted=True                                        R3 — GatewayClass eg Accepted (chart does not create it)
+  PASS   eg2 envoy-gateway Deployment Available                                 Available=True                                       R3 — envoy-gateway Deployment Available
+  PASS   eg2 cert-manager Deployment Available                                  Available=True                                       D8 — cert-manager v1.21.1 Available for the lab root
+  PASS   eg2 ClusterIssuer eg-ca-issuer Ready                                   Ready=True                                           D8 — ClusterIssuer eg-ca-issuer Ready
+  PASS   root fingerprint identical in both clusters                            6A:37:32:53:17:91:45:80:66:4D:9F:0B:6B:05:59:64:43:16:BA:05:93:0E:0F:CD:7C:70:87:F8:C0:2B:67:16 D8 — the SAME root in both clusters (copied Secret)
+  PASS   kind-eg ip-range is 172.19.0.0/17                                      172.19.0.0/17                                        R1 / §3.1 — docker network inspect kind-eg ip-range
+  PASS   host route 172.19/16 present                                           172.19             192.168.64.2       UGSc            bridge100        phase 0 item 1 — Mac route 172.19/16 (WARN if absent)
+
 demo 50 check: 0 FAIL
 ```
 
@@ -175,14 +204,17 @@ block only.
 `KIND_EXPERIMENTAL_DOCKER_NETWORK`.
 
 **Stock networking.** `kindnet` and `kube-proxy` DaemonSets 2/2 on both
-clusters; kube-proxy ConfigMap `mode: iptables`; `kubectl get ds -A | grep -c
-cilium` = 0.
+clusters; kube-proxy ConfigMap `mode: iptables`; no Cilium DaemonSet or
+CRD (`kubectl get ds -A -o name` / `get crd -o name` | `grep -c cilium` =
+0).
 
-**The CRD chart cannot be a Helm release.** `helm upgrade --install eg-crds`
-failed on both clusters with `Secret "sh.helm.release.v1.eg-crds.v1" is
-invalid: data: Too long: may not be more than 1048576 bytes`. The fallback is
-the form phase 0 measured. The controller chart (`gateway-helm`,
-`crds.enabled=false`) installs as release `eg` on both.
+**The CRD chart cannot be a Helm release.** The first build measured
+`Secret "sh.helm.release.v1.eg-crds.v1" is invalid: data: Too long: may not
+be more than 1048576 bytes` on both clusters. That is why the guide uses
+the vendor's method — `helm template | kubectl apply --server-side`
+([helm/helm#12277](https://github.com/helm/helm/issues/12277), closed
+unmerged). The controller chart (`gateway-helm`, `crds.enabled=false`)
+installs as release `eg` on both.
 
 **Standard channel only (D10).** All ten `gateway.networking.k8s.io` CRDs carry
 `channel: standard` and `bundle-version: v1.6.2`. The eight
@@ -198,8 +230,10 @@ on both. Exported to `.tmp/eg-root-ca.crt`.
 ## Known limitations
 
 `eg-crds` is not a Helm release. Upgrades of Envoy Gateway's CRDs are
-`helm template | kubectl apply --server-side` until the chart fits in a Helm
-Secret (or Helm grows another store). The controller *is* a release.
+`helm template | kubectl apply --server-side` — the vendor's method
+because of [helm/helm#12277](https://github.com/helm/helm/issues/12277)
+(large CRDs; the 1 MiB Secret failure is the measurement). The controller
+*is* a release.
 
 There are no load balancers and no Gateways. `kubectl get gateway,svc -A` has
 nothing of the lab's in the reserved `/24`. That is this phase, not a gap.

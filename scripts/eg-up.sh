@@ -16,16 +16,25 @@ cd "$(dirname "$0")/.."
 # shellcheck disable=SC1091
 . scripts/bootstrap/versions-eg.env
 
+# The lab root (D8) is minted ONCE, on ROOT_HOME, and every other cluster copies its
+# Secret — whatever this invocation's argument list is. `eg-up.sh eg2` after eg1 exists
+# must copy eg1's root, never mint a second one; and eg1 is always processed first so a
+# two-cluster run has the root before the copy.
+ROOT_HOME=eg1
+want_eg1=0; want_eg2=0
 if [ $# -eq 0 ]; then
   set -- eg1 eg2
 fi
 for c in "$@"; do
   case "$c" in
-    eg1|eg2) ;;
+    eg1) want_eg1=1 ;;
+    eg2) want_eg2=1 ;;
     *) echo "usage: $0 [eg1 eg2]" >&2; exit 2 ;;
   esac
 done
-first=$1
+set --
+[ "$want_eg1" -eq 1 ] && set -- eg1
+[ "$want_eg2" -eq 1 ] && set -- "$@" eg2
 
 export RECORD_STRICT=1
 TRANSCRIPT=demos/50-eg-clusters/output/transcript.txt
@@ -126,8 +135,8 @@ for c in "$@"; do
 done
 
 # ---------------------------------------------------------------- jetstack once (cert-manager, step 7)
-helm repo add jetstack https://charts.jetstack.io >/dev/null 2>&1 || true
-helm repo update jetstack >/dev/null || echo "eg-up: helm repo update jetstack failed (using cache)" >&2
+rec helm_r repo add jetstack https://charts.jetstack.io --force-update
+rec helm_r repo update jetstack
 
 # ---------------------------------------------------------------- (3)–(7) per cluster
 for c in "$@"; do
@@ -160,19 +169,15 @@ done < <(kubectl --context $ctx get crd -o name | grep '\\.gateway\\.networking\
 exit \$fail
 "
 
-  # (4) Envoy Gateway's own CRDs from the vendor CRD chart. Prefer a real Helm
-  # release so helm list shows it. Phase 0 used helm template | kubectl apply
-  # --server-side; fall back to that form if upgrade --install refuses.
-  say "4. Envoy Gateway $ENVOY_GATEWAY_VERSION CRDs on $c (gateway-crds-helm, gatewayAPI off)"
-  if rec helm_r upgrade --install eg-crds oci://docker.io/envoyproxy/gateway-crds-helm \
-      --version "$ENVOY_GATEWAY_VERSION" -n envoy-gateway-system --create-namespace \
-      --kube-context "$ctx" \
-      --set crds.envoyGateway.enabled=true --set crds.gatewayAPI.enabled=false; then
-    echo "eg-crds is a Helm release on $c"
-  else
-    echo "eg-up: gateway-crds-helm refused helm upgrade --install on $c — falling back to phase 0's helm template | kubectl apply --server-side" | tee -a "$TRANSCRIPT"
-    rec bash -c "helm template eg-crds oci://docker.io/envoyproxy/gateway-crds-helm --version $ENVOY_GATEWAY_VERSION --set crds.gatewayAPI.enabled=false --set crds.envoyGateway.enabled=true | kubectl --context $ctx apply --server-side --force-conflicts -f -"
-  fi
+  # (4) Envoy Gateway's own CRDs from the vendor CRD chart, in the form the vendor
+  # prescribes (https://gateway.envoyproxy.io/docs/install/install-helm/):
+  # "We're using helm template piped into kubectl apply instead of helm install
+  # due to a known Helm limitation (helm/helm#12277) related to large CRDs".
+  # A Helm release of this chart is impossible at v1.9.1: its release Secret
+  # exceeds Kubernetes' 1 MiB (measured, demo 50 transcript 22:42:21Z), so
+  # `helm list` shows the controller only.
+  say "4. Envoy Gateway $ENVOY_GATEWAY_VERSION CRDs on $c (gateway-crds-helm, gatewayAPI off; helm template | kubectl apply --server-side)"
+  rec bash -c "helm template eg-crds oci://docker.io/envoyproxy/gateway-crds-helm --version $ENVOY_GATEWAY_VERSION --set crds.gatewayAPI.enabled=false --set crds.envoyGateway.enabled=true | kubectl --context $ctx apply --server-side --force-conflicts -f -"
   rec bash -c "
 set -euo pipefail
 n=\$(kubectl --context $ctx get crd -o name | grep -c '\\.gateway\\.envoyproxy\\.io\$' || true)
@@ -194,20 +199,23 @@ kubectl --context $ctx get crd -o name | grep '\\.gateway\\.envoyproxy\\.io\$'
   rec kubectl --context "$ctx" wait --for=condition=Accepted gatewayclass/eg --timeout=60s
 
   # (7) cert-manager (lab-up.sh form: helm, crds.enabled=true) and the lab root
-  say "7. cert-manager $CERT_MANAGER_VERSION on $c$( [ "$c" = "$first" ] && echo ', the root' || echo ", the root copied from $first" ), ClusterIssuer/eg-ca-issuer"
+  say "7. cert-manager $CERT_MANAGER_VERSION on $c$( [ "$c" = "$ROOT_HOME" ] && echo ', the root' || echo ", the root copied from $ROOT_HOME" ), ClusterIssuer/eg-ca-issuer"
   rec helm_r upgrade --install cert-manager jetstack/cert-manager --version "$CERT_MANAGER_VERSION" \
     --namespace cert-manager --create-namespace --kube-context "$ctx" \
     --set crds.enabled=true --wait --timeout 5m
   rec kubectl --context "$ctx" -n cert-manager wait deploy --all --for=condition=Available --timeout=180s
-  if [ "$c" = "$first" ]; then
+  if [ "$c" = "$ROOT_HOME" ]; then
     rec kubectl --context "$ctx" apply -f clusters/eg/eg-root-ca.yaml
     rec kubectl --context "$ctx" -n cert-manager wait certificate/eg-root-ca --for=condition=Ready --timeout=120s
   else
-    rec bash -c "kubectl --context kind-$first -n cert-manager get secret eg-root-ca -o json | python3 -c '
+    # never mint here: the copy needs ROOT_HOME's Secret to exist (D8 — one root for the lab)
+    kubectl --context "kind-$ROOT_HOME" -n cert-manager get secret eg-root-ca -o name >/dev/null 2>&1 \
+      || die "$c: the lab root lives in $ROOT_HOME and kind-$ROOT_HOME has no Secret cert-manager/eg-root-ca — run scripts/eg-up.sh $ROOT_HOME first"
+    rec bash -c "kubectl --context kind-$ROOT_HOME -n cert-manager get secret eg-root-ca -o json | python3 -c '
 import json, sys
 s = json.load(sys.stdin)
 print(json.dumps({\"apiVersion\": \"v1\", \"kind\": \"Secret\", \"type\": s.get(\"type\", \"kubernetes.io/tls\"),
-  \"metadata\": {\"name\": s[\"metadata\"][\"name\"], \"namespace\": \"cert-manager\"}, \"data\": s[\"data\"]}))' | kubectl --context $ctx apply -f -"
+  \"metadata\": {\"name\": s[\"metadata\"][\"name\"], \"namespace\": \"cert-manager\"}, \"data\": s[\"data\"]}))' | kubectl --context $ctx apply --server-side --force-conflicts -f -"
     rec kubectl --context "$ctx" apply -f clusters/eg/eg-ca-issuer.yaml
   fi
   rec kubectl --context "$ctx" wait clusterissuer/eg-ca-issuer --for=condition=Ready --timeout=120s
@@ -215,7 +223,7 @@ done
 
 # export the root once (gitignored — issue #60) and print the fingerprint
 say "7b. export the lab root to .tmp/eg-root-ca.crt (not committed; issue #60)"
-rec bash -c "kubectl --context kind-$first -n cert-manager get secret eg-root-ca -o jsonpath='{.data.tls\\.crt}' | base64 -d > .tmp/eg-root-ca.crt"
+rec bash -c "kubectl --context kind-$ROOT_HOME -n cert-manager get secret eg-root-ca -o jsonpath='{.data.tls\\.crt}' | base64 -d > .tmp/eg-root-ca.crt"
 rec openssl x509 -in .tmp/eg-root-ca.crt -noout -subject -issuer -fingerprint -sha256
 echo "root PEM is .tmp/eg-root-ca.crt (gitignored). A committed copy drifts on every rebuild (issue #60)." | tee -a "$TRANSCRIPT"
 

@@ -21,10 +21,14 @@ helm template probe-exp oci://docker.io/envoyproxy/gateway-crds-helm --version v
 
 *Expect:* every live `gateway.networking.k8s.io` CRD on eg1 is `channel:
 standard`, `bundle-version: v1.6.2` (ten rows). The template with
-`crds.gatewayAPI.enabled=true` emits the mix this lab avoids: **13 ×
-`channel: experimental`, 2 × `standard`** (phase 0, rendered, not inferred).
-That is why the guide installs upstream's `standard-install.yaml` and tells
-the CRD chart `crds.gatewayAPI.enabled=false`. Do not apply the template.
+`crds.gatewayAPI.enabled=true` prints **13 × `channel: experimental`, 2 ×
+`standard`** — the 13 are CRDs (the ten core kinds plus three
+`gateway.networking.x-k8s.io`), the 2 are the safe-upgrades
+ValidatingAdmissionPolicy and its binding, and every one says
+`bundle-version: v1.6.1`, not the v1.6.2 this lab runs (phase 0, rendered,
+not inferred). That is why the guide installs upstream's
+`standard-install.yaml` and tells the CRD chart
+`crds.gatewayAPI.enabled=false`. Do not apply the template.
 
 ## Exercise 2 — compare `helm list` with what a Cilium cluster has
 
