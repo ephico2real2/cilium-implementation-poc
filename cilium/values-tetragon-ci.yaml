@@ -7,4 +7,6 @@ tetragon:
   prometheus:
     serviceMonitor:
       enabled: false               # no Prometheus operator in the CI lab (a ServiceMonitor would fail the install)
-  resources: {requests: {cpu: 50m, memory: 128Mi}, limits: {memory: 512Mi}}
+  # 1Gi, not the chart-shaped 512Mi: the agents idle at 350–420 MiB RSS here and every exec on the Docker VM's kernel is
+  # theirs to cache (gotcha #118 — a build container beside the lab OOM-killed all four in one second at 512Mi)
+  resources: {requests: {cpu: 50m, memory: 128Mi}, limits: {memory: 1Gi}}

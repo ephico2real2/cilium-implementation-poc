@@ -3045,6 +3045,75 @@ onto the other node on the way. Gotcha #42's "2–3 minutes" is this case. poc2,
 **The lesson:** "deployed" is Helm's verdict on the release object, not on what is running. After any upgrade, read the
 image from the DaemonSet — the one line that cannot lie.
 
+## <a name="118"></a>118. Tetragon on kind sees every process on the Docker VM's kernel — a build container beside the lab OOM-killed all four agents in the same second, and the restarted agents burned 1.6–4.2 cores walking the VM's cgroup tree
+
+**Where:** the M5, 2026-09-18 06:13 UTC, while a Cilium builder container (`contrib/scripts/builder.sh go test …`, the
+upstream PR's unit tests) ran on the same Docker Desktop VM as the four kind nodes. Nothing was touched in either
+cluster. First sight of it was `kubectl top`:
+
+```text
+$ kubectl --context kind-poc2 top pods -n kube-system | grep tetragon
+tetragon-dpwjq   4235m   500Mi            # poc2-control-plane — 4.2 cores; poc1's agents sit at 55m
+$ kubectl --context kind-poc2 -n kube-system logs tetragon-dpwjq -c tetragon --since=10s | wc -l
+59                                       # every line: level=warn msg="failed to find cgroup id. Skipping container." subsystem=policy-filter
+                                         #   error="found pod dir=/procRoot/1/root/sys/fs/cgroup/docker/ec633320…/kubelet.slice/… but failed to find container for id=…"
+```
+
+The first reading — "a stale-container warning loop since the pod started on 09-15" — was wrong, and Prometheus said
+so: the pod's CPU was 0.01 cores from 09-16 to **06:12 UTC** and 1.64 cores at **06:14**. What happened at 06:13:
+
+```text
+$ kubectl get pods -A -o json | jq '… lastState.terminated …'                      # both clusters
+kube-system/tetragon-92ttx tetragon OOMKilled exit=137 2026-09-18T06:13:21Z        # poc2-worker
+kube-system/tetragon-7k6pt tetragon OOMKilled exit=137 2026-09-18T06:13:22Z        # poc1-control-plane
+kube-system/tetragon-c5ljw tetragon OOMKilled exit=137 2026-09-18T06:13:21Z        # poc1-worker
+(tetragon-dpwjq, poc2-control-plane: container re-created 06:14:16Z, deleted by hand 06:14:54Z)
+$ docker exec poc2-control-plane dmesg | grep -i oom
+Memory cgroup out of memory: Killed process 29472 (tetragon) total-vm:1789708kB, anon-rss:474476kB … oom_score_adj:995
+oom-kill:constraint=CONSTRAINT_MEMCG … oom_memcg=/docker/ec633320…/kubelet-kubepods-burstable-pod…/cri-containerd-b764f320….scope
+$ stat scratchpad/gotest-main.log          # the builder's go test
+Birth: 2026-09-18T06:12:58Z                # 23 s before the four kills
+```
+
+**Why all four at once, in two clusters that share nothing:** they share the kernel. Tetragon's exec sensor is a
+tracepoint on the *host* kernel (`hostProcPath: /procHost`, privileged), so every agent processes every `exec` on the
+Docker VM — the other cluster's, and the builder container's compile storm. The poc2-**worker** agent's own counters,
+30 minutes after its restart (`curl :2112/metrics`):
+
+```text
+tetragon_events_total{type="PROCESS_EXEC"} summed by binary, pod="" (host processes, exported nowhere):
+ 5235 /usr/bin/wget          3179 /bin/sleep            # the lab's own probes
+ 3071 /usr/local/go/pkg/tool/linux_arm64/vet             # the reviewers' go vet in the builder
+ 1716 /usr/local/go/pkg/tool/linux_arm64/compile         # the builder's go test / generate
+  249 /usr/local/go/bin/gofmt                            # the builder
+18608 exec events in total; process_resident_memory_bytes 466632704 (445 MiB) against limits.memory: 512Mi
+```
+
+Each exec is an entry in the process cache (`process-cache-size=65536`, GC every 30 s, `pkg/process/cache.go`); the
+baseline in this lab is already 350–420 MiB RSS per agent (`values-tetragon-ci.yaml` sets `limits: {memory: 512Mi}`), so
+a few thousand extra live processes on the kernel push each agent over its memcg limit — the same second on every node.
+
+**Why the CPU after the restart:** on start the policy filter lists the node's pods and resolves every container's
+cgroup id (`pkg/policyfilter/state.go` `addPodContainers` → `cgidFinder.findCgroupID` → `pkg/cgroups/fsscan/fsscan.go`
+`FindContainerPath`, v1.7.1). A container whose cgroup scope is gone — the agent's own OOM-killed container, a pod mid-restart —
+returns "found pod dir … but failed to find container", the container is skipped, **and the next pod update event tries again**;
+before giving up each attempt can fall through to `findContainerDirectoryFromRoot`, a `filepath.WalkDir` over the whole
+cgroup root — which on a kind node is `/procRoot/1/root/sys/fs/cgroup`, the **VM's** tree: four nodes' pods plus the
+builder. That walk, repeated per event, is the 1.6–4.2 cores; it ends when the container's cgroup exists again or the pod is
+gone (the warning count on the restarted agents is 0 now; `tetragon_policyfilter_operations_total{error=""}` add=22).
+
+**The fix, two halves:** (1) **do not run build containers on the Docker VM while measuring the lab** — the Cilium
+builder, `make dev-docker-image`, anything that compiles; run them before or after, or on another machine; the numbers a
+demo records during a build are the build's. (2) The chart's `limits.memory: 512Mi` is 1.2× the idle RSS here; the CI
+values move it to **1Gi** (`values-tetragon-ci.yaml`, this change; applied to both lab clusters with the same file) so an exec burst from the lab's own load phases
+(HPA scale-ups, fortio, the DR scenarios) does not kill the agents. Upstream (cilium/tetragon v1.7.1) has no issue on the
+full-tree walk; the closed #4698 (a process-cache GC leak, fixed 2026-06) is a different mechanism — the counters above
+show a full cache, not a leaking one.
+
+**How to tell next time:** `kubectl get pods -A -o json | jq` for `lastState.terminated.reason == "OOMKilled"` with the
+same `finishedAt` second across clusters; `dmesg` on a node for `CONSTRAINT_MEMCG … tetragon`; the agent's `:2112/metrics`
+`tetragon_events_total` by binary — compiler paths mean a build is running on the kernel.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**
