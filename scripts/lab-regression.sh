@@ -17,7 +17,8 @@
 #   11. Grafana has the lab's dashboards
 #   12. The tutorial dashboards' queries return data
 #   13. The two Gateway doors of demo 37 still behave
-#   14. Cilium's own connectivity test, if a result file is present
+#   14. The shop's public URL answers from a cluster (demos 40/41; WARN/SKIP if the VIP door is absent)
+#   15. Cilium's own connectivity test, if a result file is present
 #
 # Exit code is the number of FAIL rows (0 = all good). WARN does not fail the run.
 set -uo pipefail; cd "$(dirname "$0")/.." || exit 1
@@ -313,6 +314,27 @@ check_demo37_doors() {
   fi
 }
 
+check_shop_url() {
+  local code served hdr
+  if ! kubectl --context "$CTX" -n shop-edge get gateway shop-vip-gw >/dev/null 2>&1; then
+    row warn "The shop's public URL answers from a cluster" "shop-vip-gw absent" "SKIP when demos 40/41 are not applied"
+    return 0
+  fi
+  hdr=$(curl -sk --resolve api.shop.poc.local:443:172.18.255.16 https://api.shop.poc.local/ \
+          -D - -o /dev/null --connect-timeout 5 --max-time 10 2>/dev/null || true)
+  code=$(printf '%s' "$hdr" | awk 'BEGIN{c="000"} NR==1 && /HTTP/{c=$2} END{print c}')
+  served=$(printf '%s' "$hdr" | awk 'tolower($0) ~ /^x-served-by:/ {print $2}' | tr -d '\r')
+  case "$served" in
+    poc1|poc2)
+      if [ "$code" = 200 ]; then
+        row ok "The shop's public URL answers from a cluster" "http_code=$code X-Served-By=$served" "200 and X-Served-By in {poc1,poc2}"
+        return 0
+      fi
+      ;;
+  esac
+  row fail "The shop's public URL answers from a cluster" "http_code=${code:-000} X-Served-By=${served:-absent}" "200 and X-Served-By in {poc1,poc2}"
+}
+
 check_connectivity() {
   local f line n names only
   f="${CONNECTIVITY_RESULT:-.tmp/upgrade/connectivity-local.txt}"
@@ -383,6 +405,7 @@ mkdir -p output/regression
   fi
   check_tutorial_queries
   check_demo37_doors
+  check_shop_url
   check_connectivity
 
   printf '\nsummary: %s PASS, %s FAIL, %s WARN — saved to %s\n' "$n_pass" "$n_fail" "$n_warn" "$OUT"

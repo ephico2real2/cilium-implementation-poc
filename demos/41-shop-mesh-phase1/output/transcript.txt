@@ -1,0 +1,778 @@
+### 2026-09-18T13:56:55Z
+$ kubectl --context kind-poc1 -n shop-edge delete ciliumnetworkpolicy --all --ignore-not-found
+No resources found
+
+### 2026-09-18T13:56:55Z
+$ kubectl --context kind-poc1 -n shop-core delete ciliumnetworkpolicy --all --ignore-not-found
+No resources found
+
+### 2026-09-18T13:56:55Z
+$ kubectl --context kind-poc1 -n shop-payments delete ciliumnetworkpolicy --all --ignore-not-found
+No resources found
+
+### 2026-09-18T13:56:56Z
+$ kubectl --context kind-poc1 -n shop-merchant delete ciliumnetworkpolicy --all --ignore-not-found
+No resources found
+
+### 2026-09-18T13:56:56Z
+$ kubectl --context kind-poc1 -n shop-reviews delete ciliumnetworkpolicy --all --ignore-not-found
+No resources found
+
+### 2026-09-18T13:56:56Z
+$ kubectl --context kind-poc2 -n shop-edge delete ciliumnetworkpolicy --all --ignore-not-found
+No resources found
+
+### 2026-09-18T13:56:56Z
+$ kubectl --context kind-poc1 apply -f demos/41-shop-mesh-phase1/output/shop-cluster-poc1.yaml
+namespace/shop-core unchanged
+configmap/shop-cluster unchanged
+
+### 2026-09-18T13:56:56Z
+$ kubectl --context kind-poc1 apply -f demos/41-shop-mesh-phase1/10-platform.yaml
+namespace/shop-edge unchanged
+namespace/shop-core unchanged
+namespace/shop-payments unchanged
+namespace/shop-merchant unchanged
+namespace/shop-reviews unchanged
+namespace/shop-clients unchanged
+configmap/api-gateway-nginx unchanged
+deployment.apps/api-gateway unchanged
+service/api-gateway unchanged
+configmap/catalog-nginx unchanged
+deployment.apps/catalog unchanged
+service/catalog unchanged
+configmap/orders-nginx unchanged
+deployment.apps/orders unchanged
+service/orders unchanged
+deployment.apps/backend unchanged
+service/backend unchanged
+configmap/service-nginx unchanged
+deployment.apps/payment-gateway unchanged
+service/payment-gateway unchanged
+configmap/service-nginx unchanged
+deployment.apps/merchant unchanged
+service/merchant unchanged
+configmap/service-nginx unchanged
+deployment.apps/reviews unchanged
+service/reviews unchanged
+pod/ratings unchanged
+pod/shopper unchanged
+pod/stranger unchanged
+
+### 2026-09-18T13:56:57Z
+$ kubectl --context kind-poc2 apply -f demos/41-shop-mesh-phase1/output/shop-cluster-poc2.yaml
+namespace/shop-core created
+configmap/shop-cluster created
+
+### 2026-09-18T13:56:57Z
+$ kubectl --context kind-poc2 apply -f demos/41-shop-mesh-phase1/10-platform.yaml
+namespace/shop-edge unchanged
+namespace/shop-core unchanged
+namespace/shop-payments created
+namespace/shop-merchant created
+namespace/shop-reviews created
+namespace/shop-clients created
+configmap/api-gateway-nginx created
+deployment.apps/api-gateway created
+service/api-gateway created
+configmap/catalog-nginx created
+deployment.apps/catalog created
+service/catalog created
+configmap/orders-nginx created
+deployment.apps/orders created
+service/orders created
+deployment.apps/backend created
+service/backend created
+configmap/service-nginx created
+deployment.apps/payment-gateway created
+service/payment-gateway created
+configmap/service-nginx created
+deployment.apps/merchant created
+service/merchant created
+configmap/service-nginx created
+deployment.apps/reviews created
+service/reviews created
+pod/ratings created
+pod/shopper created
+pod/stranger created
+
+### 2026-09-18T13:56:57Z
+$ kubectl --context kind-poc1 -n shop-edge wait deploy/api-gateway --for=condition=Available --timeout=180s
+deployment.apps/api-gateway condition met
+
+### 2026-09-18T13:56:57Z
+$ kubectl --context kind-poc1 -n shop-core wait deploy/catalog --for=condition=Available --timeout=180s
+deployment.apps/catalog condition met
+
+### 2026-09-18T13:56:58Z
+$ kubectl --context kind-poc1 -n shop-core wait deploy/orders --for=condition=Available --timeout=180s
+deployment.apps/orders condition met
+
+### 2026-09-18T13:56:58Z
+$ kubectl --context kind-poc1 -n shop-core wait deploy/backend --for=condition=Available --timeout=180s
+deployment.apps/backend condition met
+
+### 2026-09-18T13:56:58Z
+$ kubectl --context kind-poc1 -n shop-payments wait deploy/payment-gateway --for=condition=Available --timeout=180s
+deployment.apps/payment-gateway condition met
+
+### 2026-09-18T13:56:58Z
+$ kubectl --context kind-poc1 -n shop-merchant wait deploy/merchant --for=condition=Available --timeout=180s
+deployment.apps/merchant condition met
+
+### 2026-09-18T13:56:58Z
+$ kubectl --context kind-poc1 -n shop-reviews wait deploy/reviews --for=condition=Available --timeout=180s
+deployment.apps/reviews condition met
+
+### 2026-09-18T13:56:59Z
+$ kubectl --context kind-poc1 -n shop-clients wait pod/shopper --for=condition=Ready --timeout=180s
+pod/shopper condition met
+
+### 2026-09-18T13:56:59Z
+$ kubectl --context kind-poc2 -n shop-edge wait deploy/api-gateway --for=condition=Available --timeout=180s
+deployment.apps/api-gateway condition met
+
+### 2026-09-18T13:57:03Z
+$ kubectl --context kind-poc2 -n shop-core wait deploy/catalog --for=condition=Available --timeout=180s
+deployment.apps/catalog condition met
+
+### 2026-09-18T13:57:04Z
+$ kubectl --context kind-poc2 -n shop-core wait deploy/orders --for=condition=Available --timeout=180s
+deployment.apps/orders condition met
+
+### 2026-09-18T13:57:04Z
+$ kubectl --context kind-poc2 -n shop-core wait deploy/backend --for=condition=Available --timeout=180s
+deployment.apps/backend condition met
+
+### 2026-09-18T13:57:04Z
+$ kubectl --context kind-poc2 -n shop-payments wait deploy/payment-gateway --for=condition=Available --timeout=180s
+deployment.apps/payment-gateway condition met
+
+### 2026-09-18T13:57:04Z
+$ kubectl --context kind-poc2 -n shop-merchant wait deploy/merchant --for=condition=Available --timeout=180s
+deployment.apps/merchant condition met
+
+### 2026-09-18T13:57:04Z
+$ kubectl --context kind-poc2 -n shop-reviews wait deploy/reviews --for=condition=Available --timeout=180s
+deployment.apps/reviews condition met
+
+### 2026-09-18T13:57:04Z
+$ kubectl --context kind-poc2 -n shop-clients wait pod/shopper --for=condition=Ready --timeout=180s
+pod/shopper condition met
+
+### 2026-09-18T13:57:05Z
+$ kubectl --context kind-poc1 apply -f demos/41-shop-mesh-phase1/20-routes-poc1.yaml
+httproute.gateway.networking.k8s.io/shop-api created
+httproute.gateway.networking.k8s.io/shop-redirect created
+
+### 2026-09-18T13:57:05Z
+$ kubectl --context kind-poc2 apply -f demos/41-shop-mesh-phase1/20-routes-poc2.yaml
+httproute.gateway.networking.k8s.io/shop-api created
+httproute.gateway.networking.k8s.io/shop-redirect created
+
+### 2026-09-18T13:57:05Z
+$ bash -c wait_route "$@" bash kind-poc1 shop-api
+kind-poc1 httproute/shop-api: all parents Accepted+ResolvedRefs
+
+### 2026-09-18T13:57:05Z
+$ bash -c wait_route "$@" bash kind-poc1 shop-redirect
+kind-poc1 httproute/shop-redirect: all parents Accepted+ResolvedRefs
+
+### 2026-09-18T13:57:05Z
+$ bash -c wait_route "$@" bash kind-poc2 shop-api
+kind-poc2 httproute/shop-api: all parents Accepted+ResolvedRefs
+
+### 2026-09-18T13:57:05Z
+$ bash -c wait_route "$@" bash kind-poc2 shop-redirect
+kind-poc2 httproute/shop-redirect: all parents Accepted+ResolvedRefs
+
+### 2026-09-18T13:57:05Z
+$ demos/40-shop-mesh-phase0/hosts-entries.sh
+# ---- cilium-kind-poc demo40 (generated 2026-09-18T13:57Z by demos/40-shop-mesh-phase0/hosts-entries.sh) ----
+172.18.255.16  api.shop.poc.local
+172.18.255.242  api.poc1.shop.poc.local
+172.18.255.177  api.poc2.shop.poc.local
+# db-service.poc.local  — phase 2 (db-gw does not exist yet)
+# ---- end cilium-kind-poc demo40 ----
+
+### 2026-09-18T13:57:05Z
+$ bash -c probe_door "$@" bash api.shop.poc.local 172.18.255.16
+HTTP/2 200 
+server: envoy
+date: Fri, 18 Sep 2026 13:57:05 GMT
+content-type: application/octet-stream
+content-length: 12
+x-envoy-upstream-service-time: 0
+x-served-by: poc1
+
+
+### 2026-09-18T13:57:05Z
+$ bash -c probe_door "$@" bash api.poc1.shop.poc.local 172.18.255.242
+HTTP/2 200 
+server: envoy
+date: Fri, 18 Sep 2026 13:57:05 GMT
+content-type: application/octet-stream
+content-length: 12
+x-envoy-upstream-service-time: 0
+x-served-by: poc1
+
+
+### 2026-09-18T13:57:05Z
+$ bash -c probe_door "$@" bash api.poc2.shop.poc.local 172.18.255.177
+HTTP/2 200 
+server: envoy
+date: Fri, 18 Sep 2026 13:57:06 GMT
+content-type: application/octet-stream
+content-length: 12
+x-envoy-upstream-service-time: 0
+x-served-by: poc2
+
+
+### 2026-09-18T13:57:06Z
+$ kubectl --context kind-poc1 -n shop-clients exec shopper -- wget -qO- --timeout=5 http://catalog.shop-core.svc.cluster.local/healthz
+ok
+
+### 2026-09-18T13:57:06Z
+$ bash -c show_svc "$@" bash kind-poc1
+-- kind-poc1 catalog ClusterIP=10.11.153.46
+-- cilium-dbg service list
+78    10.11.153.46:80/TCP       ClusterIP      1 => 10.10.0.46:80/TCP (active)         
+79    10.11.35.214:80/TCP       ClusterIP      1 => 10.10.0.79:80/TCP (active)         
+                                               2 => 10.10.0.158:80/TCP (terminating)   
+80    10.11.253.122:80/TCP      ClusterIP      1 => 10.10.0.199:80/TCP (active)        
+                                               2 => 10.10.1.243:80/TCP (terminating)   
+81    10.11.253.237:80/TCP      ClusterIP      1 => 10.10.0.243:80/TCP (active)        
+                                               2 => 10.10.1.130:80/TCP (terminating)   
+82    10.11.9.12:80/TCP         ClusterIP      1 => 10.10.0.87:80/TCP (terminating)    
+                                               2 => 10.10.0.101:80/TCP (active)        
+83    10.11.234.11:80/TCP       ClusterIP      1 => 10.10.0.122:80/TCP (active)        
+                                               2 => 10.10.1.17:80/TCP (active)         
+84    10.11.30.167:6379/TCP     ClusterIP      1 => 10.10.0.205:6379/TCP (active)      
+85    10.11.48.71:5432/TCP      ClusterIP      1 => 10.20.1.145:5432/TCP (active)      
+86    10.11.242.190:5432/TCP    ClusterIP                                              
+87    10.11.199.21:80/TCP       ClusterIP      1 => 10.20.0.10:8080/TCP (active)       
+                                               2 => 10.20.1.17:8080/TCP (active)       
+88    10.11.123.216:80/TCP      ClusterIP      1 => 10.10.0.131:8080/TCP (active)      
+                                               2 => 10.20.1.248:8080/TCP (active)      
+89    10.11.211.178:80/TCP      ClusterIP      1 => 10.10.0.117:8080/TCP (active)      
+                                               2 => 10.10.1.85:8080/TCP (active)       
+-- cilium-dbg bpf lb list (affinity / backends; record what the columns actually say)
+10.11.153.46:0/ANY (0)        0.0.0.0:0 (0) (0) [ClusterIP, non-routable]                                                
+10.11.203.48:0/ANY (0)        0.0.0.0:0 (0) (0) [ClusterIP, non-routable]                                                
+10.11.60.225:8888/TCP (1)     10.10.0.13:8888/TCP (91) (1)                                                               
+10.11.144.101:8080/TCP (0)    0.0.0.0:0 (122) (0) [ClusterIP, non-routable]                                              
+10.11.224.236:80/TCP (0)      0.0.0.0:0 (40) (0) [ClusterIP, non-routable]                                               
+10.11.115.169:9402/TCP (1)    10.10.0.29:9402/TCP (9) (1)                                                                
+10.11.179.244:8080/TCP (0)    0.0.0.0:0 (41) (0) [ClusterIP, non-routable]                                               
+0.0.0.0:32379/TCP (1)         10.10.1.217:2379/TCP (20) (1)                                                              
+10.11.134.126:0/ANY (0)       0.0.0.0:0 (0) (0) [ClusterIP, non-routable]                                                
+10.11.0.10:53/UDP (1)         10.10.0.61:53/UDP (2) (1)                                                                  
+10.11.0.10:53/TCP (1)         10.10.0.61:53/TCP (1) (1)                                                                  
+172.18.0.3:4000/TCP (1)       10.10.1.187:8080/TCP (133) (1)                                                             
+10.11.50.56:9100/TCP (2)      172.18.0.3:9100/TCP (46) (2)                                                               
+10.11.0.1:443/TCP (1)         172.18.0.2:6443/TCP (4) (1)                                                                
+10.11.9.12:0/ANY (0)          0.0.0.0:0 (0) (0) [ClusterIP, non-routable]                                                
+10.11.181.104:80/TCP (1)      10.10.0.138:8080/TCP (171) (1)                                                             
+10.11.181.104:0/ANY (0)       0.0.0.0:0 (0) (0) [ClusterIP, non-routable]                                                
+10.11.91.7:0/ANY (0)          0.0.0.0:0 (0) (0) [ClusterIP, non-routable]                                                
+172.18.255.242:80/TCP (0)     0.0.0.0:0 (161) (0) [LoadBalancer, l7-load-balancer] (L7LB Proxy Port: 19026)              
+10.11.13.153:80/TCP (0)       0.0.0.0:0 (66) (0) [ClusterIP, non-routable]                                               
+
+### 2026-09-18T13:57:06Z
+$ bash -c show_svc "$@" bash kind-poc2
+-- kind-poc2 catalog ClusterIP=10.21.86.158
+-- cilium-dbg service list
+89   10.21.86.158:80/TCP      ClusterIP      1 => 10.20.0.135:80/TCP (active)      
+90   10.21.182.179:80/TCP     ClusterIP      1 => 10.20.0.110:80/TCP (active)      
+91   10.21.65.67:80/TCP       ClusterIP      1 => 10.20.0.193:8080/TCP (active)    
+92   10.21.230.115:80/TCP     ClusterIP      1 => 10.20.0.82:80/TCP (active)       
+93   10.21.163.25:80/TCP      ClusterIP      1 => 10.20.1.193:80/TCP (active)      
+94   10.21.159.116:80/TCP     ClusterIP      1 => 10.20.1.15:80/TCP (active)       
+-- cilium-dbg bpf lb list (affinity / backends; record what the columns actually say)
+10.21.86.158:80/TCP (0)      0.0.0.0:0 (89) (0) [ClusterIP, non-routable]                                              
+172.18.0.4:4000/TCP (1)      10.20.0.238:8080/TCP (55) (1)                                                             
+10.21.161.9:443/TCP (1)      10.20.0.26:4245/TCP (13) (1)                                                              
+172.18.255.177:80/TCP (0)    0.0.0.0:0 (78) (0) [LoadBalancer, l7-load-balancer] (L7LB Proxy Port: 10990)              
+10.21.98.138:443/TCP (0)     0.0.0.0:0 (10) (0) [ClusterIP, non-routable]                                              
+172.18.255.136:80/TCP (2)    10.20.1.56:80/TCP (23) (2)                                                                
+10.21.251.2:9100/TCP (1)     172.18.0.4:9100/TCP (38) (1)                                                              
+0.0.0.0:30949/TCP (1)        10.20.0.138:80/TCP (20) (1)                                                               
+10.21.0.10:0/ANY (0)         0.0.0.0:0 (0) (0) [ClusterIP, non-routable]                                               
+10.21.0.10:53/UDP (0)        0.0.0.0:0 (2) (0) [ClusterIP, non-routable]                                               
+10.21.246.251:4317/TCP (0)   0.0.0.0:0 (25) (0) [ClusterIP, non-routable]                                              
+10.21.90.223:80/TCP (2)      10.20.1.17:8080/TCP (30) (2)                                                              
+172.18.0.4:31554/TCP (0)     0.0.0.0:0 (45) (0) [NodePort]                                                             
+10.21.0.10:9153/TCP (0)      0.0.0.0:0 (3) (0) [ClusterIP, non-routable]                                               
+10.21.112.87:0/ANY (0)       0.0.0.0:0 (0) (0) [ClusterIP, non-routable]                                               
+10.21.113.72:9402/TCP (1)    10.20.1.182:9402/TCP (6) (1)                                                              
+10.21.150.9:9402/TCP (1)     10.20.1.20:9402/TCP (7) (1)                                                               
+10.21.251.181:5432/TCP (0)   0.0.0.0:0 (28) (0) [ClusterIP, non-routable]                                              
+10.21.230.115:80/TCP (0)     0.0.0.0:0 (92) (0) [ClusterIP, non-routable]                                              
+10.21.0.1:443/TCP (1)        172.18.0.4:6443/TCP (4) (1)                                                               
+
+### 2026-09-18T13:57:06Z
+$ bash -c final_table "$@" bash kind-poc1 kind-poc2
+CLUSTER  DEPLOYMENTS    HTTPROUTES             VIP                          POC1_DOOR                    POC2_DOOR                   
+poc1     7/7            2/2 accepted, 2/2 resolved 200 X-Served-By=-            200 X-Served-By=-            200 X-Served-By=-           
+poc2     7/7            2/2 accepted, 2/2 resolved 200 X-Served-By=-            200 X-Served-By=-            200 X-Served-By=-           
+
+### 2026-09-18T13:59:11Z
+$ demos/41-shop-mesh-phase1/audit-both.sh Enabled
+kind-poc1 endpoint 2751 (cep-name:shop-edge/api-gateway-c448767bb-sljk4 on poc1-control-plane): PolicyAuditMode=Enabled
+kind-poc1 endpoint 6 (cep-name:shop-core/backend-5bf8464475-tdg49 on poc1-control-plane): PolicyAuditMode=Enabled
+kind-poc1 endpoint 312 (cep-name:shop-core/catalog-5799bdf56f-qsd4p on poc1-control-plane): PolicyAuditMode=Enabled
+kind-poc1 endpoint 2198 (cep-name:shop-core/orders-79d944ff55-bqdf8 on poc1-control-plane): PolicyAuditMode=Enabled
+kind-poc1 endpoint 2248 (cep-name:shop-payments/payment-gateway-868dd8c658-7rt82 on poc1-control-plane): PolicyAuditMode=Enabled
+kind-poc1 endpoint 1157 (cep-name:shop-merchant/merchant-6696657c9-qj4k5 on poc1-control-plane): PolicyAuditMode=Enabled
+kind-poc1 endpoint 1304 (cep-name:shop-reviews/ratings on poc1-control-plane): PolicyAuditMode=Enabled
+kind-poc1 endpoint 536 (cep-name:shop-reviews/reviews-769697cd5-tz4vk on poc1-control-plane): PolicyAuditMode=Enabled
+kind-poc2 endpoint 87 (cep-name:shop-edge/api-gateway-c448767bb-htl4d on poc2-control-plane): PolicyAuditMode=Enabled
+kind-poc2 endpoint 833 (cep-name:shop-core/backend-5bf8464475-jm6lq on poc2-control-plane): PolicyAuditMode=Enabled
+kind-poc2 endpoint 1877 (cep-name:shop-core/catalog-5799bdf56f-qbv7m on poc2-control-plane): PolicyAuditMode=Enabled
+kind-poc2 endpoint 3033 (cep-name:shop-core/orders-79d944ff55-6vbw5 on poc2-control-plane): PolicyAuditMode=Enabled
+kind-poc2 endpoint 928 (cep-name:shop-payments/payment-gateway-868dd8c658-8q5rr on poc2-control-plane): PolicyAuditMode=Enabled
+kind-poc2 endpoint 3631 (cep-name:shop-merchant/merchant-6696657c9-jtjg2 on poc2-worker): PolicyAuditMode=Enabled
+kind-poc2 endpoint 500 (cep-name:shop-reviews/ratings on poc2-control-plane): PolicyAuditMode=Enabled
+kind-poc2 endpoint 3932 (cep-name:shop-reviews/reviews-769697cd5-xtltk on poc2-worker): PolicyAuditMode=Enabled
+
+### 2026-09-18T13:59:33Z
+$ kubectl --context kind-poc1 apply -f demos/41-shop-mesh-phase1/20-default-deny-ingress.yaml
+ciliumnetworkpolicy.cilium.io/default-deny-ingress created
+ciliumnetworkpolicy.cilium.io/default-deny-ingress created
+ciliumnetworkpolicy.cilium.io/default-deny-ingress created
+ciliumnetworkpolicy.cilium.io/default-deny-ingress created
+ciliumnetworkpolicy.cilium.io/default-deny-ingress created
+
+### 2026-09-18T13:59:33Z
+$ kubectl --context kind-poc2 apply -f demos/41-shop-mesh-phase1/20-default-deny-ingress.yaml
+ciliumnetworkpolicy.cilium.io/default-deny-ingress created
+ciliumnetworkpolicy.cilium.io/default-deny-ingress created
+ciliumnetworkpolicy.cilium.io/default-deny-ingress created
+ciliumnetworkpolicy.cilium.io/default-deny-ingress created
+ciliumnetworkpolicy.cilium.io/default-deny-ingress created
+
+### 2026-09-18T13:59:41Z
+$ bash -c door "$@" bash api.shop.poc.local 172.18.255.16 /
+HTTP/2 200 
+server: envoy
+date: Fri, 18 Sep 2026 13:59:41 GMT
+content-type: application/octet-stream
+content-length: 12
+x-envoy-upstream-service-time: 0
+x-served-by: poc1
+
+
+
+### 2026-09-18T13:59:41Z
+$ bash -c door "$@" bash api.poc1.shop.poc.local 172.18.255.242 /
+HTTP/2 200 
+server: envoy
+date: Fri, 18 Sep 2026 13:59:41 GMT
+content-type: application/octet-stream
+content-length: 12
+x-envoy-upstream-service-time: 0
+x-served-by: poc1
+
+
+
+### 2026-09-18T13:59:41Z
+$ bash -c door "$@" bash api.poc2.shop.poc.local 172.18.255.177 /
+HTTP/2 200 
+server: envoy
+date: Fri, 18 Sep 2026 13:59:41 GMT
+content-type: application/octet-stream
+content-length: 12
+x-envoy-upstream-service-time: 0
+x-served-by: poc2
+
+
+
+### 2026-09-18T13:59:41Z
+$ bash -c door "$@" bash api.shop.poc.local 172.18.255.16 /healthz
+HTTP/2 200 
+server: envoy
+date: Fri, 18 Sep 2026 13:59:41 GMT
+content-type: application/octet-stream
+content-length: 3
+x-envoy-upstream-service-time: 0
+x-served-by: poc1
+
+
+
+### 2026-09-18T13:59:41Z
+$ bash -c door "$@" bash api.poc1.shop.poc.local 172.18.255.242 /healthz
+HTTP/2 200 
+server: envoy
+date: Fri, 18 Sep 2026 13:59:41 GMT
+content-type: application/octet-stream
+content-length: 3
+x-envoy-upstream-service-time: 0
+x-served-by: poc1
+
+
+
+### 2026-09-18T13:59:41Z
+$ bash -c door "$@" bash api.poc2.shop.poc.local 172.18.255.177 /healthz
+HTTP/2 200 
+server: envoy
+date: Fri, 18 Sep 2026 13:59:41 GMT
+content-type: application/octet-stream
+content-length: 3
+x-envoy-upstream-service-time: 0
+x-served-by: poc2
+
+
+
+### 2026-09-18T13:59:41Z
+$ bash -c door "$@" bash api.shop.poc.local 172.18.255.16 /ready
+HTTP/2 503 
+server: envoy
+date: Fri, 18 Sep 2026 13:59:41 GMT
+content-type: text/plain; charset=utf-8
+content-length: 133
+x-content-type-options: nosniff
+x-pod: backend-5bf8464475-tdg49
+x-envoy-upstream-service-time: 18
+x-served-by: poc1
+
+
+
+### 2026-09-18T13:59:41Z
+$ bash -c door "$@" bash api.poc1.shop.poc.local 172.18.255.242 /ready
+HTTP/2 503 
+server: envoy
+date: Fri, 18 Sep 2026 13:59:41 GMT
+content-type: text/plain; charset=utf-8
+content-length: 133
+x-content-type-options: nosniff
+x-pod: backend-5bf8464475-tdg49
+x-envoy-upstream-service-time: 11
+x-served-by: poc1
+
+
+
+### 2026-09-18T13:59:41Z
+$ bash -c door "$@" bash api.poc2.shop.poc.local 172.18.255.177 /ready
+HTTP/2 503 
+server: envoy
+date: Fri, 18 Sep 2026 13:59:41 GMT
+content-type: text/plain; charset=utf-8
+content-length: 133
+x-content-type-options: nosniff
+x-pod: backend-5bf8464475-jm6lq
+x-envoy-upstream-service-time: 22
+x-served-by: poc2
+
+
+
+### 2026-09-18T13:59:41Z
+$ bash -c door "$@" bash api.shop.poc.local 172.18.255.16 /orders
+HTTP/2 503 
+server: envoy
+date: Fri, 18 Sep 2026 13:59:42 GMT
+content-type: text/plain; charset=utf-8
+content-length: 133
+x-content-type-options: nosniff
+x-pod: backend-5bf8464475-tdg49
+x-envoy-upstream-service-time: 16
+x-served-by: poc1
+
+
+
+### 2026-09-18T13:59:42Z
+$ bash -c door "$@" bash api.poc1.shop.poc.local 172.18.255.242 /orders
+HTTP/2 503 
+server: envoy
+date: Fri, 18 Sep 2026 13:59:42 GMT
+content-type: text/plain; charset=utf-8
+content-length: 133
+x-content-type-options: nosniff
+x-pod: backend-5bf8464475-tdg49
+x-envoy-upstream-service-time: 14
+x-served-by: poc1
+
+
+
+### 2026-09-18T13:59:42Z
+$ bash -c door "$@" bash api.poc2.shop.poc.local 172.18.255.177 /orders
+HTTP/2 503 
+server: envoy
+date: Fri, 18 Sep 2026 13:59:42 GMT
+content-type: text/plain; charset=utf-8
+content-length: 133
+x-content-type-options: nosniff
+x-pod: backend-5bf8464475-jm6lq
+x-envoy-upstream-service-time: 18
+x-served-by: poc2
+
+
+
+### 2026-09-18T13:59:42Z
+$ kubectl --context kind-poc1 -n shop-clients exec shopper -- sh -c for p in healthz catalog/items orders/place reviews/latest pay/charge; do wget -qO- --timeout=3 http://api-gateway.shop-edge/$p; echo " $p rc=$?"; done
+ok
+ healthz rc=0
+catalog-5799bdf56f-qsd4p
+ catalog/items rc=0
+orders-79d944ff55-bqdf8
+ orders/place rc=0
+reviews-769697cd5-tz4vk
+ reviews/latest rc=0
+payment-gateway-868dd8c658-7rt82
+ pay/charge rc=0
+
+### 2026-09-18T13:59:42Z
+$ kubectl --context kind-poc2 -n shop-clients exec shopper -- sh -c for p in healthz catalog/items orders/place reviews/latest pay/charge; do wget -qO- --timeout=3 http://api-gateway.shop-edge/$p; echo " $p rc=$?"; done
+ok
+ healthz rc=0
+catalog-5799bdf56f-qbv7m
+ catalog/items rc=0
+orders-79d944ff55-6vbw5
+ orders/place rc=0
+reviews-769697cd5-xtltk
+ reviews/latest rc=0
+payment-gateway-868dd8c658-8q5rr
+ pay/charge rc=0
+
+### 2026-09-18T14:00:12Z
+$ demos/41-shop-mesh-phase1/flows-both.sh 400
+== kind-poc1 → demos/41-shop-mesh-phase1/policies/poc1/flows-audit.ndjson
+214 AUDIT INGRESS request flows -> demos/41-shop-mesh-phase1/policies/poc1/flows-audit.ndjson
+    4  ?@?                          -> api-gateway@shop-edge:80
+   33  shopper@shop-clients         -> api-gateway@shop-edge:80
+   20  shopper@shop-clients         -> api-gateway@shop-edge:80
+    2  api-gateway@shop-edge        -> backend@shop-core:8080
+    8  orders@shop-core             -> backend@shop-core:8080
+    5  orders@shop-core             -> backend@shop-core:8080
+    9  api-gateway@shop-edge        -> catalog@shop-core:80
+    5  api-gateway@shop-edge        -> catalog@shop-core:80
+    6  merchant@shop-merchant       -> catalog@shop-core:80
+    4  merchant@shop-merchant       -> catalog@shop-core:80
+    8  orders@shop-core             -> catalog@shop-core:80
+    5  orders@shop-core             -> catalog@shop-core:80
+    5  reviews@shop-reviews         -> catalog@shop-core:80
+    3  reviews@shop-reviews         -> catalog@shop-core:80
+    6  stranger@shop-clients        -> catalog@shop-core:80
+    4  stranger@shop-clients        -> catalog@shop-core:80
+    7  payment-gateway@shop-payments -> merchant@shop-merchant:80
+    4  payment-gateway@shop-payments -> merchant@shop-merchant:80
+    9  api-gateway@shop-edge        -> orders@shop-core:80
+    5  api-gateway@shop-edge        -> orders@shop-core:80
+    9  api-gateway@shop-edge        -> payment-gateway@shop-payments:80
+    5  api-gateway@shop-edge        -> payment-gateway@shop-payments:80
+    8  orders@shop-core             -> payment-gateway@shop-payments:80
+    5  orders@shop-core             -> payment-gateway@shop-payments:80
+    6  stranger@shop-clients        -> payment-gateway@shop-payments:80
+    4  stranger@shop-clients        -> payment-gateway@shop-payments:80
+    9  api-gateway@shop-edge        -> reviews@shop-reviews:80
+    5  api-gateway@shop-edge        -> reviews@shop-reviews:80
+    7  ratings@shop-reviews         -> reviews@shop-reviews:80
+    4  ratings@shop-reviews         -> reviews@shop-reviews:80
+== kind-poc2 → demos/41-shop-mesh-phase1/policies/poc2/flows-audit.ndjson
+218 AUDIT INGRESS request flows -> demos/41-shop-mesh-phase1/policies/poc2/flows-audit.ndjson
+    4  ?@?                          -> api-gateway@shop-edge:80
+   37  shopper@shop-clients         -> api-gateway@shop-edge:80
+   20  shopper@shop-clients         -> api-gateway@shop-edge:80
+    2  api-gateway@shop-edge        -> backend@shop-core:8080
+    8  orders@shop-core             -> backend@shop-core:8080
+    5  orders@shop-core             -> backend@shop-core:8080
+    9  api-gateway@shop-edge        -> catalog@shop-core:80
+    5  api-gateway@shop-edge        -> catalog@shop-core:80
+    6  merchant@shop-merchant       -> catalog@shop-core:80
+    4  merchant@shop-merchant       -> catalog@shop-core:80
+    8  orders@shop-core             -> catalog@shop-core:80
+    5  orders@shop-core             -> catalog@shop-core:80
+    5  reviews@shop-reviews         -> catalog@shop-core:80
+    3  reviews@shop-reviews         -> catalog@shop-core:80
+    6  stranger@shop-clients        -> catalog@shop-core:80
+    4  stranger@shop-clients        -> catalog@shop-core:80
+    7  payment-gateway@shop-payments -> merchant@shop-merchant:80
+    4  payment-gateway@shop-payments -> merchant@shop-merchant:80
+    9  api-gateway@shop-edge        -> orders@shop-core:80
+    5  api-gateway@shop-edge        -> orders@shop-core:80
+    9  api-gateway@shop-edge        -> payment-gateway@shop-payments:80
+    5  api-gateway@shop-edge        -> payment-gateway@shop-payments:80
+    8  orders@shop-core             -> payment-gateway@shop-payments:80
+    5  orders@shop-core             -> payment-gateway@shop-payments:80
+    6  stranger@shop-clients        -> payment-gateway@shop-payments:80
+    4  stranger@shop-clients        -> payment-gateway@shop-payments:80
+    9  api-gateway@shop-edge        -> reviews@shop-reviews:80
+    5  api-gateway@shop-edge        -> reviews@shop-reviews:80
+    7  ratings@shop-reviews         -> reviews@shop-reviews:80
+    4  ratings@shop-reviews         -> reviews@shop-reviews:80
+
+### 2026-09-18T14:00:13Z
+$ demos/41-shop-mesh-phase1/generate-both.sh
+== cf2cnp whereabouts (demo 25: the generator lives on poc1 behind routes-gw)
+NAME                     READY   UP-TO-DATE   AVAILABLE   AGE     CONTAINERS   IMAGES                              SELECTOR
+hubble-observer-cf2cnp   1/1     1            1           2d14h   cf2cnp       ghcr.io/ephico2real2/cf2cnp:0.9.0   app.kubernetes.io/instance=hubble-observer,app.kubernetes.io/name=cf2cnp
+-- poc2 (expect none: cf2cnp is not installed there)
+MEASURED GAP: no cf2cnp Deployment on poc2; both /generate calls go to poc1's Gateway.
+== poc1  flows=214 → demos/41-shop-mesh-phase1/policies/poc1/cnp-shop-intent.yaml
+http=200 → demos/41-shop-mesh-phase1/policies/poc1/cnp-shop-intent.yaml
+-- selectors in demos/41-shop-mesh-phase1/policies/poc1/cnp-shop-intent.yaml
+cluster-label lines: 0
+== poc2  flows=218 → demos/41-shop-mesh-phase1/policies/poc2/cnp-shop-intent.yaml
+http=200 → demos/41-shop-mesh-phase1/policies/poc2/cnp-shop-intent.yaml
+-- selectors in demos/41-shop-mesh-phase1/policies/poc2/cnp-shop-intent.yaml
+cluster-label lines: 0
+
+### 2026-09-18T14:00:14Z
+$ kubectl --context kind-poc1 apply -f demos/41-shop-mesh-phase1/policies/poc1/cnp-shop-intent.yaml
+ciliumnetworkpolicy.cilium.io/api-gateway created
+ciliumnetworkpolicy.cilium.io/backend created
+ciliumnetworkpolicy.cilium.io/catalog created
+ciliumnetworkpolicy.cilium.io/payment-gateway created
+ciliumnetworkpolicy.cilium.io/orders created
+ciliumnetworkpolicy.cilium.io/reviews created
+ciliumnetworkpolicy.cilium.io/merchant created
+
+### 2026-09-18T14:00:14Z
+$ kubectl --context kind-poc2 apply -f demos/41-shop-mesh-phase1/policies/poc2/cnp-shop-intent.yaml
+ciliumnetworkpolicy.cilium.io/api-gateway created
+ciliumnetworkpolicy.cilium.io/backend created
+ciliumnetworkpolicy.cilium.io/catalog created
+ciliumnetworkpolicy.cilium.io/payment-gateway created
+ciliumnetworkpolicy.cilium.io/orders created
+ciliumnetworkpolicy.cilium.io/reviews created
+ciliumnetworkpolicy.cilium.io/merchant created
+
+### 2026-09-18T14:00:24Z
+$ demos/41-shop-mesh-phase1/verdicts-both.sh 200
+== kind-poc1
+   20  ?@?                          -> api-gateway@shop-edge        FORWARDED ?
+   39  shopper@shop-clients         -> api-gateway@shop-edge        AUDIT     (no policy named)
+   16  shopper@shop-clients         -> api-gateway@shop-edge        FORWARDED api-gateway
+   20  ?@?                          -> backend@shop-core            FORWARDED ?
+    9  orders@shop-core             -> backend@shop-core            AUDIT     (no policy named)
+    4  orders@shop-core             -> backend@shop-core            FORWARDED backend
+   20  ?@?                          -> catalog@shop-core            FORWARDED ?
+    9  api-gateway@shop-edge        -> catalog@shop-core            AUDIT     (no policy named)
+    4  api-gateway@shop-edge        -> catalog@shop-core            FORWARDED catalog
+    6  merchant@shop-merchant       -> catalog@shop-core            AUDIT     (no policy named)
+    3  merchant@shop-merchant       -> catalog@shop-core            FORWARDED catalog
+    9  orders@shop-core             -> catalog@shop-core            AUDIT     (no policy named)
+    4  orders@shop-core             -> catalog@shop-core            FORWARDED catalog
+    6  reviews@shop-reviews         -> catalog@shop-core            AUDIT     (no policy named)
+    2  reviews@shop-reviews         -> catalog@shop-core            FORWARDED catalog
+    9  stranger@shop-clients        -> catalog@shop-core            AUDIT     (no policy named)
+   22  ?@?                          -> merchant@shop-merchant       FORWARDED ?
+   10  payment-gateway@shop-payments -> merchant@shop-merchant       AUDIT     (no policy named)
+    2  payment-gateway@shop-payments -> merchant@shop-merchant       FORWARDED merchant
+   19  ?@?                          -> orders@shop-core             FORWARDED ?
+   10  api-gateway@shop-edge        -> orders@shop-core             AUDIT     (no policy named)
+    4  api-gateway@shop-edge        -> orders@shop-core             FORWARDED orders
+   19  ?@?                          -> payment-gateway@shop-payments FORWARDED ?
+   10  api-gateway@shop-edge        -> payment-gateway@shop-payments AUDIT     (no policy named)
+    4  api-gateway@shop-edge        -> payment-gateway@shop-payments FORWARDED payment-gateway
+    9  orders@shop-core             -> payment-gateway@shop-payments AUDIT     (no policy named)
+    4  orders@shop-core             -> payment-gateway@shop-payments FORWARDED payment-gateway
+    9  stranger@shop-clients        -> payment-gateway@shop-payments AUDIT     (no policy named)
+   22  ?@?                          -> reviews@shop-reviews         FORWARDED ?
+   12  api-gateway@shop-edge        -> reviews@shop-reviews         AUDIT     (no policy named)
+    4  api-gateway@shop-edge        -> reviews@shop-reviews         FORWARDED reviews
+   10  ratings@shop-reviews         -> reviews@shop-reviews         AUDIT     (no policy named)
+    3  ratings@shop-reviews         -> reviews@shop-reviews         FORWARDED reviews
+== kind-poc2
+   20  ?@?                          -> api-gateway@shop-edge        FORWARDED ?
+   37  shopper@shop-clients         -> api-gateway@shop-edge        AUDIT     (no policy named)
+   16  shopper@shop-clients         -> api-gateway@shop-edge        FORWARDED api-gateway
+   20  ?@?                          -> backend@shop-core            FORWARDED ?
+    9  orders@shop-core             -> backend@shop-core            AUDIT     (no policy named)
+    4  orders@shop-core             -> backend@shop-core            FORWARDED backend
+   20  ?@?                          -> catalog@shop-core            FORWARDED ?
+    9  api-gateway@shop-edge        -> catalog@shop-core            AUDIT     (no policy named)
+    4  api-gateway@shop-edge        -> catalog@shop-core            FORWARDED catalog
+    6  merchant@shop-merchant       -> catalog@shop-core            AUDIT     (no policy named)
+    3  merchant@shop-merchant       -> catalog@shop-core            FORWARDED catalog
+    9  orders@shop-core             -> catalog@shop-core            AUDIT     (no policy named)
+    4  orders@shop-core             -> catalog@shop-core            FORWARDED catalog
+    6  reviews@shop-reviews         -> catalog@shop-core            AUDIT     (no policy named)
+    2  reviews@shop-reviews         -> catalog@shop-core            FORWARDED catalog
+    9  stranger@shop-clients        -> catalog@shop-core            AUDIT     (no policy named)
+   22  ?@?                          -> merchant@shop-merchant       FORWARDED ?
+   10  payment-gateway@shop-payments -> merchant@shop-merchant       AUDIT     (no policy named)
+    2  payment-gateway@shop-payments -> merchant@shop-merchant       FORWARDED merchant
+   19  ?@?                          -> orders@shop-core             FORWARDED ?
+    9  api-gateway@shop-edge        -> orders@shop-core             AUDIT     (no policy named)
+    4  api-gateway@shop-edge        -> orders@shop-core             FORWARDED orders
+   19  ?@?                          -> payment-gateway@shop-payments FORWARDED ?
+   10  api-gateway@shop-edge        -> payment-gateway@shop-payments AUDIT     (no policy named)
+    4  api-gateway@shop-edge        -> payment-gateway@shop-payments FORWARDED payment-gateway
+    9  orders@shop-core             -> payment-gateway@shop-payments AUDIT     (no policy named)
+    4  orders@shop-core             -> payment-gateway@shop-payments FORWARDED payment-gateway
+    9  stranger@shop-clients        -> payment-gateway@shop-payments AUDIT     (no policy named)
+   22  ?@?                          -> reviews@shop-reviews         FORWARDED ?
+   12  api-gateway@shop-edge        -> reviews@shop-reviews         AUDIT     (no policy named)
+    4  api-gateway@shop-edge        -> reviews@shop-reviews         FORWARDED reviews
+    9  ratings@shop-reviews         -> reviews@shop-reviews         AUDIT     (no policy named)
+    4  ratings@shop-reviews         -> reviews@shop-reviews         FORWARDED reviews
+
+### 2026-09-18T14:00:25Z
+$ demos/41-shop-mesh-phase1/audit-both.sh Disabled
+kind-poc1 endpoint 2751 (cep-name:shop-edge/api-gateway-c448767bb-sljk4 on poc1-control-plane): PolicyAuditMode=Disabled
+kind-poc1 endpoint 6 (cep-name:shop-core/backend-5bf8464475-tdg49 on poc1-control-plane): PolicyAuditMode=Disabled
+kind-poc1 endpoint 312 (cep-name:shop-core/catalog-5799bdf56f-qsd4p on poc1-control-plane): PolicyAuditMode=Disabled
+kind-poc1 endpoint 2198 (cep-name:shop-core/orders-79d944ff55-bqdf8 on poc1-control-plane): PolicyAuditMode=Disabled
+kind-poc1 endpoint 2248 (cep-name:shop-payments/payment-gateway-868dd8c658-7rt82 on poc1-control-plane): PolicyAuditMode=Disabled
+kind-poc1 endpoint 1157 (cep-name:shop-merchant/merchant-6696657c9-qj4k5 on poc1-control-plane): PolicyAuditMode=Disabled
+kind-poc1 endpoint 1304 (cep-name:shop-reviews/ratings on poc1-control-plane): PolicyAuditMode=Disabled
+kind-poc1 endpoint 536 (cep-name:shop-reviews/reviews-769697cd5-tz4vk on poc1-control-plane): PolicyAuditMode=Disabled
+kind-poc2 endpoint 87 (cep-name:shop-edge/api-gateway-c448767bb-htl4d on poc2-control-plane): PolicyAuditMode=Disabled
+kind-poc2 endpoint 833 (cep-name:shop-core/backend-5bf8464475-jm6lq on poc2-control-plane): PolicyAuditMode=Disabled
+kind-poc2 endpoint 1877 (cep-name:shop-core/catalog-5799bdf56f-qbv7m on poc2-control-plane): PolicyAuditMode=Disabled
+kind-poc2 endpoint 3033 (cep-name:shop-core/orders-79d944ff55-6vbw5 on poc2-control-plane): PolicyAuditMode=Disabled
+kind-poc2 endpoint 928 (cep-name:shop-payments/payment-gateway-868dd8c658-8q5rr on poc2-control-plane): PolicyAuditMode=Disabled
+kind-poc2 endpoint 3631 (cep-name:shop-merchant/merchant-6696657c9-jtjg2 on poc2-worker): PolicyAuditMode=Disabled
+kind-poc2 endpoint 500 (cep-name:shop-reviews/ratings on poc2-control-plane): PolicyAuditMode=Disabled
+kind-poc2 endpoint 3932 (cep-name:shop-reviews/reviews-769697cd5-xtltk on poc2-worker): PolicyAuditMode=Disabled
+
+### 2026-09-18T14:00:51Z
+$ kubectl --context kind-poc1 -n shop-clients exec shopper -- wget -qO- --timeout=5 http://api-gateway.shop-edge/healthz
+ok
+
+### 2026-09-18T14:00:51Z
+$ kubectl --context kind-poc2 -n shop-clients exec shopper -- wget -qO- --timeout=5 http://api-gateway.shop-edge/healthz
+ok
+
+### 2026-09-18T14:00:51Z
+$ bash -c curl -sk --resolve api.shop.poc.local:443:172.18.255.16 https://api.shop.poc.local/healthz -D - -o /dev/null --connect-timeout 5 --max-time 10
+HTTP/2 200 
+server: envoy
+date: Fri, 18 Sep 2026 14:00:51 GMT
+content-type: application/octet-stream
+content-length: 3
+x-envoy-upstream-service-time: 0
+x-served-by: poc1
+
+
+### 2026-09-18T14:00:51Z
+$ bash -c curl -sk --resolve api.poc1.shop.poc.local:443:172.18.255.242 https://api.poc1.shop.poc.local/healthz -D - -o /dev/null --connect-timeout 5 --max-time 10
+HTTP/2 200 
+server: envoy
+date: Fri, 18 Sep 2026 14:00:51 GMT
+content-type: application/octet-stream
+content-length: 3
+x-envoy-upstream-service-time: 0
+x-served-by: poc1
+
+
+### 2026-09-18T14:00:51Z
+$ bash -c curl -sk --resolve api.poc2.shop.poc.local:443:172.18.255.177 https://api.poc2.shop.poc.local/healthz -D - -o /dev/null --connect-timeout 5 --max-time 10
+HTTP/2 200 
+server: envoy
+date: Fri, 18 Sep 2026 14:00:51 GMT
+content-type: application/octet-stream
+content-length: 3
+x-envoy-upstream-service-time: 0
+x-served-by: poc2
+
+
+### 2026-09-18T14:01:24Z
+$ demos/40-shop-mesh-phase0/hosts-entries.sh
+# ---- cilium-kind-poc demo40 (generated 2026-09-18T14:01Z by demos/40-shop-mesh-phase0/hosts-entries.sh) ----
+172.18.255.16  api.shop.poc.local
+172.18.255.242  api.poc1.shop.poc.local
+172.18.255.177  api.poc2.shop.poc.local
+# db-service.poc.local  — phase 2 (db-gw does not exist yet)
+# ---- end cilium-kind-poc demo40 ----
+

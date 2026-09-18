@@ -1,0 +1,30 @@
+# poc2's HTTPRoutes. Same shape as 20-routes-poc1.yaml; only the per-cluster hostname and the
+# X-Served-By value change (api.poc2.shop.poc.local, poc2). The VIP hostname is identical.
+#
+#   kubectl --context kind-poc2 apply -f demos/41-shop-mesh-phase1/20-routes-poc2.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: shop-api, namespace: shop-edge}
+spec:
+  parentRefs:
+    - {name: shop-vip-gw, sectionName: https}
+    - {name: shop-gw, sectionName: https}
+  hostnames: ["api.shop.poc.local", "api.poc2.shop.poc.local"]
+  rules:
+    - backendRefs: [{name: api-gateway, port: 80}]
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier: {set: [{name: X-Served-By, value: poc2}]}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: shop-redirect, namespace: shop-edge}
+spec:
+  parentRefs:
+    - {name: shop-vip-gw, sectionName: http}
+    - {name: shop-gw, sectionName: http}
+  hostnames: ["api.shop.poc.local", "api.poc2.shop.poc.local"]
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect: {scheme: https, statusCode: 301}
