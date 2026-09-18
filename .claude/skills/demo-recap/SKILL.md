@@ -60,7 +60,7 @@ not listed here (they are in docs/REVIEW_*.md).
    will show, so a reader does not mistake a phase for a gap.
 6. **No praise, no adjectives of quality** ("robust", "elegant", "solid") — the numbers and the review section carry
    the judgement.
-7. **Length:** 600–1,100 words (demo 40's is 1,035). Longer means the README's job is being done twice; shorter means an insight was dropped.
+7. **Length:** 600–1,200 words (demo 40's is 1,035, demo 41's 1,209 — it carries a review correction as a step). Longer means the README's job is being done twice; shorter means an insight was dropped.
 8. **`scripts/mdfmt fix` after writing**, like every .md here.
 
 ## The process
