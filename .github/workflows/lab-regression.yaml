@@ -1,5 +1,5 @@
 # lab-regression — the plain-English regression check of the lab, on its own: two kind clusters meshed, the stack the
-# check needs (routes, monitoring, spoke, loki-observer, the hubble CLI), demo 37's two doors, the tutorial dashboards,
+# check needs (routes, monitoring, spoke, tempo + collectors — the Loki shipper — loki-observer, the hubble CLI), demo 37's two doors, the tutorial dashboards,
 # one round of the labs' traffic so drops and forwards exist, then scripts/lab-regression.sh (fourteen PASS/FAIL rows)
 # and a browser walk of the dashboards the rows touch (scripts/capture/regression.yaml) — captures on the run page.
 # About 35 minutes; the full lab (lab-observability.yaml) is 55 and does everything else too. docs/regression/README.md
@@ -54,10 +54,12 @@ jobs:
           set -o pipefail
           scripts/lab-images.sh poc1 poc2 2>&1 | tee images.log
 
-      - name: The stack the check needs — routes, monitoring, the spoke, Loki + the observer, the hubble CLI
+      # tempo + collectors are the Loki SHIPPER (lab-stack.sh's table: "the OTel collector per cluster: the Loki shipper on
+      # poc1") — runs 35295439873 and 35296914935 skipped them and the observer's lines never reached Loki (0 after 6 min)
+      - name: The stack the check needs — routes, monitoring, the spoke, Tempo + the collectors (the Loki shipper), Loki + the observer, the hubble CLI
         run: |
           set -o pipefail
-          scripts/lab-stack.sh routes monitoring spoke loki-observer hubble-cli 2>&1 | tee stack.log
+          scripts/lab-stack.sh routes monitoring spoke tempo collectors loki-observer hubble-cli 2>&1 | tee stack.log
           scripts/lab-route.sh kind-poc1 | tail -8   # the names the stack added (grafana, cf2cnp) into /etc/hosts
 
       # demo 37 is applied by hand on the Mac; here its manifests go in so row 13 (the two doors) has something to measure

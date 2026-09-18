@@ -149,11 +149,13 @@ the runs then showed it:
 |---|---|---|---|
 | [35294125733](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/35294125733) — the version before the review | — | **7 PASS, 6 FAIL** | exactly OB1's list: the runner did not trust the lab's certificate (`curl: (60) SSL certificate problem`), could not resolve `grafana.poc.local` (`curl: (6)`), printed `000000` for cf2cnp, and counted 0 tutorial panels |
 | [35295439873](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/35295439873) — after the review's fixes | the root trusted, the names resolved, row 4 checks only deployed names, the success regex, `→ ERR` counted | **13 PASS, 0 FAIL, 1 WARN** (the WARN: the optional connectivity test was not run) — the check itself is green on a fresh machine | the one red step was the screenshot of the observer dashboard: the observer had written 36 lines, but they had not yet travelled through the log shipper into Loki, so six panels still said "No data" |
-| the third run | a step that waits until Loki has the observer's lines before taking the pictures | see the issue #38 for the link | |
+| [35296914935](https://github.com/ephico2real2/cilium-implementation-poc/actions/runs/35296914935) — with a wait for Loki | the check **13 PASS, 0 FAIL, 1 WARN** again; the wait ran its full six minutes and Loki still had 0 observer lines | not timing after all: the trimmed stack had skipped `tempo` and `collectors`, and the OTel collector *is* the Loki shipper (the lab's own table says so). The observer wrote; nothing carried it |
+| the fourth run | the two missing stack steps added | see issue #38 for the link | |
 
-Two lessons for a newcomer: a reviewer who reads the code can predict a CI failure before the first run — and a "No
-data" panel is often a **timing** problem (the data is on its way), not a missing feature; so a test that reads a
-dashboard must first wait for the pipeline behind it.
+Three lessons for a newcomer: a reviewer who reads the code can predict a CI failure before the first run; a "No
+data" panel can be **timing** (the data is on its way) — so a test that reads a dashboard must wait for the pipeline
+behind it; and when the wait runs out, it is a **missing link** in that pipeline — read the component table, not the
+clock.
 
 ## What "regression testing a lot" means here
 
