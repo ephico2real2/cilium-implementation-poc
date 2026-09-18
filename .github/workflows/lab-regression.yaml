@@ -93,6 +93,16 @@ jobs:
           cilium connectivity test --context kind-poc1 --multi-cluster kind-poc2 --test '!no-unexpected-packet-drops' 2>&1 | tee connectivity.log || true
           echo "CONNECTIVITY_RESULT=$PWD/connectivity.log" >> "$GITHUB_ENV"
 
+      # the lab's own build (CILIUM_IMAGE in versions.env, exported by the bootstrap; lab-up.sh installed it and its CRD): the
+      # demo 39 measurement — a client on the other node, the reporting agent's Hubble series naming the remote workload
+      - name: Demo 39 — the remote backend's workload named on Gateway flows (the lab's build)
+        if: ${{ env.CILIUM_IMAGE != '' }}
+        run: |
+          set -o pipefail
+          echo "build: $CILIUM_IMAGE"
+          demos/39-remote-workload-fix/check.sh 2>&1 | tee demo39.log || echo "demo39_fails=$?" >> "$GITHUB_ENV"
+          { echo '## Demo 39 — the remote workload'; echo; echo '```text'; grep -E 'backend:|probe:|requests:|STATUS|PASS|FAIL|WARN|agent' demo39.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: The regression check — fourteen rows, PASS or FAIL with the number that decided it
         id: check
         run: |
@@ -132,6 +142,9 @@ jobs:
           echo "- regression rows failed: ${{ steps.check.outputs.fails || 0 }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- how to read every row: docs/regression/README.md · tracking issue #38" >> "$GITHUB_STEP_SUMMARY"
           [ -z "${{ steps.check.outputs.fails }}" ] || { echo "::error::${{ steps.check.outputs.fails }} regression row(s) FAIL — see the table above"; exit 1; }
+          [ -z "${DEMO39_FAILS:-}" ] || { echo "::error::demo 39: $DEMO39_FAILS row(s) FAIL — the remote workload is not named"; exit 1; }
+        env:
+          DEMO39_FAILS: ${{ env.demo39_fails }}
 
       - name: Evidence
         if: always()
@@ -147,6 +160,7 @@ jobs:
             traffic.log
             connectivity.log
             regression.log
+            demo39.log
             output/regression/
             captures/
           if-no-files-found: ignore
