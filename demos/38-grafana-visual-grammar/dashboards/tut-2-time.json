@@ -1,0 +1,602 @@
+{
+  "uid": "tut-2-time",
+  "title": "Grafana 2 · Instant, range, reduce",
+  "description": "The same PromQL, four reductions — last vs mean, instant table vs range series, $__rate_interval vs a fixed window.",
+  "tags": [
+    "tutorial"
+  ],
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 0,
+  "fiscalYearStartMonth": 0,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "refresh": 1,
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      },
+      {
+        "name": "cluster",
+        "label": "cluster",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(kube_node_info, cluster)",
+        "query": {
+          "query": "label_values(kube_node_info, cluster)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "allValue": ".*"
+      },
+      {
+        "name": "node",
+        "label": "node",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "definition": "label_values(node_uname_info{cluster=~\"$cluster\"}, instance)",
+        "query": {
+          "query": "label_values(node_uname_info{cluster=~\"$cluster\"}, instance)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "links": [],
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Range + last value",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count by (namespace) (kube_pod_info{cluster=~\"$cluster\", namespace=~\"team-.*|cf2cnp-lab.*\"})",
+          "refId": "A",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{namespace}}"
+        }
+      ],
+      "pluginVersion": "13.2.1",
+      "description": "The last sample of pod count per namespace in the window.",
+      "id": 1
+    },
+    {
+      "type": "text",
+      "title": "",
+      "description": "",
+      "transparent": true,
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 12,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "<!-- caption -->\n\nA range query returns a series per namespace; \"Calculate\" reduces each to ONE number — last value here, the mean beside it. Same data, different numbers; the reducer is part of the question."
+      },
+      "pluginVersion": "13.2.1",
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Range + mean over the window",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "mean"
+          ],
+          "fields": ""
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count by (namespace) (kube_pod_info{cluster=~\"$cluster\", namespace=~\"team-.*|cf2cnp-lab.*\"})",
+          "refId": "A",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{namespace}}"
+        }
+      ],
+      "pluginVersion": "13.2.1",
+      "description": "The mean of that same series over the window — a different number from the same data.",
+      "id": 3
+    },
+    {
+      "type": "text",
+      "title": "",
+      "description": "",
+      "transparent": true,
+      "gridPos": {
+        "x": 12,
+        "y": 7,
+        "w": 12,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "<!-- caption -->\n\nMean over the window hides a change that happened five minutes ago; last value hides that it was different an hour ago. Say which one you show."
+      },
+      "pluginVersion": "13.2.1",
+      "id": 4
+    },
+    {
+      "type": "piechart",
+      "title": "Instant + All values",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "pieType": "pie",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "displayLabels": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count by (namespace) (kube_pod_info{cluster=~\"$cluster\", namespace=~\"team-.*|cf2cnp-lab.*\"})",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "pluginVersion": "13.2.1",
+      "description": "Instant query as one table; Grafana colours rows of one field by the number.",
+      "id": 5
+    },
+    {
+      "type": "text",
+      "title": "",
+      "description": "",
+      "transparent": true,
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "<!-- caption -->\n\nAn instant query returns one table (namespace, count). \"All values\" shows each row — and Grafana colours the rows of one field by VALUE: team-a and team-b both have 2 pods and share a colour (measured on the observer dashboard, 2026-09-17, then here)."
+      },
+      "pluginVersion": "13.2.1",
+      "id": 6
+    },
+    {
+      "type": "piechart",
+      "title": "Range + Calculate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "pieType": "pie",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "displayLabels": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count by (namespace) (kube_pod_info{cluster=~\"$cluster\", namespace=~\"team-.*|cf2cnp-lab.*\"})",
+          "refId": "A",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{namespace}}"
+        }
+      ],
+      "pluginVersion": "13.2.1",
+      "description": "Range query: one series per namespace, one colour per name.",
+      "id": 7
+    },
+    {
+      "type": "text",
+      "title": "",
+      "description": "",
+      "transparent": true,
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "<!-- caption -->\n\nThe range shape: one series per namespace, one colour per series. Same numbers as the pie on the left; team-a and team-b now differ. Prefer this shape for pies and legends."
+      },
+      "pluginVersion": "13.2.1",
+      "id": 8
+    },
+    {
+      "type": "timeseries",
+      "title": "rate() over $__rate_interval",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (cluster) (rate(node_network_receive_bytes_total{cluster=~\"$cluster\",device!=\"lo\"}[$__rate_interval]))",
+          "refId": "A",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "pluginVersion": "13.2.1",
+      "description": "rate() over $__rate_interval follows the panel resolution, so zooming stays continuous.",
+      "id": 9
+    },
+    {
+      "type": "text",
+      "title": "",
+      "description": "",
+      "transparent": true,
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 12,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "<!-- caption -->\n\n$__rate_interval follows the panel's resolution (≥ 4 × scrape interval), so zooming never produces gaps. A fixed [1m] on a 30 s scrape breaks when you zoom out."
+      },
+      "pluginVersion": "13.2.1",
+      "id": 10
+    },
+    {
+      "type": "timeseries",
+      "title": "rate() over a fixed [1m]",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "showPoints": "never",
+            "pointSize": 5,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (cluster) (rate(node_network_receive_bytes_total{cluster=~\"$cluster\",device!=\"lo\"}[1m]))",
+          "refId": "A",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "pluginVersion": "13.2.1",
+      "description": "rate() over a fixed [1m] — the same metric, a window that does not follow the zoom.",
+      "id": 11
+    },
+    {
+      "type": "text",
+      "title": "",
+      "description": "",
+      "transparent": true,
+      "gridPos": {
+        "x": 12,
+        "y": 27,
+        "w": 12,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "<!-- caption -->\n\nSame metric, fixed window. Zoom to 7 days and compare: this one thins out, the other stays continuous."
+      },
+      "pluginVersion": "13.2.1",
+      "id": 12
+    }
+  ]
+}

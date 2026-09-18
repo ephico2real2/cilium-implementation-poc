@@ -1,7 +1,7 @@
 # cilium-implementation-poc
 
 A reproducible proof of concept of what **Cilium 1.20.1** and **Hubble** give you over a stock CNI + kube-proxy
-cluster — **measured, not quoted**. Two kind clusters in a ClusterMesh with no kube-proxy and no other CNI, 36 demos
+cluster — **measured, not quoted**. Two kind clusters in a ClusterMesh with no kube-proxy and no other CNI, 37 demos
 from the first Hubble flow to policies generated from observed traffic, every command with its recorded output, and a
 GitHub Action that builds and exercises the whole lab from the same scripts a laptop uses.
 
@@ -163,6 +163,7 @@ on the one before.
 | 24 | [ClusterMesh the enterprise way](demos/24-clustermesh-enterprise/README.md) | Hubble joins the mesh on the one cert-manager root (`7/7` nodes, zero handshake failures); the mesh declared the guide's way; the 3.5-minute outage a wrong order costs | [1 capture](demos/24-clustermesh-enterprise/README.md#evidence) |
 | 36 | [One root, everywhere](demos/36-trust-everywhere/README.md) | the Gateway's wildcard was cert-manager's all along (read from the chain); that root into the OS trust stores and every namespace of both clusters, so `--cacert` stops being a special case | in the demo |
 | 37 | [Two ways to deploy a Gateway](demos/37-two-gateways/README.md) | the platform's shared `routes-gw` versus a team's own Gateway in its namespace: address, zone and certificate, ownership and RBAC measured from both directions, the hostname hijack and its admission control — and the noisy neighbour under fortio: a team's door does **not** isolate it on Cilium (one Envoy per node), two tenants get exactly half each through one door or two, 45 M requests and 0 errors | [transcripts + `output/perf/`](demos/37-two-gateways/README.md#part-6--the-noisy-neighbour-measured-does-a-teams-own-gateway-isolate-it) |
+| 38 | [Grafana's visual grammar](demos/38-grafana-visual-grammar/README.md) | a tutorial, not a Cilium demo: six generated dashboards from node_exporter and kube-state-metrics up to Hubble — the question decides the chart (stat, gauge, time series, pie ≤ 6, sorted bars, state timeline, table), instant vs range vs reduce, colour that carries one thing (fixed per meaning, thresholds, one colour), units/legends/captions, variables and repeats — each lesson measured on Grafana 13.2.1 (by-name palette works on time series, one colour on pies/stats/bars; instant + All values colours equal counts alike), then read against the observer dashboard | [six screenshots](demos/38-grafana-visual-grammar/output/screenshots/), `check.sh` (30 panels, 0 NO DATA) |
 | | **Observability** — hub on poc1, poc2 a spoke | | |
 | 10 | [Flow export → OpenTelemetry](demos/10-tracing/README.md) | Hubble's dynamic exporter per node tailed by a Collector into OTLP; every flow persistent and queryable — events, not spans (gotcha #30) | [pods + output](demos/10-tracing/README.md#evidence) |
 | 16 | [Prometheus + Grafana, then Hubble on dashboards](demos/16-monitoring/README.md) | kube-prometheus-stack, then one Cilium Helm change: 6 ServiceMonitors, 6 dashboards, 52/52 targets, exemplars proven with a `traceparent` | [11 captures](demos/16-monitoring/README.md#evidence) |
