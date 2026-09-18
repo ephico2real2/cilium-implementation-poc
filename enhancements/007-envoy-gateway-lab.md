@@ -1,6 +1,6 @@
 # Enhancement 007 — the vanilla lab: two kind clusters, Envoy Gateway, kube-proxy and kindnet, and the two software load balancers side by side
 
-Status: **plan, revision 1** (2026-09-18) — nothing built. Written from the operator's ask across three messages the same
+Status: **plan, revision 1** — tracking issue [#53](https://github.com/ephico2real2/cilium-implementation-poc/issues/53) (2026-09-18) — nothing built. Written from the operator's ask across three messages the same
 day: *"a new 2 cluster kind cluster for using envoy gateway api with default kubeproxy and cni. We are gonna install the
 gateway api crds yaml. We need to do what we [did] with our ip design reservation trick from the same cidr as the node
 network. So we need to create docker network and cidr for this setup"*; *"Kube vip might be our best in lieu of metal lb
