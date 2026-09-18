@@ -80,6 +80,20 @@ docker run --rm --entrypoint cilium-agent quay.io/cilium/cilium-dev:remote-workl
 
 The commit hash in the version string is the proof you are running your build, not the release.
 
+**Build for both architectures before you pin it.** The first push to the registry was the M5's `linux/arm64` image
+alone; GitHub's runners are `linux/amd64`, and the first CI runs on the build died at `Init:ImagePullBackOff` (runs
+35306692168, 35306892411). Cilium's Dockerfile cross-compiles (`FROM --platform=$BUILDPLATFORM` for the builder,
+`GOARCH=$TARGETARCH` for the Go build), so:
+
+```sh
+make dev-docker-image DOCKER_IMAGE_TAG=remote-workload DOCKER_BUILD_FLAGS="--platform linux/amd64,linux/arm64 --load"
+docker tag quay.io/cilium/cilium-dev:remote-workload ghcr.io/ephico2real2/cilium-dev:1.20.2-remote-workload-1d3a02ab
+docker push ghcr.io/ephico2real2/cilium-dev:1.20.2-remote-workload-1d3a02ab      # both platforms in one index
+```
+
+(`docker images --tree` shows the two halves: amd64 258 MB, arm64 979 MB — the arm64 one carries the debug symbols the
+builder's cache had; Docker Desktop's containerd image store keeps a multi-platform image locally.)
+
 ## 5. Deploy — the same image on both clusters, in this order
 
 The CiliumEndpoint CRD on the cluster prunes fields it does not know: without the schema update the agent's write of
