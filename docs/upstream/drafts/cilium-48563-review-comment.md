@@ -1,6 +1,6 @@
 # Draft — a review comment on cilium/cilium#48563 "hubble: Populate workloads for remote endpoints"
 
-**Status: DRAFT, not posted.** Written 2026-09-18 after OB1 (Fable 5.1) and Codex reviewed the lab's own fix
+**Status: POSTED 2026-09-18 on the operator's word ("Post it") — https://github.com/cilium/cilium/pull/48563#issuecomment-5725111947.** The text below is what went out (the links pinned to commit `4ef5d94`, so they outlive the branch). Written 2026-09-18 after OB1 (Fable 5.1) and Codex reviewed the lab's own fix
 (`docs/REVIEW_CILIUM_FIX.md`) and both pointed at #48563 as the upstream work this should join rather than compete
 with. Per the operator's rule: OB1 has reviewed the work; this text waits for the operator's reading and word.
 
@@ -44,7 +44,7 @@ all three parsers, a cilium-cli connectivity test. Its files do not include `pkg
 >
 > ![before: Cilium's L7-by-Workload dashboard, No data on every panel for a backend on the other node](https://raw.githubusercontent.com/ephico2real2/cilium-implementation-poc/main/docs/upstream/images/l7-by-workload-team-a-no-data.png)
 >
-> ![after: the same dashboard filled — red the Destination Workload selector, orange requests/s, yellow success rate, blue latency](https://raw.githubusercontent.com/ephico2real2/cilium-implementation-poc/demo-39-remote-workload/demos/39-remote-workload-fix/output/l7-by-workload-shop-team-a-highlighted.png)
+> ![after: the same dashboard filled — red the Destination Workload selector, orange requests/s, yellow success rate, blue latency](https://raw.githubusercontent.com/ephico2real2/cilium-implementation-poc/4ef5d94952c19566bb2385140cad31e25b720ef9/demos/39-remote-workload-fix/output/l7-by-workload-shop-team-a-highlighted.png)
 >
 > **How it was tested** (two kind clusters on one machine, Cilium v1.20.2 + the three commits of
 > `ephico2real2/cilium@hubble/remote-workload-via-cep`; the image built with `make dev-docker-image`, loaded into all
@@ -68,14 +68,14 @@ all three parsers, a cilium-cli connectivity test. Its files do not include `pkg
 > 3. The chart's *Hubble L7 HTTP Metrics by Workload* dashboard for that selection: the two pictures above.
 > 4. The lab's regression check on the patched clusters (14 rows — versions, agent health, mesh, the Gateway's names,
 >    listeners, L2 leases, Hubble metrics from both clusters, drops and forwards, the flow observer, dashboards):
->    13 PASS and 1 FAIL — the FAIL being the version row, which correctly says the image is not the release;
->    `cilium status` OK and ClusterMesh OK on both.
+>    14 PASS on both clusters running the build (the version row pinned to it); `cilium status` OK and ClusterMesh
+>    OK on both.
 >
 > What is NOT tested here: CiliumEndpointSlices (the branch does not carry the field on the slice) and a backend in
 > the *other* cluster of the mesh (the kvstore path) — the two things this PR covers and ours does not, which is why
 > this is a comment and not a competing PR. Happy to run this PR's branch on the same lab and report, if that helps it
 > out of draft. Details, the exact commands and the capture scripts:
-> https://github.com/ephico2real2/cilium-implementation-poc/blob/demo-39-remote-workload/demos/39-remote-workload-fix/README.md
+> https://github.com/ephico2real2/cilium-implementation-poc/blob/4ef5d94952c19566bb2385140cad31e25b720ef9/demos/39-remote-workload-fix/README.md
 >
 > (AI assistance, declared under the Cilium AI policy: I directed the work and designed the test cases — the remote
 > placement of the backend, the client on the other node, the same image on both clusters, the before/after
@@ -83,13 +83,12 @@ all three parsers, a cilium-cli connectivity test. Its files do not include `pkg
 > with Cursor implementing from briefs and Fable and Codex as adversarial reviewers. Every number above was run and
 > read by me before posting.)
 
-## Before posting
+## Before posting (done)
 
-- [ ] the operator has read this file and said "post"
-- [ ] #40 merged: replace `demo-39-remote-workload` with `main` in the after-image URL and the README link (the
-      before-image is on `main` already); the branch URLs are there now so the preview renders
-- [ ] re-check #48563's state (`gh pr view 48563 -R cilium/cilium --json state,isDraft,files`) — if `register.go` has
-      appeared or the PR merged, drop or rewrite point 2
-- [ ] a CI run on the patched image (the `lab-regression` Action with `cilium_image` set — pending the image push to
-      ghcr) added as a link under "How it was tested", if it exists by then
-- [ ] the operator posts it, or says who does
+- [x] the operator has read this file and said "post" ("Post it.", 2026-09-18)
+- [x] the after-image and README links pinned to commit `4ef5d94` instead of a branch (#40 not yet merged; a pinned
+      URL survives the branch's deletion)
+- [x] #48563 re-checked before posting: OPEN, draft, last updated 2026-09-16, `register.go` still not among its files
+- [ ] a CI run on the patched image (the lab's pins now name it; the `lab-regression` Action's next run) — to be added
+      as a follow-up comment once green
+- [x] posted through the operator's `gh` account
