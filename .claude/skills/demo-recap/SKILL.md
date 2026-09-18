@@ -35,6 +35,15 @@ they are the evidence. A term of art gets its plain meaning in the same sentence
 
 **2. …** (as many numbered steps as the demo has real steps; five to eight is typical)
 
+**The reference card — names, addresses, certificates, doors.** (Only when the demo creates names, addresses,
+certificates or Gateways — the operator, 2026-09-18: *"include the dns record… the ip address and dns record and how
+the cert manager certificate request was spec… did you cn and alt dns name… how many… mini reference diagram for the
+additional gateways".*) Read from the LIVE objects, not the manifests: a table name → address → what it is → who
+answers; the Certificate spec as applied (CN, every SAN, issuer → CA secret, secretName) with one paragraph on *why*
+that shape (one per cluster or per service? why the CN is the product name? what was rejected and measured); the
+issued leaves' subject, issuer, SANs, validity and per-cluster fingerprints; and an ASCII diagram of the Gateways
+with their listeners, hostnames, certificate and pool. Demo 40's is the model.
+
 **What the review caught.** One line per finding that changed the demo, plain words — what was wrong and what it
 would have meant ("the check called an unreachable door a PASS"). Name the reviewers once. Findings rejected are
 not listed here (they are in docs/REVIEW_*.md).
@@ -60,7 +69,7 @@ not listed here (they are in docs/REVIEW_*.md).
    will show, so a reader does not mistake a phase for a gap.
 6. **No praise, no adjectives of quality** ("robust", "elegant", "solid") — the numbers and the review section carry
    the judgement.
-7. **Length:** 600–1,200 words (demo 40's is 1,035, demo 41's 1,209 — it carries a review correction as a step). Longer means the README's job is being done twice; shorter means an insight was dropped.
+7. **Length:** 600–1,200 words of prose; the reference card's tables, YAML and diagram are not counted (demo 40 is 1,035 without it, demo 41 1,209 — it carries a review correction as a step). Longer means the README's job is being done twice; shorter means an insight was dropped.
 8. **`scripts/mdfmt fix` after writing**, like every .md here.
 
 ## The process

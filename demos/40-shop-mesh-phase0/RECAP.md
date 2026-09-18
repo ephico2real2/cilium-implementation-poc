@@ -51,6 +51,69 @@ prints, per second, how many requests succeeded, how many failed and which clust
 that is the customer's view of the mesh. The builds happen in this phase because gotcha #118 showed that heavy builds on
 the Docker VM distort measurements (and OOM-killed Tetragon); the measuring phases stay clean.
 
+**The reference card — names, addresses, certificates, doors.** Everything below is read from the live clusters
+(`demos/40-shop-mesh-phase0/hosts-entries.sh`, `kubectl get gateway,certificate -n shop-edge`, `openssl s_client`).
+
+*The names and their addresses.* The lab has no DNS server for `.poc.local`; the records live in `/etc/hosts` on the
+machine that runs the clients, and `hosts-entries.sh` prints them from live state so a stale entry cannot survive a
+re-deploy unnoticed:
+
+| Name | Address | What it is | Who answers for it |
+|---|---|---|---|
+| `api.shop.poc.local` | `172.18.255.16` | the **product name** — cluster-agnostic, the only one a customer knows | whichever cluster holds `shop-vip-announce` (poc1 today) |
+| `api.poc1.shop.poc.local` | `172.18.255.242` | poc1's own door, for operators and for the per-cluster measurements | poc1 |
+| `api.poc2.shop.poc.local` | `172.18.255.177` | poc2's own door | poc2 |
+| `db-service.poc.local` | `172.18.255.244` | the database's door — **phase 2**, not created yet | poc1 |
+
+*The certificate.* **One `Certificate` per cluster — two in total, the same spec in both — not one per service or
+per door.** Both doors in a cluster reference the same Secret, `shop-tls`:
+
+```yaml
+kind: Certificate                     # cert-manager.io/v1, namespace shop-edge, in BOTH clusters
+spec:
+  secretName: shop-tls
+  commonName: api.shop.poc.local       # the CN is the product name
+  dnsNames:                            # the SANs — the CN repeated, plus the two per-cluster names
+    - api.shop.poc.local
+    - api.poc1.shop.poc.local
+    - api.poc2.shop.poc.local
+  issuerRef: {kind: ClusterIssuer, name: ca-issuer}   # → CA secret clustermesh-root-ca, the same root in both clusters
+```
+
+Why one certificate with three names, and why the CN is the product name: the shared-address door must present a
+certificate valid for `api.shop.poc.local` in *whichever* cluster is answering, so each cluster's certificate has to
+carry that name; giving it the per-cluster names too means one Secret serves both doors in that cluster, and a client
+that trusts the root can call any of the three names against any door. A wildcard `*.shop.poc.local` was measured and
+rejected — it covers one label, so it would not match `api.poc1.shop.poc.local`. The issued leaves: both clusters,
+`subject=CN=api.shop.poc.local`, `issuer=CN=clustermesh-root-ca`, the three SANs, valid 2026-09-18 → 2026-12-17
+(cert-manager's 90-day default, renewed by it before expiry); the fingerprints differ per cluster — poc1
+`43:21:FC:A4…`, poc2 `C8:9E:AB:79…` — which is how the review proved that a call to the shared address reached poc1.
+A DBA's `psql` or a browser trusts one file, `docs/root-ca.crt` (the same root), for every door in both clusters.
+
+*The doors.* Four Gateways, two per cluster, each with an HTTPS listener on 443 bound to `shop-tls` and a plain HTTP
+listener on 80 for the redirect. Demo 41 attaches the platform's routes to them (shown greyed):
+
+```text
+                  api.shop.poc.local ─── 172.18.255.16 ─── announced by ONE cluster (shop-vip-announce)
+                              │                                        │
+             ┌────────────────┴───────────┐             ┌──────────────┴───────────────┐
+             │  poc1                      │             │  poc2                        │
+             │  shop-vip-gw  .16          │             │  shop-vip-gw  .16            │
+             │   https:443 api.shop.poc.local (shop-tls)│   https:443 api.shop.poc.local (shop-tls)
+             │   http:80  → 301           │             │   http:80  → 301             │
+             │                            │             │                              │
+             │  shop-gw      .242         │             │  shop-gw      .177           │
+             │   https:443 api.poc1.shop.poc.local      │   https:443 api.poc2.shop.poc.local
+             │   http:80  → 301           │             │   http:80  → 301             │
+             │        │  (demo 41: HTTPRoute shop-api → api-gateway, X-Served-By: poc1 / poc2)
+             │        ▼                   │             │        ▼                     │
+             │  api-gateway (shop-edge)   │             │  api-gateway (shop-edge)     │
+             └────────────────────────────┘             └──────────────────────────────┘
+   pools:  shared-vip-pool .16–.31 (both clusters, only shop-vip-gw may land here)
+           poc1 gateway-pool .240–.250 (shop-gw .242; .240 routes-gw, .241 sw-gateway, .243 team-b-gw already there)
+           poc2 gateway-pool .176–.186 (shop-gw .177)
+```
+
 **What the review caught** (OB1, Codex and Grok, `docs/REVIEW_DEMO40.md`):
 
 - The check script called an unreachable door a PASS: curl printed `000`, a fallback appended another `000`, and the
