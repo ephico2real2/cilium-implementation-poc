@@ -134,9 +134,10 @@ And where people look — Cilium's own *Hubble L7 HTTP Metrics by Workload* dash
 
 ![Cilium's L7-by-Workload dashboard for shop / team-a, highlighted: the Destination Workload selector and the three General panels, filled for a backend on the other node](output/l7-by-workload-shop-team-a-highlighted.png)
 
-The red boxes and the banner are drawn by the capture script over the live page (`capture-highlight.js`), not part
-of the dashboard: the selector *Destination Workload = shop* could never match a remote backend before; the three
-panels under it are the ones that said "No data". The unmarked full page: [`output/l7-by-workload-remote-backend-after-fix.png`](output/l7-by-workload-remote-backend-after-fix.png).
+The boxes and the banner are drawn by the capture script over the live page (`capture-highlight.js`), not part of
+the dashboard — one colour each, named in the banner's key: **red** the selector *Destination Workload = shop*, which
+could never match a remote backend before; **orange** requests per second, **yellow** the success rate, **blue** the
+latency percentiles — the three panels that said "No data". The unmarked full page: [`output/l7-by-workload-remote-backend-after-fix.png`](output/l7-by-workload-remote-backend-after-fix.png).
 
 1.71 req/s, 100 % non-5xx, P50/P95/P99. The one empty panel, *CPU Usage by Source*, reads kube-state-metrics for the
 source's workload — the client is a bare pod, so by the third commit's rule it has none: correct, not a gap.
