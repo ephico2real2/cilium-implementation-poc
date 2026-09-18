@@ -553,10 +553,19 @@ Revision 2 of enhancement 007, from this record:
    `172.18/16` either). Demo clients run from a container on `kind-eg` until the operator
    adds `sudo route -n add -net 172.19.0.0/16 192.168.64.2`. Gateway `192.168.64.2` on
    `bridge100` confirmed. Document both paths in every demo README.
-2. **`crds.enabled=false` skips Envoy Gateway's own CRDs** as well as Gateway API. Demo 50
-   must `helm template` `oci://docker.io/envoyproxy/gateway-crds-helm` with
-   `crds.gatewayAPI.enabled=false crds.envoyGateway.enabled=true` (server-side apply) before
-   the main chart.
+2. **Envoy Gateway's CRDs are installed from the get-go, by the vendor's CRD chart — the installation is three
+   commands, not one** (the operator, 2026-09-18: *"I want our guide to install it from the get go along the
+   installation of envoy"*). Measured against the charts' values at v1.9.1: `gateway-helm` has a single switch,
+   `crds.enabled` — *"Install Envoy Gateway CRDs, Gateway API CRDs, and Gateway API safe upgrade policy resources. Set
+   to false when these resources are managed separately"* — all or nothing; `gateway-crds-helm` has the granular
+   switches `crds.envoyGateway.enabled` and `crds.gatewayAPI.enabled` (+ `channel: standard|experimental`). So the
+   guide's sequence, in `scripts/eg-up.sh` from demo 50 on: (1) the Gateway API **standard** CRDs from upstream's
+   `standard-install.yaml`; (2) `helm install eg-crds oci://docker.io/envoyproxy/gateway-crds-helm --set
+   crds.envoyGateway.enabled=true` — Envoy Gateway's eight CRDs; (3) `helm install eg oci://docker.io/envoyproxy/gateway-helm
+   --set crds.enabled=false` — the controller, told its CRDs are managed by (1) and (2); (4) the `GatewayClass eg`.
+   Alternative for a one-owner install: step (2) with `crds.gatewayAPI.enabled=true crds.gatewayAPI.channel=standard`
+   replaces step (1) — the same upstream content, Helm-managed; the guide names it as a note and keeps the YAML.
+   Nothing of Envoy Gateway's is skipped: eg1 has all eight `gateway.envoyproxy.io` CRDs and two `EnvoyProxy` objects.
 3. **The chart does not create GatewayClass `eg`.** Apply it (`controllerName:
    gateway.envoyproxy.io/gatewayclass-controller`).
 4. **Coexistence is the path** (not `scripts/eg-lb.sh`). Three filters, all required:

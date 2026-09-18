@@ -1,8 +1,9 @@
 # Enhancement 007 — the vanilla lab: two kind clusters, Envoy Gateway, kube-proxy and kindnet, and the two software load balancers side by side
 
 Status: **plan, revision 2** (2026-09-18, after phase 0 — `docs/EG-PHASE0.md`, issue #54) — nothing built beyond eg1
-and the phase 0 probes. **What phase 0 changed:** `crds.enabled=false` also skips Envoy Gateway's own CRDs (install them
-from `gateway-crds-helm` first); the chart creates no `GatewayClass` (apply `eg`); **the two load balancers coexist** —
+and the phase 0 probes. **What phase 0 changed:** Envoy Gateway is installed as three commands from the get-go — upstream's standard CRDs, the vendor's
+`gateway-crds-helm` for Envoy Gateway's own eight CRDs, then `gateway-helm` with `crds.enabled=false` (its only switch
+is all-or-nothing); the chart creates no `GatewayClass` (apply `eg`); **the two load balancers coexist** —
 three filters are required (kube-vip `--lbClassOnly`, the cloud-provider's `KUBEVIP_ENABLE_LOADBALANCERCLASS=true`,
 MetalLB `--lb-class` on controller and speaker), so the sequential swap is dropped; MetalLB's chart defaults
 `frrk8s.enabled: true` (off for L2); no kube-vip `--taint`; the `EnvoyProxy` with its `loadBalancerClass` must exist
@@ -29,7 +30,7 @@ it is that the reader can name every part Cilium bundled.
 |---|---|---|
 | R1 | **Two kind clusters** `eg1`, `eg2` on **their own Docker network** with the lab's reservation trick: Docker allocates node addresses from the lower half only; the top `/24` is carved into `/26` blocks per cluster from **the same CIDR as the node network** | `docker network create --ip-range`, `KIND_EXPERIMENTAL_DOCKER_NETWORK`, NETWORKING_DESIGN §3's block layout |
 | R2 | **Stock networking**: kindnet CNI, kube-proxy `iptables`; no Cilium anywhere on these clusters | kind's defaults (`kubeProxyMode` unset, `disableDefaultCNI` unset) |
-| R3 | **Gateway API CRDs installed from the release YAML** (standard channel), then Envoy Gateway with its own CRDs only | `kubernetes-sigs/gateway-api` release manifests; `helm install eg … --set crds.enabled=false` |
+| R3 | **Gateway API CRDs installed from the release YAML** (standard channel), then **Envoy Gateway's own CRDs from the vendor's CRD chart, then the controller** — the installation is three commands from the get-go (the operator, 2026-09-18) | `standard-install.yaml`; `gateway-crds-helm --set crds.envoyGateway.enabled=true`; `gateway-helm --set crds.enabled=false` (its one switch is all-or-nothing, measured); `GatewayClass eg` applied |
 | R4 | **Demo A — kube-vip**: the DaemonSet + the cloud-provider Deployment + one ConfigMap of ranges; a Gateway per cluster on a **static address**; the shared address on one cluster | ARP mode, per-Service leader election, `kube-vip.io/loadbalancerIPs`, `range-<namespace>` |
 | R5 | **Demo B — MetalLB**: `IPAddressPool` + `L2Advertisement`; the same Gateways, the same addresses, the same static-address trick | L2 mode, `metallb.io/loadBalancerIPs`, `L2Advertisement` selecting Services |
 | R6 | **Both on the same clusters at once**, each owning only its Services, through **`loadBalancerClass`** — or, if measurement says they cannot coexist, sequentially with a clean swap script | `EnvoyProxy.envoyService.loadBalancerClass`; kube-vip's `kube-vip.io/kube-vip-class`; MetalLB's `--lb-class` |
