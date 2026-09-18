@@ -1,0 +1,170 @@
+# lab-regression — the plain-English regression check of the lab, on its own: two kind clusters meshed, the stack the
+# check needs (routes, monitoring, spoke, tempo + collectors — the Loki shipper — loki-observer, the hubble CLI), demo 37's two doors, the tutorial dashboards,
+# one round of the labs' traffic so drops and forwards exist, then scripts/lab-regression.sh (fourteen PASS/FAIL rows)
+# and a browser walk of the dashboards the rows touch (scripts/capture/regression.yaml) — captures on the run page.
+# About 35 minutes; the full lab (lab-observability.yaml) is 55 and does everything else too. docs/regression/README.md
+# explains every row in simple words. Tracked in issue #38.
+name: lab-regression
+
+on:
+  workflow_dispatch:
+    inputs:
+      connectivity_test:
+        description: also run `cilium connectivity test --multi-cluster` (Cilium's own 87 tests; ~15 min; the runner has died under it once — run 35283148292)
+        type: boolean
+        default: false
+  push:
+    branches-ignore: [main, ci-captures]
+    paths:
+      - scripts/lab-regression.sh
+      - scripts/lab-stack.sh
+      - scripts/lab-up.sh
+      - scripts/bootstrap/versions.env
+      - scripts/capture/regression.yaml
+      - demos/25-hubble-observer-loki/dashboard-design.py
+      - demos/38-grafana-visual-grammar/**
+      - .github/workflows/lab-regression.yaml
+
+permissions:
+  contents: write   # the browser walk pushes its PNGs to the ci-captures branch so the job summary can show them
+
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      LAB_TRUST_ROOT: "1"   # lab-up.sh puts the lab's root into the runner's OS trust store; ROOT_CA below points every curl at that bundle
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: The runner, bootstrapped — the tools at their pins, the preflight table
+        run: scripts/bootstrap/ubuntu.sh
+
+      - name: Bring the lab up — poc1, poc2, meshed
+        run: |
+          set -o pipefail
+          scripts/lab-up.sh poc1 poc2 2>&1 | tee lab-up.log
+          echo "ROOT_CA=/etc/ssl/certs/ca-certificates.crt" >> "$GITHUB_ENV"
+          # the pool's addresses routed from the runner and the demo names into /etc/hosts (SETUP 3.5 and 8) — the check's own
+          # curls resolve from the cluster, but demo 38's scripts and the walker's login page go by name
+          scripts/lab-route.sh kind-poc1 | tail -8
+
+      - name: The lab's images — built, loaded into every cluster
+        run: |
+          set -o pipefail
+          scripts/lab-images.sh poc1 poc2 2>&1 | tee images.log
+
+      # tempo + collectors are the Loki SHIPPER (lab-stack.sh's table: "the OTel collector per cluster: the Loki shipper on
+      # poc1") — runs 35295439873 and 35296914935 skipped them and the observer's lines never reached Loki (0 after 6 min)
+      - name: The stack the check needs — routes, monitoring, the spoke, Tempo + the collectors (the Loki shipper), Loki + the observer, the hubble CLI
+        run: |
+          set -o pipefail
+          scripts/lab-stack.sh routes monitoring spoke tempo collectors loki-observer hubble-cli 2>&1 | tee stack.log
+          scripts/lab-route.sh kind-poc1 | tail -8   # the names the stack added (grafana, cf2cnp) into /etc/hosts
+
+      # demo 37 is applied by hand on the Mac; here its manifests go in so row 13 (the two doors) has something to measure
+      - name: Demo 37's two doors — the shared routes-gw and team-b's own Gateway
+        run: |
+          set -o pipefail
+          k=kubectl; ctx=--context=kind-poc1
+          for f in 00-namespaces 10-app 20-shared-route 30-team-gateway 35-team-rbac 40-one-app-two-doors 50-hostname-policy; do
+            $k $ctx apply -f "demos/37-two-gateways/$f.yaml"
+          done
+          for i in $(seq 1 36); do
+            a=$($k $ctx -n team-b get gateway team-b-gw -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
+            p=$($k $ctx -n team-b get gateway team-b-gw -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' 2>/dev/null || true)
+            [ -n "$a" ] && [ "$p" = True ] && break; sleep 5
+          done
+          echo "team-b-gw: address=${a:-NONE} Programmed=${p:-?}"
+          $k $ctx get gateway -A
+
+      - name: The tutorial dashboards (demo 38) and one round of the labs' traffic — so drops and forwards exist
+        run: |
+          set -o pipefail
+          demos/38-grafana-visual-grammar/provision.sh 2>&1 | tee tutorial.log
+          scripts/lab-apps.sh lab26 lab30 dns forensic 2>&1 | tee apps.log   # dns needs lab26's pos; LAB_APPS_SKIP only applies to "all"
+          scripts/lab-apps.sh rounds 2 2>&1 | tee traffic.log
+
+      - name: Cilium's connectivity test (optional)
+        if: ${{ inputs.connectivity_test }}
+        timeout-minutes: 40
+        run: |
+          set -o pipefail
+          cilium connectivity test --context kind-poc1 --multi-cluster kind-poc2 --test '!no-unexpected-packet-drops' 2>&1 | tee connectivity.log || true
+          echo "CONNECTIVITY_RESULT=$PWD/connectivity.log" >> "$GITHUB_ENV"
+
+      # the lab's own build (CILIUM_IMAGE in versions.env, exported by the bootstrap; lab-up.sh installed it and its CRD): the
+      # demo 39 measurement — a client on the other node, the reporting agent's Hubble series naming the remote workload
+      - name: Demo 39 — the remote backend's workload named on Gateway flows (the lab's build)
+        if: ${{ env.CILIUM_IMAGE != '' }}
+        run: |
+          set -o pipefail
+          echo "build: $CILIUM_IMAGE"
+          demos/39-remote-workload-fix/check.sh 2>&1 | tee demo39.log || echo "demo39_fails=$?" >> "$GITHUB_ENV"
+          { echo '## Demo 39 — the remote workload'; echo; echo '```text'; grep -E 'backend:|probe:|requests:|STATUS|PASS|FAIL|WARN|agent' demo39.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: The regression check — fourteen rows, PASS or FAIL with the number that decided it
+        id: check
+        run: |
+          set -o pipefail
+          scripts/lab-regression.sh 2>&1 | tee regression.log || echo "fails=$?" >> "$GITHUB_OUTPUT"
+          { echo '## Regression check'; echo; echo '```text'; cat regression.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: The addresses the pages live at
+        id: addr
+        run: |
+          echo "gw=$(kubectl --context kind-poc1 -n routes get gateway routes-gw -o jsonpath='{.status.addresses[0].value}')" >> "$GITHUB_OUTPUT"
+          echo "gw_b=$(kubectl --context kind-poc1 -n team-b get gateway team-b-gw -o jsonpath='{.status.addresses[0].value}')" >> "$GITHUB_OUTPUT"
+
+      # the observer's lines reach Loki through the log shipper a minute or more after they are written; the second run
+      # captured the observer dashboard before any had arrived (run 35295439873: 36 lines written, "No data" on 6 panels)
+      - name: Loki has the observer's flow lines
+        run: |
+          pw=poc-grafana; gw=${{ steps.addr.outputs.gw }}
+          loki=$(curl -s --resolve grafana.poc.local:443:$gw -u admin:$pw https://grafana.poc.local/api/datasources | jq -r '.[] | select(.type=="loki") | .uid' | head -1)
+          for i in $(seq 1 36); do
+            n=$(curl -s -G --resolve grafana.poc.local:443:$gw -u admin:$pw "https://grafana.poc.local/api/datasources/proxy/uid/$loki/loki/api/v1/query" \
+                 --data-urlencode 'query=sum(count_over_time({namespace="hubble-observer",container="hubble-observer"}[10m]))' | jq -r '.data.result[0].value[1] // 0')
+            echo "  +$((i*10))s: $n observer lines in Loki (last 10 min)"; [ "${n:-0}" -gt 0 ] && break; sleep 10
+          done
+          [ "${n:-0}" -gt 0 ] || echo "::warning::Loki still has no observer lines after 6 minutes — the observer page will say No data"
+
+      - name: Captures — the dashboards the rows touch, with their expectations
+        uses: ./.github/actions/browser-walk
+        with:
+          spec: scripts/capture/regression.yaml
+          out: captures
+          env-json: '{"GW":"${{ steps.addr.outputs.gw }}","GW_TEAM_B":"${{ steps.addr.outputs.gw_b }}","GRAFANA_PASSWORD":"poc-grafana"}'
+
+      - name: The verdict
+        if: always()
+        run: |
+          echo "- regression rows failed: ${{ steps.check.outputs.fails || 0 }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- how to read every row: docs/regression/README.md · tracking issue #38" >> "$GITHUB_STEP_SUMMARY"
+          [ -z "${{ steps.check.outputs.fails }}" ] || { echo "::error::${{ steps.check.outputs.fails }} regression row(s) FAIL — see the table above"; exit 1; }
+          [ -z "${DEMO39_FAILS:-}" ] || { echo "::error::demo 39: $DEMO39_FAILS row(s) FAIL — the remote workload is not named"; exit 1; }
+        env:
+          DEMO39_FAILS: ${{ env.demo39_fails }}
+
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-regression
+          path: |
+            lab-up.log
+            images.log
+            stack.log
+            tutorial.log
+            apps.log
+            traffic.log
+            connectivity.log
+            regression.log
+            demo39.log
+            output/regression/
+            captures/
+          if-no-files-found: ignore
+
+      - name: Down
+        if: always()
+        run: scripts/lab-down.sh || true

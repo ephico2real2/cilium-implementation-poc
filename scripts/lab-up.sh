@@ -35,6 +35,12 @@
 set -euo pipefail; cd "$(dirname "$0")/.."
 CLUSTERS="${LAB_CLUSTERS_DIR:-clusters/ci}"
 CILIUM_VERSION="${CILIUM_VERSION:-1.20.1}"             # SETUP Step 5
+# the agent image, when the lab runs its own build instead of the release (demo 39): repo:tag from versions.env, its CRD
+# (a field the cluster's schema does not know is pruned silently) and the schema-version label the operator compares
+CILIUM_IMAGE="${CILIUM_IMAGE:-$(sed -n 's/^CILIUM_IMAGE=//p' scripts/bootstrap/versions.env)}"
+CILIUM_CRD_URL="${CILIUM_CRD_URL:-$(sed -n 's/^CILIUM_CRD_URL=//p' scripts/bootstrap/versions.env)}"
+CILIUM_CRD_SCHEMA_VERSION="${CILIUM_CRD_SCHEMA_VERSION:-$(sed -n 's/^CILIUM_CRD_SCHEMA_VERSION=//p' scripts/bootstrap/versions.env)}"
+image_args=(); [ -n "$CILIUM_IMAGE" ] && image_args=(--set "image.repository=${CILIUM_IMAGE%%:*}" --set "image.tag=${CILIUM_IMAGE#*:}" --set image.useDigest=false --set image.pullPolicy=IfNotPresent)
 KIND_VERSION_WANT="${KIND_VERSION_WANT:-0.33.0}"        # SETUP Step 1.1
 GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.6.1}"    # demo 05 (vendored under crds/)
 CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.21.1}" # demo 08 / SETUP Step 9.3a
@@ -176,9 +182,10 @@ cluster_up() {
     helm install cilium cilium/cilium --version "$CILIUM_VERSION" --namespace kube-system --kube-context "$ctx" \
       -f "cilium/values-$c.yaml" -f cilium/values-ci.yaml ${LAB_FEATURES:+-f cilium/values-ci-features.yaml} \
       --set k8sServiceHost="$host" --set k8sServicePort=6443 --set gatewayAPI.enabled=true --set gatewayAPI.enableAlpn=true \
-      --set hubble.enabled=false --set hubble.relay.enabled=false --set hubble.ui.enabled=false ${ca_args[@]+"${ca_args[@]}"} >/dev/null \
+      --set hubble.enabled=false --set hubble.relay.enabled=false --set hubble.ui.enabled=false ${ca_args[@]+"${ca_args[@]}"} ${image_args[@]+"${image_args[@]}"} >/dev/null \
       || die "Helm refused the Cilium install on $c (SETUP Step 5)"
   fi
+  [ -n "$CILIUM_IMAGE" ] && echo "  agent image: $CILIUM_IMAGE (the lab's own build; the release chart $CILIUM_VERSION around it)"
   # (the chart's validate.yaml refuses a relay or a UI without hubble.enabled — run 34790879335 — so all three are off
   #  here; the Hubble step below re-applies the lab's values file, which carries them as the lab wants them)
 
@@ -263,6 +270,16 @@ print(json.dumps({"apiVersion": "v1", "kind": "Secret", "type": s.get("type", "k
   kubectl --context "$ctx" -n kube-system rollout status deploy/hubble-relay --timeout=5m >/dev/null
   cilium_healthy "$c" "with Hubble"
   grep -E 'Hubble Relay:' "/tmp/cilium-status-$c.txt" | head -1
+  # the lab's own build may carry a CRD change (demo 39): apply its CRD after the operator has registered the release's,
+  # label it so a release operator restart does not roll it back, and restart the agents so their status carries the field
+  if [ -n "$CILIUM_IMAGE" ] && [ -n "$CILIUM_CRD_URL" ]; then
+    say "the lab build's CRD on $c — $CILIUM_CRD_URL at schema version ${CILIUM_CRD_SCHEMA_VERSION:-?}"
+    curl -fsSL "$CILIUM_CRD_URL" | kubectl --context "$ctx" apply -f - >/dev/null || die "the build's CRD could not be applied on $c"
+    [ -n "$CILIUM_CRD_SCHEMA_VERSION" ] && kubectl --context "$ctx" label crd ciliumendpoints.cilium.io "io.cilium.k8s.crd.schema.version=$CILIUM_CRD_SCHEMA_VERSION" --overwrite >/dev/null
+    kubectl --context "$ctx" -n kube-system rollout restart ds/cilium >/dev/null
+    kubectl --context "$ctx" -n kube-system rollout status ds/cilium --timeout=5m >/dev/null
+    echo "  CRD ciliumendpoints.cilium.io: label $(kubectl --context "$ctx" get crd ciliumendpoints.cilium.io -o jsonpath='{.metadata.labels.io\.cilium\.k8s\.crd\.schema\.version}'), status.workloads=$(kubectl --context "$ctx" get crd ciliumendpoints.cilium.io -o jsonpath='{.spec.versions[0].schema.openAPIV3Schema.properties.status.properties.workloads.type}')"
+  fi
   if kubectl --context "$ctx" -n kube-system get svc hubble-ui >/dev/null 2>&1; then
     for i in $(seq 1 24); do ip=$(kubectl --context "$ctx" -n kube-system get svc hubble-ui -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null); [ -n "$ip" ] && break; sleep 5; done
     echo "hubble-ui LoadBalancer: ${ip:-NO ADDRESS after 2 minutes} (SETUP Step 8: give Hubble UI a real address, from $c's own block)"
