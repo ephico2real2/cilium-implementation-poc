@@ -33,11 +33,17 @@ pages:
     url: https://grafana.poc.local/d/hubble-metrics-per-cluster?orgId=1&from=now-30m&to=now&var-cluster=All
     expect: {panelsMin: 10}
 
-  # ---- the L7 dashboard keyed on the app labels (the workaround for cilium/cilium#25676, docs/HUBBLE-L7-LABELS.md)
+  # ---- the L7 dashboard keyed on the app labels (the workaround for cilium/cilium#25676, docs/HUBBLE-L7-LABELS.md):
+  # team-a, where demo 39's check has just sent Gateway (Envoy-reported) HTTP — run 35305458644 photographed it on
+  # cf2cnp-lab30 with nine empty panels and "passed" on the panel count alone
   - name: regression-l7-by-app
     evidence: panels
-    url: https://grafana.poc.local/d/hubble-l7-http-by-app?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-destination_namespace=cf2cnp-lab30&var-destination_app=All&var-source_namespace=All&var-source_app=All&var-reporter=All
-    expect: {panelsMin: 8}
+    url: https://grafana.poc.local/d/hubble-l7-http-by-app?orgId=1&from=now-30m&to=now&var-cluster=poc1&var-destination_namespace=team-a&var-destination_app=shop&var-source_namespace=All&var-source_app=All&var-reporter=client
+    expect:
+      panelsMin: 8
+      noDataAllowed:
+        - CPU Usage by Source        # kube-state-metrics CPU of the source's workload; the probe is a bare pod — none
+        - CPU Usage by Destination   # the destination's CPU needs the pod's cgroup series within the window
 
   # ---- row 12: the tutorial's Cilium page (demo 38) — the grammar on Hubble metrics
   - name: regression-tutorial-cilium
