@@ -473,3 +473,9 @@ Outcome in one line: **…**
   (#117); the by-name palette colours every slice of a pie alike on Grafana 13.2.1 (demo 38); an instant query with
   *All values* colours equal counts alike (the observer dashboard's defect); a CiliumEndpoint status field the CRD
   does not know is pruned with no error.
+- **"You can merge the prs" (2026-09-18 ~05:40 UTC), the one-time word for the PRs then open:** #40 (demo 39) and #39
+  (the regression testing) merged, group-sync-dashboard #176 (the review skill with OB1) merged; #34 (the 1.20.2 pins)
+  had conflicts with the merged main — rebased with the two resolutions (README line 3 and the docs row: main's text
+  with 1.20.2 and 117 traps; `lab-up.sh`: main's `CILIUM_IMAGE`/CRD block with the chart pin at 1.20.2), the
+  `lab-regression` Action run 35311034810 green on chart 1.20.2 + the pinned build (a combination CI had not run),
+  merged as e28b63d. The no-automatic-merges rule resumes for everything after this line.
