@@ -39,7 +39,12 @@ all three parsers, a cilium-cli connectivity test. Its files do not include `pkg
 >
 > Measured after both halves on the two-node lab (backends on the control plane, client on the worker, 40 requests
 > per team): the worker's agent reports `destination_workload="shop"` for both teams' Gateways, and the chart's *Hubble
-> L7 HTTP Metrics by Workload* dashboard fills for the remote backend where it was "No data". Happy to run this PR's
+> L7 HTTP Metrics by Workload* dashboard fills for the remote backend where it was "No data" — the same selection
+> (cluster `poc1`, destination namespace `team-a`, destination workload `shop`, reporter `client`), before and after:
+>
+> ![before: Cilium's L7-by-Workload dashboard, No data on every panel for a backend on the other node](https://raw.githubusercontent.com/ephico2real2/cilium-implementation-poc/main/docs/upstream/images/l7-by-workload-team-a-no-data.png)
+>
+> ![after: the same dashboard filled — red the Destination Workload selector, orange requests/s, yellow success rate, blue latency](https://raw.githubusercontent.com/ephico2real2/cilium-implementation-poc/main/demos/39-remote-workload-fix/output/l7-by-workload-shop-team-a-highlighted.png) Happy to run this PR's
 > branch on the same lab and report, if that helps it out of draft. Details and the exact commands:
 > <link to demos/39-remote-workload-fix/README.md on main>.
 >
@@ -49,7 +54,8 @@ all three parsers, a cilium-cli connectivity test. Its files do not include `pkg
 ## Before posting
 
 - [ ] the operator has read this file and said "post"
-- [ ] the lab's demo 39 is on `main` so the link resolves
+- [ ] the lab's demo 39 is on `main` so the link and the two image URLs resolve (until #40 merges they are on the
+      `demo-39-remote-workload` branch: replace `/main/` with `/demo-39-remote-workload/` to preview)
 - [ ] re-check #48563's state (`gh pr view 48563 -R cilium/cilium --json state,isDraft,files`) — if `register.go` has
       appeared or the PR merged, drop or rewrite point 2
 - [ ] the operator posts it, or says who does
