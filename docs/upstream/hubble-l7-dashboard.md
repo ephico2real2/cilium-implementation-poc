@@ -126,9 +126,10 @@ Say this in any report so nobody reads 4.95 ms as Envoy's cost.
   cardinality changes by one label whose values are the app names already present as `destination`.
 - **Honest percentiles**: the alignment names the histogram's floor, so a team reading the dashboard knows which number
   to trust for sub-5 ms services.
-- **A path to the real fix**: the bug report gives Cilium the placement table as a repro, so the agent can fill
-  `destination_workload` for remote backends (the mechanism, [cilium#27974](https://github.com/cilium/cilium/pull/27974),
-  exists; it does not reach Envoy-reported L7 flows on 1.20.1).
+- **A path to the real fix**: the placement table is a repro for [cilium#25676](https://github.com/cilium/cilium/issues/25676),
+  open since 2023 — the remote branch of `pkg/hubble/parser/common/endpoint.go` has no workload data because
+  `ipcache.K8sMetadata` carries none; the two PRs that tried (#27974, #28373) went stale. Carrying the workload name
+  in the ipcache, or reading it from the CiliumEndpoint, is the fix; the lab's dashboard change is the workaround.
 
 ## 7. Going upstream — the exact steps
 
@@ -138,7 +139,7 @@ Go to https://github.com/cilium/cilium/issues/new/choose → *Bug report*. The t
 
 | Field | Content |
 |---|---|
-| Is there an existing issue? | search `destination_workload empty` / `hubble metrics workload gateway` — none found on 2026-09-17; say so |
+| Is there an existing issue? | **yes — [cilium#25676](https://github.com/cilium/cilium/issues/25676)**, found only after a first search (`destination_workload empty`, `hubble metrics workload gateway`) had missed it: search the symptom in plain words too ("workload name", "cross-node"). The report went there as a comment (2026-09-17); a new issue is not needed |
 | Version | `1.20.1` |
 | What happened? | the paragraph and the table of §3 (the placement table is the evidence); the `destination_app` counter-check of §4 step 2 |
 | How can we reproduce? | two nodes; a Deployment pinned to node B behind a Cilium Gateway; a client pod on node A calling the Gateway's LoadBalancer IP with the hostname (`-resolve`); read node A's agent `:9965/metrics` → `destination_workload=""`; move the Deployment to node A → `destination_workload="<name>"` |

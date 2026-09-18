@@ -38,9 +38,14 @@ Gotcha #115 is the same fact reaching `labelsContext`.
 Why the two labels differ: `app` is read from the pod's labels (`app.kubernetes.io/name`, `k8s-app`, or `app`), which
 are part of the endpoint's security identity and so in every agent's ipcache for every peer; `workload` is the
 Deployment/StatefulSet name from the pod's Kubernetes metadata, which the reporting agent has for its own endpoints.
-Cilium added workload metadata to the ipcache for remote endpoints in
-[cilium#27974](https://github.com/cilium/cilium/pull/27974) / [#28373](https://github.com/cilium/cilium/pull/28373); on
-1.20.1, for Envoy-reported L7 flows to a remote backend, it does not arrive. That is the upstream report (§6).
+Cilium has **not** added workload metadata to the ipcache for remote endpoints:
+[cilium#27974](https://github.com/cilium/cilium/pull/27974) / [#28373](https://github.com/cilium/cilium/pull/28373) tried
+and were closed stale (2024-01-06); the bug is the open, pinned
+[cilium#25676](https://github.com/cilium/cilium/issues/25676) "Cross-node Hubble flows don't contain Kubernetes workload
+name" (2023). In the code at v1.20.2, `pkg/hubble/parser/common/endpoint.go` fills `Endpoint.Workloads` only in the
+local branch (from the endpoint's pod object); the remote branch reads `ipcache.K8sMetadata`, which carries namespace,
+pod name and named ports and nothing else (`pkg/ipcache/ipcache.go:94`). The lab's measurement of the Gateway/Envoy
+path is posted on #25676 (§6; the first draft of this paragraph read the two PRs as merged — corrected 2026-09-17).
 
 ## 3. The written basis for the fix
 
@@ -122,9 +127,12 @@ histogram are the sources for that range, and demo 37 Part 6 reads them, not Hub
   *Destination Cluster* columns through the table's own pipeline, a stray rename corrected; the lab picks it up on the
   next `chart-from-fork.sh` upgrade once merged; upstream beside onzack/hubble-observer#16.
 
-## 7. The upstream report, drafted
+## 7. The upstream report — posted as a comment on the existing issue
 
-To be posted to cilium/cilium on the operator's word — title and body as they would go:
+Posted 2026-09-17 on the operator's word, as a comment on [cilium/cilium#25676](https://github.com/cilium/cilium/issues/25676#issuecomment-5723156870)
+(the issue that already tracked this since 2023; a first attempt as a new issue, #48812, was closed as its duplicate
+the same hour). The draft as it was written, for the record — the posted comment adds the code path and the 1.20.2
+re-check:
 
 > **Hubble metrics: `destination_workload` in `labelsContext` is empty for Gateway API (Envoy-reported) L7 flows whose
 > backend is on another node than the reporting agent — 1.20.1**
@@ -147,7 +155,7 @@ To be posted to cilium/cilium on the operator's word — title and body as they 
 >
 > `destination_app` (added to `labelsContext`, after an agent restart — the dynamic reload refuses a label-set change)
 > is present in every case, so the identity labels reach the reporting agent; the workload name does not, although
-> #27974 / #28373 added workload metadata to the ipcache for remote endpoints. The chart's *Hubble L7 HTTP Metrics by
+> #27974 / #28373 tried to carry the workload name to remote endpoints and went stale. The chart's *Hubble L7 HTTP Metrics by
 > Workload* dashboard filters on `destination_workload` in 29 of 32 queries and therefore shows only the fraction of
 > Gateway traffic whose backend happened to be local — or "No data".
 >

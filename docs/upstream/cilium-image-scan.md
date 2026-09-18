@@ -191,6 +191,11 @@ second is the durable one and is what this report would suggest.
 Both drafts carry the AI declaration paragraph from [README §2a](README.md#2a-their-generative-ai-policy--it-applies-to-every-contribution-this-lab-makes).
 Before posting, re-run §7: if the `v1.20` `go.mod` has moved or the digest has been bumped, the candidate is closed.
 
+**What happened (2026-09-17, on the operator's word):** the re-check found Renovate's
+[cilium/cilium#48808](https://github.com/cilium/cilium/pull/48808) — "fix(deps): update security updates [security]
+(v1.20)", grpc 1.83.1 → 1.83.2 and x/crypto 0.53.0 → 0.56.0 — opened at 23:11Z, twelve minutes earlier, so **Candidate
+A was not posted**. Candidate B went out as [cilium/cilium#48811](https://github.com/cilium/cilium/issues/48811).
+
 ## 7. Reproduce it
 
 ```sh
