@@ -3110,6 +3110,12 @@ values move it to **1Gi** (`values-tetragon-ci.yaml`, this change; applied to bo
 full-tree walk; the closed #4698 (a process-cache GC leak, fixed 2026-06) is a different mechanism — the counters above
 show a full cache, not a leaking one.
 
+**Measured after the fix (2026-09-18 07:29 UTC):** the same 15-package `go test` in the builder, cold (the 2.0 GB Go build
+cache emptied first), the four agents sampled every 10 s — peak RSS **524 Mi** (poc2-worker), 458, 340, 273 Mi; peak CPU
+141m; `go test` ok in 56 s; **restarts 0 on all four, the node's `dmesg` OOM-kill count unchanged (24 → 24)**. One agent
+crossed the old 512 Mi line and lived. The lab's regression check right after: 14 PASS. The rule stays — a full
+`make dev-docker-image` is a bigger storm than a `go test`, and 1 Gi is the margin, not a licence.
+
 **How to tell next time:** `kubectl get pods -A -o json | jq` for `lastState.terminated.reason == "OOMKilled"` with the
 same `finishedAt` second across clusters; `dmesg` on a node for `CONSTRAINT_MEMCG … tetragon`; the agent's `:2112/metrics`
 `tetragon_events_total` by binary — compiler paths mean a build is running on the kernel.
