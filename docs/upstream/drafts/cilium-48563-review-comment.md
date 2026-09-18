@@ -48,8 +48,11 @@ all three parsers, a cilium-cli connectivity test. Its files do not include `pkg
 > branch on the same lab and report, if that helps it out of draft. Details and the exact commands:
 > <link to demos/39-remote-workload-fix/README.md on main>.
 >
-> (Written with AI assistance under the Cilium AI policy — Claude orchestrating, Cursor implementing the lab's own
-> branch from briefs, Fable and Codex reviewing; every measurement above was run and read by me.)
+> (AI assistance, declared under the Cilium AI policy: I directed the work and designed the test cases — the remote
+> placement of the backend, the client on the other node, the same image on both clusters, the before/after
+> captures; Claude Code carried out the code reading, the fork's branch and the measurements under that direction,
+> with Cursor implementing from briefs and Fable and Codex as adversarial reviewers. Every number above was run and
+> read by me before posting.)
 
 ## Before posting
 
