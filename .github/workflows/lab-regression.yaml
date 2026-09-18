@@ -86,6 +86,7 @@ jobs:
         run: |
           set -o pipefail
           demos/40-shop-mesh-phase0/apply.sh 2>&1 | tee demo40.log
+          # apply-both.sh ends with check.sh and fails on a FAIL row (run 35371067379 went green around 0/7 policies)
           demos/41-shop-mesh-phase1/apply-both.sh 2>&1 | tee demo41.log
 
       - name: The tutorial dashboards (demo 38) and one round of the labs' traffic — so drops and forwards exist
