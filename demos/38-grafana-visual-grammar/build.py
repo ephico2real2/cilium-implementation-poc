@@ -387,7 +387,7 @@ def tut1():
                     by_name("steal", color="purple"),
                 ],
                 description="CPU time on one node split by mode — the slices are the whole of that CPU.",
-            ), "**Pie**: the slices add up to 100 % of one CPU's time, and there are five or six of them — the one case a pie is right. Fixed colours: idle grey, user blue, system orange, iowait red. idle is grey on purpose: it is the part of the whole that carries no information."),
+            ), "**Pie**: the slices add up to 100 % of the node's CPU time (all cores) — the one question a pie answers. Eight modes, four visible: a pie tolerates a long tail of near-zero slices, not eight that matter. Fixed colours: user blue, system orange, iowait red; idle grey on purpose — the part of the whole that carries no information."),
             (panel(
                 "bargauge", "A ranking — network receive by interface (top 5)", NET_TOP, 8, 0, 8, 7,
                 unit="Bps", legendFormat="{{instance}} {{device}}",

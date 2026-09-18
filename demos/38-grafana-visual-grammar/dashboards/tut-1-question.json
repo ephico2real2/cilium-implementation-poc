@@ -531,7 +531,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "<!-- caption -->\n\n**Pie**: the slices add up to 100 % of one CPU's time, and there are five or six of them — the one case a pie is right. Fixed colours: idle grey, user blue, system orange, iowait red. idle is grey on purpose: it is the part of the whole that carries no information."
+        "content": "<!-- caption -->\n\n**Pie**: the slices add up to 100 % of the node's CPU time (all cores) — the one question a pie answers. Eight modes, four visible: a pie tolerates a long tail of near-zero slices, not eight that matter. Fixed colours: user blue, system orange, iowait red; idle grey on purpose — the part of the whole that carries no information."
       },
       "pluginVersion": "13.2.1",
       "id": 8

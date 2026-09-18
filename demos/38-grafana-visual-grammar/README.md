@@ -17,6 +17,10 @@ top to bottom in an afternoon; nothing here needs Cilium until §6.
 
 ## 0. Before you start — what a panel is
 
+Where this tutorial says *measured*, the fact was read from this Grafana's DOM or API on 2026-09-17 (the commands are
+in `check.sh`, `capture.js` and the Evidence section); everything else is Grafana's documented behaviour, linked at the
+end of each section.
+
 A Grafana panel is three things stacked: a **query** (PromQL here) that returns series or a table; a **reduction**
 of that data to what the visualization can draw (one number, one number per series, every row); and a
 **visualization** with its field options (unit, thresholds, colours, mappings, overrides). Most dashboard mistakes are
@@ -30,7 +34,8 @@ installed by that chart.
 
 ## 1. The question decides the chart — `tut-1-question`
 
-Seven questions, seven visualizations, all from one Linux node's exporter. Read the caption under each panel, then
+Seven questions, seven visualizations, all from one Linux node's exporter (the expressions in this README are
+abbreviated; the exact PromQL with its `$cluster`/`$node` filters is in `build.py`). Read the caption under each panel, then
 change the `node` variable and watch which panels change shape and which only change numbers.
 
 | The question | The chart | The panel | Why this one |
@@ -38,7 +43,7 @@ change the `node` variable and watch which panels change shape and which only ch
 | What is it **now**? | **Stat** | CPU busy % per node, sparkline | one number per series, coloured by threshold; the sparkline is the trend without a second panel |
 | How far from the **limit**? | **Gauge** | memory used % | a gauge needs a real ceiling (100 % of RAM); without one it is decoration |
 | What happened, and **when**? | **Time series** | load average per node | the default for anything with a time axis; one line per series, named in the legend |
-| What **share** of a whole? | **Pie** | CPU time by mode on `$node` | the slices add up to one CPU's time and there are ≤ 6 of them — the one case a pie is right |
+| What **share** of a whole? | **Pie** | CPU time by mode on `$node` | the slices add up to 100 % of the node's CPU time (all cores); eight modes, four of them visible — a pie tolerates a long tail of near-zero slices, not eight that matter |
 | Who is **biggest**? | **Bar gauge** | network receive by interface, top 5 | a ranking is a comparison between categories: bars sorted, the number beside each name, one colour |
 | Which **state**, for how long? | **State timeline** | node_exporter `up` | discrete states over time; the colour band's length is the duration |
 | Every **row**? | **Table** | `node_uname_info` | when the reader needs the facts, not a shape — hide the columns that carry nothing |
@@ -49,8 +54,11 @@ comparisons; a gauge shows "how far a single metric is from a threshold"; a stat
 sparkline". Hold every panel you build to that table.
 
 **Try it.** Edit the pie (panel menu → Edit) and change *Value options → Show* from *Calculate* to *All values*: the
-legend fills with timestamps, because a range query has many values per series. Put it back. Then edit the bar gauge
-and switch its query from *Instant* to *Range*: the bars stop sorting — §2 says why.
+legend fills with the same name repeated — `idle 4 %, idle 4 %, …`, one slice per sample, because a range query has
+many values per series (measured: 25 rows for one series over 15 minutes). Put it back. Then edit the bar gauge
+and switch its query from *Instant* to *Range*: on this Grafana the bars stopped sorting — a range query arrives as one
+frame per series and the `sortBy` transformation orders rows inside a frame (measured on this panel, 2026-09-17; the
+Evidence section has the numbers).
 
 **Learn more** — docs: [Stat](https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/visualizations/stat/),
 [Gauge](https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/visualizations/gauge/),
@@ -66,21 +74,25 @@ longer: [Deep dive — Time series panel](https://www.youtube.com/watch?v=RKtW87
 
 A **range** query returns a series per label set over the time range; an **instant** query returns one table of the
 current values. A visualization that draws one number per series must **reduce** each series (Grafana calls it
-*Calculate*: last, mean, max…); one that draws rows takes the table as it is (*All values*). Six panels show the same
-`count by (namespace) (kube_pod_info)` reduced differently, and the two pies that look identical are not:
+*Calculate*: last, mean, max…); one that draws rows takes the table as it is (*All values*). Two lessons on this
+dashboard. First, four panels show the same `count by (namespace) (kube_pod_info)` (five namespaces) reduced
+differently, and the two pies that look identical are not:
 
-- *Range + last value* and *Range + mean*: the same series, two reducers, two different numbers. The reducer is part
-  of the question — say which one you show.
-- *Instant + All values* and *Range + Calculate*: same counts, but the first colours **equal counts alike** — Grafana
-  colours the rows of one field by value, so `team-a` and `team-b`, two pods each, share a colour. This is exactly
-  what the observer dashboard did before today (§6). The second shape — one series per name — gives one colour per
-  name. Prefer it for pies and legends. (Both pies are filtered to five namespaces on purpose: a 25-slice pie teaches
-  nothing but that pies stop at six.)
-- `rate()` over `$__rate_interval` and over a fixed `[1m]`: zoom to seven days; the fixed window thins out (a 1-minute
-  window over a 30-second scrape has one or two samples per step), the adaptive one stays continuous.
+- *Range + last value* and *Range + mean*: the same series, two reducers. While nothing changes in the window the two
+  agree (`35, 5, 4, 2, 2` on both); the moment a pod comes or goes they part — the first capture showed the mean at
+  `2.02` where the last value said `2`. The reducer is part of the question — say which one you show.
+- *Instant + All values* and *Range + Calculate*: the same five counts. The first colours **equal counts alike**:
+  `team-a` and `team-b` have two pods each and share a colour, because the instant query is one table and Grafana
+  colours its rows by value. The second is one series per namespace, one colour each. Prefer the second shape for pies
+  and legends. (The observer dashboard had the first shape until today — §6.)
+
+Second, a different query — `rate()` of a network counter — with two windows: `$__rate_interval` and a fixed `[1m]`.
+Zoom both to seven days. The panel's step grows to minutes, and a fixed one-minute window then covers only a slice of
+each step: the line turns spiky and gappy. `$__rate_interval` is defined to cover the step (at least four scrape
+intervals, and never shorter than step + scrape), so the line stays continuous at every zoom.
 
 **Try it.** Scale a deployment so two namespaces have the same pod count; watch the left pie merge their colours and
-the right one keep them apart.
+the right one keep them apart. Then zoom the two rate panels to seven days and compare.
 
 **Learn more** — docs: [Query and transform data](https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/query-transform-data/),
 [Calculation types](https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/query-transform-data/calculation-types/),
@@ -95,7 +107,7 @@ it, and the mistake is mixing them:
 
 | Colour encodes | Mechanism | The panel | Rule |
 |---|---|---|---|
-| a **category's identity** | fixed colour per name — `overrides` with a `byName` (or `byRegexp`) matcher | *Pod phases*: Running green, Pending yellow, Failed red | the same meaning has the same colour on every dashboard, every load; never rely on palette position for a category people recognise |
+| a **category's identity** | fixed colour per name — `overrides` with a `byName` (or `byRegexp`) matcher | *Pod phases*: Running green, Pending yellow, Failed red, Succeeded grey, Unknown purple | the same meaning has the same colour on every dashboard, every load; never rely on palette position for a category people recognise |
 | a **quantity on a scale** | thresholds, or a continuous scheme | *Deployments available/desired*: red → orange at 90 % → green at 100 %; *Restarts* table with cell background | thresholds are for numbers; a threshold on a category is noise |
 | **nothing** (the shape already carries the value) | one fixed colour | *Pods per namespace* bar gauge | a colour per namespace would change every time a namespace appears and mean nothing |
 
@@ -107,9 +119,11 @@ Grafana (13.2.1) rather than read from the option's name:
 | time series | every line its own colour — until a series is added and the colours shift | **works**: a name keeps its colour as others come and go (17 distinct colours for 25 namespaces — the palette has about twenty, so unrelated names can collide) |
 | pie, bar gauge, stat | one colour per series by order — the same shifting | **one colour for every series** (a 25-slice pie all cyan; a bar gauge with 2 distinct colours in 50 swatches) — [grafana/grafana#73275](https://github.com/grafana/grafana/issues/73275), closed as not planned |
 
-So: for a **time series** whose series come and go, by-name is the right default; for a **pie, stat or bar gauge**,
-by-name is not an option — fix the colour per name with an override for categories that have a meaning (verdicts,
-phases, drop reasons), and for open-ended rankings use one colour and let the length speak (§1). The dashboard shows
+So: for a **time series** whose series come and go, by-name is the right default; on a **pie, stat or bar gauge** the
+option exists but mis-colours (one colour for every series) — fix the colour per name with an override for categories
+that have a meaning (verdicts, phases, drop reasons), and for open-ended rankings use one colour and let the length
+speak (§1). (The "2 distinct colours in 50 swatches" of the bar gauge are the one series colour and the bars' unfilled
+track — one colour for the data.) The dashboard shows
 all four cases side by side on five namespaces.
 
 **Try it.** Create a namespace named `aaa-test` with one pod and reload: the by-index pie and time series recolour;
@@ -123,7 +137,8 @@ the by-name palette's history: [grafana/grafana#73275](https://github.com/grafan
 
 ## 4. Units, legends, captions — the words — `tut-4-meaning`
 
-The same time series three times: raw; with a unit and a named legend; with a title that says what and in which unit,
+The same time series three times: raw (the one panel in this demo without a description, on purpose); with a unit and
+a named legend; with a title that says what and in which unit,
 a hover description that says where the data comes from, and a caption that says what "normal" looks like. The third
 is the only one a stranger can read. Meaning is added in words, not colours; the checklist at the bottom of the
 dashboard is the one this lab applies to every panel it ships:
@@ -135,7 +150,10 @@ dashboard is the one this lab applies to every panel it ships:
 - a caption under the panel says what normal looks like and **what an empty panel means**;
 - colours mean one thing (§3).
 
-The captions are transparent **text panels** in markdown, two grid rows high, under each panel — a `description` only
+**Try it.** Edit the middle panel and set the unit to *bytes(IEC)* instead of *bytes/sec(IEC)*: the number is the
+same, the meaning is wrong, and only the unit told you. Put it back.
+
+The captions are transparent **text panels** in markdown, two or three grid rows high, under each panel — a `description` only
 shows on hover, and the reader who needs it most never hovers. One trap, measured while building this: an HTML comment
 on the same line as the text (`<!-- marker -->**bold**`) makes CommonMark treat the line as an HTML block and the
 markdown renders raw; put the marker on its own line.
@@ -159,9 +177,14 @@ observer dashboard). Growth rules this lab follows:
 3. **Provision as code.** A ConfigMap with `grafana_dashboard: "1"` and a folder annotation — the sidecar does the
    rest (`provision.sh`; the same mechanism as demo 16).
 4. **Prove it with the API, not with your eyes.** `check.sh` runs every panel's query and prints the series count;
-   `capture.js` reads the rendered captions back and fails if any is raw markdown. A dashboard that says "No data" in a
+   `capture.js` reads the rendered captions back and fails if any still shows `**` or a backtick (the marker bug's two
+   symptoms) or the state timeline's legend lacks `UP`. A dashboard that says "No data" in a
    screenshot nobody looked at is a dashboard that lies.
 5. **Version it.** Dashboards live next to the code that produces the data, in the same pull request.
+
+**Try it.** Pick one cluster in the `cluster` dropdown — one repeated row disappears; pick a namespace — the *Pods*
+stat changes and *Nodes* does not, because only one query reads `$namespace`. Then run `build.py` after adding a panel
+to `tut-5` and `provision.sh`: the dashboard updates without a click in Grafana.
 
 **Learn more** — docs: [Variables](https://grafana.com/docs/grafana/latest/visualizations/dashboards/variables/),
 [Repeat panels or rows](https://grafana.com/docs/grafana/latest/visualizations/dashboards/build-dashboards/create-dashboard/#configure-repeating-rows),
@@ -176,12 +199,12 @@ The same grammar on Hubble's Prometheus metrics: **flows/s per cluster** as a st
 FORWARDED green, REDIRECTED blue, AUDIT yellow; **drops/s by reason** as a sorted bar gauge in one colour (a ranking:
 `POLICY_DENIED` first means policy is doing its job; anything else first means something is broken).
 
-Then read the observer dashboard (`/d/hubble-observer-23862`) with this tutorial's eyes: it is the same grammar on
-**Loki flow logs** — a stat for the count, pies for the ≤ 6-way splits with fixed colours per meaning, bar gauges for
-the two rankings, a time series for the rate, a caption under each. It got there by exactly the mistakes of §2 and §3:
-three pies on an instant query with *All values* coloured equal counts alike (28 % / 28 % both `rgb(87,148,242)`,
-measured from the DOM), and the panels meant nothing to a reader until the captions said "every panel here counts
-drops". The research behind that redesign, field by field from Cilium's `flow.proto`, is
+Then open the observer dashboard (`/d/hubble-observer-23862`). It is the same grammar on **Loki flow logs**: a stat
+for the count, small pies with fixed colours per meaning, bar gauges for the two rankings, a time series for the rate,
+a caption under each. Before today it had §2's fault — three pies on an instant query coloured equal counts alike —
+and no captions, so a reader could not tell that every panel counts drops. **Try it:** find the panel whose caption
+says what makes it empty, and make it fill (demo 31's `pos` pod and one `wget`). The research behind the redesign,
+field by field from Cilium's `flow.proto`, is
 [`docs/OBSERVER-DASHBOARD-PANELS.md`](../../docs/OBSERVER-DASHBOARD-PANELS.md); the L7 dashboard's own blind spot and
 its app-keyed fix is [`docs/HUBBLE-L7-LABELS.md`](../../docs/HUBBLE-L7-LABELS.md).
 
@@ -191,27 +214,30 @@ its app-keyed fix is [`docs/HUBBLE-L7-LABELS.md`](../../docs/HUBBLE-L7-LABELS.md
 
 ## 7. What to take away
 
-- **The question decides the chart.** Now → stat; limit → gauge; when → time series; share of ≤ 6 → pie; ranking →
-  sorted bars; state → state timeline; rows → table.
+- **The question decides the chart.** Now → stat; limit → gauge; when → time series; share of a whole with few slices
+  that matter → pie; ranking → sorted bars; state → state timeline; rows → table.
 - **The reduction is part of the question.** Last, mean or max; instant table or range series — say which.
 - **Colour carries one thing**: identity (fixed per name), quantity (thresholds), or nothing (one colour). New items
-  get stable colours by name on a time series only; in a pie, stat or bar gauge write the override.
+  get stable colours by name on a time series; on a pie, stat or bar gauge by-name mis-colours — write the override.
 - **Meaning is words**: unit, legend, description, caption. A panel that needs a hover to be understood is unfinished.
 - **Grow with variables and generators**, prove with the API, version with the code.
 
 ## Evidence (2026-09-17, poc1 + poc2, Grafana 13.2.1)
 
 - `provision.sh`: six ConfigMaps, all six uids answered by the API within the sidecar's poll — `tut-1-question` 15
-  panels, `tut-2-time` 12, `tut-3-colour` 16, `tut-4-meaning` 7, `tut-5-grow` 8, `tut-6-cilium` 7 (captions counted).
+  panels, `tut-2-time` 12, `tut-3-colour` 16, `tut-4-meaning` 7, `tut-5-grow` 8, `tut-6-cilium` 7: 65 panels = 30 with
+  a query + 31 captions + 4 plain text panels (*How to read this page*, *The checklist*, *From here*, `tut-5`'s opener).
 - `check.sh`: **30 panels, every one with data, 0 `NO DATA`** — e.g. CPU busy 4 series (two nodes × two clusters),
-  CPU by mode 8, network top 5 → 5, the five filtered namespaces → 5, pod phases 5, flows/s by verdict 3, drops by
-  reason 3.
-- `capture.js`: six screenshots under [`output/screenshots/`](output/screenshots/), 31 captions read back as rendered
-  markdown (none raw), the state timeline's legend says `UP`; exit 0.
-- Measured while building, and now part of the lessons: the by-name palette gives one colour to every series in a
-  pie, a stat and a bar gauge (25-slice pie all cyan; bar gauge 2 distinct colours in 50 swatches) and a stable colour
-  per name on a time series (17 distinct for 25 names); an instant query with *All values* colours equal counts alike
-  (`team-a` and `team-b`, two pods each); a caption's marker on the text's line renders raw markdown; a bar gauge on a
-  range query does not sort. Every one of those is a panel on `tut-2` or `tut-3` now, with the caption saying so.
+  CPU by mode 8 (eight modes; four visible in the pie), network top 5 → 5, the five filtered namespaces → 5, pod
+  phases 5 (all five coloured), flows/s by verdict 3 (of the five verdicts given a colour, three occur on this lab),
+  drops by reason 3.
+- `capture.js`: six screenshots under [`output/screenshots/`](output/screenshots/), 31 captions read back with no `**`
+  and no backtick left (the marker bug's symptoms), the state timeline's legend says `UP`; exit 0.
+- Measured while building, and now part of the lessons (two different mechanisms, kept apart): **by-name palette** —
+  one colour for every series in a pie, a stat and a bar gauge (25-slice pie all cyan; the bar gauge's 2 distinct
+  colours in 50 swatches are the series colour and the unfilled track), a stable colour per name on a time series (17
+  distinct for 25 names); **instant + All values** — equal counts coloured alike (`team-a` and `team-b`, two pods each).
+  Also: a caption's marker on the text's line renders raw markdown; on this panel a bar gauge on a range query did not
+  sort. Each is a panel on `tut-2` or `tut-3`, with the caption saying so.
 - The screenshots are full-page captures; a horizontal band across the middle of some is the capture's stitch, not
   the dashboard.
