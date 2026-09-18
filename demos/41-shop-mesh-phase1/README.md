@@ -1,5 +1,7 @@
 # Demo 41 — the shop platform on the mesh, phase 1: the platform behind the doors, global, one URL
 
+For the reader in a hurry: [RECAP.md](RECAP.md) — what this demo did and proved, in plain English.
+
 **Where this sits in the whole:** [enhancement 002](../../enhancements/002-shop-platform-clustermesh.md)
 revision 4, tracking issue #42, §4 row 1. Demo 40 laid the doors; this phase puts demo 35's
 platform behind them, twice, with global services that prefer home. Nothing from phases 2–5
