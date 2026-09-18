@@ -569,6 +569,12 @@ Revision 2 of enhancement 007, from this record:
    **Standard channel only** (the operator, 2026-09-18: no experimental features in this lab; another lab later):
    measured — every `gateway.networking.k8s.io` CRD on eg1 carries `channel: standard`, `bundle-version: v1.6.2`; demo 50's
    `check.sh` asserts it on every CRD so the experimental set cannot arrive unnoticed.
+   **Rendered, not inferred** (the operator asked; `helm template` at v1.9.1, 2026-09-18 21:05 UTC): `gateway-crds-helm`
+   with `crds.envoyGateway.enabled=true crds.gatewayAPI.enabled=false` emits **0** `gateway.networking.k8s.io` CRDs and
+   **8** `gateway.envoyproxy.io` CRDs; the same chart with `crds.gatewayAPI.enabled=true` (its default channel) emits 10
+   Gateway API CRDs annotated **13 × `channel: experimental`, 2 × `standard`** — the mix this lab avoids; `gateway-helm`
+   with `crds.enabled=false` emits **0** CRDs of any kind. The only source of Gateway API CRDs on eg1 is upstream's
+   `standard-install.yaml`.
 3. **The chart does not create GatewayClass `eg`.** Apply it (`controllerName:
    gateway.envoyproxy.io/gatewayclass-controller`).
 4. **Coexistence is the path** (not `scripts/eg-lb.sh`). Three filters, all required:
