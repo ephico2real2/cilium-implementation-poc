@@ -50,10 +50,11 @@ Rules of the comparison:
   `grep -rn policy-deny-response cilium/ demos/` returns nothing; quote the command in the report if the fact matters.
 - **Read the upstream PR when the release line is ambiguous.** `gh pr view <n> -R cilium/cilium --json title,body`;
   the body's *release-note* block and `Fixes:` say what the symptom was. Quote it.
-- **Distinguish four outcomes** for each item and write the one that applies: *fixes something we measured* (name the
-  gotcha, demo or review that recorded it), *changes a constraint we wrote down* (name the file and line to update),
-  *could hit us but has not* (the feature is in our values), *not for us* (the feature is not — say which value proves
-  it). Do not pad the "for us" column: a patch release for a kind lab is mostly "not for us", and saying so is the
+- **Distinguish the outcomes** and write the one that applies, in bold at the start of the cell: **fixes something we
+  measured** (name the gotcha, demo or review that recorded it), **fixes something we run** (the mechanism is ours, the
+  symptom was never recorded — say "not measured here"), **changes a written constraint** (name the file and line to
+  update), **could hit us** (the feature is in our values, the symptom has not appeared), **neutral** (ours, and
+  nothing changes for us), **not for us** (say which value proves it). Do not pad the "for us" column: a patch release for a kind lab is mostly "not for us", and saying so is the
   value of the report.
 - **Numbers from the release, not from the summary line.** Count the bullets; the script's count table is the source.
 - **The forked projects' "release" is a divergence.** For hubble-observer and cf2cnp the questions are: what did
@@ -71,7 +72,7 @@ Format, in this order, every section present (write "none" rather than dropping 
 2. **In one paragraph** — the release as a reader with no time needs it; kind of release (patch/minor), the one or two
    items that matter most to us, the verdict (move / wait / nothing to do).
 3. **What touches this lab** — a table `| Fix or change (upstream PR) | Where the lab meets it | Outcome |`, one row
-   per item with a lab side, the outcome one of the four above, with the file/gotcha/demo named. Order: fixes
+   per item with a lab side, the outcome one of the six above, with the file/gotcha/demo named. Order: fixes
    something we measured → changes a written constraint → could hit us → notable but neutral.
 4. **Not for us** — one paragraph listing what was skipped and the value that proves each is not our configuration
    (ENI/EKS/GKE/Azure, DSR, IPv6, LocalRedirectPolicy, hostNetwork Gateways… as applicable).

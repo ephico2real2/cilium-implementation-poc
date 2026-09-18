@@ -32,6 +32,12 @@ drop_probe() { k delete httproute -n "$1" "$2" --ignore-not-found --wait=false >
 echo "== 1. the two doors: addresses, Programmed, every route, the shared Envoy, the L2 leases"
 echo "  routes/routes-gw: address=${GW240:-?} Programmed=$(k -n routes get gateway routes-gw -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' 2>/dev/null || echo '?')  (pinned .240)"
 echo "  team-b/team-b-gw: address=${GW243:-?} Programmed=$(k -n team-b get gateway team-b-gw -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' 2>/dev/null || echo '?')  (pinned .243)"
+# per listener too: on 1.20.1 the Gateway-level condition was set while the listeners' Programmed=True was never persisted
+# (cilium/cilium#48013, fixed in 1.20.2) — a reader on an older agent will see this line disagree with the two above
+echo "  listeners (Programmed per listener, the 1.20.2 fix — docs/upstream/releases/cilium-v1.20.2.md):"
+for gw in routes/routes-gw team-b/team-b-gw; do
+  k -n "${gw%/*}" get gateway "${gw#*/}" -o jsonpath='{range .status.listeners[*]}{.name}{"="}{.conditions[?(@.type=="Programmed")].status}{" "}{end}' 2>/dev/null | sed "s#^#    $gw: #"; echo
+done
 echo "  routes (team-a and team-b):"
 for ns in team-a team-b; do
   k -n "$ns" get httproute -o custom-columns='  NS:.metadata.namespace,NAME:.metadata.name,HOSTS:.spec.hostnames,ACCEPTED:.status.parents[0].conditions[?(@.type=="Accepted")].status,REASON:.status.parents[0].conditions[?(@.type=="Accepted")].reason,RESOLVED:.status.parents[0].conditions[?(@.type=="ResolvedRefs")].status' --no-headers 2>/dev/null || echo "  $ns: no HTTPRoutes (or namespace missing)"

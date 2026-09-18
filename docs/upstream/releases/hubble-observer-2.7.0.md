@@ -83,7 +83,7 @@ Nothing to move for the lab. Two fork-side changes are cheap: `Chart.yaml` cf2cn
 ## Actions
 
 Done: this report; the demo 25 README line. For the operator: merge ephico2real2/hubble-observer#1 (then it can go
-upstream); the cf2cnp chart pin 0.7.0 → 0.9.0 on the fork. Upstream, only on the operator's word: nudge #16 (a review
-has not started; the maintainer merged five PRs in one day, so a short comment naming what changed since — the README
-preview — is likely all it needs), and after it, a small PR re-adding `containerName` now that the dashboard's
-`Container` variable makes a second release visible — the argument the maintainer's `a1b6f474` message lacked.
+upstream); the cf2cnp chart pin 0.7.0 → 0.9.0 on the fork. Upstream, only on the operator's word: a comment on #16 naming
+what changed since it was opened (the README preview, commit `b69ab65`), and after it merges, a small PR re-adding
+`containerName` with the argument stated — `a1b6f474`'s message gives the dashboard as the reason, and the #16
+dashboard's `Container` variable is what makes a second release visible.

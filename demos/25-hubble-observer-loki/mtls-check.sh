@@ -27,7 +27,7 @@ printf '  %-28s %s\n' "pod" "$(k -n hubble-observer get pods -l app.kubernetes.i
 
 echo "== 4. an anonymous client is refused (GUIDE exercise 7): the agent image's own hubble CLI, no certificate"
 k -n default delete pod anyone --ignore-not-found --wait=true >/dev/null 2>&1
-k -n default run anyone --image="quay.io/cilium/cilium:v${CILIUM_VERSION:-1.20.1}" --restart=Never --command -- sleep 300 >/dev/null 2>&1
+k -n default run anyone --image="quay.io/cilium/cilium:v${CILIUM_VERSION:-1.20.2}" --restart=Never --command -- sleep 300 >/dev/null 2>&1
 k -n default wait --for=condition=Ready pod/anyone --timeout=2m >/dev/null 2>&1 || echo "  (the anonymous pod did not become Ready)"
 # the refusal is the result: the relay's sentence is printed on its own, not the client's whole error line (run 34980519349's
 # report counted those "error" words as trouble; a refusal is what this part expects)

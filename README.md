@@ -1,6 +1,6 @@
 # cilium-implementation-poc
 
-A reproducible proof of concept of what **Cilium 1.20.1** and **Hubble** give you over a stock CNI + kube-proxy
+A reproducible proof of concept of what **Cilium 1.20.2** and **Hubble** give you over a stock CNI + kube-proxy
 cluster — **measured, not quoted**. Two kind clusters in a ClusterMesh with no kube-proxy and no other CNI, 38 demos
 from the first Hubble flow to policies generated from observed traffic, every command with its recorded output, and a
 GitHub Action that builds and exercises the whole lab from the same scripts a laptop uses.
@@ -104,8 +104,8 @@ poc1 runs: [SETUP Step 5.4](docs/SETUP.md#step-54--is-the-service-mesh-on--what-
 | Component | Version |
 |---|---|
 | kind | 0.33.0 |
-| Kubernetes (node image) | v1.36.4, pinned by digest — kind 0.33.0 defaults to v1.37.0, but Cilium 1.20.1 is e2e-tested on 1.33–1.36 only |
-| Cilium | 1.20.1 — the newest chart and upstream tag as of 2026-09-11 (`docs/summary/MTLS_EVALUATION.md` §7) |
+| Kubernetes (node image) | v1.36.4, pinned by digest — kind 0.33.0 defaults to v1.37.0, but Cilium 1.20 is e2e-tested on 1.33–1.36 only |
+| Cilium | 1.20.2 — the patch of 2026-09-16, read against the lab in `docs/upstream/releases/cilium-v1.20.2.md` (1.20.1 from 2026-09-11 to 2026-09-17) |
 | cilium CLI / Hubble CLI | v0.20.0 / 1.19.4 |
 | cert-manager | v1.21.1 (chart; GitHub had v1.21.2 the same day — gotcha #26) |
 | Gateway API CRDs | v1.6.1 standard, plus experimental `TCPRoute` |
@@ -259,7 +259,7 @@ each with its record:
 | [docs/NEW-MAC.md](docs/NEW-MAC.md), [docs/HANDOVER.md](docs/HANDOVER.md) | a new Mac's path to the lab; a new session's: the standing rules, where the upstream PRs and the forks stand, what is owed |
 | [NETWORKING_DESIGN.md](NETWORKING_DESIGN.md), [docs/TUNING.md](docs/TUNING.md) | the addressing plan and diagram; the day-1 datapath values and why they cannot wait |
 | [OBSERVABILITY-ARCHITECTURE.md](OBSERVABILITY-ARCHITECTURE.md) | the one picture of the observability stack across the mesh: the hub, every spoke, and why (demos 10, 16, 18, 21–25) |
-| [docs/GOTCHAS.md](docs/GOTCHAS.md) | **116 traps this build actually hit**, with the real error text and the real fix. Most share one shape — *they reported success while not working*: `brew` said "already installed", every container was `Up` while the cluster was dead, the API server answered `curl -k` with 200 while Cilium could not reach it, a policy fix "worked" and opened a hole. The three most expensive: the bridge is `bridge100`, not `bridge101` (SETUP 3.5); the two Cilium LB CRDs did not graduate together — `CiliumLoadBalancerIPPool` is `v2`, `CiliumL2AnnouncementPolicy` still `v2alpha1` (SETUP 8); every Docker Desktop setting **before** any cluster, or the cluster is lost to reassigned container IPs (SETUP 2.7) |
+| [docs/GOTCHAS.md](docs/GOTCHAS.md) | **117 traps this build actually hit**, with the real error text and the real fix. Most share one shape — *they reported success while not working*: `brew` said "already installed", every container was `Up` while the cluster was dead, the API server answered `curl -k` with 200 while Cilium could not reach it, a policy fix "worked" and opened a hole. The three most expensive: the bridge is `bridge100`, not `bridge101` (SETUP 3.5); the two Cilium LB CRDs did not graduate together — `CiliumLoadBalancerIPPool` is `v2`, `CiliumL2AnnouncementPolicy` still `v2alpha1` (SETUP 8); every Docker Desktop setting **before** any cluster, or the cluster is lost to reassigned container IPs (SETUP 2.7) |
 | [docs/FINDINGS.md](docs/FINDINGS.md), [docs/REFERENCES.md](docs/REFERENCES.md), [docs/HUBBLE-L7-LABELS.md](docs/HUBBLE-L7-LABELS.md), [docs/OBSERVER-DASHBOARD-PANELS.md](docs/OBSERVER-DASHBOARD-PANELS.md) | the measurements; every external source with what it was used for; why Hubble's L7 dashboard goes blind to Gateway traffic and the lab's app-keyed dashboard, with its references and the alignment measured; the observer dashboard panel by panel — what each counts (from `flow.proto`), what fills it, why equal slices shared a colour, and the redesign (captions, rankings as bar gauges, fixed colours per meaning) |
 | [docs/POLICY-TEST-RESULTS.md](docs/POLICY-TEST-RESULTS.md) | every generated policy's test and outcome (demos 26–35), and cf2cnp's own test layers |
 | [docs/VERIFICATION_RUN.md](docs/VERIFICATION_RUN.md) | 1,024 lines of real console output in 23 sections, from the toolchain to the flow store, regenerable with `scripts/verify.sh` |

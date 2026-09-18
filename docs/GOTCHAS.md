@@ -2993,6 +2993,58 @@ dynamic-metrics change; `rollout status` will not tell you.
 **The lesson:** "dynamic" is scoped — the docs promise a reload, the metric library promises a fixed label set, and the
 agent tells you which won only in its log.
 
+## <a name="117"></a>117. `helm upgrade --reuse-values` to a new chart version keeps the OLD chart's defaults — "deployed", revision 6, "successfully rolled out" in 14 s, and every agent still on 1.20.1
+
+**Where:** the M5, 2026-09-17, moving poc1 from Cilium 1.20.1 to 1.20.2 the way every other lab upgrade is written
+(`scripts/lab-stack.sh:100`, `demos/22-multicluster-observability/apply-poc2.sh`, SETUP's own examples):
+
+```text
+$ helm upgrade cilium cilium/cilium --version 1.20.2 -n kube-system --kube-context kind-poc1 --reuse-values
+STATUS: deployed
+REVISION: 6
+$ kubectl -n kube-system rollout status ds/cilium
+daemon set "cilium" successfully rolled out                          # after 14 s — no image was pulled
+$ kubectl -n kube-system get ds cilium -o jsonpath='{.spec.template.spec.containers[0].image}'
+quay.io/cilium/cilium:v1.20.1@sha256:ae9ea21f…                       # the chart is 1.20.2, the image is not
+$ helm get values cilium -o json | jq .image
+{"pullPolicy":"IfNotPresent"}                                        # the lab never set a tag or digest…
+$ helm get values cilium --all -o json | jq .image
+{"digest":"sha256:ae9ea21f…","repository":"quay.io/cilium/cilium","tag":"v1.20.1","useDigest":true}   # …but the release carries one
+```
+
+**What happened:** `--reuse-values` does not mean "my values on the new chart". Helm builds the new release's values by
+coalescing the *previous chart's* defaults with the previous user values (`pkg/action/upgrade.go` at v4.3.0, `reuseValues`:
+"We have to regenerate the old coalesced values: `CoalesceValues(current.Chart, current.Config)`"), then merges `--set`/`-f` — so every default
+the old chart had (`image.tag: v1.20.1`, `image.digest`, the Envoy and operator digests) becomes an explicit value that
+overrides the new chart's defaults. The version bump changed the chart and nothing that renders from the image fields.
+Helm's `--help` does not warn about it under `--reuse-values`; the flag that does the right thing describes itself:
+`--reset-then-reuse-values` — "reset the values to the ones built into the chart, apply the last release's values and
+merge in any overrides" (Helm ≥ 3.14; this Mac runs 4.3.0).
+
+**The fix:** for any upgrade that changes the chart version, `--reset-then-reuse-values` (the user values are the same
+before and after — `helm get values` at revision 5 and 7 diffed identical). Second attempt, measured:
+
+```text
+$ helm upgrade cilium cilium/cilium --version 1.20.2 -n kube-system --kube-context kind-poc1 --reset-then-reuse-values
+REVISION: 7
+daemon set "cilium" successfully rolled out                          # +29 s
+deployment "cilium-operator" … daemon set "cilium-envoy" … deployment "hubble-relay" … deployment "clustermesh-apiserver"   # +100 s
+Image versions  cilium  quay.io/cilium/cilium:v1.20.2@sha256:2939231d…: 2
+```
+
+`--reuse-values` stays right for the lab's *same-version* upgrades (a values file on the same chart, `lab-stack.sh:100`);
+it is the version bump that must not use it.
+
+**Also measured, the cost of the rollout:** a probe of `https://grafana.poc.local/api/health` every second through the
+Gateway saw **121 failed probes in the 132 s between +6 s and +138 s** (eleven got through as the leases and the
+Envoy listeners came and went) — a two-minute hole, not the ~45 s of #116. The
+difference is the Envoy: an agent-only restart (#116) leaves `cilium-envoy` running; a release that bumps the Envoy image
+(1.20.2 did, three times) rolls the DaemonSet that *is* the Gateway's data plane, and the four L2 leases were re-elected
+onto the other node on the way. Gotcha #42's "2–3 minutes" is this case. poc2, with no Gateway, rolled everything in 35 s.
+
+**The lesson:** "deployed" is Helm's verdict on the release object, not on what is running. After any upgrade, read the
+image from the DaemonSet — the one line that cannot lie.
+
 ## The meta-lesson
 
 Most of these share a shape: **something reported success while not working.**

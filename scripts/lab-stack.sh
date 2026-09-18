@@ -40,7 +40,7 @@ CTX="${LAB_STACK_CTX:-kind-poc1}"; C="${CTX#kind-}"; PEER_CTX="${LAB_STACK_PEER_
 KPS_VERSION="${KPS_VERSION:-90.1.1}"        # demo 16: kube-prometheus-stack (operator v0.93.1)
 TEMPO_VERSION="${TEMPO_VERSION:-1.24.4}"    # demo 21
 LOKI_VERSION="${LOKI_VERSION:-7.3.0}"       # demo 25
-CILIUM_VERSION="${CILIUM_VERSION:-1.20.1}"
+CILIUM_VERSION="${CILIUM_VERSION:-1.20.2}"
 OBSERVER_BRANCH="${OBSERVER_BRANCH:-develop}"; OBSERVER_COMMIT="${OBSERVER_COMMIT:-}"   # demo 25 Part 10b: the fork's default branch
 say() { printf '\n== %s  (%s)\n' "$1" "$(date +%H:%M:%S)"; }
 die() { echo "::error::$1"; exit 1; }
