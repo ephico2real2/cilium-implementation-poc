@@ -252,6 +252,25 @@ rec "$HERE/hosts-entries.sh"
 
 # ---- 8. R7 experiment — spec.addresses alone, once per cluster ----
 echo "== 8. R7 EXPERIMENT — Gateway.spec.addresses only (no EnvoyProxy)"
+r7_assert_deleted() { # ctx
+  local ctx=$1 c out rc
+  c=${ctx#kind-}
+
+  if out=$(kubectl --context "$ctx" -n shop get gateway probe-noproxy 2>&1); then
+    echo "R7 $c post-delete: gateway/probe-noproxy still exists: $out" >&2
+    return 1
+  else
+    rc=$?
+  fi
+
+  if [[ "$out" != *"(NotFound)"* ]]; then
+    echo "R7 $c post-delete: kubectl failed rc=$rc without NotFound: $out" >&2
+    return 1
+  fi
+
+  echo "R7 $c post-delete gateway/probe-noproxy: NotFound"
+}
+
 r7_one() { # cluster
   local c=$1 ctx ip
   ctx=$(ctx_of "$c")
@@ -291,13 +310,13 @@ EOF
   docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 \
     arping -c 3 -I eth0 "$ip" 2>&1 || true
   kubectl --context "$ctx" -n shop delete gateway probe-noproxy --ignore-not-found
-  echo "R7 $c probe-noproxy deleted"
+  r7_assert_deleted "$ctx" || return 1
 }
-export -f r7_one r7_addr ctx_of envoy_svc_json
+export -f r7_one r7_assert_deleted r7_addr ctx_of envoy_svc_json
 for c in "${CLUSTER_ARR[@]}"; do
   rec bash -c 'r7_one "$1"' bash "$c" || echo "R7 $c: recorded a contradiction; continuing"
 done
-unset -f r7_one
+unset -f r7_one r7_assert_deleted
 
 # ---- 9. VIP move to the other cluster and back, with measured gap ----
 echo "== 9. VIP move (delete-other-first) with arping + curl gap"
@@ -311,13 +330,24 @@ measure_move() { # target
   local log stop pid ts code nfail nok first_fail last_fail gap
   log=$(mktemp)
   stop=$(mktemp)
+  # One sample = "<start-ts> <http_code> <curl-exit>". curl prints 000 itself on a
+  # failed connection (an `|| echo 000` doubled it); the exit code says WHY it
+  # failed — 28 = timed out (nobody answers the address), 7 = refused (a node
+  # answers, no listener), 0 with a non-200 = the door answered without the
+  # route. The gap below is wall-clock between the first and last failed START,
+  # so it undercounts the outage by up to one probe (curl ≤ 1 s + sleep 0.5 s)
+  # at each end; kube-vip's own log lines ("[VIP] Deleting VIP" on the source,
+  # "successful add IP" on the target) bound it exactly.
   (
     while [ -f "$stop" ]; do
       ts=$(python3 -c 'import time; print("%.3f" % time.time())')
-      code=$(curl -sk -m 1 --resolve "api.eg.poc.local:443:172.19.255.16" \
+      # `|| rc=$?` keeps set -e from killing this subshell on the first failed
+      # probe (a bare assignment would: measured 0 samples).
+      rc=0
+      code=$(curl -s -m 1 --resolve "api.eg.poc.local:443:172.19.255.16" \
         --cacert "$CA" "https://api.eg.poc.local/healthz" \
-        -o /dev/null -w '%{http_code}' 2>/dev/null || echo 000)
-      echo "$ts $code" >>"$log"
+        -o /dev/null -w '%{http_code}' 2>/dev/null) || rc=$?
+      echo "$ts ${code:-000} $rc" >>"$log"
       sleep 0.5
     done
   ) &
@@ -342,21 +372,25 @@ measure_move() { # target
   python3 - "$log" "$target" <<'PY'
 import sys
 path, target = sys.argv[1], sys.argv[2]
+from collections import Counter
 rows = []
 for line in open(path):
     parts = line.split()
-    if len(parts) != 2:
+    if len(parts) != 3:
         continue
-    rows.append((float(parts[0]), parts[1]))
+    rows.append((float(parts[0]), parts[1], parts[2]))
 if not rows:
     print(f"VIP move {target}: no probe samples")
     sys.exit(0)
-fails = [(t, c) for t, c in rows if c != "200"]
-oks = [(t, c) for t, c in rows if c == "200"]
+fails = [r for r in rows if r[1] != "200"]
+oks = [r for r in rows if r[1] == "200"]
 print(f"VIP move {target}: samples={len(rows)} ok={len(oks)} fail={len(fails)}")
 if fails:
     gap = fails[-1][0] - fails[0][0]
+    kinds = Counter(f"{c}/curl{rc}" for _, c, rc in fails)
     print(f"VIP move {target}: first_fail={fails[0][0]:.3f} last_fail={fails[-1][0]:.3f} gap_s={gap:.3f}")
+    print(f"VIP move {target}: fail_kinds=" + " ".join(f"{k}x{n}" for k, n in sorted(kinds.items()))
+          + "  (http_code/curl-exit: 28=timeout no responder, 7=refused, 0=answered non-200)")
 else:
     print(f"VIP move {target}: gap_s=0.000 (no failed probes)")
 PY
@@ -374,7 +408,7 @@ echo "== 10. probes (curl --resolve, 301, grpcurl, shopctl)"
 
 https_probe() { # host addr
   local host=$1 addr=$2 hdr code served
-  hdr=$(curl -sk --resolve "$host:443:$addr" --cacert "$CA" \
+  hdr=$(curl -s --resolve "$host:443:$addr" --cacert "$CA" \
     "https://$host/healthz" -D - -o /dev/null --connect-timeout 5 --max-time 10 2>/dev/null || true)
   hdr=$(printf '%s' "$hdr" | tr -d '\r')
   code=$(printf '%s' "$hdr" | awk 'BEGIN{c="000"} NR==1 && /HTTP/{c=$2} END{print c}')
@@ -390,8 +424,10 @@ https_probe() { # host addr
 
 redirect_probe() { # host addr
   local host=$1 addr=$2 code loc
+  # curl prints 000 itself when the connection fails; an `|| echo 000` appends a
+  # second 000 (measured: http_code=000000).
   code=$(curl -s -o /dev/null -w '%{http_code}' --resolve "$host:80:$addr" \
-    "http://$host/healthz" --connect-timeout 5 --max-time 10 2>/dev/null || echo 000)
+    "http://$host/healthz" --connect-timeout 5 --max-time 10 2>/dev/null || true)
   loc=$(curl -sI --resolve "$host:80:$addr" "http://$host/healthz" \
     --connect-timeout 5 --max-time 10 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="location:"{print $2; exit}')
   echo "http://$host @ $addr → ${code:-000} Location=${loc:--}"
@@ -413,7 +449,43 @@ grpc_probe() { # authority addr
     -plaintext -max-time 10 -authority "$auth" \
     "${addr}:80" list || true
 }
-export -f https_probe redirect_probe grpc_probe
+
+tls_leaf_probe() { # hostname address
+  local host=$1 addr=$2 out leaf meta
+
+  if ! out=$(openssl s_client \
+      -connect "${addr}:443" \
+      -servername "$host" \
+      -verify_hostname "$host" \
+      -CAfile "$CA" \
+      -verify_return_error </dev/null 2>&1); then
+    printf '%s\n' "$out"
+    return 1
+  fi
+
+  printf '%s\n' "$out" | grep -Fq "Verify return code: 0 (ok)" || {
+    printf '%s\n' "$out"
+    return 1
+  }
+
+  leaf=$(printf '%s\n' "$out" | awk '
+    /-----BEGIN CERTIFICATE-----/ {copy=1}
+    copy {print}
+    /-----END CERTIFICATE-----/ {exit}
+  ')
+  meta=$(printf '%s\n' "$leaf" |
+    openssl x509 -noout -subject -issuer -ext subjectAltName)
+
+  printf '%s\n' "$meta" |
+    grep -Eq 'subject=.*CN[[:space:]]*=[[:space:]]*api\.eg\.poc\.local' || return 1
+  printf '%s\n' "$meta" |
+    grep -Eq 'issuer=.*CN[[:space:]]*=[[:space:]]*eg-root-ca' || return 1
+  printf '%s\n' "$meta" | grep -Fq "DNS:$host" || return 1
+
+  echo "TLS leaf $host @ $addr: verify=ok subject=api.eg.poc.local issuer=eg-root-ca san=$host"
+  printf '%s\n' "$meta"
+}
+export -f https_probe redirect_probe grpc_probe tls_leaf_probe
 export CA
 
 for c in "${CLUSTER_ARR[@]}"; do
@@ -424,6 +496,18 @@ done
 rec bash -c 'https_probe api.eg.poc.local 172.19.255.16'
 rec bash -c 'redirect_probe api.eg.poc.local 172.19.255.16'
 rec bash -c 'grpc_probe grpc.eg.poc.local 172.19.255.16'
+
+echo "== 10a. TLS leaf actually served for all six SAN names"
+while read -r host addr; do
+  rec bash -c 'tls_leaf_probe "$1" "$2"' bash "$host" "$addr"
+done <<'EOF'
+api.eg1.poc.local 172.19.255.240
+grpc.eg1.poc.local 172.19.255.240
+api.eg2.poc.local 172.19.255.176
+grpc.eg2.poc.local 172.19.255.176
+api.eg.poc.local 172.19.255.16
+grpc.eg.poc.local 172.19.255.16
+EOF
 
 echo "== 10b. shopctl probe (needs /etc/hosts; WARN + print the block if the name does not resolve)"
 shopctl_probe() {
@@ -457,13 +541,13 @@ shopctl_probe() {
 export -f shopctl_probe
 export CA
 rec bash -c shopctl_probe
-unset -f shopctl_probe https_probe redirect_probe grpc_probe
+unset -f shopctl_probe https_probe redirect_probe grpc_probe tls_leaf_probe
 
 # ---- 11. final table ----
 echo "== 11. final table per cluster"
 final_table() {
   python3 - <<'PY'
-import json, subprocess, os
+import json, subprocess, os, re
 
 def run(args):
     p = subprocess.run(args, capture_output=True, text=True)
@@ -491,7 +575,7 @@ def arping(ip):
 
 def https(host, addr):
     p = subprocess.run(
-        ["curl", "-sk", "--resolve", f"{host}:443:{addr}",
+        ["curl", "-s", "--resolve", f"{host}:443:{addr}",
          "--cacert", ".tmp/eg-root-ca.crt",
          f"https://{host}/healthz", "-D", "-", "-o", "/dev/null",
          "--connect-timeout", "5", "--max-time", "10"],
@@ -524,7 +608,8 @@ def grpc(auth, addr, tls):
                 "grpc.health.v1.Health/Check"]
     p = subprocess.run(args, capture_output=True, text=True)
     out = p.stdout + p.stderr
-    return "SERVING" if "SERVING" in out else "FAIL"
+    # exact status: a substring test would accept NOT_SERVING (review A6)
+    return "SERVING" if re.search(r'"status"\s*:\s*"SERVING"', out) else "FAIL"
 
 doors = [
     ("eg1", "kind-eg1", "eg1-gw",    "172.19.255.240", "api.eg1.poc.local",  "grpc.eg1.poc.local"),

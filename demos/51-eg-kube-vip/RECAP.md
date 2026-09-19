@@ -36,20 +36,24 @@ as `may not change once set`.
 
 **3. Two Gateways per cluster, and the shared address lives in one.** eg1's
 own door is `eg1-gw` at `172.19.255.240`; eg2's is `eg2-gw` at
-`172.19.255.176`. The product door `eg-vip-gw` at `172.19.255.16` is applied
-to one cluster at a time (`VIP_HOME=eg1` by default). On Cilium the Gateway
-could exist in both clusters and a separate L2 policy chose the announcer.
-Here the annotation *is* the announcement, so two VIP Gateways would be two
-ARP responders and a coin toss on every packet. `scripts/eg-vip-move.sh
-kube-vip eg2` deletes the VIP Gateway, its routes and its `EnvoyProxy` from
-the other cluster first, then creates them on the target. Before the move,
-`arping .16` got three replies from `eg1-worker` (`6e:8c:28:fa:31:1f`);
-after, three from `eg2-control-plane` (`1e:c6:bf:d8:18:97`). A `curl -m 1`
-every 0.5 s during the move counted **32 samples, 23 ok, 9 fail, a gap of
-10.486 s**; back to eg1 the gap was **8.976 s** (8 fails in 32). That is
-the time to tear down one Envoy Deployment and roll another, not Cilium's
-~40 ms lease move. Creating the VIP on eg2 did not fail with ".16 in use"
-once the other side was gone.
+`172.19.255.176`. The product door `eg-vip-gw` at `172.19.255.16` lives in
+one cluster at a time (`VIP_HOME=eg1`). Two VIP Gateways would be two ARP
+responders. `scripts/eg-vip-move.sh kube-vip eg2` deletes the other
+cluster first. Before: three `arping .16` replies from `eg1-worker`
+(`6e:8c:28:fa:31:1f`); after, three from `eg2-control-plane`
+(`1e:c6:bf:d8:18:97`). A `curl -m 1` every 0.5 s during the move counted
+**33 samples, 24 ok, 9 fail, a gap of 9.368 s**; back, **9.377 s** (9 fails
+in 33). Each failed probe says why: six timed out (nobody answered the
+address), two or three were refused, one got a 404 from a door whose routes
+were already gone. kube-vip's own logs put the exact no-announcer window at
+**10.837 s** and **10.909 s**: the new cluster saw the Service within a
+quarter of a second of the old one's `Deleting VIP` and answered the moment
+its Envoy pod turned Ready — kube-vip starts the per-Service election only
+once a local endpoint is ready, because the Service is
+`externalTrafficPolicy: Local` (Envoy Gateway's default); that is also why
+`eg2-control-plane` answered after the move. The gap is one Envoy pod's
+start-up, not Cilium's ~40 ms lease move. Creating the VIP on eg2 did not
+fail with ".16 in use".
 
 **4. One certificate, six names, no grant.** Each cluster issues `eg-tls`
 from `ClusterIssuer/eg-ca-issuer` (the lab root in `.tmp/eg-root-ca.crt`,
@@ -160,8 +164,30 @@ the gRPC name, and HTTP `:80` for the 301 and for plaintext gRPC:
               class kube-vip.io/kube-vip-class only; class-less stays pending
 ```
 
-**What the review caught.** The adversarial review has not run on this head
-yet.
+**What the review caught.** OB3 (Claude Opus 5, while the Fable quota is
+out), Codex and Grok, 2026-09-18, `docs/REVIEW_DEMO51.md`:
+
+- the "no metallb-system" row called a dead `kubectl` a PASS — a refused
+  connection is not `NotFound` (demo 50's defect, again).
+- "probe-noclass stays pending" passed for a Service seconds old and never
+  looked for kube-vip's claim marks; it now requires 30 s of `<pending>`
+  with no `implementation` label and no `loadbalancerIPs` annotation.
+- a failed redirect probe printed `http_code=000000` — an `|| echo 000`
+  doubled the `000` curl already prints.
+- `arping -c 3` was one broadcast and two unicasts to the first responder;
+  the responder rows now broadcast every probe (`-b`).
+- `eg-vip-move.sh` deleted the other cluster's Gateway but never waited for
+  its Envoy Service — the object kube-vip announces, held by the
+  `load-balancer-cleanup` finalizer (66 ms after the Gateway in the first
+  recording; unbounded with the cloud-provider down). It now waits.
+- the docs blamed the gap on the wrong step; kube-vip's logs gave the
+  composition above, and the probe loop now records why each probe failed.
+- every HTTPS probe carried `-k`, so `--cacert` verified nothing (a bogus
+  CA still got 200); the `k` is gone and each of the six SAN names is now
+  proved with `openssl s_client`.
+- the R7 clean-up was an echo, not a recorded `NotFound`.
+- the gRPC rows would have accepted `NOT_SERVING`, and the Gateway
+  address is now checked against the Service's own ingress.
 
 **What you can do with it right now.**
 

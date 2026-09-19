@@ -109,8 +109,9 @@ eg1      eg-vip-gw  172.19.255.16    True   kube-vip.io/kube-vip-class   eg1-wor
 eg2      eg2-gw     172.19.255.176   True   kube-vip.io/kube-vip-class   eg2-worker             200/eg2      SERVING    SERVING
 ```
 
-`check.sh` (exit 0), recorded 2026-09-18T23:56:44Z — 39 PASS, 0 FAIL. The
-rows name R4, R7, R8, R10 or D11. The verbatim table is in the transcript.
+`check.sh` (exit 0), recorded 2026-09-19T00:42:08Z after the review's fixes —
+39 PASS, 0 FAIL. The rows name R4, R8, R10 or D11 (D8 on the certificate
+rows). The verbatim table is in the transcript.
 
 ## What was measured
 
@@ -122,14 +123,36 @@ Gateway `probe-noproxy` in `shop` with `spec.addresses: .245` (eg1) /
 **Received 0 response(s)** on both clusters. Then deleted.
 
 **The VIP move.** `scripts/eg-vip-move.sh kube-vip eg2` deletes
-`eg-vip-gw` + its routes + its `EnvoyProxy` from eg1 first, then creates
-them on eg2. Before: 3 of 3 from `eg1-worker`. After: 3 of 3 from
-`eg2-control-plane` (`1e:c6:bf:d8:18:97`). A `curl -m 1` every 0.5 s
-during the move: **32 samples, 23 ok, 9 fail, gap 10.486 s**. Back to
-eg1: responder returned to `eg1-worker`; **32 samples, 24 ok, 8 fail,
-gap 8.976 s**. Creating the VIP Gateway on eg2 did **not** fail with
-".16 in use" — kube-vip accepted the annotation after the other
-cluster's Service was gone.
+`eg-vip-gw` + its routes + its `EnvoyProxy` from eg1 first, waits for eg1's
+Envoy Service to be gone, then creates them on eg2. Before: 3 of 3 from
+`eg1-worker`. After: 3 of 3 from `eg2-control-plane` (`1e:c6:bf:d8:18:97`)
+— the node the new Envoy pod landed on: the generated Service is
+`externalTrafficPolicy: Local` (Envoy Gateway's default) and kube-vip elects
+the announcer only among nodes with a ready local endpoint (v1.2.4
+`pkg/endpoints/endpoints_generic.go:93-95`, `pkg/services/leader.go:102`).
+A `curl -m 1` every 0.5 s during the move (the re-run after review,
+2026-09-19T00:40Z): **33 samples, 24 ok, 9 fail, gap 9.368 s** — the
+failures by kind `000/curl28 ×6` (timed out: nobody answered the address),
+`000/curl7 ×2` (refused: a node answered, no listener) and `404/curl0 ×1`
+(the door answered with its routes already deleted). Back to eg1: responder
+returned to `eg1-worker`; **33 samples, 24 ok, 9 fail, gap 9.377 s**
+(`curl28 ×6`, `curl7 ×3`). The gap is wall-clock between the first and the
+last failed probe's *start*, so it undercounts the outage by up to one probe
+at each end. kube-vip's own logs bound it exactly (review record,
+`kubectl -n kube-system logs ds/kube-vip-ds --timestamps`): eg1-worker
+`[VIP] Deleting VIP ip=172.19.255.16` at 00:40:56.018; eg2's kube-vip saw
+the new Service 217 ms later (`adding VIP` 00:40:56.235 — after the
+script's wait for eg1's Service to be gone) and announced at 00:41:06.855
+(`successful add IP`) — **10.837 s with no announcer**, all of it the new
+Envoy pod becoming Ready, because kube-vip does not start the per-Service
+election until a local endpoint is ready. Back: 00:41:20.672 →
+00:41:31.581, **10.909 s**; that pod was created at 00:41:20 and Ready at
+00:41:31. "ARP moved" and "the door answers" are the same instant by
+kube-vip's rule; the delete side cost 217 ms and 104 ms. (The first
+recording, before the wait existed: 11.239 s and 10.535 s, the target
+seeing the Service 66 ms after the delete.) Creating the VIP Gateway on eg2
+did **not** fail with ".16 in use" — kube-vip accepted the annotation after
+the other cluster's Service was gone.
 
 **gRPC (R10).** `appProtocol: kubernetes.io/h2c` on Service `grpc:9090`
 was enough. No `BackendTrafficPolicy`. `grpcurl -plaintext -authority
@@ -162,10 +185,15 @@ The operator adds the block from `hosts-entries.sh`. `--resolve` and
 
 There is no MetalLB and no Cilium policy. That is this demo, not a gap.
 
-The VIP move's gap is the time to delete the Gateway, roll a new Envoy
-Deployment on the other cluster, and wait for it Available — seconds,
-not the ~40 ms Cilium lease move in demo 40. The announcer *is* the
-Gateway.
+The VIP move's gap is the new Envoy pod's readiness in the target cluster
+— 10.837 s and 10.909 s between the source's `[VIP] Deleting VIP` and the
+target's `successful add IP` in kube-vip's logs — not the deletion (217 ms
+and 104 ms, wait included) and not ARP: kube-vip announces a Service only once a local endpoint is
+Ready, and the generated Envoy pod's probes are a `startupProbe` every 10 s
+and a `readinessProbe` every 5 s (read from the generated Deployment).
+Seconds, not the ~40 ms Cilium lease move in demo 40. The announcer *is*
+the Gateway; the announcer's node *is* the Envoy pod's node
+(`externalTrafficPolicy: Local`).
 
 ## Cleanup
 

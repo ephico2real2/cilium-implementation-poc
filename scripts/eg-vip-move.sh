@@ -140,6 +140,15 @@ delete_vip() { # ctx
   kubectl --context "$ctx" -n shop delete grpcroute grpc-vip --ignore-not-found
   kubectl --context "$ctx" -n shop delete gateway eg-vip-gw --ignore-not-found
   kubectl --context "$ctx" -n shop delete envoyproxy eg-vip-gw-proxy --ignore-not-found
+  # The announcement is the Envoy Service, not the Gateway: kube-vip stops ARP when
+  # the Service is deleted (watch.Deleted), and that Service is owned by the
+  # GatewayClass and carries service.kubernetes.io/load-balancer-cleanup, so it
+  # outlives `kubectl delete gateway` until Envoy Gateway and the cloud-provider
+  # have both acted (measured 2026-09-18: 66 ms after the Gateway; unbounded if
+  # the cloud-provider is down). Wait for it before the target may announce.
+  # With nothing matching (same-target rerun) kubectl wait returns 0 at once.
+  kubectl --context "$ctx" -n envoy-gateway-system wait svc \
+    -l gateway.envoyproxy.io/owning-gateway-name=eg-vip-gw --for=delete --timeout=60s
 }
 
 apply_vip() { # ctx

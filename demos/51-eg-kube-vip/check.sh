@@ -41,10 +41,16 @@ for ctx in kind-eg1 kind-eg2; do
   else
     row fail "$c kube-vip-cloud-provider Available" "Available=${cp_av:-?}" "R4 — cloud-provider v0.0.12 Available (KUBEVIP_ENABLE_LOADBALANCERCLASS=true)"
   fi
-  if ns_out=$(kubectl --context "$ctx" get ns metallb-system -o name 2>&1); then
+  # Only an explicit NotFound is a PASS: a dead kubectl also exits non-zero, and
+  # demo 50's review found exactly that producing a PASS (docs/REVIEW_DEMO50.md).
+  ns_out=$(kubectl --context "$ctx" get ns metallb-system -o name 2>&1)
+  ns_rc=$?
+  if [ "$ns_rc" -eq 0 ]; then
     row fail "$c no metallb-system namespace" "$ns_out" "R4 — MetalLB is demo 52; kubectl get ns metallb-system must not exist"
-  else
+  elif printf '%s' "$ns_out" | grep -q 'NotFound'; then
     row ok "$c no metallb-system namespace" "NotFound" "R4 — MetalLB is demo 52; kubectl get ns metallb-system must not exist"
+  else
+    row fail "$c no metallb-system namespace" "kubectl failed: $(printf '%s' "$ns_out" | tr '\n' ' ' | head -c 60)" "R4 — MetalLB is demo 52; kubectl get ns metallb-system must not exist"
   fi
 done
 
@@ -65,22 +71,37 @@ expect_range kind-eg2 range-default 172.19.255.136-172.19.255.141
 
 # R4 / R8 — every Gateway Programmed with its address
 expect_gw() { # ctx name want_addr
-  local ctx=$1 name=$2 want=$3 addr prog
+  local ctx=$1 name=$2 want=$3 addr prog svc_ingress
+
   if ! kubectl --context "$ctx" -n shop get gateway "$name" >/dev/null 2>&1; then
     if [ "$name" = eg-vip-gw ]; then
       return 0
     fi
-    row fail "${ctx#kind-}/$name Programmed at $want" "absent" "R4 / R8 — Programmed=True and status.addresses[0]=$want"
+    row fail "${ctx#kind-}/$name Programmed at $want" "absent" \
+      "R4 / R8 — Gateway address and Service ingress must both be $want"
     return
   fi
+
   addr=$(kubectl --context "$ctx" -n shop get gateway "$name" \
     -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
   prog=$(kubectl --context "$ctx" -n shop get gateway "$name" \
-    -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' 2>/dev/null || true)
-  if [ "$prog" = True ] && [ "$addr" = "$want" ]; then
-    row ok "${ctx#kind-}/$name Programmed at $want" "addr=$addr Programmed=$prog" "R4 / R8 — Programmed=True and status.addresses[0]=$want"
+    -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}' \
+    2>/dev/null || true)
+  svc_ingress=$(kubectl --context "$ctx" -n envoy-gateway-system get svc \
+    -l "gateway.envoyproxy.io/owning-gateway-name=$name" \
+    -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}' \
+    2>/dev/null || true)
+
+  if [ "$prog" = True ] &&
+     [ "$addr" = "$want" ] &&
+     [ "$svc_ingress" = "$want" ]; then
+    row ok "${ctx#kind-}/$name Programmed at $want" \
+      "addr=$addr svcIngress=$svc_ingress Programmed=$prog" \
+      "R4 / R8 — Gateway address and Service ingress both equal $want"
   else
-    row fail "${ctx#kind-}/$name Programmed at $want" "addr=${addr:-?} Programmed=${prog:-?}" "R4 / R8 — Programmed=True and status.addresses[0]=$want"
+    row fail "${ctx#kind-}/$name Programmed at $want" \
+      "addr=${addr:-?} svcIngress=${svc_ingress:-?} Programmed=${prog:-?}" \
+      "R4 / R8 — Gateway address and Service ingress both equal $want"
   fi
 }
 expect_gw kind-eg1 eg1-gw "$EG1_GW"
@@ -108,30 +129,52 @@ expect_class kind-eg1 eg-vip-gw
 expect_class kind-eg2 eg2-gw
 expect_class kind-eg2 eg-vip-gw
 
-# D11 — standing exhibit probe-noclass stays <pending> (applied by apply.sh)
+# D11 — standing exhibit probe-noclass stays <pending> (applied by apply.sh).
+# "Stays" needs elapsed time: a Service a few seconds old is <pending> whatever the
+# class filter does (the doors got their address within ~11 s of creation in the
+# transcript), so the row also requires the Service to be at least 30 s old.
+# Phase 0 (docs/EG-PHASE0.md:340-343) measured that a claimed-but-pending
+# Service still carries label implementation=kube-vip and annotation
+# kube-vip.io/loadbalancerIPs while EXTERNAL-IP stays <pending> — ingress-
+# empty is not enough.
+NOCLASS_MIN_AGE=30
 for ctx in kind-eg1 kind-eg2; do
   c=${ctx#kind-}
   typ=$(kubectl --context "$ctx" -n shop get svc probe-noclass -o jsonpath='{.spec.type}' 2>/dev/null || true)
   klass=$(kubectl --context "$ctx" -n shop get svc probe-noclass -o jsonpath='{.spec.loadBalancerClass}' 2>/dev/null || true)
   ing=$(kubectl --context "$ctx" -n shop get svc probe-noclass -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
-  if [ "$typ" = LoadBalancer ] && [ -z "$klass" ] && [ -z "$ing" ]; then
-    row ok "$c probe-noclass stays pending" "type=$typ class=${klass:-(none)} ingress=${ing:-(none)}" "D11 — class-less LoadBalancer Service stays <pending>"
+  impl=$(kubectl --context "$ctx" -n shop get svc probe-noclass -o jsonpath='{.metadata.labels.implementation}' 2>/dev/null || true)
+  ann=$(kubectl --context "$ctx" -n shop get svc probe-noclass -o jsonpath='{.metadata.annotations.kube-vip\.io/loadbalancerIPs}' 2>/dev/null || true)
+  created=$(kubectl --context "$ctx" -n shop get svc probe-noclass -o jsonpath='{.metadata.creationTimestamp}' 2>/dev/null || true)
+  age=$(python3 -c '
+import sys, datetime
+try:
+    t = datetime.datetime.strptime(sys.argv[1], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+    print(int((datetime.datetime.now(datetime.timezone.utc) - t).total_seconds()))
+except Exception:
+    print(-1)
+' "$created")
+  if [ "$typ" = LoadBalancer ] && [ -z "$klass" ] && [ -z "$ing" ] && [ -z "$impl" ] && [ -z "$ann" ] && [ "$age" -ge "$NOCLASS_MIN_AGE" ]; then
+    row ok "$c probe-noclass stays pending" "type=$typ class=(none) ingress=(none) impl=(none) ann=(none) age=${age}s" "D11 — class-less LoadBalancer Service stays <pending> and unclaimed for ≥ ${NOCLASS_MIN_AGE}s"
   else
-    row fail "$c probe-noclass stays pending" "type=${typ:-?} class=${klass:-?} ingress=${ing:-?}" "D11 — class-less LoadBalancer Service stays <pending>"
+    row fail "$c probe-noclass stays pending" "type=${typ:-?} class=${klass:-?} ingress=${ing:-?} impl=${impl:-?} ann=${ann:-?} age=${age}s" "D11 — class-less LoadBalancer Service stays <pending> and unclaimed for ≥ ${NOCLASS_MIN_AGE}s"
   fi
 done
 
-# R4 / R7 — one ARP responder per address, 3 of 3 from ONE MAC
+# R4 / R8 — one ARP responder per address, 3 of 3 from ONE MAC
 arping_check() { # ip label
   local ip=$1 label=$2 out n macs
+  # -b: keep every probe a broadcast. Without it busybox arping goes unicast to the
+  # first responder after the first reply (measured with tcpdump on the bridge), so
+  # "3 of 3" would be one broadcast sample and two unicasts to whoever won it.
   out=$(docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 \
-    arping -c 3 -I eth0 "$ip" 2>&1 || true)
+    arping -b -c 3 -I eth0 "$ip" 2>&1 || true)
   n=$(printf '%s\n' "$out" | grep -c 'Unicast reply' || true)
   macs=$(printf '%s\n' "$out" | awk '/Unicast reply/{gsub(/[\[\]]/,"",$5); print $5}' | sort -u | wc -l | tr -d ' ')
   if [ "$n" -eq 3 ] && [ "$macs" -eq 1 ]; then
-    row ok "ARP $label $ip one responder 3/3" "replies=$n unique_mac=$macs" "R4 / R7 — arping 3 of 3 from ONE MAC"
+    row ok "ARP $label $ip one responder 3/3" "replies=$n unique_mac=$macs" "R4 / R8 — arping 3 of 3 from ONE MAC"
   else
-    row fail "ARP $label $ip one responder 3/3" "replies=$n unique_mac=$macs" "R4 / R7 — arping 3 of 3 from ONE MAC"
+    row fail "ARP $label $ip one responder 3/3" "replies=$n unique_mac=$macs" "R4 / R8 — arping 3 of 3 from ONE MAC"
   fi
 }
 arping_check "$EG1_GW" eg1-gw
@@ -155,7 +198,7 @@ fi
 # R8 — three https doors 200 + X-Served-By
 https_door() { # host addr want_header
   local host=$1 addr=$2 want=$3 hdr code served
-  hdr=$(curl -sk --resolve "$host:443:$addr" --cacert "$CA" \
+  hdr=$(curl -s --resolve "$host:443:$addr" --cacert "$CA" \
     "https://$host/healthz" -D - -o /dev/null --connect-timeout 5 --max-time 10 2>/dev/null || true)
   hdr=$(printf '%s' "$hdr" | tr -d '\r')
   code=$(printf '%s' "$hdr" | awk 'BEGIN{c="000"} NR==1 && /HTTP/{c=$2} END{print c}')
@@ -188,8 +231,10 @@ https_door api.eg.poc.local "$VIP" ""
 # R8 — three 301s
 redirect_door() { # host addr
   local host=$1 addr=$2 code
+  # curl prints 000 itself when the connection fails; an `|| echo 000` appends a
+  # second 000 (measured: http_code=000000).
   code=$(curl -s -o /dev/null -w '%{http_code}' --resolve "$host:80:$addr" \
-    "http://$host/healthz" --connect-timeout 5 --max-time 10 2>/dev/null || echo 000)
+    "http://$host/healthz" --connect-timeout 5 --max-time 10 2>/dev/null || true)
   if [ "$code" = 301 ]; then
     row ok "http://$host @ $addr → 301" "http_code=$code" "R8 — shop-redirect on the :80 listener"
   else
@@ -206,7 +251,8 @@ grpc_door() { # authority addr label
   out=$(docker run --rm --network kind-eg fullstorydev/grpcurl:latest \
     -plaintext -max-time 10 -authority "$auth" \
     "${addr}:80" grpc.health.v1.Health/Check 2>&1 || true)
-  if printf '%s' "$out" | grep -q SERVING; then
+  if printf '%s\n' "$out" |
+      grep -Eq '"status"[[:space:]]*:[[:space:]]*"SERVING"'; then
     row ok "gRPC h2c $label $auth @ $addr:80" "SERVING" "R10 — grpcurl -plaintext Health/Check → SERVING"
   else
     row fail "gRPC h2c $label $auth @ $addr:80" "$(printf '%s' "$out" | tr '\n' ' ' | head -c 80)" "R10 — grpcurl -plaintext Health/Check → SERVING"
@@ -219,7 +265,8 @@ grpc_door() { # authority addr label
     -v "$PWD/$CA:/ca.crt:ro" fullstorydev/grpcurl:latest \
     -cacert /ca.crt -max-time 10 -authority "$auth" \
     "${addr}:443" grpc.health.v1.Health/Check 2>&1 || true)
-  if printf '%s' "$out" | grep -q SERVING; then
+  if printf '%s\n' "$out" |
+      grep -Eq '"status"[[:space:]]*:[[:space:]]*"SERVING"'; then
     row ok "gRPC TLS $label $auth @ $addr:443" "SERVING" "R10 — grpcurl -cacert .tmp/eg-root-ca.crt Health/Check → SERVING"
   else
     row fail "gRPC TLS $label $auth @ $addr:443" "$(printf '%s' "$out" | tr '\n' ' ' | head -c 80)" "R10 — grpcurl -cacert .tmp/eg-root-ca.crt Health/Check → SERVING"

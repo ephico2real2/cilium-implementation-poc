@@ -687,3 +687,576 @@ $ demos/51-eg-kube-vip/check.sh
 
 demo 51 check: 0 FAIL
 
+
+### 2026-09-19T00:40:23Z — demo 51 apply (VIP_HOME=eg1)
+### 2026-09-19T00:40:23Z
+$ kubectl --context kind-eg1 get --raw /readyz
+ok
+### 2026-09-19T00:40:23Z
+$ kubectl --context kind-eg2 get --raw /readyz
+ok
+### 2026-09-19T00:40:23Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/kube-vip-rbac.yaml
+serviceaccount/kube-vip unchanged
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-role unchanged
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-binding unchanged
+
+### 2026-09-19T00:40:23Z
+$ kubectl --context kind-eg1 apply -f demos/51-eg-kube-vip/10-kubevip-cm-eg1.yaml
+configmap/kubevip unchanged
+
+### 2026-09-19T00:40:23Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/kube-vip-ds.yaml
+daemonset.apps/kube-vip-ds unchanged
+
+### 2026-09-19T00:40:23Z
+$ kubectl --context kind-eg1 apply -f clusters/eg/kube-vip-cloud-provider.yaml
+serviceaccount/kube-vip-cloud-controller unchanged
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-role unchanged
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-binding unchanged
+deployment.apps/kube-vip-cloud-provider unchanged
+
+### 2026-09-19T00:40:23Z
+$ kubectl --context kind-eg1 -n kube-system rollout status ds/kube-vip-ds --timeout=120s
+daemon set "kube-vip-ds" successfully rolled out
+
+### 2026-09-19T00:40:24Z
+$ kubectl --context kind-eg1 -n kube-system wait deploy/kube-vip-cloud-provider --for=condition=Available --timeout=120s
+deployment.apps/kube-vip-cloud-provider condition met
+
+### 2026-09-19T00:40:24Z
+$ kubectl --context kind-eg2 apply -f clusters/eg/kube-vip-rbac.yaml
+serviceaccount/kube-vip unchanged
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-role unchanged
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-binding unchanged
+
+### 2026-09-19T00:40:24Z
+$ kubectl --context kind-eg2 apply -f demos/51-eg-kube-vip/10-kubevip-cm-eg2.yaml
+configmap/kubevip unchanged
+
+### 2026-09-19T00:40:24Z
+$ kubectl --context kind-eg2 apply -f clusters/eg/kube-vip-ds.yaml
+daemonset.apps/kube-vip-ds unchanged
+
+### 2026-09-19T00:40:24Z
+$ kubectl --context kind-eg2 apply -f clusters/eg/kube-vip-cloud-provider.yaml
+serviceaccount/kube-vip-cloud-controller unchanged
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-role unchanged
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-binding unchanged
+deployment.apps/kube-vip-cloud-provider unchanged
+
+### 2026-09-19T00:40:24Z
+$ kubectl --context kind-eg2 -n kube-system rollout status ds/kube-vip-ds --timeout=120s
+daemon set "kube-vip-ds" successfully rolled out
+
+### 2026-09-19T00:40:24Z
+$ kubectl --context kind-eg2 -n kube-system wait deploy/kube-vip-cloud-provider --for=condition=Available --timeout=120s
+deployment.apps/kube-vip-cloud-provider condition met
+
+### 2026-09-19T00:40:24Z
+$ kubectl --context kind-eg1 apply -f demos/51-eg-kube-vip/00-namespaces.yaml
+namespace/shop unchanged
+
+### 2026-09-19T00:40:24Z
+$ kubectl --context kind-eg1 apply -f demos/51-eg-kube-vip/15-probe-noclass.yaml
+service/probe-noclass unchanged
+
+### 2026-09-19T00:40:24Z
+$ bash -c kubectl --context kind-eg1 apply -f -
+configmap/eg-cluster unchanged
+
+### 2026-09-19T00:40:25Z
+$ kubectl --context kind-eg2 apply -f demos/51-eg-kube-vip/00-namespaces.yaml
+namespace/shop unchanged
+
+### 2026-09-19T00:40:25Z
+$ kubectl --context kind-eg2 apply -f demos/51-eg-kube-vip/15-probe-noclass.yaml
+service/probe-noclass unchanged
+
+### 2026-09-19T00:40:25Z
+$ bash -c kubectl --context kind-eg2 apply -f -
+configmap/eg-cluster unchanged
+
+### 2026-09-19T00:40:25Z
+$ kubectl --context kind-eg1 apply -f demos/51-eg-kube-vip/20-certificates.yaml
+certificate.cert-manager.io/eg-tls unchanged
+
+### 2026-09-19T00:40:26Z
+$ kubectl --context kind-eg1 -n shop wait certificate/eg-tls --for=condition=Ready --timeout=90s
+certificate.cert-manager.io/eg-tls condition met
+
+### 2026-09-19T00:40:26Z
+$ kubectl --context kind-eg2 apply -f demos/51-eg-kube-vip/20-certificates.yaml
+certificate.cert-manager.io/eg-tls unchanged
+
+### 2026-09-19T00:40:26Z
+$ kubectl --context kind-eg2 -n shop wait certificate/eg-tls --for=condition=Ready --timeout=90s
+certificate.cert-manager.io/eg-tls condition met
+
+### 2026-09-19T00:40:26Z
+$ bash -c yaml_select "$1" "$2-proxy" "$2" | kubectl --context "$3" apply -f - bash demos/51-eg-kube-vip/30-gateways-eg1.yaml eg1-gw kind-eg1
+envoyproxy.gateway.envoyproxy.io/eg1-gw-proxy unchanged
+gateway.gateway.networking.k8s.io/eg1-gw configured
+
+### 2026-09-19T00:40:26Z
+$ kubectl --context kind-eg1 -n shop wait --for=condition=Programmed gateway/eg1-gw --timeout=180s
+gateway.gateway.networking.k8s.io/eg1-gw condition met
+
+### 2026-09-19T00:40:26Z
+$ bash -c wait_envoy_deploy "$1" "$2" bash kind-eg1 eg1-gw
+deployment.apps/envoy-shop-eg1-gw-33a1903b condition met
+
+### 2026-09-19T00:40:26Z
+$ bash -c yaml_select "$1" "$2-proxy" "$2" | kubectl --context "$3" apply -f - bash demos/51-eg-kube-vip/30-gateways-eg2.yaml eg2-gw kind-eg2
+envoyproxy.gateway.envoyproxy.io/eg2-gw-proxy unchanged
+gateway.gateway.networking.k8s.io/eg2-gw configured
+
+### 2026-09-19T00:40:27Z
+$ kubectl --context kind-eg2 -n shop wait --for=condition=Programmed gateway/eg2-gw --timeout=180s
+gateway.gateway.networking.k8s.io/eg2-gw condition met
+
+### 2026-09-19T00:40:27Z
+$ bash -c wait_envoy_deploy "$1" "$2" bash kind-eg2 eg2-gw
+deployment.apps/envoy-shop-eg2-gw-8f1cc50b condition met
+
+### 2026-09-19T00:40:27Z
+$ scripts/eg-vip-move.sh kube-vip eg1
+== takeover: eg1 will announce 172.19.255.16 (delete eg2 first)
+== delete VIP objects from eg2 first
+== create VIP Gateway + EnvoyProxy + routes on eg1
+envoyproxy.gateway.envoyproxy.io/eg-vip-gw-proxy unchanged
+gateway.gateway.networking.k8s.io/eg-vip-gw configured
+httproute.gateway.networking.k8s.io/shop-api-vip configured
+httproute.gateway.networking.k8s.io/shop-redirect-vip configured
+grpcroute.gateway.networking.k8s.io/grpc-vip configured
+gateway.gateway.networking.k8s.io/eg-vip-gw condition met
+deployment.apps/envoy-shop-eg-vip-gw-135d4d6a condition met
+== after
+== VIP 172.19.255.16 present in: eg1
+-- eg1
+  eg-vip-gw: present address=172.19.255.16 Programmed=True
+-- eg2
+  eg-vip-gw: absent
+== arping 172.19.255.16
+ARPING 172.19.255.16 from 172.19.0.6 eth0
+Unicast reply from 172.19.255.16 [6e:8c:28:fa:31:1f] 0.013ms
+Unicast reply from 172.19.255.16 [6e:8c:28:fa:31:1f] 0.016ms
+Unicast reply from 172.19.255.16 [6e:8c:28:fa:31:1f] 0.010ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+== responder MAC 6e:8c:28:fa:31:1f → eg1-worker 172.19.0.3/16
+
+### 2026-09-19T00:40:31Z
+$ kubectl --context kind-eg1 apply -f demos/51-eg-kube-vip/40-app.yaml
+deployment.apps/shopapi unchanged
+service/shopapi unchanged
+deployment.apps/grpc unchanged
+service/grpc unchanged
+
+### 2026-09-19T00:40:32Z
+$ kubectl --context kind-eg1 -n shop wait deploy/shopapi --for=condition=Available --timeout=120s
+deployment.apps/shopapi condition met
+
+### 2026-09-19T00:40:32Z
+$ kubectl --context kind-eg1 -n shop wait deploy/grpc --for=condition=Available --timeout=120s
+deployment.apps/grpc condition met
+
+### 2026-09-19T00:40:32Z
+$ kubectl --context kind-eg2 apply -f demos/51-eg-kube-vip/40-app.yaml
+deployment.apps/shopapi unchanged
+service/shopapi unchanged
+deployment.apps/grpc unchanged
+service/grpc unchanged
+
+### 2026-09-19T00:40:32Z
+$ kubectl --context kind-eg2 -n shop wait deploy/shopapi --for=condition=Available --timeout=120s
+deployment.apps/shopapi condition met
+
+### 2026-09-19T00:40:32Z
+$ kubectl --context kind-eg2 -n shop wait deploy/grpc --for=condition=Available --timeout=120s
+deployment.apps/grpc condition met
+
+### 2026-09-19T00:40:32Z
+$ bash -c yaml_select "$1" shop-api shop-redirect grpc | kubectl --context "$2" apply -f - bash demos/51-eg-kube-vip/50-routes-eg1.yaml kind-eg1
+httproute.gateway.networking.k8s.io/shop-api configured
+httproute.gateway.networking.k8s.io/shop-redirect configured
+grpcroute.gateway.networking.k8s.io/grpc configured
+
+### 2026-09-19T00:40:32Z
+$ bash -c wait_route "$1" httproute shop-api bash kind-eg1
+kind-eg1 httproute/shop-api: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T00:40:32Z
+$ bash -c wait_route "$1" httproute shop-redirect bash kind-eg1
+kind-eg1 httproute/shop-redirect: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T00:40:33Z
+$ bash -c wait_route "$1" grpcroute grpc bash kind-eg1
+kind-eg1 grpcroute/grpc: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T00:40:33Z
+$ bash -c yaml_select "$1" shop-api shop-redirect grpc | kubectl --context "$2" apply -f - bash demos/51-eg-kube-vip/50-routes-eg2.yaml kind-eg2
+httproute.gateway.networking.k8s.io/shop-api configured
+httproute.gateway.networking.k8s.io/shop-redirect configured
+grpcroute.gateway.networking.k8s.io/grpc configured
+
+### 2026-09-19T00:40:33Z
+$ bash -c wait_route "$1" httproute shop-api bash kind-eg2
+kind-eg2 httproute/shop-api: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T00:40:33Z
+$ bash -c wait_route "$1" httproute shop-redirect bash kind-eg2
+kind-eg2 httproute/shop-redirect: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T00:40:33Z
+$ bash -c wait_route "$1" grpcroute grpc bash kind-eg2
+kind-eg2 grpcroute/grpc: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T00:40:33Z
+$ bash -c yaml_select "$1" shop-api-vip shop-redirect-vip grpc-vip | kubectl --context "$2" apply -f - bash demos/51-eg-kube-vip/50-routes-eg1.yaml kind-eg1
+httproute.gateway.networking.k8s.io/shop-api-vip configured
+httproute.gateway.networking.k8s.io/shop-redirect-vip configured
+grpcroute.gateway.networking.k8s.io/grpc-vip configured
+
+### 2026-09-19T00:40:33Z
+$ bash -c wait_route "$1" httproute shop-api-vip bash kind-eg1
+kind-eg1 httproute/shop-api-vip: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T00:40:33Z
+$ bash -c wait_route "$1" httproute shop-redirect-vip bash kind-eg1
+kind-eg1 httproute/shop-redirect-vip: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T00:40:33Z
+$ bash -c wait_route "$1" grpcroute grpc-vip bash kind-eg1
+kind-eg1 grpcroute/grpc-vip: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T00:40:34Z
+$ demos/51-eg-kube-vip/hosts-entries.sh
+# ---- cilium-kind-poc demo51 (generated 2026-09-19T00:40Z by demos/51-eg-kube-vip/hosts-entries.sh) ----
+172.19.255.16  api.eg.poc.local grpc.eg.poc.local
+172.19.255.240  api.eg1.poc.local grpc.eg1.poc.local
+172.19.255.176  api.eg2.poc.local grpc.eg2.poc.local
+# ---- end cilium-kind-poc demo51 ----
+
+### 2026-09-19T00:40:34Z
+$ bash -c r7_one "$1" bash eg1
+---- R7 eg1 probe-noproxy addresses=172.19.255.245 (no EnvoyProxy) ----
+gateway.gateway.networking.k8s.io/probe-noproxy created
+R7 eg1 Service externalIPs=['172.19.255.245'] status.loadBalancer={}
+R7 eg1 arping 172.19.255.245 (expect 0 replies)
+ARPING 172.19.255.245 from 172.19.0.6 eth0
+Sent 3 probe(s) (0 broadcast(s))
+Received 0 response(s) (0 request(s), 0 broadcast(s))
+gateway.gateway.networking.k8s.io "probe-noproxy" deleted from shop namespace
+R7 eg1 post-delete gateway/probe-noproxy: NotFound
+
+### 2026-09-19T00:40:42Z
+$ bash -c r7_one "$1" bash eg2
+---- R7 eg2 probe-noproxy addresses=172.19.255.181 (no EnvoyProxy) ----
+gateway.gateway.networking.k8s.io/probe-noproxy created
+R7 eg2 Service externalIPs=['172.19.255.181'] status.loadBalancer={}
+R7 eg2 arping 172.19.255.181 (expect 0 replies)
+ARPING 172.19.255.181 from 172.19.0.6 eth0
+Sent 3 probe(s) (0 broadcast(s))
+Received 0 response(s) (0 request(s), 0 broadcast(s))
+gateway.gateway.networking.k8s.io "probe-noproxy" deleted from shop namespace
+R7 eg2 post-delete gateway/probe-noproxy: NotFound
+
+### 2026-09-19T00:40:51Z
+$ bash -c measure_move "$1" bash eg2
+-- arping .16 BEFORE move to eg2
+ARPING 172.19.255.16 from 172.19.0.6 eth0
+Unicast reply from 172.19.255.16 [6e:8c:28:fa:31:1f] 0.010ms
+Unicast reply from 172.19.255.16 [6e:8c:28:fa:31:1f] 0.010ms
+Unicast reply from 172.19.255.16 [6e:8c:28:fa:31:1f] 0.023ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+== takeover: eg2 will announce 172.19.255.16 (delete eg1 first)
+== delete VIP objects from eg1 first
+httproute.gateway.networking.k8s.io "shop-api-vip" deleted from shop namespace
+httproute.gateway.networking.k8s.io "shop-redirect-vip" deleted from shop namespace
+grpcroute.gateway.networking.k8s.io "grpc-vip" deleted from shop namespace
+gateway.gateway.networking.k8s.io "eg-vip-gw" deleted from shop namespace
+envoyproxy.gateway.envoyproxy.io "eg-vip-gw-proxy" deleted from shop namespace
+service/envoy-shop-eg-vip-gw-135d4d6a condition met
+== create VIP Gateway + EnvoyProxy + routes on eg2
+envoyproxy.gateway.envoyproxy.io/eg-vip-gw-proxy created
+gateway.gateway.networking.k8s.io/eg-vip-gw created
+httproute.gateway.networking.k8s.io/shop-api-vip created
+httproute.gateway.networking.k8s.io/shop-redirect-vip created
+grpcroute.gateway.networking.k8s.io/grpc-vip created
+gateway.gateway.networking.k8s.io/eg-vip-gw condition met
+deployment.apps/envoy-shop-eg-vip-gw-135d4d6a condition met
+== after
+== VIP 172.19.255.16 present in: eg2
+-- eg1
+  eg-vip-gw: absent
+-- eg2
+  eg-vip-gw: present address=172.19.255.16 Programmed=True
+== arping 172.19.255.16
+ARPING 172.19.255.16 from 172.19.0.6 eth0
+Unicast reply from 172.19.255.16 [1e:c6:bf:d8:18:97] 0.006ms
+Unicast reply from 172.19.255.16 [1e:c6:bf:d8:18:97] 0.028ms
+Unicast reply from 172.19.255.16 [1e:c6:bf:d8:18:97] 0.016ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+== responder MAC 1e:c6:bf:d8:18:97 → eg2-control-plane 172.19.0.4/16
+-- arping .16 AFTER move to eg2
+ARPING 172.19.255.16 from 172.19.0.6 eth0
+Unicast reply from 172.19.255.16 [1e:c6:bf:d8:18:97] 0.006ms
+Unicast reply from 172.19.255.16 [1e:c6:bf:d8:18:97] 0.009ms
+Unicast reply from 172.19.255.16 [1e:c6:bf:d8:18:97] 0.012ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+VIP move eg2: samples=33 ok=24 fail=9
+VIP move eg2: first_fail=1789778455.797 last_fail=1789778465.165 gap_s=9.368
+VIP move eg2: fail_kinds=000/curl28x6 000/curl7x2 404/curl0x1  (http_code/curl-exit: 28=timeout no responder, 7=refused, 0=answered non-200)
+
+### 2026-09-19T00:41:16Z
+$ bash -c measure_move "$1" bash eg1
+-- arping .16 BEFORE move to eg1
+ARPING 172.19.255.16 from 172.19.0.6 eth0
+Unicast reply from 172.19.255.16 [1e:c6:bf:d8:18:97] 0.009ms
+Unicast reply from 172.19.255.16 [1e:c6:bf:d8:18:97] 0.028ms
+Unicast reply from 172.19.255.16 [1e:c6:bf:d8:18:97] 0.013ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+== takeover: eg1 will announce 172.19.255.16 (delete eg2 first)
+== delete VIP objects from eg2 first
+httproute.gateway.networking.k8s.io "shop-api-vip" deleted from shop namespace
+httproute.gateway.networking.k8s.io "shop-redirect-vip" deleted from shop namespace
+grpcroute.gateway.networking.k8s.io "grpc-vip" deleted from shop namespace
+gateway.gateway.networking.k8s.io "eg-vip-gw" deleted from shop namespace
+envoyproxy.gateway.envoyproxy.io "eg-vip-gw-proxy" deleted from shop namespace
+service/envoy-shop-eg-vip-gw-135d4d6a condition met
+== create VIP Gateway + EnvoyProxy + routes on eg1
+envoyproxy.gateway.envoyproxy.io/eg-vip-gw-proxy created
+gateway.gateway.networking.k8s.io/eg-vip-gw created
+httproute.gateway.networking.k8s.io/shop-api-vip created
+httproute.gateway.networking.k8s.io/shop-redirect-vip created
+grpcroute.gateway.networking.k8s.io/grpc-vip created
+gateway.gateway.networking.k8s.io/eg-vip-gw condition met
+deployment.apps/envoy-shop-eg-vip-gw-135d4d6a condition met
+== after
+== VIP 172.19.255.16 present in: eg1
+-- eg1
+  eg-vip-gw: present address=172.19.255.16 Programmed=True
+-- eg2
+  eg-vip-gw: absent
+== arping 172.19.255.16
+ARPING 172.19.255.16 from 172.19.0.6 eth0
+Unicast reply from 172.19.255.16 [6e:8c:28:fa:31:1f] 0.005ms
+Unicast reply from 172.19.255.16 [6e:8c:28:fa:31:1f] 0.018ms
+Unicast reply from 172.19.255.16 [6e:8c:28:fa:31:1f] 0.032ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+== responder MAC 6e:8c:28:fa:31:1f → eg1-worker 172.19.0.3/16
+-- arping .16 AFTER move to eg1
+ARPING 172.19.255.16 from 172.19.0.6 eth0
+Unicast reply from 172.19.255.16 [6e:8c:28:fa:31:1f] 0.006ms
+Unicast reply from 172.19.255.16 [6e:8c:28:fa:31:1f] 0.014ms
+Unicast reply from 172.19.255.16 [6e:8c:28:fa:31:1f] 0.010ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+VIP move eg1: samples=33 ok=24 fail=9
+VIP move eg1: first_fail=1789778480.456 last_fail=1789778489.833 gap_s=9.377
+VIP move eg1: fail_kinds=000/curl28x6 000/curl7x3  (http_code/curl-exit: 28=timeout no responder, 7=refused, 0=answered non-200)
+
+### 2026-09-19T00:41:40Z
+$ scripts/eg-vip-move.sh --status
+== VIP 172.19.255.16 present in: eg1
+-- eg1
+  eg-vip-gw: present address=172.19.255.16 Programmed=True
+-- eg2
+  eg-vip-gw: absent
+== arping 172.19.255.16
+ARPING 172.19.255.16 from 172.19.0.6 eth0
+Unicast reply from 172.19.255.16 [6e:8c:28:fa:31:1f] 0.012ms
+Unicast reply from 172.19.255.16 [6e:8c:28:fa:31:1f] 0.017ms
+Unicast reply from 172.19.255.16 [6e:8c:28:fa:31:1f] 0.011ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+== responder MAC 6e:8c:28:fa:31:1f → eg1-worker 172.19.0.3/16
+
+### 2026-09-19T00:41:44Z
+$ bash -c https_probe "$1" "$2" bash api.eg1.poc.local 172.19.255.240
+https://api.eg1.poc.local @ 172.19.255.240 → 200 X-Served-By=eg1
+
+### 2026-09-19T00:41:44Z
+$ bash -c redirect_probe "$1" "$2" bash api.eg1.poc.local 172.19.255.240
+http://api.eg1.poc.local @ 172.19.255.240 → 301 Location=https://api.eg1.poc.local/healthz
+
+### 2026-09-19T00:41:44Z
+$ bash -c grpc_probe "$1" "$2" bash grpc.eg1.poc.local 172.19.255.240
+-- gRPC h2c grpc.eg1.poc.local 172.19.255.240:80
+{
+  "status": "SERVING"
+}
+-- gRPC TLS grpc.eg1.poc.local 172.19.255.240:443
+{
+  "status": "SERVING"
+}
+-- gRPC list (reflection) grpc.eg1.poc.local 172.19.255.240:80
+grpc.health.v1.Health
+grpc.reflection.v1.ServerReflection
+grpc.reflection.v1alpha.ServerReflection
+
+### 2026-09-19T00:41:44Z
+$ bash -c https_probe "$1" "$2" bash api.eg2.poc.local 172.19.255.176
+https://api.eg2.poc.local @ 172.19.255.176 → 200 X-Served-By=eg2
+
+### 2026-09-19T00:41:45Z
+$ bash -c redirect_probe "$1" "$2" bash api.eg2.poc.local 172.19.255.176
+http://api.eg2.poc.local @ 172.19.255.176 → 301 Location=https://api.eg2.poc.local/healthz
+
+### 2026-09-19T00:41:45Z
+$ bash -c grpc_probe "$1" "$2" bash grpc.eg2.poc.local 172.19.255.176
+-- gRPC h2c grpc.eg2.poc.local 172.19.255.176:80
+{
+  "status": "SERVING"
+}
+-- gRPC TLS grpc.eg2.poc.local 172.19.255.176:443
+{
+  "status": "SERVING"
+}
+-- gRPC list (reflection) grpc.eg2.poc.local 172.19.255.176:80
+grpc.health.v1.Health
+grpc.reflection.v1.ServerReflection
+grpc.reflection.v1alpha.ServerReflection
+
+### 2026-09-19T00:41:45Z
+$ bash -c https_probe api.eg.poc.local 172.19.255.16
+https://api.eg.poc.local @ 172.19.255.16 → 200 X-Served-By=eg1
+
+### 2026-09-19T00:41:45Z
+$ bash -c redirect_probe api.eg.poc.local 172.19.255.16
+http://api.eg.poc.local @ 172.19.255.16 → 301 Location=https://api.eg.poc.local/healthz
+
+### 2026-09-19T00:41:45Z
+$ bash -c grpc_probe grpc.eg.poc.local 172.19.255.16
+-- gRPC h2c grpc.eg.poc.local 172.19.255.16:80
+{
+  "status": "SERVING"
+}
+-- gRPC TLS grpc.eg.poc.local 172.19.255.16:443
+{
+  "status": "SERVING"
+}
+-- gRPC list (reflection) grpc.eg.poc.local 172.19.255.16:80
+grpc.health.v1.Health
+grpc.reflection.v1.ServerReflection
+grpc.reflection.v1alpha.ServerReflection
+
+### 2026-09-19T00:41:46Z
+$ bash -c tls_leaf_probe "$1" "$2" bash api.eg1.poc.local 172.19.255.240
+TLS leaf api.eg1.poc.local @ 172.19.255.240: verify=ok subject=api.eg.poc.local issuer=eg-root-ca san=api.eg1.poc.local
+subject=CN=api.eg.poc.local
+issuer=CN=eg-root-ca
+X509v3 Subject Alternative Name: 
+    DNS:api.eg.poc.local, DNS:api.eg1.poc.local, DNS:api.eg2.poc.local, DNS:grpc.eg1.poc.local, DNS:grpc.eg2.poc.local, DNS:grpc.eg.poc.local
+
+### 2026-09-19T00:41:46Z
+$ bash -c tls_leaf_probe "$1" "$2" bash grpc.eg1.poc.local 172.19.255.240
+TLS leaf grpc.eg1.poc.local @ 172.19.255.240: verify=ok subject=api.eg.poc.local issuer=eg-root-ca san=grpc.eg1.poc.local
+subject=CN=api.eg.poc.local
+issuer=CN=eg-root-ca
+X509v3 Subject Alternative Name: 
+    DNS:api.eg.poc.local, DNS:api.eg1.poc.local, DNS:api.eg2.poc.local, DNS:grpc.eg1.poc.local, DNS:grpc.eg2.poc.local, DNS:grpc.eg.poc.local
+
+### 2026-09-19T00:41:46Z
+$ bash -c tls_leaf_probe "$1" "$2" bash api.eg2.poc.local 172.19.255.176
+TLS leaf api.eg2.poc.local @ 172.19.255.176: verify=ok subject=api.eg.poc.local issuer=eg-root-ca san=api.eg2.poc.local
+subject=CN=api.eg.poc.local
+issuer=CN=eg-root-ca
+X509v3 Subject Alternative Name: 
+    DNS:api.eg.poc.local, DNS:api.eg1.poc.local, DNS:api.eg2.poc.local, DNS:grpc.eg1.poc.local, DNS:grpc.eg2.poc.local, DNS:grpc.eg.poc.local
+
+### 2026-09-19T00:41:46Z
+$ bash -c tls_leaf_probe "$1" "$2" bash grpc.eg2.poc.local 172.19.255.176
+TLS leaf grpc.eg2.poc.local @ 172.19.255.176: verify=ok subject=api.eg.poc.local issuer=eg-root-ca san=grpc.eg2.poc.local
+subject=CN=api.eg.poc.local
+issuer=CN=eg-root-ca
+X509v3 Subject Alternative Name: 
+    DNS:api.eg.poc.local, DNS:api.eg1.poc.local, DNS:api.eg2.poc.local, DNS:grpc.eg1.poc.local, DNS:grpc.eg2.poc.local, DNS:grpc.eg.poc.local
+
+### 2026-09-19T00:41:46Z
+$ bash -c tls_leaf_probe "$1" "$2" bash api.eg.poc.local 172.19.255.16
+TLS leaf api.eg.poc.local @ 172.19.255.16: verify=ok subject=api.eg.poc.local issuer=eg-root-ca san=api.eg.poc.local
+subject=CN=api.eg.poc.local
+issuer=CN=eg-root-ca
+X509v3 Subject Alternative Name: 
+    DNS:api.eg.poc.local, DNS:api.eg1.poc.local, DNS:api.eg2.poc.local, DNS:grpc.eg1.poc.local, DNS:grpc.eg2.poc.local, DNS:grpc.eg.poc.local
+
+### 2026-09-19T00:41:46Z
+$ bash -c tls_leaf_probe "$1" "$2" bash grpc.eg.poc.local 172.19.255.16
+TLS leaf grpc.eg.poc.local @ 172.19.255.16: verify=ok subject=api.eg.poc.local issuer=eg-root-ca san=grpc.eg.poc.local
+subject=CN=api.eg.poc.local
+issuer=CN=eg-root-ca
+X509v3 Subject Alternative Name: 
+    DNS:api.eg.poc.local, DNS:api.eg1.poc.local, DNS:api.eg2.poc.local, DNS:grpc.eg1.poc.local, DNS:grpc.eg2.poc.local, DNS:grpc.eg.poc.local
+
+### 2026-09-19T00:41:46Z
+$ bash -c shopctl_probe
+WARN: api.eg.poc.local resolves to nothing; live VIP is 172.19.255.16.
+Replace the stale (or missing) hosts entry with:
+# ---- cilium-kind-poc demo51 (generated 2026-09-19T00:41Z by demos/51-eg-kube-vip/hosts-entries.sh) ----
+172.19.255.16  api.eg.poc.local grpc.eg.poc.local
+172.19.255.240  api.eg1.poc.local grpc.eg1.poc.local
+172.19.255.176  api.eg2.poc.local grpc.eg2.poc.local
+# ---- end cilium-kind-poc demo51 ----
+  demos/51-eg-kube-vip/hosts-entries.sh | sudo tee -a /etc/hosts
+
+### 2026-09-19T00:41:57Z
+$ bash -c final_table
+CLUSTER  DOOR       ADDRESS          PROG   LB_CLASS                     ANNOUNCED_BY           HTTP         GRPC_H2C   GRPC_TLS
+eg1      eg1-gw     172.19.255.240   True   kube-vip.io/kube-vip-class   eg1-worker             200/eg1      SERVING    SERVING
+eg1      eg-vip-gw  172.19.255.16    True   kube-vip.io/kube-vip-class   eg1-worker             200/eg1      SERVING    SERVING
+eg2      eg2-gw     172.19.255.176   True   kube-vip.io/kube-vip-class   eg2-worker             200/eg2      SERVING    SERVING
+
+### 2026-09-19T00:42:08Z
+$ demos/51-eg-kube-vip/check.sh
+
+== demo 51 — Envoy Gateway with kube-vip — alone (enhancement 007 phase 2)
+  STATUS WHAT                                                                   MEASURED                                             RULE
+  PASS   eg1 kube-vip DS ready                                                  ready=2/2                                            R4 — kube-vip-ds ready (v1.2.4, lb_class_only, no taint)
+  PASS   eg1 kube-vip-cloud-provider Available                                  Available=True                                       R4 — cloud-provider v0.0.12 Available (KUBEVIP_ENABLE_LOADBALANCERCLASS=true)
+  PASS   eg1 no metallb-system namespace                                        NotFound                                             R4 — MetalLB is demo 52; kubectl get ns metallb-system must not exist
+  PASS   eg2 kube-vip DS ready                                                  ready=2/2                                            R4 — kube-vip-ds ready (v1.2.4, lb_class_only, no taint)
+  PASS   eg2 kube-vip-cloud-provider Available                                  Available=True                                       R4 — cloud-provider v0.0.12 Available (KUBEVIP_ENABLE_LOADBALANCERCLASS=true)
+  PASS   eg2 no metallb-system namespace                                        NotFound                                             R4 — MetalLB is demo 52; kubectl get ns metallb-system must not exist
+  PASS   eg1 kubevip range-envoy-gateway-system                                 172.19.255.240-172.19.255.245                        R4 / §3.1 — range-envoy-gateway-system=172.19.255.240-172.19.255.245
+  PASS   eg1 kubevip range-default                                              172.19.255.200-172.19.255.205                        R4 / §3.1 — range-default=172.19.255.200-172.19.255.205
+  PASS   eg2 kubevip range-envoy-gateway-system                                 172.19.255.176-172.19.255.181                        R4 / §3.1 — range-envoy-gateway-system=172.19.255.176-172.19.255.181
+  PASS   eg2 kubevip range-default                                              172.19.255.136-172.19.255.141                        R4 / §3.1 — range-default=172.19.255.136-172.19.255.141
+  PASS   eg1/eg1-gw Programmed at 172.19.255.240                                addr=172.19.255.240 svcIngress=172.19.255.240 Programmed=True R4 / R8 — Gateway address and Service ingress both equal 172.19.255.240
+  PASS   eg1/eg-vip-gw Programmed at 172.19.255.16                              addr=172.19.255.16 svcIngress=172.19.255.16 Programmed=True R4 / R8 — Gateway address and Service ingress both equal 172.19.255.16
+  PASS   eg2/eg2-gw Programmed at 172.19.255.176                                addr=172.19.255.176 svcIngress=172.19.255.176 Programmed=True R4 / R8 — Gateway address and Service ingress both equal 172.19.255.176
+  PASS   eg1/eg1-gw Service loadBalancerClass                                   kube-vip.io/kube-vip-class                           D11 — EnvoyProxy names kube-vip.io/kube-vip-class
+  PASS   eg1/eg-vip-gw Service loadBalancerClass                                kube-vip.io/kube-vip-class                           D11 — EnvoyProxy names kube-vip.io/kube-vip-class
+  PASS   eg2/eg2-gw Service loadBalancerClass                                   kube-vip.io/kube-vip-class                           D11 — EnvoyProxy names kube-vip.io/kube-vip-class
+  PASS   eg1 probe-noclass stays pending                                        type=LoadBalancer class=(none) ingress=(none) impl=(none) ann=(none) age=2884s D11 — class-less LoadBalancer Service stays <pending> and unclaimed for ≥ 30s
+  PASS   eg2 probe-noclass stays pending                                        type=LoadBalancer class=(none) ingress=(none) impl=(none) ann=(none) age=2882s D11 — class-less LoadBalancer Service stays <pending> and unclaimed for ≥ 30s
+  PASS   ARP eg1-gw 172.19.255.240 one responder 3/3                            replies=3 unique_mac=1                               R4 / R8 — arping 3 of 3 from ONE MAC
+  PASS   ARP eg2-gw 172.19.255.176 one responder 3/3                            replies=3 unique_mac=1                               R4 / R8 — arping 3 of 3 from ONE MAC
+  PASS   ARP eg-vip-gw 172.19.255.16 one responder 3/3                          replies=3 unique_mac=1                               R4 / R8 — arping 3 of 3 from ONE MAC
+  PASS   VIP Gateway in exactly one cluster                                     eg1                                                  R4 / §3.4 — shared address lives where it is announced
+  PASS   https://api.eg1.poc.local @ 172.19.255.240 200 + X-Served-By           http_code=200 X-Served-By=eg1                        R8 — 200 and X-Served-By present
+  PASS   X-Served-By never absent on api.eg1.poc.local                          X-Served-By=eg1                                      R8 — the Gateway filter SET the header
+  PASS   https://api.eg2.poc.local @ 172.19.255.176 200 + X-Served-By           http_code=200 X-Served-By=eg2                        R8 — 200 and X-Served-By present
+  PASS   X-Served-By never absent on api.eg2.poc.local                          X-Served-By=eg2                                      R8 — the Gateway filter SET the header
+  PASS   https://api.eg.poc.local @ 172.19.255.16 200 + X-Served-By             http_code=200 X-Served-By=eg1                        R8 — 200 and X-Served-By present
+  PASS   X-Served-By never absent on api.eg.poc.local                           X-Served-By=eg1                                      R8 — the Gateway filter SET the header
+  PASS   http://api.eg1.poc.local @ 172.19.255.240 → 301                      http_code=301                                        R8 — shop-redirect on the :80 listener
+  PASS   http://api.eg2.poc.local @ 172.19.255.176 → 301                      http_code=301                                        R8 — shop-redirect on the :80 listener
+  PASS   http://api.eg.poc.local @ 172.19.255.16 → 301                        http_code=301                                        R8 — shop-redirect on the :80 listener
+  PASS   gRPC h2c eg1-gw grpc.eg1.poc.local @ 172.19.255.240:80                 SERVING                                              R10 — grpcurl -plaintext Health/Check → SERVING
+  PASS   gRPC TLS eg1-gw grpc.eg1.poc.local @ 172.19.255.240:443                SERVING                                              R10 — grpcurl -cacert .tmp/eg-root-ca.crt Health/Check → SERVING
+  PASS   gRPC h2c eg2-gw grpc.eg2.poc.local @ 172.19.255.176:80                 SERVING                                              R10 — grpcurl -plaintext Health/Check → SERVING
+  PASS   gRPC TLS eg2-gw grpc.eg2.poc.local @ 172.19.255.176:443                SERVING                                              R10 — grpcurl -cacert .tmp/eg-root-ca.crt Health/Check → SERVING
+  PASS   gRPC h2c eg-vip-gw grpc.eg.poc.local @ 172.19.255.16:80                SERVING                                              R10 — grpcurl -plaintext Health/Check → SERVING
+  PASS   gRPC TLS eg-vip-gw grpc.eg.poc.local @ 172.19.255.16:443               SERVING                                              R10 — grpcurl -cacert .tmp/eg-root-ca.crt Health/Check → SERVING
+  PASS   eg1 certificate eg-tls Ready with six SANs                             Ready=True                                           D8 / R8 — CN api.eg.poc.local, six dnsNames, issuer eg-ca-issuer
+  PASS   eg2 certificate eg-tls Ready with six SANs                             Ready=True                                           D8 / R8 — CN api.eg.poc.local, six dnsNames, issuer eg-ca-issuer
+
+demo 51 check: 0 FAIL
+

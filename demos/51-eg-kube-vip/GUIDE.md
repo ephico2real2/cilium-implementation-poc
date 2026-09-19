@@ -72,10 +72,15 @@ docker run --rm --network kind-eg fullstorydev/grpcurl:latest \
   172.19.255.240:80 grpc.health.v1.Health/Check || true
 ```
 
-*Expect:* the first call prints `{"status": "SERVING"}`. The second
-fails (no matching GRPCRoute on eg1's door for `grpc.eg2.poc.local`).
-That is the same hostname rule demo 53 measured on Cilium: the
-`:authority` has to intersect the route's `hostnames`.
+*Expect:* the first call prints `{"status": "SERVING"}`. The second fails
+— measured: `Error invoking method "grpc.health.v1.Health/Check": failed to
+query for service descriptor "grpc.health.v1.Health": server does not
+support the reflection API`. The message is about reflection because
+grpcurl resolves the method through reflection first, and that call, like
+the health call, carries `:authority grpc.eg2.poc.local`, which no
+GRPCRoute on eg1's door matches — Envoy answers 404 to both. That is the
+same hostname rule demo 53 measured on Cilium: the `:authority` has to
+intersect the route's `hostnames`.
 
 ## Cleanup
 
