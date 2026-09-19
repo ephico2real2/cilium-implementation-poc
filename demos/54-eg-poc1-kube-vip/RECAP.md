@@ -1,195 +1,399 @@
-# What demo 54 did — the walk-through
+# Demo 54 — HTTP and gRPC through two kube-vip doors, from the Mac
 
-**The goal** — Enhancement 007 builds a second lab next to the Cilium one so a
-reader can name every part Cilium had bundled. Demo 50 poured the slab on
-two clusters. Demo 51 hung kube-vip on both and proved the fail cases.
-Demo 54 is the one-cluster picture: one kind
-cluster (`eg-poc1`), default CNI, kube-vip, and Envoy Gateway API,
-with HTTP and gRPC through two Gateways, reachable from the
-MacBook — curl, grpcurl, and the browser. The fail cases stay in demo 51.
+This page builds one kind cluster, `eg-poc1`, on stock networking — kindnet
+and kube-proxy in iptables mode, no Cilium — with Envoy Gateway and kube-vip
+(a DaemonSet that answers ARP for a Service address). Two Gateways isolate
+the protocols: `http-gw` at `172.19.255.100` serves HTTP and HTTPS for
+`api.eg-poc1.poc.local`; `grpc-gw` at `172.19.255.101` serves h2c and TLS
+for `grpc.eg-poc1.poc.local`. kube-vip announces both from `eg-poc1-worker`.
+The Mac reaches them over one static route to `172.19/16`.
 
-**1. The guide grew a one-cluster lab.**
-`scripts/eg-up.sh` is now a function of the argument list. `eg-poc1`
-alone is this lab: it mints its own root (D8 holds per lab), the
-transcript lands here, and the PEM is `.tmp/eg-poc1-root-ca.crt`.
-Mixing the two labs exits 2 before any work. The 2026-09-19T13:10:02Z
-run installed the network, the cluster from `clusters/eg-poc1.yaml`
-(control-plane plus worker, pod CIDR `10.70.0.0/16`, service CIDR
-`10.71.0.0/16`), 10 Gateway API CRDs at `channel=standard`
-`bundle-version=v1.6.2`, 8 `gateway.envoyproxy.io` CRDs via
-`helm template | kubectl apply --server-side`, the controller
-with `crds.enabled=false`, `GatewayClass eg` (`Accepted=True`),
-cert-manager (`Available=True`), and the root
-`91:84:DE:7D:65:FE:12:9A:35:23:0A:E1:17:24:BD:C3:E5:67:78:8E:56:34:A1:6A:64:6E:BB:1D:AF:7E:E3:81`.
+## What you get
 
-**2. Two doors, not one, so HTTP and gRPC cannot share a hostname.**
-A Gateway (Envoy Gateway's front door — its own Envoy Deployment and
-Service, not a share of the node's proxy) does not pick an address by
-existing. The `EnvoyProxy` attached to it, created in the same file and
-before the Gateway, sets `envoyService.loadBalancerClass:
-kube-vip.io/kube-vip-class` and pins the IP with
-`kube-vip.io/loadbalancerIPs`. The class is immutable: attach later and
-Envoy Gateway logs `may not change once set`. `http-gw` sits at
-`172.19.255.100` with listeners `http :80` and `https :443`, both
-hostname `api.eg-poc1.poc.local`. The `:80` listener has **no redirect**
-— the browser works over plain http, which is the opposite of demo 51's
-301 on purpose. `grpc-gw` sits at `172.19.255.101` with listeners
-`h2c :80` and `https-grpc :443`, both hostname `grpc.eg-poc1.poc.local`.
-An `HTTPRoute` attaches only to `http-gw`; a `GRPCRoute` attaches only
-to `grpc-gw`. That is the isolation, measured:
-grpcurl against the HTTP door with the gRPC authority exited 1
-(`server does not support the reflection API`); curl of `/healthz` at
-the gRPC door with the API host returned `isolation_http_code=404`. Two
-lines, not a test suite.
+- One cluster `eg-poc1`: kindnet + kube-proxy `iptables`, `cilium_ds=0
+  cilium_crd=0`.
+- Two isolated doors: `http-gw` at `172.19.255.100`, `grpc-gw` at
+  `172.19.255.101`.
+- kube-vip announces both from `eg-poc1-worker` (`fa:1f:d6:0f:1e:ae`, both
+  `/32` on eth0).
+- From the Mac: `http`/`https` `/healthz` → `200` and `X-Served-By: eg-poc1`;
+  `/orders` → `200` and three rows.
+- From the Mac: gRPC `SERVING` on h2c `:80` and TLS `:443`; `list` names
+  Health and both reflection services.
+- Chrome writes `output/browser.png` (`1000 x 500`) of
+  `http://api.eg-poc1.poc.local/orders`.
+- `check.sh` at `2026-09-19T15:12:49Z`: 15 PASS, 0 FAIL.
 
-**3. kube-vip announces, and Docker can see it.**
-The DaemonSet, cloud-provider and RBAC are the phase 0 files under
-`clusters/eg/`; the ConfigMap gives the doors `.100–.110`. apply.sh records `arping -b -c 3` from `busybox:1.36` on
-`kind-eg` (every probe a broadcast), maps the reply MAC to a node,
-shows the `/32` on that node's `eth0`, and greps kube-vip for
-`adding VIP` / `successful add IP`. arping got three replies from
-`fa:1f:d6:0f:1e:ae` for each address — `eg-poc1-worker`. That node's `eth0` carries `172.19.0.3/16`
-and both VIPs as `/32 scope global deprecated` with
-`preferred_lft forever`. `deprecated` is kube-vip adding the address
-with a zero preferred lifetime (v1.2.4 `pkg/vip/address.go:172-176`:
-`PreferedLft = 0`, `ValidLft = math.MaxInt`). The kernel
-(`net/ipv4/devinet.c` `set_ifa_lifetime`) turns that into
-`IFA_F_DEPRECATED` plus `IFA_F_PERMANENT`, and `inet_fill_ifaddr`
-reports both lifetimes as infinity, so `ip` prints `deprecated` with
-`preferred_lft forever`. Both Envoy pods and the `envoy-gateway` pod
-run on `eg-poc1-worker`, both door Services are
-`externalTrafficPolicy: Local` (Envoy Gateway's default), and kube-vip
-with `svc_election` elects only among nodes with a ready local
-endpoint — the worker is the only candidate. The record shows all three phrases for both doors (`adding VIP`,
-`successful add IP`, `layer 2 broadcaster starting`).
+## Architecture
 
-**4. What we did in Docker is part of the proof.**
-The cluster sits on `kind-eg`: Docker allocates node addresses from
-`172.19.0.0/17` only, so `172.19.255.0/24` can never be a node address. Recorded: IPv4 `Subnet=172.19.0.0/16`
-`IPRange=172.19.0.0/17` `Gateway=172.19.0.1` (the IPv6 block's
-`IPRange` prints `invalid Prefix` and is skipped), the two node
-containers `eg-poc1-control-plane 172.19.0.2 e6:61:1d:ac:15:3a` and
-`eg-poc1-worker 172.19.0.3 fa:1f:d6:0f:1e:ae` (both `Up About an hour`,
-Ready at 67 m, v1.36.4), kube-proxy `mode: iptables`, and kindnet plus
-kube-proxy DaemonSets 2/2. There is no Cilium — the check captures the
-listings before it counts them (`cilium_ds=0 cilium_crd=0`), so a
-kubectl that cannot reach the cluster is a FAIL and not "zero matches".
+A request from the Mac takes this path:
 
-**5. The MacBook is a client on the same LAN.**
-The Mac reaches the lab through one static route, `172.19/16` via the
-Docker VM at `192.168.64.2` (added once with `sudo route`, gotcha #120
-if it is missing after a reboot; apply.sh records it). From there the
-doors are ordinary addresses. `curl --resolve api.eg-poc1.poc.local:80:172.19.255.100`
-got **200** with `X-Served-By: eg-poc1` on `:80`, and the same on
-`:443` with `--cacert .tmp/eg-poc1-root-ca.crt` — the chain verified,
-never skipped. `/orders` returned **200** with three rows (keyboard
-4999 ¢, mouse 1999 ¢, monitor 24900 ¢) from the demo's own PostgreSQL
-(`45-shop-db.yaml`; shopapi's `DB_URL` points at it). `grpcurl` running
-on the Mac (`go run github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.4`
-— no binary to install) got `{"status": "SERVING"}` at `.101:80`
-(plaintext h2c) and at `.101:443` (TLS, same root), and `list` named
-`grpc.health.v1.Health` plus both reflection services. check.sh repeats
-those rows from a container on `kind-eg` and matches
-`"status": "SERVING"` exactly.
+```text
+                    MacBook
+           curl / grpcurl / Chrome
+                    │
+                    │  route 172.19/16 → 192.168.64.2
+                    ▼
+              kind-eg bridge
+              172.19.0.0/16
+                    │
+                    ▼
+         eg-poc1-worker eth0
+         172.19.0.3  fa:1f:d6:0f:1e:ae
+         .100/32              .101/32
+              │                    │
+              ▼                    ▼
+         Envoy http-gw        Envoy grpc-gw
+         :80 / :443           h2c :80 / TLS :443
+              │                    │
+              ▼                    ▼
+         shopapi + shop-db    grpc (routedemo -mode grpc)
+         X-Served-By: eg-poc1
+```
 
-**6. The browser is the same door.**
-apply.sh opens headless Chrome with `--host-resolver-rules` mapping the
-API name to `.100`, so the record needs no `/etc/hosts`; the screenshot
-`output/browser.png` (1000 × 500) shows shopapi's `GET /orders` page
-with the three rows — Chrome asks for `text/html` and `jsonview`
-renders the JSON as a page, which is why `:80` serves the app instead
-of redirecting. For a real browser, `hosts-entries.sh` prints the two
-names (`.100` api, `.101` grpc) to add to `/etc/hosts`, and
-`http://api.eg-poc1.poc.local/orders` shows the same page. One
-`Certificate` `eg-poc1-tls` covers both names (the card has the spec
-and the issued leaf); Gateways live in `shop` with the Secret, so no
-ReferenceGrant. Behind the doors: `shopapi:local` with `shop-db`, and
-`routedemo:local -mode grpc` with
-`appProtocol: kubernetes.io/h2c`. No docker build — `kind load` of
-the existing images when a node lacks them. The final table: both
-doors `Programmed=True`, class `kube-vip.io/kube-vip-class`, announced
-by `eg-poc1-worker`, HTTP `200/eg-poc1` and GRPC `SERVING`. `check.sh`
-at 2026-09-19T14:20:02Z: 15 PASS, 0 FAIL.
-
-**The reference card — names, addresses, certificates, doors.** Read
-from the live objects after apply (`hosts-entries.sh`,
-`kubectl get gateway,certificate -n shop`, `openssl x509` on
-`secret/eg-poc1-tls`). Addresses are the plan in enhancement 007
-§3.1; the answering node is whoever kube-vip elected — this run, both
-doors on `eg-poc1-worker`.
-
-*The names and their addresses.* The lab has no DNS server for
-`.poc.local`. `hosts-entries.sh` prints the records from live
-state. curl and grpcurl use `--resolve` / `-authority`; Chrome's
-screenshot uses `--host-resolver-rules`.
-
-| Name | Address | What it is | Who answers for it |
+| Name | Address | What it is | Who answers |
 |---|---|---|---|
-| `api.eg-poc1.poc.local` | `172.19.255.100` | the HTTP door — `/healthz`, `/orders`, the browser | `eg-poc1-worker` (`fa:1f:d6:0f:1e:ae`) |
-| `grpc.eg-poc1.poc.local` | `172.19.255.101` | the gRPC door — Health, both reflection services | `eg-poc1-worker` (`fa:1f:d6:0f:1e:ae`) |
+| `api.eg-poc1.poc.local` | `172.19.255.100` | HTTP door — `/healthz`, `/orders`, the browser | `eg-poc1-worker` (`fa:1f:d6:0f:1e:ae`) |
+| `grpc.eg-poc1.poc.local` | `172.19.255.101` | gRPC door — Health, both reflection services | `eg-poc1-worker` (`fa:1f:d6:0f:1e:ae`) |
 
-*The certificate.* **One `Certificate` for the cluster — not one per
-door.** Both Gateways reference `eg-poc1-tls` in `shop` (no
-ReferenceGrant). Two dnsNames because an HTTPRoute and a GRPCRoute
-may not share a hostname, and this lab puts them on two Gateways.
+The bridge is `Subnet=172.19.0.0/16 IPRange=172.19.0.0/17
+Gateway=172.19.0.1`. The control-plane sits at `172.19.0.2`, the worker at
+`172.19.0.3`. No HTTPRoute attaches to the gRPC door and no GRPCRoute
+attaches to the HTTP door. The lab has no DNS for `.poc.local`: clients
+use `--resolve`, `-authority`, or Chrome's `--host-resolver-rules`.
+
+## Prerequisites
+
+- On the Mac (recorded): kind `v0.33.0`, helm `v4.3.0`, kubectl client
+  `v1.37.0`, Go `1.27.1` (so grpcurl v1.9.4 runs without installing a
+  binary), Chrome `153.0.8010.52` at
+  `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`.
+- Images `shopapi:local` and `routedemo:local` already on the machine
+  (load them onto a node if it lacks them; this is not a docker build).
+- A route on the Mac to the lab bridge (recorded:
+  `172.19  192.168.64.2  UGSc  bridge100`):
+
+```bash
+sudo route -n add -net 172.19.0.0/16 192.168.64.2
+```
+
+- Pins from
+  [`scripts/bootstrap/versions-eg.env`](../../scripts/bootstrap/versions-eg.env):
+  Gateway API `v1.6.2`, Envoy Gateway `v1.9.1`, cert-manager `v1.21.1`,
+  kube-vip `v1.2.4`, kube-vip cloud-provider `v0.0.12`, node image
+  `kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed`.
+
+## Steps
+
+Do these in order from the repo root (apply.sh records steps 2–8 after the
+lab is up):
+
+### 1. Build the lab
+
+The up script for `eg-poc1` creates the cluster, the standard-channel CRDs,
+Envoy Gateway, `GatewayClass eg`, cert-manager, and this lab's root
+(exported as `.tmp/eg-poc1-root-ca.crt`).
+
+```bash
+scripts/eg-net.sh
+scripts/eg-up.sh eg-poc1
+```
+
+Result: nodes `.0.2` / `.0.3`; kube-proxy `iptables`; 10 standard CRDs; 8
+EG CRDs; `GatewayClass` Accepted; root `91:84:DE…`.
+
+```text
+eg-poc1  eg-poc1-control-plane=172.19.0.2 eg-poc1-worker=172.19.0.3  iptables   10@v1.6.2    8        Accepted=True 1/1            Available=True 91:84:DE:7D:65:FE:12:9A:35:23:0A:E1:17:24:BD:C3:E5:67:78:8E:56:34:A1:6A:64:6E:BB:1D:AF:7E:E3:81
+```
+
+### 2. Install kube-vip
+
+The DaemonSet, cloud-provider and RBAC live under `clusters/eg/` (one source
+of truth, not copied). The ConfigMap gives the doors `.100–.110` and
+services `.72–.79`; kube-vip runs class-only.
+
+```bash
+kubectl --context kind-eg-poc1 apply \
+  -f clusters/eg/kube-vip-rbac.yaml \
+  -f clusters/eg/kube-vip-ds.yaml \
+  -f clusters/eg/kube-vip-cloud-provider.yaml \
+  -f demos/54-eg-poc1-kube-vip/10-kubevip-cm.yaml
+```
+
+Result: kube-vip DS `ready=2/2`; kube-vip-cloud-provider `Available=True`.
+
+### 3. Issue the certificate
+
+One `Certificate` covers both names (the CN is the HTTP name). Gateways live
+in `shop` with the Secret, so no ReferenceGrant.
+
+```bash
+kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/20-certificate.yaml
+kubectl --context kind-eg-poc1 -n shop wait certificate/eg-poc1-tls \
+  --for=condition=Ready --timeout=90s
+```
+
+Result: Ready; CN `api.eg-poc1.poc.local`; both SANs;
+`notAfter=Dec 18 13:14:14 2026 GMT`.
+
+```text
+certificate.cert-manager.io/eg-poc1-tls condition met
+subject=CN=api.eg-poc1.poc.local
+DNS:api.eg-poc1.poc.local, DNS:grpc.eg-poc1.poc.local
+notAfter=Dec 18 13:14:14 2026 GMT
+```
+
+### 4. Create the two doors
+
+Each EnvoyProxy names `loadBalancerClass: kube-vip.io/kube-vip-class` and
+pins the address; it sits in the same file before its Gateway because the
+class is immutable.
+
+```bash
+kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/30-gateways.yaml
+kubectl --context kind-eg-poc1 -n shop wait --for=condition=Programmed \
+  gateway/http-gw --timeout=180s
+kubectl --context kind-eg-poc1 -n shop wait --for=condition=Programmed \
+  gateway/grpc-gw --timeout=180s
+```
+
+Result: `http-gw` Programmed at `172.19.255.100`; `grpc-gw` Programmed at
+`172.19.255.101` (`addr` = `svcIngress` = the pin, `Programmed=True`).
+
+### 5. Deploy the apps and routes
+
+`shop-db` is this demo's postgres (emptyDir); `shopapi:local` and
+`routedemo:local -mode grpc` (`appProtocol: kubernetes.io/h2c`) sit behind
+it. The HTTPRoute parents `http-gw` only; the GRPCRoute parents `grpc-gw`
+only.
+
+```bash
+kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/45-shop-db.yaml
+kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/40-app.yaml
+kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/50-routes.yaml
+```
+
+Result: kind-eg-poc1 httproute/shop-api: all parents Accepted+ResolvedRefs;
+kind-eg-poc1 grpcroute/grpc: all parents Accepted+ResolvedRefs.
+
+### 6. Prove the announcement
+
+kube-vip runs `svc_election` against Services with
+`externalTrafficPolicy: Local`, so only a node with a ready Envoy endpoint
+can answer, and the `deprecated` flag is kube-vip's `PreferedLft=0` so the
+VIP is never a source address
+([kernel detail](../../docs/REVIEW_DEMO54.md)).
+
+```bash
+docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 \
+  arping -b -c 3 -I eth0 172.19.255.100
+docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 \
+  arping -b -c 3 -I eth0 172.19.255.101
+docker exec eg-poc1-worker ip -4 addr show eth0
+```
+
+Result: MAC `fa:1f:d6:0f:1e:ae` → `eg-poc1-worker`; both `/32`s on eth0;
+kube-vip log lines present.
+
+```text
+MAC fa:1f:d6:0f:1e:ae → node eg-poc1-worker
+inet 172.19.255.100/32 scope global deprecated eth0
+inet 172.19.255.101/32 scope global deprecated eth0
+adding VIP for 172.19.255.100: present
+successful add IP for 172.19.255.100: present
+layer 2 broadcaster starting for 172.19.255.100: present
+adding VIP for 172.19.255.101: present
+successful add IP for 172.19.255.101: present
+layer 2 broadcaster starting for 172.19.255.101: present
+```
+
+### 7. Reach it from the Mac
+
+HTTPS verifies the leaf against `.tmp/eg-poc1-root-ca.crt` and does not skip
+verification. grpcurl runs on the Mac via Go; there is no binary to
+install.
+
+```bash
+curl -s --resolve api.eg-poc1.poc.local:80:172.19.255.100 \
+  -D - -o /dev/null http://api.eg-poc1.poc.local/healthz
+curl -s --resolve api.eg-poc1.poc.local:443:172.19.255.100 \
+  --cacert .tmp/eg-poc1-root-ca.crt \
+  -D - -o /dev/null https://api.eg-poc1.poc.local/healthz
+curl -s --resolve api.eg-poc1.poc.local:80:172.19.255.100 \
+  -D - -H "Accept: application/json" \
+  http://api.eg-poc1.poc.local/orders
+go run github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.4 \
+  -plaintext -authority grpc.eg-poc1.poc.local \
+  172.19.255.101:80 grpc.health.v1.Health/Check
+go run github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.4 \
+  -cacert .tmp/eg-poc1-root-ca.crt -authority grpc.eg-poc1.poc.local \
+  172.19.255.101:443 grpc.health.v1.Health/Check
+go run github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.4 \
+  -plaintext -authority grpc.eg-poc1.poc.local \
+  172.19.255.101:80 list
+```
+
+Result: `200` + `X-Served-By=eg-poc1` on http and https; `/orders` `200`
+three rows; gRPC `SERVING` on h2c and TLS; `list` names three services.
+
+```text
+http://api.eg-poc1.poc.local/healthz @ 172.19.255.100:80 → 200 X-Served-By=eg-poc1 curl_rc=0
+https://api.eg-poc1.poc.local/healthz @ 172.19.255.100:443 → 200 X-Served-By=eg-poc1 curl_rc=0
+http://api.eg-poc1.poc.local/orders @ 172.19.255.100:80 → 200 X-Served-By=eg-poc1 curl_rc=0 body_head:
+[{"id":1,"item":"keyboard","amount_cents":4999},{"id":2,"item":"mouse","amount_cents":1999},{"id":3,"item":"monitor","amount_cents":24900}]
+{"status": "SERVING"}
+grpcurl_h2c_rc=0
+{"status": "SERVING"}
+grpcurl_tls_rc=0
+grpc.health.v1.Health
+grpc.reflection.v1.ServerReflection
+grpc.reflection.v1alpha.ServerReflection
+```
+
+### 8. Open it in the browser
+
+The `:80` listener has a hostname and no redirect, so the browser works over
+plain http. Chrome maps the name; no hosts file is needed for the shot.
+
+```bash
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --headless=new --disable-gpu --no-first-run --window-size=1000,500 \
+  --user-data-dir=<tmp> \
+  --host-resolver-rules="MAP api.eg-poc1.poc.local 172.19.255.100" \
+  --screenshot=demos/54-eg-poc1-kube-vip/output/browser.png \
+  http://api.eg-poc1.poc.local/orders
+```
+
+Result: screenshot written after 2.0 s; `chrome_rc=0`; PNG `1000 x 500`.
+
+```text
+screenshot written after 2.0 s; chrome_rc=0
+demos/54-eg-poc1-kube-vip/output/browser.png: PNG image data, 1000 x 500, 8-bit/color RGB, non-interlaced
+```
+
+![the orders page](output/browser.png)
+
+For a real browser, add the hosts block (the script only prints it; the
+`tee` writes it):
+
+```bash
+demos/54-eg-poc1-kube-vip/hosts-entries.sh | sudo tee -a /etc/hosts
+```
+
+Result: two lines in `/etc/hosts`, then `http://api.eg-poc1.poc.local/orders`
+opens the same page.
+
+```text
+172.19.255.100  api.eg-poc1.poc.local
+172.19.255.101  grpc.eg-poc1.poc.local
+```
+
+## Verify
+
+From the Mac, with the route present:
+
+```bash
+curl -s --resolve api.eg-poc1.poc.local:80:172.19.255.100 \
+  -D - -o /dev/null http://api.eg-poc1.poc.local/healthz
+```
+
+Expect `200` and `X-Served-By: eg-poc1`.
+
+```bash
+go run github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.4 \
+  -plaintext -authority grpc.eg-poc1.poc.local \
+  172.19.255.101:80 grpc.health.v1.Health/Check
+```
+
+Expect `{"status": "SERVING"}`.
+
+```bash
+demos/54-eg-poc1-kube-vip/check.sh
+```
+
+Recorded `2026-09-19T15:12:49Z`:
+
+```text
+== demo 54 — one cluster, kube-vip, two Gateways (HTTP isolated from gRPC)
+  PASS   kube-vip DS ready                                                      ready=2/2
+  PASS   kube-vip-cloud-provider Available                                      Available=True
+  PASS   http-gw Programmed at 172.19.255.100                                   addr=172.19.255.100 svcIngress=172.19.255.100 Programmed=True
+  PASS   grpc-gw Programmed at 172.19.255.101                                   addr=172.19.255.101 svcIngress=172.19.255.101 Programmed=True
+  PASS   both Envoy Services carry the class                                    http=kube-vip.io/kube-vip-class grpc=kube-vip.io/kube-vip-class
+  PASS   ARP http-gw 172.19.255.100 one responder 3/3                           replies=3 unique_mac=1 node=eg-poc1-worker
+  PASS   ARP grpc-gw 172.19.255.101 one responder 3/3                           replies=3 unique_mac=1 node=eg-poc1-worker
+  PASS   VIP 172.19.255.100 on the elected node's eth0                          node=eg-poc1-worker /32
+  PASS   VIP 172.19.255.101 on the elected node's eth0                          node=eg-poc1-worker /32
+  PASS   http://api.eg-poc1.poc.local 200 + X-Served-By                         http_code=200 X-Served-By=eg-poc1
+  PASS   https://api.eg-poc1.poc.local 200                                      http_code=200
+  PASS   http://api.eg-poc1.poc.local /orders 200 (the page behind the door)    http_code=200 items=3
+  PASS   gRPC h2c grpc.eg-poc1.poc.local @ 172.19.255.101:80                    SERVING
+  PASS   gRPC TLS grpc.eg-poc1.poc.local @ 172.19.255.101:443                   SERVING
+  PASS   stock networking                                                       kube-proxy=iptables cilium_ds=0 cilium_crd=0
+demo 54 check: 0 FAIL
+```
+
+## Reference
+
+Certificate spec (`20-certificate.yaml`):
 
 ```yaml
-kind: Certificate                     # cert-manager.io/v1, namespace shop
+kind: Certificate
 spec:
   secretName: eg-poc1-tls
-  commonName: api.eg-poc1.poc.local   # the CN is the HTTP name
-  duration: 2160h                     # 90 days
-  renewBefore: 720h                   # 30 days
+  commonName: api.eg-poc1.poc.local
+  duration: 2160h
+  renewBefore: 720h
   dnsNames:
     - api.eg-poc1.poc.local
     - grpc.eg-poc1.poc.local
-  issuerRef: {kind: ClusterIssuer, name: eg-ca-issuer}   # → CA secret eg-root-ca, .tmp/eg-poc1-root-ca.crt
+  issuerRef: {kind: ClusterIssuer, name: eg-ca-issuer}
 ```
 
-The issued leaf (`print_leaf`):
-`subject=CN=api.eg-poc1.poc.local`,
+Issued leaf: `subject=CN=api.eg-poc1.poc.local`,
 `DNS:api.eg-poc1.poc.local, DNS:grpc.eg-poc1.poc.local`,
 `notAfter=Dec 18 13:14:14 2026 GMT`,
 `sha256=15:4B:20:78:0E:BD:71:EB:C4:18:AF:B0:6C:68:53:C3:A6:54:75:B5:55:7C:7F:DF:8B:7C:38:A8:84:6A:4E:2D`.
-`print_leaf` does not print a serial.
+Issuer `eg-ca-issuer` signs from CA secret `eg-root-ca`
+(`.tmp/eg-poc1-root-ca.crt`).
 
-*The doors.*
+| File | What |
+|---|---|
+| [`clusters/eg/kube-vip-*.yaml`](../../clusters/eg/kube-vip-ds.yaml) | RBAC, DaemonSet, cloud-provider — one source of truth |
+| [`10-kubevip-cm.yaml`](10-kubevip-cm.yaml) | `kubevip` ConfigMap (`range-envoy-gateway-system` `.100–.110`, `range-default` `.72–.79`) |
+| [`20-certificate.yaml`](20-certificate.yaml) | `Certificate` `eg-poc1-tls` |
+| [`30-gateways.yaml`](30-gateways.yaml) | EnvoyProxy then Gateway, twice: `http-gw` `.100`, `grpc-gw` `.101` |
+| [`40-app.yaml`](40-app.yaml) | `shopapi` + `grpc` |
+| [`45-shop-db.yaml`](45-shop-db.yaml) | `shop-db` (postgres:16-alpine, emptyDir) |
+| [`50-routes.yaml`](50-routes.yaml) | HTTPRoute → http-gw; GRPCRoute → grpc-gw |
+| [`apply.sh`](apply.sh) / [`check.sh`](check.sh) / [`cleanup.sh`](cleanup.sh) | land, prove, remove |
 
-```text
-                  MacBook
-           curl / grpcurl / browser
-                    │
-     ┌──────────────┴──────────────┐
-     │                             │
-     ▼                             ▼
- http-gw                    grpc-gw
- 172.19.255.100             172.19.255.101
- api.eg-poc1.poc.local      grpc.eg-poc1.poc.local
-  http :80  → 200           h2c :80  → SERVING
-  https:443 → 200           https-grpc:443 → SERVING
-     │                             │
-     ▼                             ▼
- shopapi                    grpc (routedemo -mode grpc)
- X-Served-By: eg-poc1       appProtocol: kubernetes.io/h2c
-     │
-     ▼
- shop-db (postgres:16-alpine, this demo)
+Address block `172.19.255.64/26` (enhancement 007 §3.1): services
+`.72–.79`; doors `.100–.110` — HTTP `.100`, gRPC `.101`.
+
+## Troubleshooting
+
+- Every client on the Mac times out while `check.sh` passes in the
+  cluster: the `172.19` route is missing (it does not survive a reboot) —
+  [gotcha #120](../../docs/GOTCHAS.md#120); add it with the command under
+  *Prerequisites*.
+- Chrome hangs after writing the screenshot —
+  [gotcha #121](../../docs/GOTCHAS.md#121); the PNG on disk is the result.
+
+## Clean up
+
+```bash
+demos/54-eg-poc1-kube-vip/cleanup.sh
+scripts/eg-down.sh
 ```
 
-**What the review caught.** OB3 (Claude Opus 5), Codex and Grok,
-2026-09-19, `docs/REVIEW_DEMO54.md`. Three things changed the demo:
-the kube-vip log proof reads the whole log (`kubectl logs -l` shows
-only the last 10 lines per pod by default, which had hidden one line);
-`check.sh` ties the eth0 rows to the node that answered ARP and
-requires a clean curl exit; `cleanup.sh` waits for the door Services
-before removing the cloud-provider that releases them.
+cleanup.sh removes the doors, app, kube-vip and `shop`. eg-down.sh deletes
+the cluster.
 
-**What you can do with it right now.**
+## What's next
 
-- `curl --resolve api.eg-poc1.poc.local:80:172.19.255.100 http://api.eg-poc1.poc.local/healthz` — 200 and `X-Served-By: eg-poc1`.
-- `go run github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.4 -plaintext -authority grpc.eg-poc1.poc.local 172.19.255.101:80 grpc.health.v1.Health/Check` — `{"status": "SERVING"}`.
-- `demos/54-eg-poc1-kube-vip/hosts-entries.sh` then open `http://api.eg-poc1.poc.local/orders` in the browser.
-- `demos/54-eg-poc1-kube-vip/check.sh` — 15 PASS.
-
-**Where the next demo starts.** Demo 52 installs MetalLB on the
-two-cluster lab. The fail cases stay in demo 51.
+- Demo 52 installs MetalLB on the two-cluster lab (enhancement 007 §4).
+- The fail cases and the VIP move stay in
+  [demo 51](../51-eg-kube-vip/README.md).
+- The Envoy Gateway vs Cilium comparison write-up is phase 4 of
+  [enhancement 007](../../enhancements/007-envoy-gateway-lab.md) (issue #59).

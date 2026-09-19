@@ -1,7 +1,6 @@
 # Demo 54 — one cluster, kube-vip, two Gateways
 
-For the reader in a hurry: [RECAP.md](RECAP.md) — what this demo did and
-proved, in plain English.
+For the reader in a hurry: [RECAP.md](RECAP.md) — the guide
 
 **Where this sits in the whole:** [enhancement 007](../../enhancements/007-envoy-gateway-lab.md)
 revision 2, §3.1 the `eg-poc1` `/26`, §4 row 2b, D5/D8/D10/D11; tracking

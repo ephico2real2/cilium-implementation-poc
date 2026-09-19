@@ -1269,3 +1269,11 @@ $ demos/54-eg-poc1-kube-vip/check.sh
 
 demo 54 check: 0 FAIL
 
+### 2026-09-19T16:16:42Z
+$ bash -c kind version; helm version --short; kubectl version --client | head -1; go version; "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --version
+kind v0.33.0 go1.27.0 darwin/arm64
+v4.3.0+gbec5b06
+Client Version: v1.37.0
+go version go1.27.1 darwin/arm64
+Google Chrome 153.0.8010.52 
+
