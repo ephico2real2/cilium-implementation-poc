@@ -1,7 +1,7 @@
 # cilium-implementation-poc
 
 A reproducible proof of concept of what **Cilium 1.20.2** and **Hubble** give you over a stock CNI + kube-proxy
-cluster — **measured, not quoted**. Two kind clusters in a ClusterMesh with no kube-proxy and no other CNI, 42 demos
+cluster — **measured, not quoted**. Two kind clusters in a ClusterMesh with no kube-proxy and no other CNI, 43 demos
 from the first Hubble flow to policies generated from observed traffic, every command with its recorded output, and a
 GitHub Action that builds and exercises the whole lab from the same scripts a laptop uses.
 
