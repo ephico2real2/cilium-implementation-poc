@@ -1,86 +1,388 @@
-# What demo 41 did — the walk-through
+# Demo 41 — the shop platform behind the doors, one URL, policies from the flows
 
-**The goal.** Demo 40 built the doors: one shared public address, a door per cluster, certificates, and the switch
-that moves the shared address between clusters. Demo 41 moves the furniture in. The shop platform from demo 35 — an
-API gateway in front of catalog, orders, payments, merchant and reviews — now runs in *both* clusters as one
-application, behind those doors, with its network policies generated from what the traffic actually did. It is phase 1
-of enhancement 002; the database (phase 2), load (phase 4) and the failure drills (phase 5) come after.
+This page puts the shop platform in both clusters behind demo 40's
+doors. The manifest is byte-identical; the only per-cluster value is
+ConfigMap `shop-cluster` (`data.name=poc1` / `poc2`). Every stateless
+Service is a clustermesh global Service with affinity local (remote
+backends known, local ones preferred while healthy). HTTPRoutes attach
+`api-gateway` to every door. CiliumNetworkPolicies (Cilium's
+per-endpoint allow list) are generated from observed Hubble flows by
+cf2cnp (the lab's flow-to-policy generator, on poc1), then enforced. `/ready` and `/orders` answer 503 until phase 2
+([enhancement 002](../../enhancements/002-shop-platform-clustermesh.md)
+R3 — no database).
 
-**1. The same platform twice, and Cilium told it is one.** The manifest is byte-identical for both clusters — the
-only per-cluster value is the cluster's name, handed to the backend through a small ConfigMap. Every service carries
-two Cilium annotations: `service.cilium.io/global: "true"`, which makes a service with the same name and namespace in
-both clusters *one* service across the mesh, and `service.cilium.io/affinity: local`, which says "use your own
-cluster's copy while it is healthy". A new `backend` runs the `shopapi` program built in demo 40; the API gateway
-proxies `/ready` and `/orders` to it so the client's contract holds end to end.
+## What you get
 
-**2. What "prefer local" really does — decided from Cilium's source.** The first measurement looked odd:
-`cilium-dbg service list` on poc1 showed catalog with only one backend, its own, and the other cluster's copy appeared
-the moment the affinity annotation was removed. Cilium's code explains it. In `pkg/clustermesh/selectbackends.go`, the
-function that picks a service's backends counts the healthy local ones and the healthy remote ones, then uses the
-remote ones only when `localActiveBackends == 0`. The remote copy is not hidden from a listing — it is *not selected
-into the datapath at all* while a local copy is active. The live tables say the same: poc1's backend table holds
-**two** catalog backends, `10.10.0.46` from its own cluster and `10.20.0.135` from poc2 (source `clustermesh`), and the
-kernel-side load-balancer map for catalog holds **one**. So the other cluster's copy is known and held in reserve, and
-takes over the instant the last local one dies. `check.sh` now measures both numbers (`known=2 (clustermesh=1)
-selected=1 local`); phase 5's scenario S2 will show the switch happen.
+- The same seven Deployments in both clusters: `api-gateway`,
+  `catalog`, `orders`, `backend`, `payment-gateway`, `merchant`,
+  `reviews` — `7/7` Available.
+- Catalog under affinity local: `known=2 (clustermesh=1) selected=1
+  local` on both clusters (`10.10.0.46` local on poc1,
+  `10.20.0.135` local on poc2).
+- One URL: `https://api.shop.poc.local` at `172.18.255.16` → `200` and
+  `X-Served-By=poc1` (the door). `.242` → `poc1`; `.177` → `poc2`.
+- `:80` with the hostname → `301`
+  `Location=https://api.shop.poc.local:443/`.
+- Seven generated policies per cluster (`7/7 exact names`,
+  `managed-by=cf2cnp`); `8/8 policy-enabled,
+  PolicyAuditMode=Disabled`.
+- `/healthz` → `200`; `/ready` and `/orders` → `503` (R3).
+- `check.sh` at `2026-09-18T14:32:18Z`: 33 PASS, 0 FAIL, 0 WARN.
 
-**3. One URL, and the answer says who served it.** Routes attach the API gateway to both doors in each cluster: the
-shared address `api.shop.poc.local` and the per-cluster names `api.poc1.shop.poc.local` / `api.poc2.shop.poc.local`.
-Each route carries a filter that makes the Gateway itself stamp `X-Served-By: <cluster>` on every response, and the
-plain-HTTP listener answers a 301 to HTTPS. From the Mac: the shared address answers **200 `X-Served-By: poc1`** (poc1
-announces it today), `.242` answers `poc1`, `.177` answers `poc2`. The header names the *door* the request entered, not
-which cluster's pods did the work behind it — with local affinity the two coincide while local pods are healthy.
+## Architecture
 
-**4. Policies from the traffic, one set per cluster.** Following demo 35's method, each cluster's shop pods were put
-in audit mode, real traffic was sent (the shopper, the clients through the doors), the flows were captured from Hubble,
-and cf2cnp turned them into seven CiliumNetworkPolicies per cluster — then audit was switched off. The generated
-selectors carry no cluster label, which on Cilium 1.19+ means "this cluster only"; that is right, because every flow in
-phase 1 stays inside its cluster. The API gateway's policy admits the Gateway's own identity (`reserved:ingress`) and
-the shopper; the stranger is not in it. Enforcement was then *measured*, not assumed: the stranger's call to catalog
-times out (`wget: download timed out`), Hubble shows it as `DROPPED`, and the legitimate path api-gateway → catalog
-shows as `FORWARDED`, in both clusters.
+A request from the Mac takes this path:
 
-**5. Where the flows came from — a correction the review forced.** Hubble was read through the mesh relay, and the
-relay returns flows from *both* clusters; poc1's capture file held 136 poc2 flows. The capture now filters by cluster
-(`hubble observe --cluster <name>`, each flow's `node_name` is `<cluster>/<node>`). Filtering poc1's file down to its
-own 78 flows lost the Gateway → api-gateway rule, because no traffic had gone through poc1's door in that window — so
-the evidence was completed from poc1 alone (43 Gateway flows, then 30 api-gateway → backend flows; 151 in total), and
-regenerating from that file reproduces every applied ingress rule identically. The regenerate also produced something
-that was rejected: an egress policy with an **empty selector** in the `default` namespace, generated for the Gateway's
-identity, which has no pod. Applied, an empty selector would match every pod in that namespace. That is a cf2cnp defect
-and is filed on the fork as cf2cnp#7.
+```text
+                         MacBook
+                         curl
+                              │
+                              │  https://api.shop.poc.local
+                              ▼
+                   172.18.255.16  shop-vip-gw
+                   L2 announcement (poc1)
+              ┌───────────────┴───────────────┐
+              ▼                               ▼
+           poc1                            poc2
+      shop-gw 172.18.255.242         shop-gw 172.18.255.177
+      shop-vip-gw (announces)        shop-vip-gw (present, silent)
+              │                               │
+              ▼                               ▼
+         api-gateway                     api-gateway
+              │                               │
+         catalog  orders                 catalog  orders
+         reviews  payment-gateway        reviews  payment-gateway
+         backend                         backend
+         X-Served-By: poc1               X-Served-By: poc2
+              │
+              └─ clustermesh: poc2's catalog
+                 known, not selected while
+                 poc1's is Active
+```
 
-**6. What is deliberately unfinished.** `/ready` and `/orders` answer **503** — the backend's readiness is a real
-`SELECT 1` against a database that does not exist until phase 2. `/healthz` is 200 everywhere. The doors, the header
-and the policies are the phase-1 deliverable; the shop's data path is the next one.
+| Name | Address | What it is | Who answers |
+|---|---|---|---|
+| `api.shop.poc.local` | `172.18.255.16` | shared VIP door — `shop-vip-gw` in both clusters | poc1 (L2 announcement: one node answers ARP for the address, a lease per Service) |
+| `api.poc1.shop.poc.local` | `172.18.255.242` | poc1's own door — `shop-gw` | poc1 |
+| `api.poc2.shop.poc.local` | `172.18.255.177` | poc2's own door — `shop-gw` | poc2 |
 
-**What the review caught** (Codex and Grok, `docs/REVIEW_DEMO41.md`; OB1's pass is owed — the Fable usage limit ended
-it, and the affinity question it would have judged was decided from the source instead):
+The VIP address comes from the LB IPAM pool `shared-vip-pool`
+(`.16–.31`). Each Gateway is Cilium's front-door object, listeners in
+the node's shared Envoy. `X-Served-By` names the door the request
+entered, not whether the pod behind `api-gateway` was local or remote.
 
-- The catalog check read past its own service in the listing and, replayed on its own transcript, counted
-  `local=12 remote=12` for a service with one backend.
-- The policy check accepted six of the seven policies and never read whether audit mode was actually off.
-- Re-running the apply script deleted the enforced policies; it now removes demo 35's older set only the first time.
-- No check measured the HTTP → HTTPS redirect; three rows now do, with the hostname (a bare IP cannot match a route).
-- The probe accepted a stale `/etc/hosts` entry; it now compares the resolved address with the live shared address.
-- The regression row reported an API error as "Gateway absent"; only a real NotFound is a skip now.
-- The apply script's final table printed `X-Served-By=-` for a header it had just received (HTTP/2 lower-cases headers).
+## Prerequisites
 
-After the fixes: 33 of 33 checks pass on both clusters; the lab's regression check is 15 of 15 with the new row "the
-shop's public URL answers from a cluster". The platform twice costs about **1.9 GiB** more memory on the Docker VM
-(18.9 GiB now); CPU stays around one core.
+- poc1 and poc2 up, [demo 40](../40-shop-mesh-phase0/README.md)
+  applied: both doors, `shopapi:local` on the nodes, both `shopctl`s
+  built. This phase does not build (gotcha #118).
+- Pins from
+  [`scripts/bootstrap/versions.env`](../../scripts/bootstrap/versions.env):
+  kind `v0.33.0`, Cilium `1.20.2`.
+- The hosts block (the script only prints it; the `tee` writes it).
+  `probe.sh` needs the lines; `check.sh` pins the name and does not:
 
-**What you can do with it right now.**
+```bash
+demos/40-shop-mesh-phase0/hosts-entries.sh | sudo tee -a /etc/hosts
+```
 
-- `curl -sk --resolve api.shop.poc.local:443:172.18.255.16 https://api.shop.poc.local/healthz -D -` — 200 and the
-  serving cluster's name.
-- `kubectl --context kind-poc1 -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg statedb backends | grep
-  shop-core/catalog` — two backends, one from the other cluster; then `cilium-dbg bpf lb list` — one selected.
-- `demos/41-shop-mesh-phase1/probe.sh` — both clients against the URL (needs the `/etc/hosts` block from
-  `demos/40-shop-mesh-phase0/hosts-entries.sh`).
-- `demos/41-shop-mesh-phase1/check.sh` — the 33 checks with the rule each applies.
+## Steps
 
-**Where the next demo starts.** Demo 42 gives the shop its database: PostgreSQL in poc1 only, published on a Gateway
-with a TCP route and a pinned address under the name `db-service.poc.local`, reached by the backends in *both*
-clusters — and by a DBA's laptop — exactly as an external database would be, with the backend's policy written as a
-DNS name rather than a pod.
+Do these in order from the repo root (apply-both.sh records the
+platform, the routes, the saved policies and the check; on the first
+transition from demo 35 its `remove_legacy_policies` deletes demo 35's
+policies once, before `backend`'s policy exists. observe-and-enforce.sh
+is how the saved set is regenerated):
+
+### 1. Apply the platform
+
+The manifest is the same in both clusters. ConfigMap `shop-cluster`
+holds the cluster name for `backend`.
+
+```bash
+kubectl --context kind-poc1 apply \
+  -f demos/41-shop-mesh-phase1/output/shop-cluster-poc1.yaml
+kubectl --context kind-poc1 apply \
+  -f demos/41-shop-mesh-phase1/10-platform.yaml
+kubectl --context kind-poc2 apply \
+  -f demos/41-shop-mesh-phase1/output/shop-cluster-poc2.yaml
+kubectl --context kind-poc2 apply \
+  -f demos/41-shop-mesh-phase1/10-platform.yaml
+```
+
+Result: every Deployment `condition met`; catalog ClusterIP
+`10.11.58.134` (poc1) / `10.21.123.1` (poc2); annotations
+`global=true affinity=local`; the selected backend is the local one.
+
+```text
+deployment.apps/api-gateway condition met
+deployment.apps/catalog condition met
+deployment.apps/backend condition met
+-- kind-poc1 catalog ClusterIP=10.11.58.134
+-- annotations global=true affinity=local
+172   10.11.58.134:80/TCP       ClusterIP      1 => 10.10.0.46:80/TCP (active)
+-- kind-poc2 catalog ClusterIP=10.21.123.1
+95   10.21.123.1:80/TCP       ClusterIP      1 => 10.20.0.135:80/TCP (active)
+```
+
+### 2. Attach the HTTPRoutes
+
+One file per cluster. `shop-api` parents both doors; a
+`ResponseHeaderModifier` sets `X-Served-By`. `shop-redirect` is
+`:80` → 301.
+
+```bash
+kubectl --context kind-poc1 apply \
+  -f demos/41-shop-mesh-phase1/20-routes-poc1.yaml
+kubectl --context kind-poc2 apply \
+  -f demos/41-shop-mesh-phase1/20-routes-poc2.yaml
+```
+
+Result: both routes `Accepted+ResolvedRefs` on both doors; each door
+answers `200` and names itself.
+
+```text
+kind-poc1 httproute/shop-api: all parents Accepted+ResolvedRefs
+kind-poc2 httproute/shop-api: all parents Accepted+ResolvedRefs
+HTTP/2 200
+x-served-by: poc1
+x-served-by: poc2
+```
+
+### 3. Apply the saved policies
+
+`apply-both.sh` lands demo 35's default-deny and the reviewed
+`policies/<cluster>/cnp-shop-intent.yaml` so a fresh lab is enforcing
+before anyone regenerates.
+
+```bash
+kubectl --context kind-poc1 apply \
+  -f demos/41-shop-mesh-phase1/20-default-deny-ingress.yaml
+kubectl --context kind-poc1 apply \
+  -f demos/41-shop-mesh-phase1/policies/poc1/cnp-shop-intent.yaml
+kubectl --context kind-poc2 apply \
+  -f demos/41-shop-mesh-phase1/20-default-deny-ingress.yaml
+kubectl --context kind-poc2 apply \
+  -f demos/41-shop-mesh-phase1/policies/poc2/cnp-shop-intent.yaml
+```
+
+Result: `7/7 exact names` and `8/8 policy-enabled,
+PolicyAuditMode=Disabled` on both clusters.
+
+```text
+  PASS   poc1 has exactly the seven generated shop policies                     7/7 exact names                                      exact generated policy inventory, managed-by=cf2cnp
+  PASS   poc1 shop endpoints enforce ingress policy                             8/8 policy-enabled, PolicyAuditMode=Disabled         every service endpoint and ratings enforces policy with audit disabled
+  PASS   poc2 has exactly the seven generated shop policies                     7/7 exact names                                      exact generated policy inventory, managed-by=cf2cnp
+  PASS   poc2 shop endpoints enforce ingress policy                             8/8 policy-enabled, PolicyAuditMode=Disabled         every service endpoint and ratings enforces policy with audit disabled
+```
+
+### 4. Observe the flows
+
+Audit mode on, default-deny on, then real traffic (the three doors and
+the in-mesh shopper). `flows-both.sh` captures Hubble with
+`--cluster <name>`.
+
+```bash
+demos/41-shop-mesh-phase1/audit-both.sh Enabled
+demos/41-shop-mesh-phase1/flows-both.sh 400
+```
+
+Result: `policies/poc1/flows-audit.ndjson` 151 lines, all
+`node_name` `poc1/…`; `policies/poc2/flows-audit.ndjson` 140 lines, all
+`poc2/…` ([docs/REVIEW_DEMO41.md](../../docs/REVIEW_DEMO41.md)).
+
+### 5. Generate the policies
+
+One `/generate` per cluster (cf2cnp on poc1). Selectors carry no
+cluster label: Cilium 1.19+ treats that as this cluster only, and
+phase 1's flows stay inside their cluster.
+
+```bash
+demos/41-shop-mesh-phase1/generate-both.sh
+```
+
+Result: seven CiliumNetworkPolicies per cluster. api-gateway admits
+`reserved:ingress` and shopper; the stranger is not in any selector.
+
+### 6. Apply the generated policies
+
+`generate-both.sh` overwrote `policies/<cluster>/cnp-shop-intent.yaml`;
+apply it under audit, then read the AUDIT verdicts (0 drops of intended
+paths).
+
+```bash
+kubectl --context kind-poc1 apply \
+  -f demos/41-shop-mesh-phase1/policies/poc1/cnp-shop-intent.yaml
+kubectl --context kind-poc2 apply \
+  -f demos/41-shop-mesh-phase1/policies/poc2/cnp-shop-intent.yaml
+demos/41-shop-mesh-phase1/verdicts-both.sh 200
+```
+
+Result: seven policies per cluster, `managed-by=cf2cnp` — `check.sh`
+measures `7/7 exact names` on both.
+
+```text
+  PASS   poc1 has exactly the seven generated shop policies                     7/7 exact names                                      exact generated policy inventory, managed-by=cf2cnp
+  PASS   poc2 has exactly the seven generated shop policies                     7/7 exact names                                      exact generated policy inventory, managed-by=cf2cnp
+```
+
+### 7. Enforce the policies
+
+Audit mode off on every shop endpoint.
+
+```bash
+demos/41-shop-mesh-phase1/audit-both.sh Disabled
+```
+
+Result: `8/8 policy-enabled, PolicyAuditMode=Disabled` on both
+clusters; `/healthz` through the VIP stays `200` `X-Served-By=poc1`.
+
+```text
+  PASS   VIP /healthz still 200 after policies                                  http_code=200 X-Served-By=poc1                       probe /healthz is 200 with the header
+```
+
+### 8. Verify enforcement
+
+`verify_enforcement` is the measurement: the stranger is not a catalog
+caller; `api-gateway` is.
+
+```bash
+demos/41-shop-mesh-phase1/observe-and-enforce.sh
+```
+
+Result: stranger → catalog `wget: download timed out` (`rc=1`); Hubble
+`DROPPED` / `FORWARDED` on both clusters.
+
+```text
+stranger -> catalog: expected failure rc=1 output=wget: download timed out
+  DROPPED stranger -> catalog-5799bdf56f-qbv7m shop-core DROPPED
+  FORWARDED api-gateway-c448767bb-sljk4 -> catalog-5799bdf56f-qsd4p FORWARDED
+kind-poc1: DROPPED stranger->catalog and FORWARDED api-gateway->catalog observed
+kind-poc2: DROPPED stranger->catalog and FORWARDED api-gateway->catalog observed
+```
+
+### 9. Run the checks
+
+```bash
+demos/41-shop-mesh-phase1/check.sh
+```
+
+Result: 33 PASS, 0 FAIL, 0 WARN (`2026-09-18T14:32:18Z`). The final
+table from apply-both.sh:
+
+```text
+CLUSTER  DEPLOYMENTS    HTTPROUTES             VIP                          POC1_DOOR                    POC2_DOOR
+poc1     7/7            2/2 accepted, 2/2 resolved 200 X-Served-By=poc1         200 X-Served-By=poc1         200 X-Served-By=poc2
+poc2     7/7            2/2 accepted, 2/2 resolved 200 X-Served-By=poc1         200 X-Served-By=poc1         200 X-Served-By=poc2
+```
+
+## Verify
+
+From the Mac:
+
+```bash
+curl -sk --resolve api.shop.poc.local:443:172.18.255.16 \
+  https://api.shop.poc.local/ -D - -o /dev/null
+```
+
+Expect `200` and `x-served-by: poc1`.
+
+```bash
+curl -sk --resolve api.poc2.shop.poc.local:443:172.18.255.177 \
+  https://api.poc2.shop.poc.local/ -D - -o /dev/null
+```
+
+Expect `200` and `x-served-by: poc2`.
+
+```bash
+demos/41-shop-mesh-phase1/check.sh
+```
+
+Recorded `2026-09-18T14:32:18Z`: 33 PASS, 0 FAIL, 0 WARN.
+
+```text
+== demo 41 — the shop platform on the mesh, phase 1 (the platform behind the doors)
+  PASS   VIP https://api.shop.poc.local @ 172.18.255.16                         http_code=200 X-Served-By=poc1 announcer=poc1        200 and X-Served-By equals vip-takeover.sh --status
+  PASS   https://api.poc1.shop.poc.local @ 172.18.255.242                       http_code=200 X-Served-By=poc1                       200 and X-Served-By=poc1
+  PASS   https://api.poc2.shop.poc.local @ 172.18.255.177                       http_code=200 X-Served-By=poc2                       200 and X-Served-By=poc2
+  PASS   poc1 catalog backends under affinity:local                             known=2 (clustermesh=1) selected=1 local             affinity local — remote backends known, not selected while a local one is Active (pkg/clustermesh/selectbackends.go)
+  PASS   poc2 catalog backends under affinity:local                             known=2 (clustermesh=1) selected=1 local             affinity local — remote backends known, not selected while a local one is Active (pkg/clustermesh/selectbackends.go)
+  PASS   poc1 has exactly the seven generated shop policies                     7/7 exact names                                      exact generated policy inventory, managed-by=cf2cnp
+  PASS   poc2 has exactly the seven generated shop policies                     7/7 exact names                                      exact generated policy inventory, managed-by=cf2cnp
+  PASS   VIP /healthz still 200 after policies                                  http_code=200 X-Served-By=poc1                       probe /healthz is 200 with the header
+```
+
+## Reference
+
+Addresses ([enhancement 002 §8.1](../../enhancements/002-shop-platform-clustermesh.md)):
+
+| Address | Name | Door |
+|---|---|---|
+| `172.18.255.16` | `api.shop.poc.local` | `shop-vip-gw` (shared VIP; announced by one cluster) |
+| `172.18.255.242` | `api.poc1.shop.poc.local` | poc1 `shop-gw` |
+| `172.18.255.177` | `api.poc2.shop.poc.local` | poc2 `shop-gw` |
+
+Catalog backends (statedb (the agent's backend table) and the BPF map, [docs/REVIEW_DEMO41.md](../../docs/REVIEW_DEMO41.md)):
+poc1 statedb holds `10.10.0.46` (`k8s`) and `10.20.0.135`
+(`clustermesh`); `bpf lb` for `10.11.58.134:80` selects
+`10.10.0.46`. poc2 is the mirror (`10.21.123.1:80` → `10.20.0.135`).
+Cilium `pkg/clustermesh/selectbackends.go` sets
+`useRemote = localActiveBackends == 0 && remoteBackends > 0`.
+
+Generated policies (same descriptions on both clusters):
+
+| Namespace | Name | Admits |
+|---|---|---|
+| `shop-edge` | `api-gateway` | shopper on TCP/80; `reserved:ingress` on TCP/80 |
+| `shop-core` | `backend` | orders, api-gateway on TCP/8080 |
+| `shop-core` | `catalog` | orders, api-gateway, merchant, reviews on TCP/80 |
+| `shop-core` | `orders` | api-gateway on TCP/80 |
+| `shop-payments` | `payment-gateway` | orders, api-gateway on TCP/80 |
+| `shop-reviews` | `reviews` | api-gateway, ratings on TCP/80 |
+| `shop-merchant` | `merchant` | payment-gateway on TCP/80 |
+
+| File | What |
+|---|---|
+| [`10-platform.yaml`](10-platform.yaml) | namespaces, Deployments, global Services, `backend` |
+| [`20-routes-poc1.yaml`](20-routes-poc1.yaml) / [`20-routes-poc2.yaml`](20-routes-poc2.yaml) | HTTPRoute on both doors, `X-Served-By`, `:80` → 301 |
+| [`20-default-deny-ingress.yaml`](20-default-deny-ingress.yaml) | demo 35's default-deny |
+| [`policies/poc1/`](policies/poc1/) / [`policies/poc2/`](policies/poc2/) | generated CNPs and the AUDIT flows |
+| [`apply-both.sh`](apply-both.sh) / [`observe-and-enforce.sh`](observe-and-enforce.sh) / [`check.sh`](check.sh) / [`cleanup.sh`](cleanup.sh) | land, regenerate, prove, remove |
+
+Resources vs the plan's §8 baseline (17.0 GiB, ~1.1 cores):
+node CPU `396+244+200+167m` and memory `7431+5534+3351+3079` Mi
+(`top nodes`, review A12);
+the four kind-node containers summed to `18.894` GiB (+1.9 GiB, CPU
+around one core).
+
+## Troubleshooting
+
+- `probe.sh` exits non-zero: it talks to the URL without pinning the
+  address, so a stale hosts line misses the live VIP — compare with
+  the printed hosts block under *Prerequisites*; `check.sh` does not
+  depend on hosts.
+- Shopper → catalog ClusterIP times out (`wget: download timed out`):
+  shopper is not a catalog caller; it goes through `api-gateway`.
+- `/ready` and `/orders` are 503: there is no database until phase 2
+  (R3).
+
+## Clean up
+
+```bash
+demos/41-shop-mesh-phase1/cleanup.sh
+```
+
+Removes the HTTPRoutes, the generated policies, and the platform.
+Demo 40's doors stay (`shop-gw`, `shop-vip-gw`, `shop-tls`,
+`shop-vip-announce`, `shared-vip-pool`, namespace `shop-edge`).
+
+## What's next
+
+- Demo 42 gives the shop its database: PostgreSQL in poc1 only,
+  published on a Gateway with a TCPRoute as `db-service.poc.local`
+  ([enhancement 002](../../enhancements/002-shop-platform-clustermesh.md)
+  R3).
+- Then `/ready` and `/orders` through the public URL become 200, and
+  the backend's policy is regenerated as `toFQDNs`.
+- Phase 5 scenario S2 scales catalog to 0 in one cluster and watches
+  affinity fail over.
