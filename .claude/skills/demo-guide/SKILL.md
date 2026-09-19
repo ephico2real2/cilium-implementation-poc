@@ -1,13 +1,14 @@
 ---
 name: demo-guide
-description: Write a demo's RECAP.md as a structured guide — the page shape used by the Kubernetes docs (tutorial page), GitHub Docs (article contents), Google's developer style guide (procedures) and Diátaxis (how-to) — fixed headings in a fixed order, one imperative action per step with its recorded result, the architecture up front, the reference at the back, nothing about the runs that failed. Invoke for every demo from 54 on (supersedes demo-recap's narrative walk-through) and whenever the operator asks for "a proper guide".
+description: Write a demo's RECAP.md as a structured guide — the page shape used by the Kubernetes docs (tutorial page), GitHub Docs (article contents), Google's developer style guide (procedures) and Diátaxis (how-to) — fixed headings in a fixed order, one imperative action per step with its recorded result, the architecture up front, the reference at the back, nothing about the runs that failed. Covers the demo's three pages — RECAP.md (the guide), README.md (the record) and GUIDE.md (the exercises). Invoke for every Envoy Gateway lab demo (50 onward; supersedes demo-recap's narrative walk-through) and whenever the operator asks for "a proper guide".
 ---
 
 # Demo guide — the structured page
 
 The operator, 2026-09-19, on the narrative recap: *"this is all over the place… google how to structure git doc for
 writing a proper guide… I only wanna see what worked and how did it."* This skill replaces `demo-recap`'s walk-through
-for new demos. The old recaps (40, 41, 50, 51, 53) stay as they are.
+for the Envoy Gateway lab (demos 50, 51, 54 and on — the operator, 2026-09-19: *"update the other docs in demo 54
+first and the previous demos on envoy with kubevip and metallb"*). The Cilium demos' recaps (40, 41, 53) stay.
 
 ## Where the shape comes from
 
@@ -115,6 +116,26 @@ table, the address block. Tables over prose.>
 10. **Headings are fixed.** No H2 outside the template; *Troubleshooting* may be omitted; nothing else may.
 11. **`scripts/mdfmt fix` after writing**, under bash, like every .md here; `tests/guide-structure.py <RECAP.md>`
     passes (heading order, one H3 per step, a command block and a "Result:" line in every step).
+
+## The other two pages — same discipline
+
+**README.md — the record.** For the engineer who runs and re-runs the demo. Fixed H2s, this order: intro (first
+line *"For the reader in a hurry: [RECAP.md](RECAP.md) — the guide"*, then two to four sentences), **Files**
+(table: file → what), **Run it** (the commands, each in a ```bash block, in order), **What was recorded** (one H3
+per step, same titles as the guide's steps; under each: the command block and the recorded output in a ```text
+block — quoted verbatim, the `readmeNN-verbatim.py` gate), **Checks** (the recorded `check.sh` block), **What is
+deliberately not here** (bullets), **Runs that did not go to plan** (optional — the only place the history
+lives: one short paragraph per run with its recorded line and the gotcha), **Clean up**. Prose between blocks is
+one or two sentences; an explanation longer than that links to the plan, a gotcha or the review record.
+
+**GUIDE.md — the exercises.** For the reader who has the demo up and wants to touch it. Fixed H2s: intro (one
+sentence), **Prerequisites** (bullets; the hosts block as a ```bash block if a browser is involved), **Exercises**
+(one H3 per exercise, `### N. <Imperative…>`; a sentence of purpose, the command block, an **Expect:** line with the
+recorded output in a ```text block; three to five exercises, all read-only — anything that changes the cluster
+says so in its title), **Clean up** (link to the README's).
+
+Both obey rules 3–8 and 11 above. `tests/guide-structure.py --kind readme|guide <file>` checks the H2 order and
+the no-inline-command rule; `--kind recap` (the default) checks the guide.
 
 ## The process
 
