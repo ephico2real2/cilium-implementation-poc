@@ -1,55 +1,127 @@
-# Demo 40 — the guide: exercises
+# Demo 40 — five things to try
 
-Run from the repo root with poc1 and poc2 up and phase 0 applied (`demos/40-shop-mesh-phase0/apply.sh`).
-Exercise 0 is `apply.sh` itself. The three below read from the live doors; exercise 1 writes the
-VIP announcer (and writes it back).
+Five exercises against the demo once it is up; nothing here changes the
+cluster except exercise 4 and the hosts block under Prerequisites.
 
-## Exercise 1 — flip the VIP and watch `arp -n`
+## Prerequisites
+
+- The demo is applied ([README Run it](README.md#run-it)).
+- Both clusters up (Gateway API and L2 already on poc2).
+- A route on the Mac to `172.18/16`.
+- The hosts block — the one sudo step (the script only prints the lines;
+  the `tee` writes them):
+
+```bash
+demos/40-shop-mesh-phase0/hosts-entries.sh | sudo tee -a /etc/hosts
+```
+
+## Exercises
+
+### 1. Read who announces the VIP
+
+`--status` is read-only. The VIP lease name is
+`cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw`.
 
 ```bash
 scripts/vip-takeover.sh --status
-scripts/vip-takeover.sh poc2
-arp -n 172.18.255.16
-scripts/vip-takeover.sh poc1
 ```
 
-*Expect:* `--status` says poc1, with `shop-vip-announce` present only there and
-`lease holder=poc1-worker`. After `poc2`, the VIP lease is on a poc2 node (measured:
-`poc2-control-plane`) and poc1's policy is gone. `arp -n 172.18.255.16` on this Mac has **no entry** —
-the host route's next hop is the Docker VM, so the Mac never ARPs for the VIP. `curl -sk
---resolve api.shop.poc.local:443:172.18.255.16 https://api.shop.poc.local/` still returns 404
-from whichever cluster now announces. Flip back to poc1 before leaving the exercise. A short gap
-with no announcer is the price of never having two.
+**Expect:** poc1 announces, with `shop-vip-announce` present only there
+and `lease holder=poc1-worker`. `arp -n` on this Mac has no entry.
 
-## Exercise 2 — request the VIP's leaf and read its SANs
+```text
+== VIP 172.18.255.16 announced by: poc1
+-- poc1
+  shop-vip-announce: present
+  lease holder=poc1-worker
+-- poc2
+  shop-vip-announce: absent
+  lease: none
+== arp -n 172.18.255.16
+172.18.255.16 (172.18.255.16) -- no entry
+```
+
+### 2. Call the three doors
+
+404 is the pass mark: the door exists and no route is attached. 000
+means unreachable.
 
 ```bash
-echo | openssl s_client -servername api.shop.poc.local -connect 172.18.255.16:443 2>/dev/null \
+curl -sk --resolve api.shop.poc.local:443:172.18.255.16 \
+  -o /dev/null -w '%{http_code}\n' https://api.shop.poc.local/
+curl -sk --resolve api.poc1.shop.poc.local:443:172.18.255.242 \
+  -o /dev/null -w '%{http_code}\n' https://api.poc1.shop.poc.local/
+curl -sk --resolve api.poc2.shop.poc.local:443:172.18.255.177 \
+  -o /dev/null -w '%{http_code}\n' https://api.poc2.shop.poc.local/
+```
+
+**Expect:** `404` on each door.
+
+```text
+  PASS   VIP https://api.shop.poc.local @ 172.18.255.16 answers                 http_code=404                                        http_code=404 in phase 0
+  PASS   https://api.poc1.shop.poc.local @ 172.18.255.242 answers               404                                                  http_code=404 in phase 0
+  PASS   https://api.poc2.shop.poc.local @ 172.18.255.177 answers               404                                                  http_code=404 in phase 0
+```
+
+### 3. Read the VIP's leaf
+
+Each cluster issued its own leaf from the same root. Repeat against
+`.242` with `-servername api.poc1.shop.poc.local` and `.177` with
+`api.poc2.shop.poc.local`.
+
+```bash
+echo | openssl s_client -servername api.shop.poc.local \
+  -connect 172.18.255.16:443 2>/dev/null \
   | openssl x509 -noout -issuer -subject -ext subjectAltName
 ```
 
-*Expect:* `issuer=CN=clustermesh-root-ca`, `subject=CN=api.shop.poc.local`, and three SANs:
-`api.shop.poc.local`, `api.poc1.shop.poc.local`, `api.poc2.shop.poc.local`. Repeat against
-`.242` with `-servername api.poc1.shop.poc.local` and `.177` with `api.poc2.shop.poc.local`:
-same issuer, same three SANs — each cluster issued its own leaf from the same root. A wildcard
+**Expect:** `issuer=CN=clustermesh-root-ca`,
+`subject=CN=api.shop.poc.local`, and the three SANs. A wildcard
 `*.shop.poc.local` would not have covered the two-label names.
 
-## Exercise 3 — `shopctl probe` against a door that has no routes
-
-```bash
-demos/40-shop-mesh-phase0/hosts-entries.sh            # review; then sudo tee -a /etc/hosts
-demos/40-shop-mesh-phase0/client/go/shopctl/bin/shopctl-darwin-arm64 \
-  probe --url https://api.shop.poc.local --insecure
-python3 demos/40-shop-mesh-phase0/client/python/shopctl.py \
-  probe --url https://api.shop.poc.local -k
+```text
+  PASS   VIP leaf issuer is clustermesh-root-ca                                 issuer=CN=clustermesh-root-ca                        openssl x509 -noout -issuer contains clustermesh-root-ca
 ```
 
-*Expect:* both clients print the same columns (`PATH STATUS X-SERVED-BY`) and three 404s (no
-`X-Served-By` — no backend set it). Exit code 3: every path is a failed check. Without the hosts
-lines, both print `000` (the name does not resolve; the clients have no `--resolve`). `check.sh`
-uses `curl --resolve` so it does not depend on `/etc/hosts`. The doors exist; demo 41 is when a
-path returns 200.
+### 4. Flip the VIP announcer (this changes the cluster)
 
-## Cleanup
+Deletes `shop-vip-announce` from the other cluster first, then applies
+it to the target. Flip back to poc1 before leaving; `check.sh` assumes
+that.
 
-`demos/40-shop-mesh-phase0/cleanup.sh` — doors, leaf, announcer, shared pool; namespaces kept.
+```bash
+scripts/vip-takeover.sh poc2
+scripts/vip-takeover.sh --status
+scripts/vip-takeover.sh poc1
+```
+
+**Expect:** after `poc2`, the VIP lease is on `poc2-control-plane` and
+poc1's policy is gone. After 20 s the dying lease is gone. After `poc1`,
+`lease holder=poc1-worker` again. A short gap with no announcer is the
+price of never having two.
+
+```text
+== VIP 172.18.255.16 announced by: poc2
+-- poc1
+  shop-vip-announce: absent
+  lease: none
+-- poc2
+  shop-vip-announce: present
+  lease holder=poc2-control-plane
+```
+
+### 5. Run the check
+
+```bash
+demos/40-shop-mesh-phase0/check.sh
+```
+
+**Expect:** 21 PASS, 0 FAIL. The lease row names poc1.
+
+```text
+  PASS   exactly one cluster holds the VIP l2announce lease                     poc1 holder=poc1-worker                              lease cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw has a holderIdentity in one context, none in the other
+```
+
+## Clean up
+
+[README Clean up](README.md#clean-up).

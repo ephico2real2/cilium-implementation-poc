@@ -1,97 +1,41 @@
-# What demo 40 did — the walk-through
+# Demo 40 — the shop platform's front doors on the Cilium clustermesh
 
-**The goal.** Enhancement 002 takes the shop platform from demo 35 and runs it as *one* application on *two*
-clusters, so that a customer with one URL — `https://api.shop.poc.local` — keeps getting answers even when a whole
-cluster dies. Demo 40 is phase 0: no shop yet, only the ground it will stand on. Think of it as building the front
-doors and the street address before moving the furniture in.
+This page hangs the shop platform's front doors on poc1 and poc2 before
+the platform moves in. One public URL `api.shop.poc.local` sits on VIP
+`172.18.255.16` from a shared LB IPAM pool (Cilium's range of addresses a
+LoadBalancer Service may claim) that only one cluster announces. Each
+cluster also has its own door. The doors exist and answer 404 until
+demo 41 attaches routes.
 
-**1. One public address that can move between clusters.** A normal LoadBalancer address belongs to one cluster. We
-wanted an address that *both* clusters know how to serve, but only one of them answers for at any moment — two
-machines answering for the same address on one network is an ARP conflict, a coin toss on every packet. So a small
-shared range, `172.18.255.16–.31`, was carved out of the block the network design reserves for shared addresses, and
-the same pool definition (`cilium/lb-ippool-shared.yaml`) was put into both clusters. `.16` is the customer's address.
+## What you get
 
-**2. The measurement that shaped the design.** Before writing anything, one thing was tested on poc1: can a single
-Gateway (Cilium's front-door object — a Service plus listeners in the node's shared Envoy proxy) carry two addresses,
-the shared one and the cluster's own? Yes: Cilium gave both IPs to the one Service. Then the second fact bit. The
-object that *announces* addresses on the network, the L2 announcement policy, picks whole *Services*, not individual
-IPs. If the shared address and the per-cluster address sat on one Service, poc2 would announce the shared one too, and
-the conflict would be back. The fix is structural: **two Gateways per cluster** — `shop-gw` with the cluster's own
-address (`.242` on poc1, `.177` on poc2) and `shop-vip-gw` with the shared `.16`. Announcing the shared address can
-then be switched on and off without touching anything else.
+- One public URL `api.shop.poc.local` on `172.18.255.16` from
+  `shared-vip-pool` `.16–.31` in both clusters; poc1 announces it
+  (`lease holder=poc1-worker`).
+- A door per cluster: `api.poc1.shop.poc.local` at `172.18.255.242`,
+  `api.poc2.shop.poc.local` at `172.18.255.177`.
+- Two Gateways per cluster: `shop-gw` (the per-cluster address) and
+  `shop-vip-gw` (the VIP). A Gateway with two `spec.addresses` gets both
+  IPs on one Service; the L2 policy selects Services, not IPs.
+- The same leaf spec in both clusters: CN `api.shop.poc.local` plus the
+  two per-cluster SANs; issuer `CN=clustermesh-root-ca`; fingerprints
+  differ (poc1 `43:21:FC:A4…`, poc2 `C8:9E:AB:79…`).
+- `shopapi:local` (every answer stamped `X-Served-By`) loaded on all four
+  nodes; both `shopctl` clients built.
+- Lease move poc1 → poc2 and back in ~40 ms; a dying lease lingers
+  ~15 s with an empty holder. `scripts/vip-takeover.sh` deletes the other
+  policy first.
+- `check.sh` at `2026-09-18T13:21:02Z`: 21 PASS, 0 FAIL. Doors answer
+  404.
 
-**3. Exactly one announcer, proven.** Both clusters' existing announcement policies were told to ignore
-`shop-vip-gw`. A separate, tiny policy — `shop-vip-announce` — is applied in *one* cluster, and that cluster answers for
-`.16`. The review proved it on the wire: ARP requests for `.16` sent from a container on the same network segment got
-three replies, all from poc1-control-plane's hardware address; and the TLS certificate handed back on `.16` carried
-poc1's fingerprint, not poc2's.
+## Architecture
 
-**4. The switch, for disaster recovery.** `scripts/vip-takeover.sh poc2` moves the announcement: it first deletes the
-policy from the other cluster, then applies it to the target — never two announcers, even for a second. Measured: the
-lease (Cilium's record of which node answers for an address) moved to poc2 and back in about 40 ms each way; a lease
-that has just been given up lingers about 15 s with an empty holder before it disappears. The review added the case the
-script really exists for: if poc1 is *dead*, nothing can be deleted from it, so `--force` skips that step with a
-warning, and `--status` reports "UNKNOWN" for a cluster whose API does not answer instead of pretending it is quiet.
-
-**5. Certificates that work everywhere.** Both clusters already issue certificates from the same root
-(`clustermesh-root-ca`, the same fingerprint on both — checked). Each cluster now has a `shop-tls` certificate for three
-names: `api.shop.poc.local`, `api.poc1.shop.poc.local`, `api.poc2.shop.poc.local`. Not a wildcard, on purpose: a
-`*.shop.poc.local` certificate covers one label, and the review measured that it rejects the two-label per-cluster names.
-
-**6. The doors are open but the shop is empty — on purpose.** All four Gateways are programmed and answer on their
-addresses with the right certificate, but with **404**, because no routes point at any backend yet. That is demo 41's
-job. `check.sh` treats 404 as the pass mark for this phase and anything unreachable as a failure.
-
-**7. Two programs, built now so they do not disturb later measurements.** `shopapi` is the small Go backend that
-will talk to the database in phase 2: `/healthz`, `/ready` (a real `SELECT 1`), `/orders`, every answer stamped
-`X-Served-By: <cluster>` so a client can see which cluster served it. It opens one connection pool with a one-second
-connect timeout, runs as a non-root static binary, and is loaded onto all four nodes. `shopctl` exists twice, in Go and
-in Python, with one behaviour: `probe` hits every path once; `load --rate N --duration M` sends steady traffic and
-prints, per second, how many requests succeeded, how many failed and which cluster answered. It knows only the URL —
-that is the customer's view of the mesh. The builds happen in this phase because gotcha #118 showed that heavy builds on
-the Docker VM distort measurements (and OOM-killed Tetragon); the measuring phases stay clean.
-
-**The reference card — names, addresses, certificates, doors.** Everything below is read from the live clusters
-(`demos/40-shop-mesh-phase0/hosts-entries.sh`, `kubectl get gateway,certificate -n shop-edge`, `openssl s_client`).
-
-*The names and their addresses.* The lab has no DNS server for `.poc.local`; the records live in `/etc/hosts` on the
-machine that runs the clients, and `hosts-entries.sh` prints them from live state so a stale entry cannot survive a
-re-deploy unnoticed:
-
-| Name | Address | What it is | Who answers for it |
-|---|---|---|---|
-| `api.shop.poc.local` | `172.18.255.16` | the **product name** — cluster-agnostic, the only one a customer knows | whichever cluster holds `shop-vip-announce` (poc1 today) |
-| `api.poc1.shop.poc.local` | `172.18.255.242` | poc1's own door, for operators and for the per-cluster measurements | poc1 |
-| `api.poc2.shop.poc.local` | `172.18.255.177` | poc2's own door | poc2 |
-| `db-service.poc.local` | `172.18.255.244` | the database's door — **phase 2**, not created yet | poc1 |
-
-*The certificate.* **One `Certificate` per cluster — two in total, the same spec in both — not one per service or
-per door.** Both doors in a cluster reference the same Secret, `shop-tls`:
-
-```yaml
-kind: Certificate                     # cert-manager.io/v1, namespace shop-edge, in BOTH clusters
-spec:
-  secretName: shop-tls
-  commonName: api.shop.poc.local       # the CN is the product name
-  dnsNames:                            # the SANs — the CN repeated, plus the two per-cluster names
-    - api.shop.poc.local
-    - api.poc1.shop.poc.local
-    - api.poc2.shop.poc.local
-  issuerRef: {kind: ClusterIssuer, name: ca-issuer}   # → CA secret clustermesh-root-ca, the same root in both clusters
-```
-
-Why one certificate with three names, and why the CN is the product name: the shared-address door must present a
-certificate valid for `api.shop.poc.local` in *whichever* cluster is answering, so each cluster's certificate has to
-carry that name; giving it the per-cluster names too means one Secret serves both doors in that cluster, and a client
-that trusts the root can call any of the three names against any door. A wildcard `*.shop.poc.local` was measured and
-rejected — it covers one label, so it would not match `api.poc1.shop.poc.local`. The issued leaves: both clusters,
-`subject=CN=api.shop.poc.local`, `issuer=CN=clustermesh-root-ca`, the three SANs, valid 2026-09-18 → 2026-12-17
-(cert-manager's 90-day default, renewed by it before expiry); the fingerprints differ per cluster — poc1
-`43:21:FC:A4…`, poc2 `C8:9E:AB:79…` — which is how the review proved that a call to the shared address reached poc1.
-A DBA's `psql` or a browser trusts one file, `docs/root-ca.crt` (the same root), for every door in both clusters.
-
-*The doors.* Four Gateways, two per cluster, each with an HTTPS listener on 443 bound to `shop-tls` and a plain HTTP
-listener on 80 for the redirect. Demo 41 attaches the platform's routes to them (shown greyed):
+On Cilium a Gateway is listeners in the shared per-node Envoy. An L2
+announcement is one node answering ARP for the address, a lease per
+Service. No CiliumNetworkPolicy (a Cilium object that admits or drops
+traffic by identity) and no clustermesh global Service with affinity
+local (a Service that prefers backends in its own cluster) yet — those
+arrive in demo 41.
 
 ```text
                   api.shop.poc.local ─── 172.18.255.16 ─── announced by ONE cluster (shop-vip-announce)
@@ -100,41 +44,325 @@ listener on 80 for the redirect. Demo 41 attaches the platform's routes to them 
              │  poc1                      │             │  poc2                        │
              │  shop-vip-gw  .16          │             │  shop-vip-gw  .16            │
              │   https:443 api.shop.poc.local (shop-tls)│   https:443 api.shop.poc.local (shop-tls)
-             │   http:80  → 301           │             │   http:80  → 301             │
+             │   http:80                  │             │   http:80                    │
              │                            │             │                              │
              │  shop-gw      .242         │             │  shop-gw      .177           │
              │   https:443 api.poc1.shop.poc.local      │   https:443 api.poc2.shop.poc.local
-             │   http:80  → 301           │             │   http:80  → 301             │
-             │        │  (demo 41: HTTPRoute shop-api → api-gateway, X-Served-By: poc1 / poc2)
+             │   http:80                  │             │   http:80                    │
+             │        │  (demo 41: HTTPRoute shop-api → api-gateway, X-Served-By)
              │        ▼                   │             │        ▼                     │
              │  api-gateway (shop-edge)   │             │  api-gateway (shop-edge)     │
              └────────────────────────────┘             └──────────────────────────────┘
    pools:  shared-vip-pool .16–.31 (both clusters, only shop-vip-gw may land here)
-           poc1 gateway-pool .240–.250 (shop-gw .242; .240 routes-gw, .241 sw-gateway, .243 team-b-gw already there)
+           poc1 gateway-pool .240–.250 (shop-gw .242)
            poc2 gateway-pool .176–.186 (shop-gw .177)
 ```
 
-**What the review caught** (OB1, Codex and Grok, `docs/REVIEW_DEMO40.md`):
+| Name | Address | What it is | Who answers |
+|---|---|---|---|
+| `api.shop.poc.local` | `172.18.255.16` | the product name — the only one a customer knows | whichever cluster holds `shop-vip-announce` (poc1; `lease holder=poc1-worker`) |
+| `api.poc1.shop.poc.local` | `172.18.255.242` | poc1's own door | poc1 |
+| `api.poc2.shop.poc.local` | `172.18.255.177` | poc2's own door | poc2 |
+| `db-service.poc.local` | `172.18.255.244` | the database door — phase 2, not created | poc1 |
 
-- The check script called an unreachable door a PASS: curl printed `000`, a fallback appended another `000`, and the
-  test rejected only `000`.
-- The takeover script had no path through when the other cluster's API is down — the very scenario it exists for.
-- The backend opened a new database pool on every request and, against a server that accepts and never speaks, waited
-  the full two seconds; now one pool, one second.
-- The two clients disagreed on how to spell three seconds (`3` versus `3s`); both now accept either.
-- Cleanup left the TLS secret behind; the shared-address Gateway matched two address pools at once; the root README's
-  table was missing demo 17.
+`shop-vip-announce` lives in its own file so applying the shared pool on
+poc2 cannot start a second announcer. kind-l2-announce excludes
+`shop-vip-gw`. The lab has no DNS for `.poc.local`: clients use
+`--resolve` or the hosts block.
 
-After the fixes: 21 of 21 checks pass on both clusters, and the lab's regression check is 14 of 14.
+## Prerequisites
 
-**What you can do with it right now.**
+- Both clusters up: Cilium `1.20.2` (the lab's own build), Gateway API
+  and L2 already on poc2. Pins from
+  [`scripts/bootstrap/versions.env`](../../scripts/bootstrap/versions.env):
+  kind `v0.33.0`, kubectl `v1.36.4`, helm `v3.21.4`.
 
-- `scripts/vip-takeover.sh --status` — who announces the shared address (expect poc1).
-- `curl -k --resolve api.shop.poc.local:443:172.18.255.16 https://api.shop.poc.local/` — a 404 from a real door.
-- `scripts/vip-takeover.sh poc2`, the same curl, then `scripts/vip-takeover.sh poc1` — the address moves and comes
-  back; the curl keeps answering.
-- `demos/40-shop-mesh-phase0/check.sh` — the 21 checks, with the rule each one applies.
+```bash
+kubectl --context kind-poc1 get --raw /readyz
+kubectl --context kind-poc2 get --raw /readyz
+```
 
-**Where the next demo starts.** Demo 41 moves the furniture in: the platform deployed in both clusters as global
-services that prefer their own cluster, routes attached to both doors, the Gateway stamping `X-Served-By`, and the
-network policies generated from what the traffic actually did.
+- A route on the Mac to the kind bridge (the next hop is the Docker VM,
+  so the Mac never ARPs for `.16`):
+
+```bash
+sudo route -n add -net 172.18.0.0/16 192.168.64.2
+```
+
+- The hosts block if a client needs the names without `--resolve` (the
+  script only prints; the `tee` writes):
+
+```bash
+demos/40-shop-mesh-phase0/hosts-entries.sh | sudo tee -a /etc/hosts
+```
+
+## Steps
+
+Do these in order from the repo root. `apply.sh` records the builds
+first (gotcha #118), then steps 1–3; steps 4–5 are those builds; step 6
+is the takeover recorded after:
+
+### 1. Apply the pools and L2 policies
+
+The shared pool is safe in both clusters: a static `spec.addresses`
+request lands in the pool that holds the address
+([enhancement 002 §8.1](../../enhancements/002-shop-platform-clustermesh.md)).
+
+```bash
+kubectl --context kind-poc1 apply -f cilium/lb-ippool-shared.yaml
+kubectl --context kind-poc2 apply -f cilium/lb-ippool-shared.yaml
+kubectl --context kind-poc1 apply -f cilium/lb-ippool-poc1.yaml
+kubectl --context kind-poc2 apply -f cilium/lb-ippool-poc2.yaml
+```
+
+Result: `shared-vip-pool` created on both (`.16–.31`); `gateway-pool`
+and kind-l2-announce configured; existing leases unchanged (`2d14h` /
+`2d` on poc1; `rebel-base-lb` on poc2).
+
+```text
+ciliumloadbalancerippool.cilium.io/shared-vip-pool created
+ciliuml2announcementpolicy.cilium.io/kind-l2-announce configured
+cilium-l2announce-default-cilium-gateway-sw-gateway   poc1-control-plane                                                              2d14h
+cilium-l2announce-default-rebel-base-lb   poc2-control-plane                                                              2d14h
+```
+
+### 2. Issue the certificates
+
+One `Certificate` per cluster, the same spec. A wildcard
+`*.shop.poc.local` covers one label and fails the two-label names
+(RFC 6125).
+
+```bash
+kubectl --context kind-poc1 apply -f demos/40-shop-mesh-phase0/00-namespaces.yaml
+kubectl --context kind-poc1 apply -f demos/40-shop-mesh-phase0/20-certificates.yaml
+kubectl --context kind-poc1 -n shop-edge wait certificate/shop-tls \
+  --for=condition=Ready --timeout=90s
+kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/00-namespaces.yaml
+kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/20-certificates.yaml
+kubectl --context kind-poc2 -n shop-edge wait certificate/shop-tls \
+  --for=condition=Ready --timeout=90s
+```
+
+Result: `shop-tls` Ready on both.
+
+```text
+certificate.cert-manager.io/shop-tls created
+certificate.cert-manager.io/shop-tls condition met
+```
+
+### 3. Create the Gateways
+
+Two files, one per cluster. Then `shop-vip-announce` on poc1 only
+(delete from the other first).
+
+```bash
+kubectl --context kind-poc1 apply -f demos/40-shop-mesh-phase0/30-gateways-poc1.yaml
+kubectl --context kind-poc1 -n shop-edge wait --for=condition=Programmed \
+  gateway/shop-gw --timeout=120s
+kubectl --context kind-poc1 -n shop-edge wait --for=condition=Programmed \
+  gateway/shop-vip-gw --timeout=120s
+kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/30-gateways-poc2.yaml
+kubectl --context kind-poc2 -n shop-edge wait --for=condition=Programmed \
+  gateway/shop-gw --timeout=120s
+kubectl --context kind-poc2 -n shop-edge wait --for=condition=Programmed \
+  gateway/shop-vip-gw --timeout=120s
+kubectl --context kind-poc2 delete ciliuml2announcementpolicy shop-vip-announce \
+  --ignore-not-found
+kubectl --context kind-poc1 apply -f cilium/l2-shop-vip-announce.yaml
+scripts/vip-takeover.sh --status
+```
+
+Result: all four Programmed; VIP announced by poc1,
+`lease holder=poc1-worker`. ARP for `.16` from the kind bridge: three
+replies from `2a:41:4a:7f:cf:12` (poc1-control-plane).
+
+```text
+CLUSTER  GATEWAY      ADDRESS          PROGRAMMED   CERT_READY   VIP_BY
+poc1     shop-gw      172.18.255.242   True         True         -
+poc1     shop-vip-gw  172.18.255.16    True         True         poc1
+poc2     shop-gw      172.18.255.177   True         True         -
+poc2     shop-vip-gw  172.18.255.16    True         True         poc1
+```
+
+### 4. Build the app image
+
+`shopapi` is `/healthz`, `/ready` (`SELECT 1`), `/orders`; one pool,
+connect timeout 1 s, `SetMaxOpenConns 8`. No Deployment in this phase.
+
+```bash
+demos/40-shop-mesh-phase0/shopapi/build.sh
+```
+
+Result: `shopapi:local` loaded into poc1 and poc2 (config
+`0fe50505…`).
+
+```text
+shopapi:local loaded into poc1 and poc2
+```
+
+### 5. Build the clients
+
+Go and Python share one contract: `probe` hits every path once; `load`
+prints per-second OK/FAIL and which cluster answered. Both accept a bare
+number or Go units (`3`, `3s`, `500ms`). They know only the URL.
+
+```bash
+demos/40-shop-mesh-phase0/client/go/shopctl/build.sh
+```
+
+Result: both binaries written. The Python client is the script itself.
+
+```text
+wrote bin/shopctl-darwin-arm64 bin/shopctl-linux-amd64
+```
+
+### 6. Measure the takeover
+
+Delete-from-the-other-first: never two announcers. `--force` skips the
+delete when the other API is down and warns; `--status` then reports
+UNKNOWN instead of absent.
+
+```bash
+scripts/vip-takeover.sh poc2
+scripts/vip-takeover.sh --status
+scripts/vip-takeover.sh poc1
+```
+
+Result: poc2 acquired the VIP lease on `poc2-control-plane` at 0 s;
+poc1's lease lingered with an empty holder (`27s` in the same listing).
+After 20 s: `announced by: poc2`, `lease holder=poc2-control-plane`,
+poc1 `lease: none`. Restored to poc1 (`poc1-worker` at 0 s). Agent logs:
+the lease moved in ~40 ms.
+
+```text
+== VIP 172.18.255.16 announced by: poc2
+-- poc1
+  shop-vip-announce: absent
+  lease: none
+-- poc2
+  shop-vip-announce: present
+  lease holder=poc2-control-plane
+```
+
+## Verify
+
+From the Mac, with the route present:
+
+```bash
+curl -sk --resolve api.shop.poc.local:443:172.18.255.16 \
+  -o /dev/null -w '%{http_code}\n' https://api.shop.poc.local/
+```
+
+Expect `404`. 000 is a failure — the door is unreachable.
+
+```bash
+echo | openssl s_client -servername api.shop.poc.local \
+  -connect 172.18.255.16:443 2>/dev/null \
+  | openssl x509 -noout -issuer -subject -ext subjectAltName
+```
+
+Expect `issuer=CN=clustermesh-root-ca`, `subject=CN=api.shop.poc.local`,
+and the three SANs.
+
+```bash
+demos/40-shop-mesh-phase0/check.sh
+```
+
+Recorded `2026-09-18T13:21:02Z` (21 PASS, 0 FAIL):
+
+```text
+== demo 40 — the shop platform on the mesh, phase 0 (the ground under it)
+  STATUS WHAT                                                                   MEASURED                                             RULE
+  PASS   shared-vip-pool on poc1                                                172.18.255.16–172.18.255.31                        block 172.18.255.16–172.18.255.31 in both clusters
+  PASS   shared-vip-pool on poc2                                                172.18.255.16–172.18.255.31                        block 172.18.255.16–172.18.255.31 in both clusters
+  PASS   shop-tls Ready on poc1                                                 Ready=True                                           Certificate shop-tls Ready=True
+  PASS   shop-tls Ready on poc2                                                 Ready=True                                           Certificate shop-tls Ready=True
+  PASS   poc1/shop-gw Programmed at 172.18.255.242                              addr=172.18.255.242 Programmed=True (172.18.255.242) Programmed=True and status.addresses[0]=172.18.255.242
+  PASS   poc1/shop-vip-gw Programmed at 172.18.255.16                           addr=172.18.255.16 Programmed=True (172.18.255.16)   Programmed=True and status.addresses[0]=172.18.255.16
+  PASS   poc2/shop-gw Programmed at 172.18.255.177                              addr=172.18.255.177 Programmed=True (172.18.255.177) Programmed=True and status.addresses[0]=172.18.255.177
+  PASS   poc2/shop-vip-gw Programmed at 172.18.255.16                           addr=172.18.255.16 Programmed=True (172.18.255.16)   Programmed=True and status.addresses[0]=172.18.255.16
+  PASS   exactly one cluster holds the VIP l2announce lease                     poc1 holder=poc1-worker                              lease cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw has a holderIdentity in one context, none in the other
+  PASS   VIP https://api.shop.poc.local @ 172.18.255.16 answers                 http_code=404                                        http_code=404 in phase 0
+  PASS   VIP leaf issuer is clustermesh-root-ca                                 issuer=CN=clustermesh-root-ca                        openssl x509 -noout -issuer contains clustermesh-root-ca
+  PASS   https://api.poc1.shop.poc.local @ 172.18.255.242 answers               404                                                  http_code=404 in phase 0
+  PASS   api.poc1.shop.poc.local leaf issuer is clustermesh-root-ca             issuer=CN=clustermesh-root-ca                        same root as the VIP
+  PASS   https://api.poc2.shop.poc.local @ 172.18.255.177 answers               404                                                  http_code=404 in phase 0
+  PASS   api.poc2.shop.poc.local leaf issuer is clustermesh-root-ca             issuer=CN=clustermesh-root-ca                        same root as the VIP
+  PASS   shopapi:local on poc1-control-plane                                    crictl images | grep shopapi matched                 docker exec poc1-control-plane crictl images contains shopapi
+  PASS   shopapi:local on poc1-worker                                           crictl images | grep shopapi matched                 docker exec poc1-worker crictl images contains shopapi
+  PASS   shopapi:local on poc2-control-plane                                    crictl images | grep shopapi matched                 docker exec poc2-control-plane crictl images contains shopapi
+  PASS   shopapi:local on poc2-worker                                           crictl images | grep shopapi matched                 docker exec poc2-worker crictl images contains shopapi
+  PASS   shopctl (Go) --help                                                    demos/40-shop-mesh-phase0/client/go/shopctl/bin/shopctl-darwin-arm64 the darwin-arm64 / linux-amd64 binary runs --help
+  PASS   shopctl.py --help                                                      demos/40-shop-mesh-phase0/client/python/shopctl.py   the Python client runs --help
+```
+
+## Reference
+
+Certificate spec (`20-certificates.yaml`):
+
+```yaml
+kind: Certificate
+spec:
+  secretName: shop-tls
+  commonName: api.shop.poc.local
+  dnsNames:
+    - api.shop.poc.local
+    - api.poc1.shop.poc.local
+    - api.poc2.shop.poc.local
+  issuerRef: {kind: ClusterIssuer, name: ca-issuer}
+```
+
+Issued leaf: `subject=CN=api.shop.poc.local`,
+`issuer=CN=clustermesh-root-ca`, the three SANs. Fingerprints differ per
+cluster — poc1 `43:21:FC:A4…`, poc2 `C8:9E:AB:79…` — so a call to `.16`
+that shows poc1's fingerprint reached poc1. Issuer `ca-issuer` signs
+from CA secret `clustermesh-root-ca` (the same root in both clusters).
+A client trusts `docs/root-ca.crt`.
+
+Lease name:
+`cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw` — format
+`cilium-l2announce-<namespace>-cilium-gateway-<gateway-name>`.
+
+| File | What |
+|---|---|
+| [`cilium/lb-ippool-shared.yaml`](../../cilium/lb-ippool-shared.yaml) | `shared-vip-pool` `.16–.31`, selector `owning-gateway In [shop-vip-gw]` |
+| [`cilium/l2-shop-vip-announce.yaml`](../../cilium/l2-shop-vip-announce.yaml) | `shop-vip-announce`; one cluster at a time |
+| [`cilium/lb-ippool-poc1.yaml`](../../cilium/lb-ippool-poc1.yaml) / [`-poc2.yaml`](../../cilium/lb-ippool-poc2.yaml) | `kind-l2-announce` excludes `shop-vip-gw` |
+| [`20-certificates.yaml`](20-certificates.yaml) | `Certificate` `shop-tls` — three dnsNames, not a wildcard |
+| [`30-gateways-poc1.yaml`](30-gateways-poc1.yaml) / [`30-gateways-poc2.yaml`](30-gateways-poc2.yaml) | two Gateways each; poc2's `shop-gw` has `https-grpc` (demo 53) |
+| [`apply.sh`](apply.sh) / [`check.sh`](check.sh) / [`cleanup.sh`](cleanup.sh) | land, prove, remove |
+| [`scripts/vip-takeover.sh`](../../scripts/vip-takeover.sh) | delete-other-first; `--status`; `--force` in DR |
+
+Address block `172.18.255.0/26` (enhancement 002 §8.1): shared pool
+`.16–.31`; poc1 doors `.240–.250`; poc2 doors `.176–.186`; node-held
+reservation `.40–.47` (not LB IPAM).
+
+## Troubleshooting
+
+- `shopctl` prints `000`: the name does not resolve and the clients have
+  no `--resolve` — add the hosts block under *Prerequisites*.
+- `arp -n 172.18.255.16` on this Mac has no entry: the host route's next
+  hop is the Docker VM, so the Mac never ARPs for the VIP.
+- Two announcers for `.16`: the policy was applied on both — move it
+  with `scripts/vip-takeover.sh` (delete-other-first).
+
+## Clean up
+
+```bash
+demos/40-shop-mesh-phase0/cleanup.sh
+```
+
+Removes the Gateways, the certificate, `Secret/shop-tls`,
+`shop-vip-announce`, and `shared-vip-pool` from both clusters, and
+restores kind-l2-announce without the exclusion. Keeps namespace
+`shop-edge`.
+
+## What's next
+
+- [Demo 41](../41-shop-mesh-phase1/README.md) attaches HTTPRoutes and
+  deploys the platform as clustermesh global Services with affinity
+  local.
+- CiliumNetworkPolicy objects are generated from the flows (cf2cnp).
+- Phase 2 publishes `db-service.poc.local` at `172.18.255.244`.
+- Demo 45 uses `--force` when poc1's API is gone.
+- Do not rebuild during demo 41 (gotcha #118).
