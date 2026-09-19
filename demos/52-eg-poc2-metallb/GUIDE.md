@@ -29,7 +29,7 @@ open http://api.eg-poc2.poc.local/orders
 `output/browser.png` (`1000 x 500`, `chrome_rc=0`).
 
 ```text
-screenshot written after 2.0 s; chrome_rc=0
+screenshot written after 5.2 s; chrome_rc=0
 demos/52-eg-poc2-metallb/output/browser.png: PNG image data, 1000 x 500, 8-bit/color RGB, non-interlaced
 ```
 

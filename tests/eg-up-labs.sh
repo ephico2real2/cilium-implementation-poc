@@ -10,6 +10,7 @@
 #       .tmp/eg-poc2-root-ca.crt (STUB_CLUSTERS must not list eg2)
 #   (e) `eg-up.sh eg-poc1 eg-poc2` exits 2 before doing anything
 #   (f) `eg-up.sh eg-poc2` exits 2 when kind cluster `eg2` is present
+#   (g) `eg-up.sh eg2` and the default `eg-up.sh` exit 2 when kind cluster `eg-poc2` is present
 # usage: bash tests/eg-up-labs.sh scripts/eg-up.sh   (exit 0 = test passes)
 set -uo pipefail
 UP=${1:?eg-up.sh path}; T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
@@ -162,5 +163,24 @@ if grep -qE 'helm |kind create' "$T/log"; then
   exit 1
 fi
 
-echo "TEST PASS: eg-poc1 mints its own root; mix exits 2; eg2 still requires eg1 first; eg-poc2 own root; eg-poc1 eg-poc2 exits 2; eg2 present → 2"
+# (g) the reverse: eg2 (explicit, and the no-argument default eg1 eg2) refused while
+#     kind cluster `eg-poc2` exists — same /26 — before any stub is invoked but
+#     `kind get clusters`
+for args in "eg2" ""; do
+  STUB_CLUSTERS=$'eg1\neg-poc2'
+  : > "$T/log"
+  (cd "$T/repo" && STUB_LOG="$T/log" STUB_CLUSTERS="$STUB_CLUSTERS" \
+    PATH="$T/bin:/usr/bin:/bin" bash scripts/eg-up.sh $args >"$T/out" 2>&1)
+  rc=$?
+  [ "$rc" -eq 2 ] || { echo "TEST FAIL: eg-up.sh '$args' with eg-poc2 present exit $rc, want 2"; cat "$T/out"; exit 1; }
+  grep -q 'refuse eg2 while kind cluster eg-poc2 exists' "$T/out" \
+    || { echo "TEST FAIL: eg2/eg-poc2 collision ('$args') did not print the sentence"; cat "$T/out"; exit 1; }
+  if grep -vq '^kind get clusters$' "$T/log"; then
+    echo "TEST FAIL: eg-up.sh '$args' with eg-poc2 present did work after the refuse:"
+    cat "$T/log"
+    exit 1
+  fi
+done
+
+echo "TEST PASS: eg-poc1 mints its own root; mix exits 2; eg2 still requires eg1 first; eg-poc2 own root; eg-poc1 eg-poc2 exits 2; eg2 present → 2; eg-poc2 present → eg2 refused"
 exit 0

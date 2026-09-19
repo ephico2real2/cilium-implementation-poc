@@ -106,8 +106,9 @@ table, the address block. Tables over prose.>
    a block and keep the sentence about what it does. The same for *Verify*, *Prerequisites* and *Clean up*.
 4. **Every number comes from `output/transcript.txt`, `docs/REVIEW_<demo>.md` or the plan** — plus, for lab-wide
    facts only, `scripts/bootstrap/versions*.env` (the pins) and `docs/SETUP.md` / `NETWORKING_DESIGN.md` (the
-   Mac route, the address plan), each linked where used. Not remembered, not rounded, not summed unless the sum is
-   in a source.
+   Mac route, the address plan), and **the demo's own manifests and scripts, linked where used** (a certificate's
+   2160h lives in `20-certificate.yaml`, the port 9090 in `50-routes.yaml`, grpcurl's v1.9.4 in `apply.sh`).
+   Not remembered, not rounded, not summed unless the sum is in a source.
 5. **No history of the runs.** What failed on the way, what a reviewer caught, what was retried — none of it is
    in the guide. The README's record and `docs/REVIEW_*.md` hold that. The one exception is
    *Troubleshooting*: a symptom the reader may hit, with its gotcha link.

@@ -348,10 +348,61 @@ unset -f mac_http mac_https mac_orders
 echo "== 8b. gRPC test matrix from the Mac (grpcurl@v1.9.4)"
 grpc_matrix() {
   local GRPCURL=(go run github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.4)
-  local tbl rc out n bogus verdict
+  local tbl rc out n bogus verdict matrix_failures=0
   tbl=$(mktemp)
 
+  payload_ok() {
+    python3 -c '
+import json, sys
+try:
+    kind, version, rc = sys.argv[1:]
+    assert rc == "0"
+    text = sys.stdin.read().strip()
+    decoder = json.JSONDecoder()
+    values = []
+    while text:
+        value, end = decoder.raw_decode(text)
+        values.append(value)
+        text = text[end:].lstrip()
+    def stamp(value):
+        assert isinstance(value, dict)
+        assert value.get("version") == version
+        assert isinstance(value.get("servedBy"), str)
+        assert value["servedBy"].startswith("grpcdemo-" + version + "-")
+    def order(value):
+        stamp(value)
+        assert str(value.get("id")) in ("1", "2", "3")
+        assert value.get("item") == {"1":"keyboard","2":"mouse","3":"monitor"}[str(value["id"])]
+    if kind == "list":
+        assert len(values) == 1
+        stamp(values[0])
+        orders = values[0]["orders"]
+        assert isinstance(orders, list) and len(orders) == 3
+        assert {str(o["id"]) for o in orders} == {"1", "2", "3"}
+        for value in orders:
+            order(value)
+        count = 3
+    elif kind == "get":
+        assert len(values) == 1
+        order(values[0])
+        assert str(values[0]["id"]) == "2"
+        count = 1
+    elif kind == "stream":
+        assert len(values) == 5
+        for value in values:
+            stamp(value)
+            order(value["order"])
+        count = 5
+    else:
+        raise ValueError("unknown payload kind")
+    print(count)
+except (AssertionError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+    sys.exit(1)
+' "$@"
+  }
+
   row() { # id expected observed pass|fail
+    if [ "$4" = FAIL ]; then matrix_failures=$((matrix_failures + 1)); fi
     printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" >>"$tbl"
     echo "T $1 expected=$2 observed=$3 $4"
   }
@@ -385,12 +436,7 @@ grpc_matrix() {
     "${GRPC_ADDR}:80" shop.v1.Orders/ListOrders 2>&1) || rc=$?
   printf '%s\n' "$out"
   echo "T2_rc=$rc"
-  if [ "$rc" -eq 0 ] \
-     && printf '%s' "$out" | grep -Eq '"version"[[:space:]]*:[[:space:]]*"v1"' \
-     && printf '%s' "$out" | grep -q keyboard \
-     && printf '%s' "$out" | grep -q mouse \
-     && printf '%s' "$out" | grep -q monitor \
-     && printf '%s' "$out" | grep -q grpcdemo-v1-; then
+  if printf '%s' "$out" | payload_ok list v1 "$rc" >/dev/null; then
     row T2 "3 orders version v1 served_by grpcdemo-v1-" "v1 + three rows" PASS
   else
     row T2 "3 orders version v1 served_by grpcdemo-v1-" "$(observed "$out") rc=$rc" FAIL
@@ -402,7 +448,7 @@ grpc_matrix() {
     "${GRPC_ADDR}:443" shop.v1.Orders/ListOrders 2>&1) || rc=$?
   printf '%s\n' "$out"
   echo "T3_rc=$rc"
-  if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -Eq '"version"[[:space:]]*:[[:space:]]*"v1"'; then
+  if printf '%s' "$out" | payload_ok list v1 "$rc" >/dev/null; then
     row T3 "TLS ListOrders v1" "v1 rc=0" PASS
   else
     row T3 "TLS ListOrders v1" "$(observed "$out") rc=$rc" FAIL
@@ -414,7 +460,7 @@ grpc_matrix() {
     -d '{"id":2}' "${GRPC_ADDR}:80" shop.v1.Orders/GetOrder 2>&1) || rc=$?
   printf '%s\n' "$out"
   echo "T4_rc=$rc"
-  if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -Eq '"version"[[:space:]]*:[[:space:]]*"v2"'; then
+  if printf '%s' "$out" | payload_ok get v2 "$rc" >/dev/null; then
     row T4 "GetOrder id=2 version v2" "v2" PASS
   else
     row T4 "GetOrder id=2 version v2" "$(observed "$out") rc=$rc" FAIL
@@ -445,8 +491,24 @@ grpc_matrix() {
     "${GRPC_ADDR}:80" shop.v1.Orders/WatchOrders 2>&1) || rc=$?
   printf '%s\n' "$out"
   echo "T6_rc=$rc"
-  n=$(printf '%s\n' "$out" | grep -c '"item"' || true)
-  if [ "$n" -eq 5 ]; then
+  n=$(printf '%s\n' "$out" | python3 -c '
+import json, sys
+n = 0
+dec = json.JSONDecoder()
+s = sys.stdin.read()
+i = 0
+while i < len(s):
+    while i < len(s) and s[i].isspace():
+        i += 1
+    if i >= len(s):
+        break
+    obj, j = dec.raw_decode(s, i)
+    if isinstance(obj, dict) and "order" in obj:
+        n += 1
+    i = j
+print(n)
+' 2>/dev/null || echo 0)
+  if [ "$rc" -eq 0 ] && [ "$n" -eq 5 ]; then
     row T6 "5 streamed events" "events=$n" PASS
   else
     row T6 "5 streamed events" "events=$n rc=$rc" FAIL
@@ -520,20 +582,22 @@ grpc_matrix() {
     row T10 "metadata x-served-by + x-version" "$(observed "$out") rc=$rc" FAIL
   fi
 
-  echo "-- T11 TLS with a bogus CA (not -insecure) → fail"
+  echo "-- T11 TLS with a bogus CA (not -insecure) → tls: failed to verify certificate"
   bogus=$(mktemp)
   openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
     -keyout "$bogus.key" -out "$bogus" -subj /CN=bogus -days 1 >/dev/null 2>&1
   rc=0
-  out=$("${GRPCURL[@]}" -cacert "$bogus" -authority "$GRPC_HOST" \
+  out=$("${GRPCURL[@]}" -cacert "$bogus" -authority "$GRPC_HOST" -max-time 10 \
     "${GRPC_ADDR}:443" shop.v1.Orders/ListOrders 2>&1) || rc=$?
   printf '%s\n' "$out"
   echo "T11_rc=$rc"
   rm -f "$bogus" "$bogus.key"
-  if [ "$rc" -ne 0 ]; then
+  # rc≠0 alone is not the proof: a dead door's dial timeout is rc=1 too (measured
+  # against an unallocated pool address). The verification error is.
+  if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'failed to verify certificate'; then
     row T11 "TLS fails with bogus CA" "$(observed "$out") rc=$rc" PASS
   else
-    row T11 "TLS fails with bogus CA" "unexpected success" FAIL
+    row T11 "TLS fails with bogus CA" "$(observed "$out") rc=$rc" FAIL
   fi
 
   echo "-- T12 isolation: grpc authority at HTTP door; api host at gRPC door"
@@ -578,11 +642,14 @@ grpc_matrix() {
   while IFS=$'\t' read -r id exp obs ver; do
     printf '%-4s %-48s %-28s %s\n' "$id" "$exp" "$obs" "$ver"
   done <"$tbl"
+  echo "gRPC matrix: $matrix_failures FAIL"
   rm -f "$tbl"
+  return "$matrix_failures"
 }
 export -f grpc_matrix
 export HTTP_HOST HTTP_ADDR GRPC_HOST GRPC_ADDR CA
-rec bash -c grpc_matrix
+matrix_fails=0
+rec bash -c grpc_matrix || matrix_fails=$?
 unset -f grpc_matrix
 
 # ---- 9. THE BROWSER ----
@@ -740,3 +807,7 @@ rec bash -c final_table
 unset -f final_table wait_envoy_deploy wait_route
 
 echo "demo 52 apply: done"
+if [ "${matrix_fails:-0}" -ne 0 ]; then
+  echo "demo 52 apply: gRPC matrix had $matrix_fails FAIL"
+  exit 1
+fi

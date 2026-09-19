@@ -5,6 +5,55 @@
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 fails=0
+payload_ok() {
+  python3 -c '
+import json, sys
+try:
+    kind, version, rc = sys.argv[1:]
+    assert rc == "0"
+    text = sys.stdin.read().strip()
+    decoder = json.JSONDecoder()
+    values = []
+    while text:
+        value, end = decoder.raw_decode(text)
+        values.append(value)
+        text = text[end:].lstrip()
+    def stamp(value):
+        assert isinstance(value, dict)
+        assert value.get("version") == version
+        assert isinstance(value.get("servedBy"), str)
+        assert value["servedBy"].startswith("grpcdemo-" + version + "-")
+    def order(value):
+        stamp(value)
+        assert str(value.get("id")) in ("1", "2", "3")
+        assert value.get("item") == {"1":"keyboard","2":"mouse","3":"monitor"}[str(value["id"])]
+    if kind == "list":
+        assert len(values) == 1
+        stamp(values[0])
+        orders = values[0]["orders"]
+        assert isinstance(orders, list) and len(orders) == 3
+        assert {str(o["id"]) for o in orders} == {"1", "2", "3"}
+        for value in orders:
+            order(value)
+        count = 3
+    elif kind == "get":
+        assert len(values) == 1
+        order(values[0])
+        assert str(values[0]["id"]) == "2"
+        count = 1
+    elif kind == "stream":
+        assert len(values) == 5
+        for value in values:
+            stamp(value)
+            order(value["order"])
+        count = 5
+    else:
+        raise ValueError("unknown payload kind")
+    print(count)
+except (AssertionError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+    sys.exit(1)
+' "$@"
+}
 row() { # ok|fail|warn  what  measured  rule
   local st
   case "$1" in
@@ -133,8 +182,11 @@ arping_check() { # ip label
   macs=$(printf '%s\n' "$out" | awk '/Unicast reply/{gsub(/[\[\]]/,"",$5); print $5}' | sort -u | wc -l | tr -d ' ')
   mac=$(printf '%s\n' "$out" | awk '/Unicast reply/{gsub(/[\[\]]/,"",$5); print $5; exit}')
   node=$(node_of_mac "$mac" || true)
-  if [ "$n" -eq 3 ] && [ "$macs" -eq 1 ]; then
-    row ok "ARP $label $ip one responder 3/3" "replies=$n unique_mac=$macs node=${node:-?}" "R5 / R8 — arping -b 3 of 3 from ONE MAC"
+  # the responder must be an eg-poc2 node: a MAC no node owns (a stale container, a
+  # neighbour cluster on the same /26) is "3/3 from one MAC" too and is not this
+  # lab's announcement — never "PASS node=?"
+  if [ "$n" -eq 3 ] && [ "$macs" -eq 1 ] && [ -n "$node" ]; then
+    row ok "ARP $label $ip one responder 3/3" "replies=$n unique_mac=$macs node=$node" "R5 / R8 — arping -b 3 of 3 from ONE MAC"
   else
     row fail "ARP $label $ip one responder 3/3" "replies=$n unique_mac=$macs node=${node:-?}" "R5 / R8 — arping -b 3 of 3 from ONE MAC"
   fi
@@ -196,29 +248,57 @@ l2_status() {
         "R5 — MetalLB names the announcing node"
       return
     fi
-    measured=$(printf '%s' "$out" | python3 -c '
-import json, sys
+    # The door Services are externalTrafficPolicy: Local (Envoy Gateway's default), so
+    # MetalLB's L2 election only considers nodes with a serving endpoint
+    # (speaker/layer2_controller.go v0.16.0 ShouldAnnounce: nodesWithEndpoint). The
+    # announcing node must therefore be a node that runs the door's Envoy pod.
+    pod_nodes_http=$(kubectl --context "$CTX" -n envoy-gateway-system get pods \
+      -l gateway.envoyproxy.io/owning-gateway-name=http-gw -o jsonpath='{.items[*].spec.nodeName}' 2>&1)
+    pod_rc_http=$?
+    pod_nodes_grpc=$(kubectl --context "$CTX" -n envoy-gateway-system get pods \
+      -l gateway.envoyproxy.io/owning-gateway-name=grpc-gw -o jsonpath='{.items[*].spec.nodeName}' 2>&1)
+    pod_rc_grpc=$?
+    if [ "$pod_rc_http" -ne 0 ] || [ "$pod_rc_grpc" -ne 0 ]; then
+      row fail "ServiceL2Status / announcing from node" \
+        "kubectl pods failed http_rc=$pod_rc_http grpc_rc=$pod_rc_grpc" \
+        "R5 — MetalLB names the announcing node for both doors (ETP Local: a node with the Envoy pod)"
+      return
+    fi
+    measured=$(printf '%s' "$out" | POD_NODES_HTTP="$pod_nodes_http" POD_NODES_GRPC="$pod_nodes_grpc" python3 -c '
+import json, os, sys
 try:
     items = json.load(sys.stdin).get("items", [])
 except Exception:
     print("bad json"); sys.exit(0)
-want = {"envoy-shop-http-gw", "envoy-shop-grpc-gw"}
-seen = {}
+pod_nodes = {"envoy-shop-http-gw": set(os.environ["POD_NODES_HTTP"].split()),
+             "envoy-shop-grpc-gw": set(os.environ["POD_NODES_GRPC"].split())}
+want = set(pod_nodes)
+seen, wrong = {}, []
 for it in items:
     st = it.get("status", {})
     name = st.get("serviceName", "")
     for w in want:
         if name.startswith(w) and st.get("node"):
             seen[w] = st["node"]
-print(" ".join(f"{k}={v}" for k, v in sorted(seen.items())) if len(seen) == 2 else "missing: " + " ".join(sorted(want - set(seen))))
+            if st["node"] not in pod_nodes[w]:
+                wrong.append("%s=%s pod on %s" % (w, st["node"], " ".join(sorted(pod_nodes[w])) or "?"))
+if len(seen) != 2:
+    print("missing: " + " ".join(sorted(want - set(seen))))
+elif wrong:
+    print("not the pod node: " + " ".join(wrong))
+else:
+    print(" ".join(f"{k}={v}" for k, v in sorted(seen.items())))
 ' 2>/dev/null)
     case "$measured" in
+      missing:*|not\ the\ pod\ node:*|"bad json"|"")
+        row fail "ServiceL2Status / announcing from node" "${measured:-no ServiceL2Status}" \
+          "R5 — MetalLB names the announcing node for both doors (ETP Local: a node with the Envoy pod)" ;;
       *http-gw=*grpc-gw=*|*grpc-gw=*http-gw=*)
         row ok "ServiceL2Status / announcing from node" "$measured" \
-          "R5 — MetalLB names the announcing node for both doors" ;;
+          "R5 — MetalLB names the announcing node for both doors (ETP Local: a node with the Envoy pod)" ;;
       *)
         row fail "ServiceL2Status / announcing from node" "${measured:-no ServiceL2Status}" \
-          "R5 — MetalLB names the announcing node for both doors" ;;
+          "R5 — MetalLB names the announcing node for both doors (ETP Local: a node with the Envoy pod)" ;;
     esac
   else
     out=$(kubectl --context "$CTX" -n metallb-system logs \
@@ -313,18 +393,18 @@ print(len(d))
 }
 orders_door
 
-# docker grpcurl on kind-eg (no Go cache)
+# docker grpcurl on kind-eg (no Go cache). Callers capture $?; do not swallow it.
 grpc_docker() { # extra args... -- method
-  docker run --rm --network kind-eg fullstorydev/grpcurl:latest "$@" 2>&1 || true
+  docker run --rm --network kind-eg fullstorydev/grpcurl:latest "$@" 2>&1
 }
 grpc_docker_tls() {
   docker run --rm --network kind-eg \
-    -v "$PWD/$CA:/ca.crt:ro" fullstorydev/grpcurl:latest "$@" 2>&1 || true
+    -v "$PWD/$CA:/ca.crt:ro" fullstorydev/grpcurl:latest "$@" 2>&1
 }
 grpc_docker_probe() {
   docker run --rm --network kind-eg \
     -v "$PWD/demos/52-eg-poc2-metallb/probe:/probe:ro" \
-    fullstorydev/grpcurl:latest "$@" 2>&1 || true
+    fullstorydev/grpcurl:latest "$@" 2>&1
 }
 
 # 12. Health SERVING (exact "status": "SERVING")
@@ -340,18 +420,19 @@ fi
 # 13. ListOrders v1
 list_out=$(grpc_docker -plaintext -max-time 10 -authority "$GRPC_HOST" \
   "${GRPC_ADDR}:80" shop.v1.Orders/ListOrders)
-if printf '%s' "$list_out" | grep -Eq '"version"[[:space:]]*:[[:space:]]*"v1"' \
-   && printf '%s' "$list_out" | grep -q keyboard; then
+list_rc=$?
+if printf '%s' "$list_out" | payload_ok list v1 "$list_rc" >/dev/null; then
   row ok "gRPC ListOrders v1" "version=v1" "R10 — service default → grpc-v1"
 else
   row fail "gRPC ListOrders v1" "$(printf '%s' "$list_out" | tr '\n' ' ' | head -c 80)" \
     "R10 — service default → grpc-v1"
 fi
 
-# 14. GetOrder v2 (routing by method) — a stub {"version":"v1"} is FAIL
+# 14. GetOrder v2 (routing by method) — a stub {"version":"v2"} without served_by is FAIL
 get_out=$(grpc_docker -plaintext -max-time 10 -authority "$GRPC_HOST" \
   -d '{"id":2}' "${GRPC_ADDR}:80" shop.v1.Orders/GetOrder)
-if printf '%s' "$get_out" | grep -Eq '"version"[[:space:]]*:[[:space:]]*"v2"'; then
+get_rc=$?
+if printf '%s' "$get_out" | payload_ok get v2 "$get_rc" >/dev/null; then
   row ok "gRPC GetOrder v2" "version=v2" "R10 — method match → grpc-v2"
 else
   row fail "gRPC GetOrder v2" "$(printf '%s' "$get_out" | tr '\n' ' ' | head -c 80)" \
@@ -361,18 +442,36 @@ fi
 # 15. x-version v2 (routing by metadata)
 hdr_out=$(grpc_docker -plaintext -max-time 10 -authority "$GRPC_HOST" \
   -H 'x-version: v2' "${GRPC_ADDR}:80" shop.v1.Orders/ListOrders)
-if printf '%s' "$hdr_out" | grep -Eq '"version"[[:space:]]*:[[:space:]]*"v2"'; then
+hdr_rc=$?
+if printf '%s' "$hdr_out" | payload_ok list v2 "$hdr_rc" >/dev/null; then
   row ok "gRPC ListOrders x-version v2" "version=v2" "R10 — metadata match → grpc-v2"
 else
   row fail "gRPC ListOrders x-version v2" "$(printf '%s' "$hdr_out" | tr '\n' ' ' | head -c 80)" \
     "R10 — metadata match → grpc-v2"
 fi
 
-# 16. WatchOrders 5 events
+# 16. WatchOrders 5 events — objects with an `order` key, and the stream must succeed
 watch_out=$(grpc_docker -plaintext -max-time 10 -authority "$GRPC_HOST" \
   -d '{"count":5,"interval_ms":200}' "${GRPC_ADDR}:80" shop.v1.Orders/WatchOrders)
-watch_n=$(printf '%s\n' "$watch_out" | grep -c '"item"' || true)
-if [ "$watch_n" -eq 5 ]; then
+watch_rc=$?
+watch_n=$(printf '%s\n' "$watch_out" | python3 -c '
+import json, sys
+n = 0
+dec = json.JSONDecoder()
+s = sys.stdin.read()
+i = 0
+while i < len(s):
+    while i < len(s) and s[i].isspace():
+        i += 1
+    if i >= len(s):
+        break
+    obj, j = dec.raw_decode(s, i)
+    if isinstance(obj, dict) and "order" in obj:
+        n += 1
+    i = j
+print(n)
+' 2>/dev/null || echo 0)
+if [ "$watch_rc" -eq 0 ] && [ "$watch_n" -eq 5 ]; then
   row ok "gRPC WatchOrders 5 events" "events=$watch_n" "R10 — streamed OrderEvent × 5"
 else
   row fail "gRPC WatchOrders 5 events" "events=$watch_n" "R10 — streamed OrderEvent × 5"
@@ -432,7 +531,8 @@ if [ ! -f "$CA" ]; then
 else
   tls_out=$(grpc_docker_tls -cacert /ca.crt -max-time 10 -authority "$GRPC_HOST" \
     "${GRPC_ADDR}:443" shop.v1.Orders/ListOrders)
-  if printf '%s' "$tls_out" | grep -Eq '"version"[[:space:]]*:[[:space:]]*"v1"'; then
+  tls_rc=$?
+  if printf '%s' "$tls_out" | payload_ok list v1 "$tls_rc" >/dev/null; then
     row ok "gRPC TLS ListOrders" "version=v1" "R10 — TLS ListOrders against the lab root"
   else
     row fail "gRPC TLS ListOrders" "$(printf '%s' "$tls_out" | tr '\n' ' ' | head -c 80)" \

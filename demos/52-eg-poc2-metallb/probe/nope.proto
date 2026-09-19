@@ -1,6 +1,8 @@
 // Descriptor for T8b: declares shop.v1.Nope/Do so grpcurl will send the RPC.
-// This service is NOT served by grpcdemo — no GRPCRoute rule matches, Envoy
-// answers 404, and grpcurl maps that to Unimplemented with an empty Message.
+// This service is NOT served by grpcdemo — no GRPCRoute rule matches, and Envoy
+// answers the gRPC request itself: HTTP/2 200 with grpc-status: 12 and no
+// grpc-message (measured with curl --http2-prior-knowledge), which grpcurl
+// prints as Unimplemented with an empty Message.
 syntax = "proto3";
 
 package shop.v1;

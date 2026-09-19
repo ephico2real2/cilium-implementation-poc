@@ -12,20 +12,18 @@ over one static route to `172.19/16`.
 
 ## What you get
 
-- One cluster `eg-poc2`: nodes `.0.4` / `.0.5`, kindnet + kube-proxy
-  `iptables`, 10 standard CRDs, 8 EG CRDs, `GatewayClass` Accepted, root
-  `A3:D7:73…`.
+- One cluster `eg-poc2`: kindnet + kube-proxy `iptables`, `GatewayClass`
+  Accepted, its own root `A3:D7:73…`.
 - Two isolated doors: `http-gw` at `172.19.255.150`, `grpc-gw` at
-  `172.19.255.151` (`addr` = `svcIngress` = the pin, `Programmed=True`).
+  `172.19.255.151`, both Programmed at their pinned address.
 - MetalLB L2 announces both from `eg-poc2-worker` (`36:20:3a:e4:50:8d`);
   neither address is on `eth0`.
 - From the Mac: `http`/`https` `/healthz` → `200` and
   `X-Served-By: eg-poc2`; `/orders` → `200` and three rows.
-- From the Mac: the fourteen-case gRPC matrix T1–T13 (T8a / T8b) — every
-  `T Tn … PASS` line, the summary table all PASS.
+- From the Mac: the fourteen-case gRPC matrix, every row PASS.
 - Chrome writes `output/browser.png` (`1000 x 500`) of
   `http://api.eg-poc2.poc.local/orders`.
-- `check.sh` at `2026-09-19T21:37:52Z`: 21 PASS, 0 FAIL.
+- `check.sh` at `2026-09-19T22:22:03Z`: 21 PASS, 0 FAIL.
 
 ## Architecture
 
@@ -60,22 +58,24 @@ A request from the Mac takes this path:
 | `api.eg-poc2.poc.local` | `172.19.255.150` | HTTP door — `/healthz`, `/orders`, the browser | `eg-poc2-worker` (`36:20:3a:e4:50:8d`) |
 | `grpc.eg-poc2.poc.local` | `172.19.255.151` | gRPC door — `shop.v1.Orders`, Health, reflection | `eg-poc2-worker` (`36:20:3a:e4:50:8d`) |
 
-The bridge is `Subnet=172.19.0.0/16 IPRange=172.19.0.0/17
-Gateway=172.19.0.1`. The control-plane sits at `172.19.0.4`, the worker at
-`172.19.0.5`. No HTTPRoute attaches to the gRPC door and no GRPCRoute
-attaches to the HTTP door. The lab has no DNS for `.poc.local`: clients
-use `--resolve`, `-authority`, or Chrome's `--host-resolver-rules`.
-MetalLB answers ARP and does not add the door to `eth0`; kube-proxy
+Nodes `172.19.0.4` (control-plane) and `172.19.0.5` (worker) on the
+bridge `172.19.0.0/16` (Docker allocates from the lower `/17`). No
+HTTPRoute attaches to the gRPC door and no GRPCRoute to the HTTP door.
+There is no DNS for `.poc.local`: clients use `--resolve`, `-authority`, or
+Chrome's `--host-resolver-rules`. MetalLB answers ARP and does not add the door to `eth0`; kube-proxy
 delivers the packet — the visible difference from
-[demo 54](../54-eg-poc1-kube-vip/RECAP.md). The reserved block is
+[demo 54](../54-eg-poc1-kube-vip/RECAP.md). The worker answers because the
+Envoy Services are `externalTrafficPolicy: Local` and MetalLB's L2 election
+keeps only nodes with a serving endpoint (`speaker/layer2_controller.go`
+`nodesWithEndpoint`); both Envoy pods run there. The reserved block is
 `172.19.255.128/26`
 ([enhancement 007 §3.1](../../enhancements/007-envoy-gateway-lab.md)):
 services `.136–.143`; doors `.150–.160`.
 
 ## Prerequisites
 
-- On the Mac: kind, helm, kubectl, Go (so grpcurl v1.9.4 runs without
-  installing a binary), Chrome at
+- On the Mac: kind, helm, kubectl, Go (so grpcurl v1.9.4 in
+  [`apply.sh`](apply.sh) runs without installing a binary), Chrome at
   `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`.
 - Image `shopapi:local` already on the machine. `grpcdemo:local` is built
   by `grpcdemo/build.sh` (the only docker build on this lab).
@@ -215,7 +215,12 @@ kind-eg-poc2 grpcroute/orders: all parents Accepted+ResolvedRefs
 ### 6. Prove the announcement
 
 MetalLB's speaker answers ARP. The address is not configured on the node's
-`eth0`. `ServiceL2Status` names the announcing node.
+`eth0`. `ServiceL2Status` names the announcing node. The worker answers
+because the Envoy Services are `externalTrafficPolicy: Local` and MetalLB
+v0.16.0's L2 election keeps only nodes with a serving endpoint
+(`speaker/layer2_controller.go` `ShouldAnnounce`: `nodesWithEndpoint`)
+before the sha256 ordering; both Envoy pods run there, so the hash never
+decides.
 
 ```bash
 docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 \
@@ -272,6 +277,7 @@ T10  metadata x-served-by + x-version                 both present              
 T11  TLS fails with bogus CA                          Failed to dial target host "172.19.255.151:443": tls: failed to verify certifica rc=1 PASS
 T12  grpc@.150 not served; curl@.151 → 404          grpcurl_rc=1 http=404        PASS
 T13  {"status": "SERVING"} for "" and shop.v1.Orders  SERVING SERVING              PASS
+gRPC matrix: 0 FAIL
 ```
 
 ### 8. Open it in the browser
@@ -289,10 +295,10 @@ shot.
   http://api.eg-poc2.poc.local/orders
 ```
 
-Result: screenshot written after 2.0 s; `chrome_rc=0`; PNG `1000 x 500`.
+Result: screenshot written after 5.2 s; `chrome_rc=0`; PNG `1000 x 500`.
 
 ```text
-screenshot written after 2.0 s; chrome_rc=0
+screenshot written after 5.2 s; chrome_rc=0
 demos/52-eg-poc2-metallb/output/browser.png: PNG image data, 1000 x 500, 8-bit/color RGB, non-interlaced
 ```
 
@@ -336,7 +342,7 @@ Expect three orders and `version` `v1`.
 demos/52-eg-poc2-metallb/check.sh
 ```
 
-Recorded `2026-09-19T21:37:52Z`:
+Recorded `2026-09-19T22:22:03Z`:
 
 ```text
 == demo 52 — one cluster, MetalLB, two Gateways (HTTP isolated from gRPC)
@@ -347,7 +353,7 @@ Recorded `2026-09-19T21:37:52Z`:
   PASS   ARP http-gw 172.19.255.150 one responder 3/3                           replies=3 unique_mac=1 node=eg-poc2-worker
   PASS   ARP grpc-gw 172.19.255.151 one responder 3/3                           replies=3 unique_mac=1 node=eg-poc2-worker
   PASS   VIP 172.19.255.150 NOT on any node's eth0                              absent on all nodes
-  PASS   ServiceL2Status / announcing from node                                 envoy-shop-grpc-gw=eg-poc2-worker envoy-shop-http-gw=eg-poc2-worker
+  PASS   ServiceL2Status / announcing from node                                 envoy-shop-grpc-gw=eg-poc2-worker envoy-shop-http-gw=eg-poc2-worker R5 — MetalLB names the announcing node for both doors (ETP Local: a node with the Envoy pod)
   PASS   http://api.eg-poc2.poc.local 200 + X-Served-By                         http_code=200 X-Served-By=eg-poc2
   PASS   https://api.eg-poc2.poc.local 200                                      http_code=200
   PASS   http://api.eg-poc2.poc.local /orders 200 (the page behind the door)    http_code=200 items=3
@@ -366,7 +372,7 @@ demo 52 check: 0 FAIL
 
 ## Reference
 
-Certificate spec (`20-certificate.yaml`):
+Certificate spec ([`20-certificate.yaml`](20-certificate.yaml)):
 
 ```yaml
 kind: Certificate
@@ -408,12 +414,14 @@ GRPCRoute rules (most specific first):
 
 | Match | Backend |
 |---|---|
-| `shop.v1.Orders` + header `x-version: v2` | `grpc-v2:9090` |
 | `shop.v1.Orders` / `GetOrder` | `grpc-v2:9090` |
+| `shop.v1.Orders` + header `x-version: v2` | `grpc-v2:9090` |
 | `shop.v1.Orders` (service default) | `grpc-v1:9090` |
 | `grpc.health.v1.Health` | `grpc-v1:9090` |
 | `grpc.reflection.v1alpha.ServerReflection` | `grpc-v1:9090` |
 | `grpc.reflection.v1.ServerReflection` | `grpc-v1:9090` |
+
+Backends listen on port 9090 ([`50-routes.yaml`](50-routes.yaml)).
 
 ```bash
 go run github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.4 \

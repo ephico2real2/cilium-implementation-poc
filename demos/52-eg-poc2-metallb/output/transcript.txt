@@ -1478,3 +1478,597 @@ $ demos/52-eg-poc2-metallb/check.sh
 
 demo 52 check: 0 FAIL
 
+
+### 2026-09-19T22:21:32Z — demo 52 apply
+### 2026-09-19T22:21:32Z
+$ kubectl --context kind-eg-poc2 get --raw /readyz
+ok
+### 2026-09-19T22:21:32Z
+$ bash -c docker_lab
+---- kind-eg IPv4 (IPv6 IPRange prints invalid Prefix; skip that block) ----
+Subnet=172.19.0.0/16 IPRange=172.19.0.0/17 Gateway=172.19.0.1
+---- eg-poc2 nodes on kind-eg (IPv4 + MAC) ----
+eg-poc2-worker Up 50 minutes
+eg-poc2-control-plane Up 50 minutes
+eg-poc2-worker 172.19.0.5 36:20:3a:e4:50:8d
+eg-poc2-control-plane 172.19.0.4 96:06:5c:96:19:0b
+---- kubectl get nodes -o wide ----
+NAME                    STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION            CONTAINER-RUNTIME
+eg-poc2-control-plane   Ready    control-plane   50m   v1.36.4   172.19.0.4    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+eg-poc2-worker          Ready    <none>          50m   v1.36.4   172.19.0.5    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+---- stock networking: kube-proxy mode + kindnet DS ----
+    mode: iptables
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   50m
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   50m
+
+### 2026-09-19T22:21:32Z
+$ helm repo add metallb https://metallb.github.io/metallb --force-update
+"metallb" has been added to your repositories
+
+### 2026-09-19T22:21:33Z
+$ helm upgrade --install metallb metallb/metallb --version 0.16.0 -n metallb-system --create-namespace --kube-context kind-eg-poc2 --set loadBalancerClass=metallb.io/metallb --set speaker.frr.enabled=false --set frrk8s.enabled=false
+Release "metallb" has been upgraded. Happy Helming!
+NAME: metallb
+LAST DEPLOYED: Sat Sep 19 17:21:33 2026
+NAMESPACE: metallb-system
+STATUS: deployed
+REVISION: 3
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+NOTES:
+MetalLB is now running in the cluster.
+
+Now you can configure it via its CRs. Please refer to the metallb official docs
+on how to use the CRs.
+
+### 2026-09-19T22:21:33Z
+$ kubectl --context kind-eg-poc2 -n metallb-system wait deploy -l app.kubernetes.io/component=controller --for=condition=Available --timeout=180s
+deployment.apps/metallb-controller condition met
+
+### 2026-09-19T22:21:33Z
+$ kubectl --context kind-eg-poc2 -n metallb-system rollout status ds -l app.kubernetes.io/component=speaker --timeout=180s
+daemon set "metallb-speaker" successfully rolled out
+
+### 2026-09-19T22:21:33Z
+$ bash -c kubectl --context kind-eg-poc2 -n metallb-system get deploy,ds -o yaml | grep -E 'lb-class|loadBalancerClass'
+          - --lb-class=metallb.io/metallb
+          - --lb-class=metallb.io/metallb
+
+### 2026-09-19T22:21:34Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/10-metallb-pool.yaml
+ipaddresspool.metallb.io/eg-poc2-services unchanged
+ipaddresspool.metallb.io/eg-poc2-doors unchanged
+l2advertisement.metallb.io/eg-poc2-l2 unchanged
+
+### 2026-09-19T22:21:34Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/00-namespace.yaml
+namespace/shop unchanged
+
+### 2026-09-19T22:21:34Z
+$ bash -c kubectl --context kind-eg-poc2 apply -f -
+configmap/eg-cluster unchanged
+
+### 2026-09-19T22:21:34Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/20-certificate.yaml
+certificate.cert-manager.io/eg-poc2-tls unchanged
+
+### 2026-09-19T22:21:34Z
+$ kubectl --context kind-eg-poc2 -n shop wait certificate/eg-poc2-tls --for=condition=Ready --timeout=90s
+certificate.cert-manager.io/eg-poc2-tls condition met
+
+### 2026-09-19T22:21:34Z
+$ bash -c print_leaf
+subject=CN=api.eg-poc2.poc.local
+X509v3 Subject Alternative Name: 
+    DNS:api.eg-poc2.poc.local, DNS:grpc.eg-poc2.poc.local
+notAfter=Dec 18 21:32:16 2026 GMT
+sha256=92:B0:EF:5D:BA:EB:38:93:45:F3:59:FA:3D:4B:27:AE:9B:70:82:20:6B:39:D7:AF:54:B1:93:95:1F:01:B8:85
+
+### 2026-09-19T22:21:34Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/30-gateways.yaml
+envoyproxy.gateway.envoyproxy.io/http-gw-proxy unchanged
+gateway.gateway.networking.k8s.io/http-gw configured
+envoyproxy.gateway.envoyproxy.io/grpc-gw-proxy unchanged
+gateway.gateway.networking.k8s.io/grpc-gw configured
+
+### 2026-09-19T22:21:35Z
+$ kubectl --context kind-eg-poc2 -n shop wait --for=condition=Programmed gateway/http-gw --timeout=180s
+gateway.gateway.networking.k8s.io/http-gw condition met
+
+### 2026-09-19T22:21:35Z
+$ kubectl --context kind-eg-poc2 -n shop wait --for=condition=Programmed gateway/grpc-gw --timeout=180s
+gateway.gateway.networking.k8s.io/grpc-gw condition met
+
+### 2026-09-19T22:21:35Z
+$ bash -c wait_envoy_deploy http-gw
+deployment.apps/envoy-shop-http-gw-fccf2727 condition met
+
+### 2026-09-19T22:21:35Z
+$ bash -c wait_envoy_deploy grpc-gw
+deployment.apps/envoy-shop-grpc-gw-8c4f0319 condition met
+
+### 2026-09-19T22:21:35Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/45-shop-db.yaml
+configmap/shop-db-init unchanged
+deployment.apps/shop-db unchanged
+service/shop-db unchanged
+
+### 2026-09-19T22:21:35Z
+$ kubectl --context kind-eg-poc2 -n shop rollout status deploy/shop-db --timeout=180s
+deployment "shop-db" successfully rolled out
+
+### 2026-09-19T22:21:35Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/40-app.yaml
+deployment.apps/shopapi unchanged
+service/shopapi unchanged
+
+### 2026-09-19T22:21:36Z
+$ kubectl --context kind-eg-poc2 -n shop wait deploy/shopapi --for=condition=Available --timeout=120s
+deployment.apps/shopapi condition met
+
+### 2026-09-19T22:21:36Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/41-grpcdemo.yaml
+deployment.apps/grpcdemo-v1 unchanged
+service/grpc-v1 unchanged
+deployment.apps/grpcdemo-v2 unchanged
+service/grpc-v2 unchanged
+
+### 2026-09-19T22:21:36Z
+$ kubectl --context kind-eg-poc2 -n shop wait deploy/grpcdemo-v1 --for=condition=Available --timeout=120s
+deployment.apps/grpcdemo-v1 condition met
+
+### 2026-09-19T22:21:36Z
+$ kubectl --context kind-eg-poc2 -n shop wait deploy/grpcdemo-v2 --for=condition=Available --timeout=120s
+deployment.apps/grpcdemo-v2 condition met
+
+### 2026-09-19T22:21:36Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/50-routes.yaml
+httproute.gateway.networking.k8s.io/shop-api configured
+grpcroute.gateway.networking.k8s.io/orders configured
+
+### 2026-09-19T22:21:36Z
+$ bash -c wait_route httproute shop-api
+kind-eg-poc2 httproute/shop-api: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T22:21:36Z
+$ bash -c wait_route grpcroute orders
+kind-eg-poc2 grpcroute/orders: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T22:21:36Z
+$ bash -c l2_proof "$1" bash 172.19.255.150
+---- arping -b -c 3 172.19.255.150 ----
+ARPING 172.19.255.150 from 172.19.0.6 eth0
+Unicast reply from 172.19.255.150 [36:20:3a:e4:50:8d] 0.081ms
+Unicast reply from 172.19.255.150 [36:20:3a:e4:50:8d] 0.305ms
+Unicast reply from 172.19.255.150 [36:20:3a:e4:50:8d] 0.071ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+MAC 36:20:3a:e4:50:8d → node eg-poc2-worker
+---- ServiceL2Status / speaker (whole log, --tail=-1 --prefix) ----
+CRD servicel2statuses.metallb.io: present
+NAME       SERVICE                       NAMESPACE              NODE
+l2-c4857   envoy-shop-grpc-gw-8c4f0319   envoy-gateway-system   eg-poc2-worker
+l2-htcxz   envoy-shop-http-gw-fccf2727   envoy-gateway-system   eg-poc2-worker
+---- Service events IPAllocated / announcing from node (172.19.255.150) ----
+49m         Normal   IPAllocated         service/envoy-shop-http-gw-fccf2727                 Assigned IP ["172.19.255.150"]
+49m         Normal   IPAllocated         service/envoy-shop-grpc-gw-8c4f0319                 Assigned IP ["172.19.255.151"]
+49m         Normal   nodeAssigned        service/envoy-shop-grpc-gw-8c4f0319                 announcing from node "eg-poc2-worker" with protocol "layer2"
+49m         Normal   nodeAssigned        service/envoy-shop-http-gw-fccf2727                 announcing from node "eg-poc2-worker" with protocol "layer2"
+---- docker exec eg-poc2-worker ip -4 addr show eth0 (MetalLB does NOT add 172.19.255.150) ----
+11: eth0@if125: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 65535 qdisc noqueue state UP group default  link-netnsid 0
+    inet 172.19.0.5/16 brd 172.19.255.255 scope global eth0
+       valid_lft forever preferred_lft forever
+172.19.255.150 NOT on eg-poc2-worker eth0 — MetalLB answers ARP for it, kube-proxy delivers it
+
+### 2026-09-19T22:21:40Z
+$ bash -c l2_proof "$1" bash 172.19.255.151
+---- arping -b -c 3 172.19.255.151 ----
+ARPING 172.19.255.151 from 172.19.0.6 eth0
+Unicast reply from 172.19.255.151 [36:20:3a:e4:50:8d] 0.067ms
+Unicast reply from 172.19.255.151 [36:20:3a:e4:50:8d] 0.110ms
+Unicast reply from 172.19.255.151 [36:20:3a:e4:50:8d] 0.139ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+MAC 36:20:3a:e4:50:8d → node eg-poc2-worker
+---- ServiceL2Status / speaker (whole log, --tail=-1 --prefix) ----
+CRD servicel2statuses.metallb.io: present
+NAME       SERVICE                       NAMESPACE              NODE
+l2-c4857   envoy-shop-grpc-gw-8c4f0319   envoy-gateway-system   eg-poc2-worker
+l2-htcxz   envoy-shop-http-gw-fccf2727   envoy-gateway-system   eg-poc2-worker
+---- Service events IPAllocated / announcing from node (172.19.255.151) ----
+49m         Normal   IPAllocated         service/envoy-shop-http-gw-fccf2727                 Assigned IP ["172.19.255.150"]
+49m         Normal   IPAllocated         service/envoy-shop-grpc-gw-8c4f0319                 Assigned IP ["172.19.255.151"]
+49m         Normal   nodeAssigned        service/envoy-shop-grpc-gw-8c4f0319                 announcing from node "eg-poc2-worker" with protocol "layer2"
+49m         Normal   nodeAssigned        service/envoy-shop-http-gw-fccf2727                 announcing from node "eg-poc2-worker" with protocol "layer2"
+---- docker exec eg-poc2-worker ip -4 addr show eth0 (MetalLB does NOT add 172.19.255.151) ----
+11: eth0@if125: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 65535 qdisc noqueue state UP group default  link-netnsid 0
+    inet 172.19.0.5/16 brd 172.19.255.255 scope global eth0
+       valid_lft forever preferred_lft forever
+172.19.255.151 NOT on eg-poc2-worker eth0 — MetalLB answers ARP for it, kube-proxy delivers it
+
+### 2026-09-19T22:21:43Z
+$ bash -c mac_route
+172.19             192.168.64.2       UGSc            bridge100       
+
+### 2026-09-19T22:21:43Z
+$ bash -c mac_http
+http://api.eg-poc2.poc.local/healthz @ 172.19.255.150:80 → 200 X-Served-By=eg-poc2 curl_rc=0
+
+### 2026-09-19T22:21:43Z
+$ bash -c mac_https
+https://api.eg-poc2.poc.local/healthz @ 172.19.255.150:443 → 200 X-Served-By=eg-poc2 curl_rc=0
+
+### 2026-09-19T22:21:43Z
+$ bash -c mac_orders
+http://api.eg-poc2.poc.local/orders @ 172.19.255.150:80 → 200 X-Served-By=eg-poc2 curl_rc=0 body_head:
+[{"id":1,"item":"keyboard","amount_cents":4999},{"id":2,"item":"mouse","amount_cents":1999},{"id":3,"item":"monitor","amount_cents":24900}]
+
+
+### 2026-09-19T22:21:43Z
+$ bash -c grpc_matrix
+-- T1 list + describe shop.v1.Orders
+grpc.health.v1.Health
+grpc.reflection.v1.ServerReflection
+grpc.reflection.v1alpha.ServerReflection
+shop.v1.Orders
+T1_list_rc=0
+shop.v1.Orders is a service:
+service Orders {
+  rpc GetOrder ( .shop.v1.GetOrderRequest ) returns ( .shop.v1.Order );
+  rpc ListOrders ( .shop.v1.ListOrdersRequest ) returns ( .shop.v1.ListOrdersResponse );
+  rpc SlowOrder ( .shop.v1.SlowOrderRequest ) returns ( .shop.v1.Order );
+  rpc WatchOrders ( .shop.v1.WatchOrdersRequest ) returns ( stream .shop.v1.OrderEvent );
+}
+T1_describe_rc=0
+T T1 expected=four RPCs via reflection observed=ListOrders GetOrder WatchOrders SlowOrder PASS
+-- T2 ListOrders h2c → v1, three orders, served_by grpcdemo-v1-
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    }
+  ],
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+T2_rc=0
+T T2 expected=3 orders version v1 served_by grpcdemo-v1- observed=v1 + three rows PASS
+-- T3 ListOrders TLS :443 --cacert (never -insecure)
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    }
+  ],
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+T3_rc=0
+T T3 expected=TLS ListOrders v1 observed=v1 rc=0 PASS
+-- T4 GetOrder id=2 → version v2 (routing by method)
+{
+  "id": "2",
+  "item": "mouse",
+  "amountCents": "1999",
+  "servedBy": "grpcdemo-v2-6b8fdbcd7f-ggff6",
+  "version": "v2"
+}
+T4_rc=0
+T T4 expected=GetOrder id=2 version v2 observed=v2 PASS
+-- T5 ListOrders -H x-version:v2 → v2; without header → v1
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v2-6b8fdbcd7f-ggff6",
+      "version": "v2"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v2-6b8fdbcd7f-ggff6",
+      "version": "v2"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v2-6b8fdbcd7f-ggff6",
+      "version": "v2"
+    }
+  ],
+  "servedBy": "grpcdemo-v2-6b8fdbcd7f-ggff6",
+  "version": "v2"
+}
+T5_v2_rc=0
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    }
+  ],
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+T5_v1_rc=0
+T T5 expected=x-version v2 then default v1 observed=v2 then v1 PASS
+-- T6 WatchOrders count=5 interval_ms=200 → five events
+{
+  "order": {
+    "id": "1",
+    "item": "keyboard",
+    "amountCents": "4999",
+    "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+{
+  "order": {
+    "id": "2",
+    "item": "mouse",
+    "amountCents": "1999",
+    "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+{
+  "order": {
+    "id": "3",
+    "item": "monitor",
+    "amountCents": "24900",
+    "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+{
+  "order": {
+    "id": "1",
+    "item": "keyboard",
+    "amountCents": "4999",
+    "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+{
+  "order": {
+    "id": "2",
+    "item": "mouse",
+    "amountCents": "1999",
+    "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+T6_rc=0
+T T6 expected=5 streamed events observed=events=5 PASS
+-- T7 GetOrder id=99 → Code: NotFound
+ERROR:
+  Code: NotFound
+  Message: order 99 not found
+exit status 69
+T7_rc=1
+T T7 expected=Code: NotFound observed=NotFound PASS
+-- T8a shop.v1.Orders/NoSuchMethod (descriptor) → Code: Unimplemented + unknown method
+ERROR:
+  Code: Unimplemented
+  Message: unknown method NoSuchMethod for service shop.v1.Orders
+exit status 76
+T8a_rc=1
+T T8a expected=Code: Unimplemented + unknown method observed=Unimplemented unknown method PASS
+-- T8b shop.v1.Nope/Do (descriptor) → Code: Unimplemented + empty Message
+ERROR:
+  Code: Unimplemented
+  Message: 
+exit status 76
+T8b_rc=1
+T T8b expected=Code: Unimplemented + empty Message observed=Unimplemented empty Message PASS
+-- T9 SlowOrder delay_ms=3000 -max-time 1 → Code: DeadlineExceeded
+ERROR:
+  Code: DeadlineExceeded
+  Message: context deadline exceeded
+exit status 68
+T9_rc=1
+T T9 expected=Code: DeadlineExceeded observed=DeadlineExceeded PASS
+-- T10 -v ListOrders → x-served-by / x-version metadata
+
+Resolved method descriptor:
+rpc ListOrders ( .shop.v1.ListOrdersRequest ) returns ( .shop.v1.ListOrdersResponse );
+
+Request metadata to send:
+(empty)
+
+Response headers received:
+content-type: application/grpc
+date: Sat, 19 Sep 2026 22:21:50 GMT
+x-served-by: grpcdemo-v1-55c9966f5c-hwtjj
+x-version: v1
+
+Response contents:
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    }
+  ],
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+
+Response trailers received:
+(empty)
+Sent 0 requests and received 1 response
+T10_rc=0
+T T10 expected=metadata x-served-by + x-version observed=both present PASS
+-- T11 TLS with a bogus CA (not -insecure) → tls: failed to verify certificate
+Failed to dial target host "172.19.255.151:443": tls: failed to verify certificate: x509: certificate signed by unknown authority
+exit status 1
+T11_rc=1
+T T11 expected=TLS fails with bogus CA observed=Failed to dial target host "172.19.255.151:443": tls: failed to verify certifica rc=1 PASS
+-- T12 isolation: grpc authority at HTTP door; api host at gRPC door
+Error invoking method "grpc.health.v1.Health/Check": failed to query for service descriptor "grpc.health.v1.Health": server does not support the reflection API
+exit status 1
+isolation_grpcurl_rc=1
+isolation_http_code=404 curl_rc=0
+T T12 expected=grpc@.150 not served; curl@.151 → 404 observed=grpcurl_rc=1 http=404 PASS
+-- T13 Health/Check "" and shop.v1.Orders → SERVING
+{
+  "status": "SERVING"
+}
+T13_empty_rc=0
+{
+  "status": "SERVING"
+}
+T13_svc_rc=0
+T T13 expected={"status": "SERVING"} for "" and shop.v1.Orders observed=SERVING SERVING PASS
+
+==== gRPC matrix summary ====
+TEST EXPECTED                                         OBSERVED                     RESULT
+T1   four RPCs via reflection                         ListOrders GetOrder WatchOrders SlowOrder PASS
+T2   3 orders version v1 served_by grpcdemo-v1-       v1 + three rows              PASS
+T3   TLS ListOrders v1                                v1 rc=0                      PASS
+T4   GetOrder id=2 version v2                         v2                           PASS
+T5   x-version v2 then default v1                     v2 then v1                   PASS
+T6   5 streamed events                                events=5                     PASS
+T7   Code: NotFound                                   NotFound                     PASS
+T8a  Code: Unimplemented + unknown method             Unimplemented unknown method PASS
+T8b  Code: Unimplemented + empty Message              Unimplemented empty Message  PASS
+T9   Code: DeadlineExceeded                           DeadlineExceeded             PASS
+T10  metadata x-served-by + x-version                 both present                 PASS
+T11  TLS fails with bogus CA                          Failed to dial target host "172.19.255.151:443": tls: failed to verify certifica rc=1 PASS
+T12  grpc@.150 not served; curl@.151 → 404          grpcurl_rc=1 http=404        PASS
+T13  {"status": "SERVING"} for "" and shop.v1.Orders  SERVING SERVING              PASS
+gRPC matrix: 0 FAIL
+
+### 2026-09-19T22:21:51Z
+$ bash -c browser_shot
+/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --disable-gpu --no-first-run --window-size=1000,500 --user-data-dir=<tmp> --host-resolver-rules="MAP api.eg-poc2.poc.local 172.19.255.150" --screenshot=/Users/olasumbo/gitRepos/cilium-implementation-poc/demos/52-eg-poc2-metallb/output/browser.png http://api.eg-poc2.poc.local/orders
+screenshot written after 5.2 s; chrome_rc=0
+demos/52-eg-poc2-metallb/output/browser.png: PNG image data, 1000 x 500, 8-bit/color RGB, non-interlaced
+
+### 2026-09-19T22:21:56Z
+$ demos/52-eg-poc2-metallb/hosts-entries.sh
+# ---- cilium-kind-poc demo52 (generated 2026-09-19T22:21Z by demos/52-eg-poc2-metallb/hosts-entries.sh) ----
+172.19.255.150  api.eg-poc2.poc.local
+172.19.255.151  grpc.eg-poc2.poc.local
+# ---- end cilium-kind-poc demo52 ----
+
+### 2026-09-19T22:21:56Z
+$ bash -c final_table
+DOOR       ADDRESS          PROG   CLASS                  ANNOUNCED_BY           HTTP_or_GRPC
+http-gw    172.19.255.150   True   metallb.io/metallb     eg-poc2-worker         HTTP 200/eg-poc2
+grpc-gw    172.19.255.151   True   metallb.io/metallb     eg-poc2-worker         GRPC SERVING
+
+### 2026-09-19T22:22:03Z
+$ demos/52-eg-poc2-metallb/check.sh
+
+== demo 52 — one cluster, MetalLB, two Gateways (HTTP isolated from gRPC)
+  STATUS WHAT                                                                   MEASURED                                             RULE
+  PASS   MetalLB controller Available + speaker DS                              Available=True ready=2/2                             R5 — controller Available, speaker N/N (chart 0.16.0, --lb-class)
+  PASS   http-gw Programmed at 172.19.255.150                                   addr=172.19.255.150 svcIngress=172.19.255.150 Programmed=True R5 / R8 — Gateway address and Service ingress both equal 172.19.255.150
+  PASS   grpc-gw Programmed at 172.19.255.151                                   addr=172.19.255.151 svcIngress=172.19.255.151 Programmed=True R5 / R8 — Gateway address and Service ingress both equal 172.19.255.151
+  PASS   both Envoy Services carry the class                                    http=metallb.io/metallb grpc=metallb.io/metallb      D11 — EnvoyProxy names metallb.io/metallb on both doors
+  PASS   ARP http-gw 172.19.255.150 one responder 3/3                           replies=3 unique_mac=1 node=eg-poc2-worker           R5 / R8 — arping -b 3 of 3 from ONE MAC
+  PASS   ARP grpc-gw 172.19.255.151 one responder 3/3                           replies=3 unique_mac=1 node=eg-poc2-worker           R5 / R8 — arping -b 3 of 3 from ONE MAC
+  PASS   VIP 172.19.255.150 NOT on any node's eth0                              absent on all nodes                                  R5 — MetalLB answers ARP; kube-proxy delivers; no /32 on eth0
+  PASS   ServiceL2Status / announcing from node                                 envoy-shop-grpc-gw=eg-poc2-worker envoy-shop-http-gw=eg-poc2-worker R5 — MetalLB names the announcing node for both doors (ETP Local: a node with the Envoy pod)
+  PASS   http://api.eg-poc2.poc.local 200 + X-Served-By                         http_code=200 X-Served-By=eg-poc2                    R8 — 200 and X-Served-By=eg-poc2
+  PASS   https://api.eg-poc2.poc.local 200                                      http_code=200                                        R8 — 200 against the lab root
+  PASS   http://api.eg-poc2.poc.local /orders 200 (the page behind the door)    http_code=200 items=3                                the page behind the door — 200 and a JSON array (≥ 1)
+  PASS   gRPC Health "" SERVING                                                 SERVING                                              R10 — exact "status": "SERVING"
+  PASS   gRPC ListOrders v1                                                     version=v1                                           R10 — service default → grpc-v1
+  PASS   gRPC GetOrder v2                                                       version=v2                                           R10 — method match → grpc-v2
+  PASS   gRPC ListOrders x-version v2                                           version=v2                                           R10 — metadata match → grpc-v2
+  PASS   gRPC WatchOrders 5 events                                              events=5                                             R10 — streamed OrderEvent × 5
+  PASS   gRPC GetOrder NotFound                                                 NotFound                                             R10 — unknown id → Code: NotFound
+  PASS   gRPC NoSuchMethod Unimplemented                                        Unimplemented unknown method                         R10 — missing method → Code: Unimplemented + unknown method
+  PASS   gRPC unrouted service Unimplemented                                    Unimplemented empty Message                          R10 — unrouted service → Code: Unimplemented + empty Message
+  PASS   gRPC SlowOrder DeadlineExceeded                                        DeadlineExceeded                                     R10 — -max-time 1 vs delay_ms 3000
+  PASS   gRPC TLS ListOrders                                                    version=v1                                           R10 — TLS ListOrders against the lab root
+
+demo 52 check: 0 FAIL
+

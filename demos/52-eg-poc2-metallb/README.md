@@ -60,7 +60,7 @@ Every command is recorded through `scripts/record.sh` into
 
 ## What was recorded
 
-The second apply (`2026-09-19T21:37:23Z`, transcript lines 889–1451). The
+The third apply (`2026-09-19T22:21:32Z`, transcript lines 1482–2074). The
 lab build is at `2026-09-19T21:30:41Z` (transcript lines 1–264).
 
 ### 1. Build the lab
@@ -86,25 +86,25 @@ gatewayclass.gateway.networking.k8s.io/eg condition met
 eg-poc2  eg-poc2-control-plane=172.19.0.4 eg-poc2-worker=172.19.0.5  iptables   10@v1.6.2    8        Accepted=True 1/1            Available=True A3:D7:73:DE:6C:2B:8F:BA:28:7C:D3:3A:F8:B5:52:10:F6:F8:0A:6A:25:C6:BE:2C:B5:82:64:6C:25:8F:08:EE
 ```
 
-Recorded (second apply):
+Recorded (third apply):
 
 ```text
 ---- kind-eg IPv4 (IPv6 IPRange prints invalid Prefix; skip that block) ----
 Subnet=172.19.0.0/16 IPRange=172.19.0.0/17 Gateway=172.19.0.1
 ---- eg-poc2 nodes on kind-eg (IPv4 + MAC) ----
-eg-poc2-worker Up 6 minutes
-eg-poc2-control-plane Up 6 minutes
+eg-poc2-worker Up 50 minutes
+eg-poc2-control-plane Up 50 minutes
 eg-poc2-worker 172.19.0.5 36:20:3a:e4:50:8d
 eg-poc2-control-plane 172.19.0.4 96:06:5c:96:19:0b
 ---- kubectl get nodes -o wide ----
-NAME                    STATUS   ROLES           AGE     VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION            CONTAINER-RUNTIME
-eg-poc2-control-plane   Ready    control-plane   6m36s   v1.36.4   172.19.0.4    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
-eg-poc2-worker          Ready    <none>          6m27s   v1.36.4   172.19.0.5    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+NAME                    STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION            CONTAINER-RUNTIME
+eg-poc2-control-plane   Ready    control-plane   50m   v1.36.4   172.19.0.4    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+eg-poc2-worker          Ready    <none>          50m   v1.36.4   172.19.0.5    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
 ---- stock networking: kube-proxy mode + kindnet DS ----
     mode: iptables
 NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
-kindnet      2         2         2       2            2           kubernetes.io/os=linux   6m33s
-kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   6m34s
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   50m
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   50m
 ```
 
 ### 2. Install MetalLB
@@ -123,16 +123,16 @@ kubectl --context kind-eg-poc2 apply \
   -f demos/52-eg-poc2-metallb/10-metallb-pool.yaml
 ```
 
-Recorded (second apply):
+Recorded (third apply):
 
 ```text
 "metallb" has been added to your repositories
 Release "metallb" has been upgraded. Happy Helming!
 NAME: metallb
-LAST DEPLOYED: Sat Sep 19 16:37:24 2026
+LAST DEPLOYED: Sat Sep 19 17:21:33 2026
 NAMESPACE: metallb-system
 STATUS: deployed
-REVISION: 2
+REVISION: 3
 DESCRIPTION: Upgrade complete
 deployment.apps/metallb-controller condition met
 daemon set "metallb-speaker" successfully rolled out
@@ -155,7 +155,7 @@ kubectl --context kind-eg-poc2 -n shop wait certificate/eg-poc2-tls \
   --for=condition=Ready --timeout=90s
 ```
 
-Recorded (second apply):
+Recorded (third apply):
 
 ```text
 certificate.cert-manager.io/eg-poc2-tls unchanged
@@ -181,7 +181,7 @@ kubectl --context kind-eg-poc2 -n shop wait --for=condition=Programmed \
   gateway/grpc-gw --timeout=180s
 ```
 
-Recorded (second apply):
+Recorded (third apply):
 
 ```text
 envoyproxy.gateway.envoyproxy.io/http-gw-proxy unchanged
@@ -211,7 +211,7 @@ kubectl --context kind-eg-poc2 apply \
   -f demos/52-eg-poc2-metallb/50-routes.yaml
 ```
 
-Recorded (second apply):
+Recorded (third apply):
 
 ```text
 configmap/shop-db-init unchanged
@@ -238,6 +238,19 @@ kind-eg-poc2 grpcroute/orders: all parents Accepted+ResolvedRefs
 MetalLB answers ARP for the door; it does not add the address to the node's
 `eth0`. kube-proxy delivers the packet. That is the visible difference from
 demo 54.
+Why the worker and not the control-plane: the Envoy Services are
+`externalTrafficPolicy: Local` (Envoy Gateway's default; both door Services
+are Local, measured), and MetalLB v0.16.0's L2 election keeps only nodes
+with a serving endpoint of the Service (`speaker/layer2_controller.go:83-129`
+`ShouldAnnounce`: `nodesWithEndpoint`) before the sha256(node#ip) ordering —
+both Envoy pods run on `eg-poc2-worker`, so the election has one candidate
+and the hash never decides. `internal/layer2/arp.go:73-118` replies to ARP
+with the node's own MAC; nothing in layer2 calls netlink AddrAdd, so nothing
+lands on eth0. Delivery is kube-proxy's iptables on the worker
+(`KUBE-SERVICES -d 172.19.255.150/32 → KUBE-EXT-… → KUBE-SVL → KUBE-SEP
+10.80.1.10:10080`); the control-plane's filter table DROPs it ("has no local
+endpoints"). Move the pod and the announcement moves with it; `check.sh`
+ties the two.
 
 ```bash
 docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 \
@@ -246,14 +259,14 @@ docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 \
   arping -b -c 3 -I eth0 172.19.255.151
 ```
 
-Recorded (second apply):
+Recorded (third apply):
 
 ```text
 ---- arping -b -c 3 172.19.255.150 ----
 ARPING 172.19.255.150 from 172.19.0.6 eth0
-Unicast reply from 172.19.255.150 [36:20:3a:e4:50:8d] 0.139ms
-Unicast reply from 172.19.255.150 [36:20:3a:e4:50:8d] 0.154ms
-Unicast reply from 172.19.255.150 [36:20:3a:e4:50:8d] 0.115ms
+Unicast reply from 172.19.255.150 [36:20:3a:e4:50:8d] 0.081ms
+Unicast reply from 172.19.255.150 [36:20:3a:e4:50:8d] 0.305ms
+Unicast reply from 172.19.255.150 [36:20:3a:e4:50:8d] 0.071ms
 Sent 3 probe(s) (0 broadcast(s))
 Received 3 response(s) (0 request(s), 0 broadcast(s))
 MAC 36:20:3a:e4:50:8d → node eg-poc2-worker
@@ -263,10 +276,10 @@ NAME       SERVICE                       NAMESPACE              NODE
 l2-c4857   envoy-shop-grpc-gw-8c4f0319   envoy-gateway-system   eg-poc2-worker
 l2-htcxz   envoy-shop-http-gw-fccf2727   envoy-gateway-system   eg-poc2-worker
 ---- Service events IPAllocated / announcing from node (172.19.255.150) ----
-5m16s       Normal   IPAllocated         service/envoy-shop-http-gw-fccf2727                 Assigned IP ["172.19.255.150"]
-5m16s       Normal   IPAllocated         service/envoy-shop-grpc-gw-8c4f0319                 Assigned IP ["172.19.255.151"]
-5m4s        Normal   nodeAssigned        service/envoy-shop-grpc-gw-8c4f0319                 announcing from node "eg-poc2-worker" with protocol "layer2"
-5m4s        Normal   nodeAssigned        service/envoy-shop-http-gw-fccf2727                 announcing from node "eg-poc2-worker" with protocol "layer2"
+49m         Normal   IPAllocated         service/envoy-shop-http-gw-fccf2727                 Assigned IP ["172.19.255.150"]
+49m         Normal   IPAllocated         service/envoy-shop-grpc-gw-8c4f0319                 Assigned IP ["172.19.255.151"]
+49m         Normal   nodeAssigned        service/envoy-shop-grpc-gw-8c4f0319                 announcing from node "eg-poc2-worker" with protocol "layer2"
+49m         Normal   nodeAssigned        service/envoy-shop-http-gw-fccf2727                 announcing from node "eg-poc2-worker" with protocol "layer2"
 ---- docker exec eg-poc2-worker ip -4 addr show eth0 (MetalLB does NOT add 172.19.255.150) ----
 11: eth0@if125: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 65535 qdisc noqueue state UP group default  link-netnsid 0
     inet 172.19.0.5/16 brd 172.19.255.255 scope global eth0
@@ -274,14 +287,14 @@ l2-htcxz   envoy-shop-http-gw-fccf2727   envoy-gateway-system   eg-poc2-worker
 172.19.255.150 NOT on eg-poc2-worker eth0 — MetalLB answers ARP for it, kube-proxy delivers it
 ```
 
-Recorded (second apply):
+Recorded (third apply):
 
 ```text
 ---- arping -b -c 3 172.19.255.151 ----
 ARPING 172.19.255.151 from 172.19.0.6 eth0
-Unicast reply from 172.19.255.151 [36:20:3a:e4:50:8d] 0.090ms
-Unicast reply from 172.19.255.151 [36:20:3a:e4:50:8d] 0.080ms
-Unicast reply from 172.19.255.151 [36:20:3a:e4:50:8d] 0.084ms
+Unicast reply from 172.19.255.151 [36:20:3a:e4:50:8d] 0.067ms
+Unicast reply from 172.19.255.151 [36:20:3a:e4:50:8d] 0.110ms
+Unicast reply from 172.19.255.151 [36:20:3a:e4:50:8d] 0.139ms
 Sent 3 probe(s) (0 broadcast(s))
 Received 3 response(s) (0 request(s), 0 broadcast(s))
 MAC 36:20:3a:e4:50:8d → node eg-poc2-worker
@@ -291,10 +304,10 @@ NAME       SERVICE                       NAMESPACE              NODE
 l2-c4857   envoy-shop-grpc-gw-8c4f0319   envoy-gateway-system   eg-poc2-worker
 l2-htcxz   envoy-shop-http-gw-fccf2727   envoy-gateway-system   eg-poc2-worker
 ---- Service events IPAllocated / announcing from node (172.19.255.151) ----
-5m20s       Normal   IPAllocated         service/envoy-shop-http-gw-fccf2727                 Assigned IP ["172.19.255.150"]
-5m20s       Normal   IPAllocated         service/envoy-shop-grpc-gw-8c4f0319                 Assigned IP ["172.19.255.151"]
-5m8s        Normal   nodeAssigned        service/envoy-shop-grpc-gw-8c4f0319                 announcing from node "eg-poc2-worker" with protocol "layer2"
-5m8s        Normal   nodeAssigned        service/envoy-shop-http-gw-fccf2727                 announcing from node "eg-poc2-worker" with protocol "layer2"
+49m         Normal   IPAllocated         service/envoy-shop-http-gw-fccf2727                 Assigned IP ["172.19.255.150"]
+49m         Normal   IPAllocated         service/envoy-shop-grpc-gw-8c4f0319                 Assigned IP ["172.19.255.151"]
+49m         Normal   nodeAssigned        service/envoy-shop-grpc-gw-8c4f0319                 announcing from node "eg-poc2-worker" with protocol "layer2"
+49m         Normal   nodeAssigned        service/envoy-shop-http-gw-fccf2727                 announcing from node "eg-poc2-worker" with protocol "layer2"
 ---- docker exec eg-poc2-worker ip -4 addr show eth0 (MetalLB does NOT add 172.19.255.151) ----
 11: eth0@if125: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 65535 qdisc noqueue state UP group default  link-netnsid 0
     inet 172.19.0.5/16 brd 172.19.255.255 scope global eth0
@@ -309,6 +322,15 @@ h2c and TLS, GetOrder by method, ListOrders by metadata, a five-event stream,
 NotFound, Unimplemented (T8a missing method on `Orders`, T8b unrouted
 `Nope/Do`), DeadlineExceeded, response metadata, a bogus CA, door isolation,
 Health. HTTPS and the Mac curls run first.
+T8a reaches grpcdemo (the service-default rule routes it; the server's
+`unknown method` is in `grpc-message`); T8b stops at Envoy, which answers a
+gRPC request with no matching route as `HTTP/2 200` + `grpc-status: 12` and
+no `grpc-message` — measured with an h2c prior-knowledge curl, not a 404
+that grpcurl translates. T9's `DeadlineExceeded` is grpcurl's own deadline;
+Envoy forwards `grpc-timeout`, and grpc-go resets the stream at the deadline
+(`http2_server.go:600-612`, measured 1.004 s with the header vs 3.008 s
+without). The server-side cancellation is real but not what the record
+shows.
 
 ```bash
 curl -s --resolve api.eg-poc2.poc.local:80:172.19.255.150 \
@@ -324,7 +346,7 @@ go run github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.4 \
   172.19.255.151:80 shop.v1.Orders/ListOrders
 ```
 
-Recorded (second apply):
+Recorded (third apply):
 
 ```text
 172.19             192.168.64.2       UGSc            bridge100
@@ -362,6 +384,7 @@ T10  metadata x-served-by + x-version                 both present              
 T11  TLS fails with bogus CA                          Failed to dial target host "172.19.255.151:443": tls: failed to verify certifica rc=1 PASS
 T12  grpc@.150 not served; curl@.151 → 404          grpcurl_rc=1 http=404        PASS
 T13  {"status": "SERVING"} for "" and shop.v1.Orders  SERVING SERVING              PASS
+gRPC matrix: 0 FAIL
 ```
 
 ### 8. Open it in the browser
@@ -380,11 +403,11 @@ the result (gotcha [#121](../../docs/GOTCHAS.md#121)).
   http://api.eg-poc2.poc.local/orders
 ```
 
-Recorded (second apply):
+Recorded (third apply):
 
 ```text
 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --disable-gpu --no-first-run --window-size=1000,500 --user-data-dir=<tmp> --host-resolver-rules="MAP api.eg-poc2.poc.local 172.19.255.150" --screenshot=/Users/olasumbo/gitRepos/cilium-implementation-poc/demos/52-eg-poc2-metallb/output/browser.png http://api.eg-poc2.poc.local/orders
-screenshot written after 2.0 s; chrome_rc=0
+screenshot written after 5.2 s; chrome_rc=0
 demos/52-eg-poc2-metallb/output/browser.png: PNG image data, 1000 x 500, 8-bit/color RGB, non-interlaced
 ```
 
@@ -397,16 +420,16 @@ writes it):
 demos/52-eg-poc2-metallb/hosts-entries.sh | sudo tee -a /etc/hosts
 ```
 
-Recorded (second apply):
+Recorded (third apply):
 
 ```text
-# ---- cilium-kind-poc demo52 (generated 2026-09-19T21:37Z by demos/52-eg-poc2-metallb/hosts-entries.sh) ----
+# ---- cilium-kind-poc demo52 (generated 2026-09-19T22:21Z by demos/52-eg-poc2-metallb/hosts-entries.sh) ----
 172.19.255.150  api.eg-poc2.poc.local
 172.19.255.151  grpc.eg-poc2.poc.local
 # ---- end cilium-kind-poc demo52 ----
 ```
 
-Recorded (second apply):
+Recorded (third apply):
 
 ```text
 DOOR       ADDRESS          PROG   CLASS                  ANNOUNCED_BY           HTTP_or_GRPC
@@ -420,12 +443,12 @@ grpc-gw    172.19.255.151   True   metallb.io/metallb     eg-poc2-worker        
 demos/52-eg-poc2-metallb/check.sh
 ```
 
-`check.sh` at `2026-09-19T21:37:52Z`: 21 PASS, 0 FAIL.
+`check.sh` at `2026-09-19T22:22:03Z`: 21 PASS, 0 FAIL.
 
-Recorded (second apply):
+Recorded (third apply):
 
 ```text
-### 2026-09-19T21:37:52Z
+### 2026-09-19T22:22:03Z
 $ demos/52-eg-poc2-metallb/check.sh
 == demo 52 — one cluster, MetalLB, two Gateways (HTTP isolated from gRPC)
   STATUS WHAT                                                                   MEASURED                                             RULE
@@ -436,7 +459,7 @@ $ demos/52-eg-poc2-metallb/check.sh
   PASS   ARP http-gw 172.19.255.150 one responder 3/3                           replies=3 unique_mac=1 node=eg-poc2-worker           R5 / R8 — arping -b 3 of 3 from ONE MAC
   PASS   ARP grpc-gw 172.19.255.151 one responder 3/3                           replies=3 unique_mac=1 node=eg-poc2-worker           R5 / R8 — arping -b 3 of 3 from ONE MAC
   PASS   VIP 172.19.255.150 NOT on any node's eth0                              absent on all nodes                                  R5 — MetalLB answers ARP; kube-proxy delivers; no /32 on eth0
-  PASS   ServiceL2Status / announcing from node                                 envoy-shop-grpc-gw=eg-poc2-worker envoy-shop-http-gw=eg-poc2-worker R5 — MetalLB names the announcing node for both doors
+  PASS   ServiceL2Status / announcing from node                                 envoy-shop-grpc-gw=eg-poc2-worker envoy-shop-http-gw=eg-poc2-worker R5 — MetalLB names the announcing node for both doors (ETP Local: a node with the Envoy pod)
   PASS   http://api.eg-poc2.poc.local 200 + X-Served-By                         http_code=200 X-Served-By=eg-poc2                    R8 — 200 and X-Served-By=eg-poc2
   PASS   https://api.eg-poc2.poc.local 200                                      http_code=200                                        R8 — 200 against the lab root
   PASS   http://api.eg-poc2.poc.local /orders 200 (the page behind the door)    http_code=200 items=3                                the page behind the door — 200 and a JSON array (≥ 1)
@@ -482,6 +505,8 @@ scripts/eg-down.sh
 ```
 
 cleanup.sh removes the routes, Gateways, EnvoyProxies, app, certificate,
-waits for the door Services to be gone, then uninstalls MetalLB and deletes
-`shop`. It leaves `eg-poc2`, Envoy Gateway, `GatewayClass eg`, cert-manager,
-and `.tmp/eg-poc2-root-ca.crt`. eg-down.sh deletes the cluster.
+waits for the door Services to be gone, empties the pools while their CRDs
+still exist (chart 0.16.0 templates them, so the uninstall removes them), then
+uninstalls MetalLB and deletes `shop` and `metallb-system`. It leaves
+`eg-poc2`, Envoy Gateway, `GatewayClass eg`, cert-manager, and
+`.tmp/eg-poc2-root-ca.crt`. eg-down.sh deletes the cluster.

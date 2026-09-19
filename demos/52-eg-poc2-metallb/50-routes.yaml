@@ -4,9 +4,12 @@
 # shop-api covers both listeners of http-gw (http :80 and https :443). There is
 # no redirect on :80 — the browser gets 200 over plain http.
 #
-# GRPCRoute precedence (Gateway API): the most specific match wins — a
-# method+header rule beats a method rule beats a service rule, whatever the
-# order of the rules in this file.
+# GRPCRoute precedence (Gateway API, the CRD's text): "Precedence MUST be
+# given to the rule with the largest number of: … Characters in a matching
+# service. Characters in a matching method. Header matches." So (b) GetOrder
+# beats (a) service+header beats (c) the service default, whatever the order
+# of the rules in this file — Envoy Gateway v1.9.1 sorts them (Exact
+# /service/method above Prefix /service, then by header count).
 #
 #   kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/50-routes.yaml
 apiVersion: gateway.networking.k8s.io/v1
