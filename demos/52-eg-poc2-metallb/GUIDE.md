@@ -24,9 +24,16 @@ opens the shop's `/orders` page over plain http.
 open http://api.eg-poc2.poc.local/orders
 ```
 
-**Expect:** the three catalogue rows (`keyboard` 4999 ¢, `mouse` 1999 ¢,
-`monitor` 24900 ¢). apply.sh writes the same URL to `output/browser.png`
-when Chrome is present.
+**Expect:** the three recorded rows (`keyboard` 4999 ¢, `mouse` 1999 ¢,
+`monitor` 24900 ¢). apply.sh already wrote the same URL to
+`output/browser.png` (`1000 x 500`, `chrome_rc=0`).
+
+```text
+screenshot written after 2.0 s; chrome_rc=0
+demos/52-eg-poc2-metallb/output/browser.png: PNG image data, 1000 x 500, 8-bit/color RGB, non-interlaced
+```
+
+![the orders page](output/browser.png)
 
 ### 2. Call the HTTP door with curl
 
@@ -42,7 +49,12 @@ curl -s --resolve api.eg-poc2.poc.local:443:172.19.255.150 \
   -D - -o /dev/null https://api.eg-poc2.poc.local/healthz
 ```
 
-**Expect:** `200` and `X-Served-By: eg-poc2` on both.
+**Expect:** the recorded header lines.
+
+```text
+http://api.eg-poc2.poc.local/healthz @ 172.19.255.150:80 → 200 X-Served-By=eg-poc2 curl_rc=0
+https://api.eg-poc2.poc.local/healthz @ 172.19.255.150:443 → 200 X-Served-By=eg-poc2 curl_rc=0
+```
 
 ### 3. Route gRPC by method and by metadata
 
@@ -65,8 +77,13 @@ go run github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.4 \
   172.19.255.151:80 shop.v1.Orders/ListOrders
 ```
 
-**Expect:** ListOrders `version` `v1`; GetOrder `version` `v2` and item
-`mouse`; header ListOrders `version` `v2`.
+**Expect:** the recorded T2 / T4 / T5 lines.
+
+```text
+T T2 expected=3 orders version v1 served_by grpcdemo-v1- observed=v1 + three rows PASS
+T T4 expected=GetOrder id=2 version v2 observed=v2 PASS
+T T5 expected=x-version v2 then default v1 observed=v2 then v1 PASS
+```
 
 ### 4. Try the wrong door
 
@@ -82,8 +99,14 @@ curl -s --resolve api.eg-poc2.poc.local:80:172.19.255.151 \
   -o /dev/null -w '%{http_code}\n' http://api.eg-poc2.poc.local/healthz
 ```
 
-**Expect:** grpcurl fails (the HTTP door does not serve gRPC); curl
-returns `404`.
+**Expect:** the recorded exit 1 and 404.
+
+```text
+Error invoking method "grpc.health.v1.Health/Check": failed to query for service descriptor "grpc.health.v1.Health": server does not support the reflection API
+exit status 1
+isolation_grpcurl_rc=1
+isolation_http_code=404 curl_rc=0
+```
 
 ### 5. Call a method the server does not have
 
@@ -104,7 +127,20 @@ go run github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.4 \
   172.19.255.151:80 shop.v1.Nope/Do
 ```
 
-**Expect:** <!-- recorded after apply -->
+**Expect:** the recorded T8a / T8b bodies.
+
+```text
+ERROR:
+  Code: Unimplemented
+  Message: unknown method NoSuchMethod for service shop.v1.Orders
+exit status 76
+T T8a expected=Code: Unimplemented + unknown method observed=Unimplemented unknown method PASS
+ERROR:
+  Code: Unimplemented
+  Message: 
+exit status 76
+T T8b expected=Code: Unimplemented + empty Message observed=Unimplemented empty Message PASS
+```
 
 ### 6. Run the check
 
@@ -112,7 +148,11 @@ go run github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.4 \
 demos/52-eg-poc2-metallb/check.sh
 ```
 
-**Expect:** the summary line `demo 52 check: 0 FAIL` when the lab is up.
+**Expect:** the recorded summary line.
+
+```text
+demo 52 check: 0 FAIL
+```
 
 ## Clean up
 
