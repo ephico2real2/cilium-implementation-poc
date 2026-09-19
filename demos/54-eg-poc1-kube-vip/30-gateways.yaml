@@ -1,0 +1,119 @@
+# Two doors on eg-poc1. HTTP and gRPC are isolated on purpose: no HTTPRoute
+# attaches to grpc-gw and no GRPCRoute attaches to http-gw (the operator,
+# 2026-09-19). Each EnvoyProxy is in this file BEFORE its Gateway — the class
+# is immutable on the generated Service (phase 0: attach later and EG logs
+# `spec.loadBalancerClass: may not change once set`). Recreate, never patch.
+#
+# D11: every door names its load balancer. kube-vip runs class-only
+# (`lb_class_only` + `KUBEVIP_ENABLE_LOADBALANCERCLASS=true`).
+#
+# WHY BOTH spec.addresses AND the EnvoyProxy annotation. Phase 0 / demo 51 R7:
+#   spec.addresses alone → Service.externalIPs, status.loadBalancer empty, 0 ARP.
+#   EnvoyProxy.envoyService (class + kube-vip.io/loadbalancerIPs) → one ARP responder.
+# Both are set so the Gateway status is honest AND the wire answers.
+#
+# http-gw :80 is HTTP with a hostname and NO redirect — the browser works over
+# plain http (demo 51's :80 is a 301; this lab is the opposite on purpose).
+#
+#   kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/30-gateways.yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: http-gw-proxy
+  namespace: shop
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: LoadBalancer
+        loadBalancerClass: kube-vip.io/kube-vip-class
+        annotations:
+          kube-vip.io/loadbalancerIPs: "172.19.255.100"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: http-gw
+  namespace: shop
+spec:
+  gatewayClassName: eg
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: http-gw-proxy
+  addresses:
+    - type: IPAddress
+      value: "172.19.255.100"
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: api.eg-poc1.poc.local
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: api.eg-poc1.poc.local
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: eg-poc1-tls
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: grpc-gw-proxy
+  namespace: shop
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: LoadBalancer
+        loadBalancerClass: kube-vip.io/kube-vip-class
+        annotations:
+          kube-vip.io/loadbalancerIPs: "172.19.255.101"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: grpc-gw
+  namespace: shop
+spec:
+  gatewayClassName: eg
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: grpc-gw-proxy
+  addresses:
+    - type: IPAddress
+      value: "172.19.255.101"
+  listeners:
+    - name: h2c
+      protocol: HTTP
+      port: 80
+      hostname: grpc.eg-poc1.poc.local
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https-grpc
+      protocol: HTTPS
+      port: 443
+      hostname: grpc.eg-poc1.poc.local
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: eg-poc1-tls
+      allowedRoutes:
+        namespaces:
+          from: Same

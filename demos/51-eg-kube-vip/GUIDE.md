@@ -1,88 +1,126 @@
 # Demo 51 — exercises
 
-Run from the repo root after `demos/51-eg-kube-vip/apply.sh`. poc1 and poc2
-are paused — do not resume them. No sudo.
+Run from the repo root after apply.sh. poc1 and poc2 are paused — do not
+resume them. No sudo.
 
-## Exercise 1 — create a class-less LoadBalancer and watch it stay pending
+## Prerequisites
 
-`probe-noclass` is already in `shop` (apply.sh keeps it as the D11
-exhibit). Look at it, then create a second one:
+- Demo 51 is up (`VIP_HOME=eg1`).
+- poc1 and poc2 stay paused (gotcha #119).
+- A route on the Mac to the lab bridge
+  ([gotcha #120](../../docs/GOTCHAS.md#120)):
 
 ```bash
-kubectl --context kind-eg1 -n shop get svc probe-noclass -o wide
-# EXTERNAL-IP <pending>, no loadBalancerClass
-
-kubectl --context kind-eg1 -n shop apply -f - <<'EOF'
-apiVersion: v1
-kind: Service
-metadata: {name: my-noclass, namespace: shop}
-spec:
-  type: LoadBalancer
-  ports: [{port: 80, targetPort: 80}]
-EOF
-
-sleep 20
-kubectl --context kind-eg1 -n shop get svc my-noclass probe-noclass -o wide
-kubectl --context kind-eg1 -n shop get svc my-noclass -o yaml | grep -E 'loadBalancerClass|ingress|implementation'
-kubectl --context kind-eg1 -n shop delete svc my-noclass
+sudo route -n add -net 172.19.0.0/16 192.168.64.2
 ```
 
-*Expect:* both Services stay `<pending>`. No `implementation=kube-vip`
-label, no `kube-vip.io/loadbalancerIPs` annotation, `status.loadBalancer`
-empty. Phase 0 measured that without
-`KUBEVIP_ENABLE_LOADBALANCERCLASS=true` the cloud-provider *does* claim
-a class-less Service (labels it, may share an address with an in-use
-Service) while still printing `<pending>`. The env is why this one is
-honestly nobody's.
+- The six names, if a client needs them without `--resolve`:
 
-## Exercise 2 — move the VIP and watch `arping`
+```bash
+demos/51-eg-kube-vip/hosts-entries.sh
+```
+
+## Exercises
+
+### 1. Watch the class-less Service stay pending
+
+`probe-noclass` is the D11 exhibit: a `type: LoadBalancer` Service with
+no `loadBalancerClass`. kube-vip runs class-only, so it is not claimed.
+
+```bash
+kubectl --context kind-eg1 -n shop get svc probe-noclass
+```
+
+**Expect:** `EXTERNAL-IP` stays `<pending>`. check.sh recorded the same
+Service unclaimed for ≥ 30 s:
+
+```text
+  PASS   eg1 probe-noclass stays pending                                        type=LoadBalancer class=(none) ingress=(none) impl=(none) ann=(none) age=2884s D11 — class-less LoadBalancer Service stays <pending> and unclaimed for ≥ 30s
+```
+
+### 2. Move the VIP (this changes the lab)
+
+`--status` is read-only. The move deletes `eg-vip-gw` from one cluster
+and creates it on the other. Put it back on eg1; check.sh assumes that.
 
 ```bash
 scripts/eg-vip-move.sh --status
-docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 \
-  arping -c 3 -I eth0 172.19.255.16
-
 scripts/eg-vip-move.sh kube-vip eg2
-docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 \
-  arping -c 3 -I eth0 172.19.255.16
-
 scripts/eg-vip-move.sh kube-vip eg1
 ```
 
-*Expect:* `--status` says eg1; 3 of 3 replies from `eg1-worker`
-(`6e:8c:28:fa:31:1f`). After the move to eg2, 3 of 3 from an eg2 node
-(this run: `eg2-control-plane` `1e:c6:bf:d8:18:97`) and
-`X-Served-By: eg2` on `https://api.eg.poc.local/healthz`. Put it back
-on eg1 when you are done — `check.sh` assumes the VIP is on eg1 after
-apply. The script deletes the other cluster first; two announcers for
-`.16` is the failure it exists to prevent.
+**Expect:** before the move, the VIP is in eg1 and `eg1-worker` answers.
+After the move to eg2, `eg2-control-plane` answers. After the move back,
+`eg1-worker` answers again.
 
-## Exercise 3 — call gRPC with the wrong authority
+```text
+== VIP 172.19.255.16 present in: eg1
+  eg-vip-gw: present address=172.19.255.16 Programmed=True
+  eg-vip-gw: absent
+== responder MAC 6e:8c:28:fa:31:1f → eg1-worker 172.19.0.3/16
+== responder MAC 1e:c6:bf:d8:18:97 → eg2-control-plane 172.19.0.4/16
+```
+
+### 3. Call a door with the wrong :authority
+
+The `:80` listener has no hostname. The `GRPCRoute` matches
+`grpc.eg1.poc.local`. A different `:authority` does not hit that route.
 
 ```bash
-# right authority — SERVING
 docker run --rm --network kind-eg fullstorydev/grpcurl:latest \
   -plaintext -authority grpc.eg1.poc.local \
   172.19.255.240:80 grpc.health.v1.Health/Check
-
-# wrong authority — the :80 listener has no hostname, but the GRPCRoute
-# matches grpc.eg1.poc.local. A different :authority does not hit that route.
 docker run --rm --network kind-eg fullstorydev/grpcurl:latest \
   -plaintext -authority grpc.eg2.poc.local \
   172.19.255.240:80 grpc.health.v1.Health/Check || true
 ```
 
-*Expect:* the first call prints `{"status": "SERVING"}`. The second fails
-— measured: `Error invoking method "grpc.health.v1.Health/Check": failed to
+**Expect:** the first call prints `{"status": "SERVING"}`. The second
+fails — grpcurl resolves the method through reflection first, and that
+call carries `:authority grpc.eg2.poc.local`, which no `GRPCRoute` on
+eg1's door matches:
+
+```text
+Error invoking method "grpc.health.v1.Health/Check": failed to
 query for service descriptor "grpc.health.v1.Health": server does not
-support the reflection API`. The message is about reflection because
-grpcurl resolves the method through reflection first, and that call, like
-the health call, carries `:authority grpc.eg2.poc.local`, which no
-GRPCRoute on eg1's door matches — Envoy answers 404 to both. That is the
-same hostname rule demo 53 measured on Cilium: the `:authority` has to
-intersect the route's `hostnames`.
+support the reflection API
+```
 
-## Cleanup
+### 4. Curl each door
 
-`demos/51-eg-kube-vip/cleanup.sh` — eg1/eg2 stay; kube-vip and the
-doors go. Demo 50's clusters, controller and root stay.
+```bash
+curl -s --resolve api.eg1.poc.local:443:172.19.255.240 \
+  --cacert .tmp/eg-root-ca.crt https://api.eg1.poc.local/healthz
+curl -s --resolve api.eg2.poc.local:443:172.19.255.176 \
+  --cacert .tmp/eg-root-ca.crt https://api.eg2.poc.local/healthz
+curl -s --resolve api.eg.poc.local:443:172.19.255.16 \
+  --cacert .tmp/eg-root-ca.crt https://api.eg.poc.local/healthz
+```
+
+**Expect:** `200` and `X-Served-By` from the cluster that holds the door.
+
+```text
+https://api.eg1.poc.local @ 172.19.255.240 → 200 X-Served-By=eg1
+https://api.eg2.poc.local @ 172.19.255.176 → 200 X-Served-By=eg2
+https://api.eg.poc.local @ 172.19.255.16 → 200 X-Served-By=eg1
+```
+
+### 5. Run the check
+
+```bash
+demos/51-eg-kube-vip/check.sh
+```
+
+**Expect:** 39 PASS, 0 FAIL.
+
+```text
+demo 51 check: 0 FAIL
+```
+
+## Clean up
+
+See [README.md](README.md) *Clean up*. The lab stays.
+
+```bash
+demos/51-eg-kube-vip/cleanup.sh
+```

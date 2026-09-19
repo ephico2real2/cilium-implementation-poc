@@ -1,0 +1,21 @@
+# kube-vip cloud-provider ranges for eg-poc1 (enhancement 007 §3.1).
+# RBAC + DaemonSet + cloud-provider are the phase 0 files — one source of truth:
+#   clusters/eg/kube-vip-rbac.yaml
+#   clusters/eg/kube-vip-ds.yaml          (v1.2.4, ARP, svc_election, lb_class_only, no taint)
+#   clusters/eg/kube-vip-cloud-provider.yaml  (v0.0.12, KUBEVIP_ENABLE_LOADBALANCERCLASS=true)
+# This file is the per-cluster ConfigMap; clusters/eg/kubevip-configmap.yaml is
+# phase 0's eg1 record and is not applied here.
+#
+# range-envoy-gateway-system: Envoy Gateway writes the door Services in that namespace.
+# range-default: ordinary Services. The two doors (.100 HTTP, .101 gRPC) sit in the
+# gateway range and are pinned by annotation.
+#
+#   kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/10-kubevip-cm.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubevip
+  namespace: kube-system
+data:
+  range-default: 172.19.255.72-172.19.255.79
+  range-envoy-gateway-system: 172.19.255.100-172.19.255.110

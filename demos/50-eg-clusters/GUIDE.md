@@ -1,56 +1,66 @@
-# Demo 50 — the guide: exercises
+# Demo 50 — four things a reader reads
 
-Run from the repo root with eg1 and eg2 up (`scripts/eg-up.sh`). All three
-exercises are read-only. poc1 and poc2 are paused — do not resume them; exercise
-2 names what a Cilium cluster shows without waking it.
+Run from the repo root after the lab is up. All four exercises are
+read-only. poc1 and poc2 are paused — do not resume them.
 
-## Exercise 1 — read the channel annotations, then see what experimental would add
+## Prerequisites
 
-```bash
-kubectl --context kind-eg1 get crd -o custom-columns=\
-NAME:.metadata.name,\
-CHANNEL:.metadata.annotations.gateway\\.networking\\.k8s\\.io/channel,\
-BUNDLE:.metadata.annotations.gateway\\.networking\\.k8s\\.io/bundle-version \
-  | grep -E 'NAME|gateway.networking.k8s.io'
-
-# do not apply this — it is the mix the lab refuses (phase 0, 2026-09-18 21:05 UTC)
-helm template probe-exp oci://docker.io/envoyproxy/gateway-crds-helm --version v1.9.1 \
-  --set crds.envoyGateway.enabled=true --set crds.gatewayAPI.enabled=true \
-  | grep -E 'channel: (standard|experimental)' | sort | uniq -c
-```
-
-*Expect:* every live `gateway.networking.k8s.io` CRD on eg1 is `channel:
-standard`, `bundle-version: v1.6.2` (ten rows). The template with
-`crds.gatewayAPI.enabled=true` prints **13 × `channel: experimental`, 2 ×
-`standard`** — the 13 are CRDs (the ten core kinds plus three
-`gateway.networking.x-k8s.io`), the 2 are the safe-upgrades
-ValidatingAdmissionPolicy and its binding, and every one says
-`bundle-version: v1.6.1`, not the v1.6.2 this lab runs (phase 0, rendered,
-not inferred). That is why the guide installs upstream's
-`standard-install.yaml` and tells the CRD chart
-`crds.gatewayAPI.enabled=false`. Do not apply the template.
-
-## Exercise 2 — compare `helm list` with what a Cilium cluster has
+- docker, kind `v0.33.0`, helm, and kubectl on the `PATH`.
+- Both clusters already built (the up script for `eg1` and `eg2`):
 
 ```bash
-helm list -n envoy-gateway-system --kube-context kind-eg1
-kubectl --context kind-eg1 get crd | grep -E 'envoyproxy|gateway.networking' | wc -l
+scripts/eg-up.sh
 ```
 
-On a Cilium cluster (poc1/poc2 — **paused; do not start them**) the same two
-commands print an empty Helm list in `envoy-gateway-system` (the namespace
-does not exist) and **zero** `gateway.envoyproxy.io` CRDs. Cilium implements
-Gateway API without a vendor CRD set; the ten standard CRDs on poc1 came from
-`scripts/gateway-api-crds.sh`, not from a controller chart. The contrast is
-the point: Envoy Gateway owns eight implementation CRDs (`EnvoyProxy`,
-`BackendTrafficPolicy`, …); Cilium's implementation objects are Cilium CRDs
-already on the cluster.
+- The Mac route is recorded in [RECAP.md](RECAP.md) *Prerequisites*;
+  these exercises do not need it.
 
-`helm list` on eg1 shows **`eg` only**. `eg-crds` is not a release — Helm
-refused to store it (`Secret … Too long: may not be more than 1048576 bytes`,
-recorded in the transcript). The eight CRDs are still there.
+## Exercises
 
-## Exercise 3 — read the two clusters' root fingerprints
+### 1. Inspect the reservation
+
+Docker holds node addresses to the lower `/17` so the top `/24` cannot
+become a node IP.
+
+```bash
+docker network inspect kind-eg --format \
+  '{{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}'
+```
+
+**Expect:** IPv4 `ip-range=172.19.0.0/17` inside `172.19.0.0/16`. The
+IPv6 block has no `--ip-range`; inspect prints `invalid Prefix` there.
+
+```text
+subnet=172.19.0.0/16 ip-range=172.19.0.0/17 gateway=172.19.0.1
+subnet=fc00:f853:ccd:e794::/64 ip-range=invalid Prefix gateway=fc00:f853:ccd:e794::1
+```
+
+### 2. Read the CRD channel labels
+
+Every live `gateway.networking.k8s.io` CRD must be the standard channel
+at the lab pin (D10). The assertion the up script records:
+
+```bash
+kubectl --context kind-eg1 get crd -o name | grep '\.gateway\.networking\.k8s\.io$' | while read -r crd; do
+  ch=$(kubectl --context kind-eg1 get "$crd" -o jsonpath='{.metadata.annotations.gateway\.networking\.k8s\.io/channel}')
+  ver=$(kubectl --context kind-eg1 get "$crd" -o jsonpath='{.metadata.annotations.gateway\.networking\.k8s\.io/bundle-version}')
+  echo "$crd channel=$ch bundle-version=$ver"
+done
+```
+
+**Expect:** ten rows, every one `channel=standard` and
+`bundle-version=v1.6.2`.
+
+```text
+gateway.networking.k8s.io CRDs: 10 (want 10)
+customresourcedefinition.apiextensions.k8s.io/backendtlspolicies.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/udproutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+```
+
+### 3. Compare the root fingerprint on both clusters
+
+One CA, minted on `eg1`, copied to `eg2`. The PEM is
+`.tmp/eg-root-ca.crt` (gitignored; issue #60).
 
 ```bash
 for ctx in kind-eg1 kind-eg2; do
@@ -62,17 +72,33 @@ done
 openssl x509 -in .tmp/eg-root-ca.crt -noout -fingerprint -sha256
 ```
 
-*Expect:* `subject=CN=eg-root-ca`, `issuer=CN=eg-root-ca`, and the same
-SHA-256 fingerprint on eg1, on eg2, and in `.tmp/eg-root-ca.crt`:
+**Expect:** `subject=CN=eg-root-ca`, `issuer=CN=eg-root-ca`, and the
+same sha256 on `eg1`, on `eg2`, and in the PEM.
 
 ```text
+subject=CN=eg-root-ca
+issuer=CN=eg-root-ca
 sha256 Fingerprint=6A:37:32:53:17:91:45:80:66:4D:9F:0B:6B:05:59:64:43:16:BA:05:93:0E:0F:CD:7C:70:87:F8:C0:2B:67:16
 ```
 
-The file is gitignored (issue #60). A committed PEM would be a different
-certificate after the next `eg-down.sh` / `eg-up.sh`.
+### 4. Run the check
 
-## Cleanup
+```bash
+demos/50-eg-clusters/check.sh
+```
 
-`demos/50-eg-clusters/cleanup.sh` calls `scripts/eg-down.sh` — eg1, eg2 and
-`kind-eg` only.
+**Expect:** 27 PASS, 0 FAIL.
+
+```text
+== demo 50 — the vanilla lab's clusters (enhancement 007 phase 1)
+demo 50 check: 0 FAIL
+```
+
+## Clean up
+
+See [README.md](README.md) *Clean up*. That script calls the lab
+teardown (`eg1`, `eg2`, `eg-poc1`, and `kind-eg` only):
+
+```bash
+scripts/eg-down.sh
+```
