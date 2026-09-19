@@ -36,7 +36,7 @@ hostname `api.eg-poc1.poc.local`. The `:80` listener has **no redirect**
 301 on purpose. `grpc-gw` sits at `172.19.255.101` with listeners
 `h2c :80` and `https-grpc :443`, both hostname `grpc.eg-poc1.poc.local`.
 An `HTTPRoute` attaches only to `http-gw`; a `GRPCRoute` attaches only
-to `grpc-gw`. That is the isolation, measured on the third apply:
+to `grpc-gw`. That is the isolation, measured:
 grpcurl against the HTTP door with the gRPC authority exited 1
 (`server does not support the reflection API`); curl of `/healthz` at
 the gRPC door with the API host returned `isolation_http_code=404`. Two
@@ -60,14 +60,12 @@ reports both lifetimes as infinity, so `ip` prints `deprecated` with
 run on `eg-poc1-worker`, both door Services are
 `externalTrafficPolicy: Local` (Envoy Gateway's default), and kube-vip
 with `svc_election` elects only among nodes with a ready local
-endpoint — the worker is the only candidate. The fourth apply's record shows all three phrases for both doors
-(`adding VIP`, `successful add IP`, `layer 2 broadcaster starting`);
-the 13:14:15 / 13:14:26 stamps are the first apply's, reprinted
-by the whole-log read.
+endpoint — the worker is the only candidate. The record shows all three phrases for both doors (`adding VIP`,
+`successful add IP`, `layer 2 broadcaster starting`).
 
 **4. What we did in Docker is part of the proof.**
 The cluster sits on `kind-eg`: Docker allocates node addresses from
-`172.19.0.0/17` only, so `172.19.255.0/24` can never be a node address. The third apply recorded IPv4 `Subnet=172.19.0.0/16`
+`172.19.0.0/17` only, so `172.19.255.0/24` can never be a node address. Recorded: IPv4 `Subnet=172.19.0.0/16`
 `IPRange=172.19.0.0/17` `Gateway=172.19.0.1` (the IPv6 block's
 `IPRange` prints `invalid Prefix` and is skipped), the two node
 containers `eg-poc1-control-plane 172.19.0.2 e6:61:1d:ac:15:3a` and
@@ -78,41 +76,35 @@ listings before it counts them (`cilium_ds=0 cilium_crd=0`), so a
 kubectl that cannot reach the cluster is a FAIL and not "zero matches".
 
 **5. The MacBook is a client on the same LAN.**
-The Mac routes `172.19/16` to the Docker VM. apply.sh records
-`netstat -rn | grep 172.19`; if the route is absent it prints the
-`sudo route` command and continues — no script runs sudo. The first
-apply, 2026-09-19T13:14Z, printed `no 172.19 route on this Mac` and
-every Mac client failed (`curl_rc=28`, grpcurl deadline, Chrome wrote
-nothing) while both Gateways were Programmed and each door had three
-ARP replies — gotcha #120. The operator re-added `172.19.0.0/16` via
-`192.168.64.2`. The third apply recorded
-`172.19 192.168.64.2 UGSc bridge100`. From that route,
-`curl --resolve` hit `/healthz` at `.100` and got 200 plus
-`X-Served-By: eg-poc1` (from ConfigMap `eg-cluster`) on both `:80` and
-`:443` (`--cacert .tmp/eg-poc1-root-ca.crt`, verification not skipped).
-`/orders` is the page behind the door. shopapi's default `DB_URL`
-(`main.go:56`, enhancement 002 R3) was the second apply's body
-(`lookup db-service.poc.local`). `shop-db` is local to this demo
-(`45-shop-db.yaml`, postgres:16-alpine, emptyDir). The third apply's
-`/orders` was 200 with three rows: keyboard 4999 ¢, mouse 1999 ¢,
-monitor 24900 ¢. `grpcurl` on the Mac against `.101:80` and `.101:443`
-both returned `{"status": "SERVING"}`; `list` named
-`grpc.health.v1.Health` and both reflection services. check.sh repeats
-those rows from a container on `kind-eg` (no Go cache) and matches
+The Mac reaches the lab through one static route, `172.19/16` via the
+Docker VM at `192.168.64.2` (added once with `sudo route`, gotcha #120
+if it is missing after a reboot; apply.sh records it). From there the
+doors are ordinary addresses. `curl --resolve api.eg-poc1.poc.local:80:172.19.255.100`
+got **200** with `X-Served-By: eg-poc1` on `:80`, and the same on
+`:443` with `--cacert .tmp/eg-poc1-root-ca.crt` — the chain verified,
+never skipped. `/orders` returned **200** with three rows (keyboard
+4999 ¢, mouse 1999 ¢, monitor 24900 ¢) from the demo's own PostgreSQL
+(`45-shop-db.yaml`; shopapi's `DB_URL` points at it). `grpcurl` running
+on the Mac (`go run github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.4`
+— no binary to install) got `{"status": "SERVING"}` at `.101:80`
+(plaintext h2c) and at `.101:443` (TLS, same root), and `list` named
+`grpc.health.v1.Health` plus both reflection services. check.sh repeats
+those rows from a container on `kind-eg` and matches
 `"status": "SERVING"` exactly.
 
-**6. The browser is the same door without `/etc/hosts`.**
-apply.sh launches Chrome headless with `--host-resolver-rules` mapping
-the API name to `.100` (gotcha #121: Chrome 153 writes the PNG and
-never exits). The wait is for the file; Chrome is killed
-(`chrome_rc=143`). The third apply recorded `chrome_rc=124` and
-`PNG image data, 1000 x 500`. Chrome asks for `text/html`; `jsonview`
-renders the three orders as a page — that is why `:80` has no
-redirect. `hosts-entries.sh` printed the two names at 2026-09-19T14:18Z
-and never writes `/etc/hosts`. One `Certificate` `eg-poc1-tls` covers
-both names (the card has the spec and the issued leaf). Gateways live
-in `shop` with the Secret, so no ReferenceGrant. Behind the doors:
-`shopapi:local` with `shop-db`, and `routedemo:local -mode grpc` with
+**6. The browser is the same door.**
+apply.sh opens headless Chrome with `--host-resolver-rules` mapping the
+API name to `.100`, so the record needs no `/etc/hosts`; the screenshot
+`output/browser.png` (1000 × 500) shows shopapi's `GET /orders` page
+with the three rows — Chrome asks for `text/html` and `jsonview`
+renders the JSON as a page, which is why `:80` serves the app instead
+of redirecting. For a real browser, `hosts-entries.sh` prints the two
+names (`.100` api, `.101` grpc) to add to `/etc/hosts`, and
+`http://api.eg-poc1.poc.local/orders` shows the same page. One
+`Certificate` `eg-poc1-tls` covers both names (the card has the spec
+and the issued leaf); Gateways live in `shop` with the Secret, so no
+ReferenceGrant. Behind the doors: `shopapi:local` with `shop-db`, and
+`routedemo:local -mode grpc` with
 `appProtocol: kubernetes.io/h2c`. No docker build — `kind load` of
 the existing images when a node lacks them. The final table: both
 doors `Programmed=True`, class `kube-vip.io/kube-vip-class`, announced
@@ -154,7 +146,7 @@ spec:
   issuerRef: {kind: ClusterIssuer, name: eg-ca-issuer}   # → CA secret eg-root-ca, .tmp/eg-poc1-root-ca.crt
 ```
 
-The issued leaf (`print_leaf`, third apply):
+The issued leaf (`print_leaf`):
 `subject=CN=api.eg-poc1.poc.local`,
 `DNS:api.eg-poc1.poc.local, DNS:grpc.eg-poc1.poc.local`,
 `notAfter=Dec 18 13:14:14 2026 GMT`,
@@ -185,14 +177,12 @@ The issued leaf (`print_leaf`, third apply):
 ```
 
 **What the review caught.** OB3 (Claude Opus 5), Codex and Grok,
-2026-09-19, `docs/REVIEW_DEMO54.md`: the record had lost `.100`'s
-`successful add IP` to kubectl's 10-lines-per-pod default; `check.sh`
-accepted `True` as a ready count, a `/32` on the wrong node and a curl
-that failed after good headers; `cleanup.sh` deleted the cloud-provider
-before the door Services it must release; `browser_shot` waited 60 s for
-a file written in 1.4 s; #120 cited two unrecorded figures. The
-`deprecated` explanation two reviewers called wrong is what kube-vip's
-and the kernel's source say — it stayed, with the reconciliation.
+2026-09-19, `docs/REVIEW_DEMO54.md`. Three things changed the demo:
+the kube-vip log proof reads the whole log (`kubectl logs -l` shows
+only the last 10 lines per pod by default, which had hidden one line);
+`check.sh` ties the eth0 rows to the node that answered ARP and
+requires a clean curl exit; `cleanup.sh` waits for the door Services
+before removing the cloud-provider that releases them.
 
 **What you can do with it right now.**
 
