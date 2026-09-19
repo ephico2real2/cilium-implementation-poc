@@ -1,6 +1,6 @@
 ---
 name: demo-recap
-description: (superseded for demos 54+ by demo-guide — the structured page) Write RECAP.md for a demo — a plain-English walk-through of what the demo did and proved, in the demo's own folder, keeping every technical insight and every measured number but none of the jargon. Invoke when a demo's PR is ready for review or merged, or when the operator asks "walk me through it" / "what did we achieve with demo N".
+description: (SUPERSEDED by demo-guide — the structured page — for every demo; kept for the history of demos 40/41's first recaps) Write RECAP.md for a demo — a plain-English walk-through of what the demo did and proved, in the demo's own folder, keeping every technical insight and every measured number but none of the jargon. Invoke when a demo's PR is ready for review or merged, or when the operator asks "walk me through it" / "what did we achieve with demo N".
 ---
 
 # Demo recap — the walk-through in plain English

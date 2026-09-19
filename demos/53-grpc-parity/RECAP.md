@@ -1,163 +1,300 @@
-# What demo 53 did — the walk-through
+# Demo 53 — gRPC SERVING on both Cilium doors
 
-**The goal.** Enhancement 007 wants gRPC through the doors on both stacks — Cilium on poc1/poc2,
-and Envoy Gateway with kube-vip and MetalLB later — using one app and one client. This demo is the
-Cilium half: re-run demo 09's test on poc1, and give poc2 its first GRPCRoute (a Gateway API object
-that matches on gRPC service name, not on a URL path) on the shop door that demos 40 and 41 already
-built. Demos 51 and 52 will copy the same objects onto Envoy Gateway so a later page can put four
-`SERVING` lines in one table.
+This page re-runs demo 09's gRPC test on poc1 and lands poc2's first
+GRPCRoute on `shop-gw` (Cilium's front-door object, listeners in the
+node's shared Envoy). HTTP already occupies `api.poc2.shop.poc.local` on
+`172.18.255.177`. gRPC gets its own name on that address —
+`grpc.poc2.shop.poc.local` — a new `https-grpc` listener, plaintext h2c
+on `:80`, and TLS on `:443` through the lab root. Both clusters answer
+`SERVING`.
 
-**1. The same door as HTTP, a different name.** poc2's `shop-gw` (Cilium's front door — a Service
-plus listeners in the node's shared Envoy proxy) already answers `https://api.poc2.shop.poc.local`
-on `172.18.255.177`. Putting gRPC on that address is the enterprise case: one load-balancer IP, two
-protocols. A Gateway listener has one hostname. The existing HTTPS listener is already
-`api.poc2.shop.poc.local`, and demo 41's HTTPRoute occupies it. A GRPCRoute whose hostname does
-not intersect the listener's hostname is not accepted, so `grpc.poc2.shop.poc.local` cannot share
-the `https` listener. Gateway API requires an implementation to accept exactly one HTTPRoute or
-GRPCRoute when the two route kinds overlap on the same listener and hostname. Cilium 1.20.2 does not implement that cross-kind arbitration
-in its route-status path: it validates HTTPRoutes and GRPCRoutes
-separately, then appends both kinds during Gateway ingestion. A hypothetical GRPCRoute
-using `api.poc2.shop.poc.local` would therefore likely be accepted and rendered alongside
-`shop-api`. This demo does not rely on that non-conforming behavior: the distinct
-`grpc.poc2.shop.poc.local` listener avoids the conflict and remains portable to conforming
-Gateway API implementations. Read from the code, not measured:
-`vendor/sigs.k8s.io/gateway-api/apis/v1/grpcroute_types.go:126-137` in `~/gitRepos/cilium`;
-Cilium 1.20.2 evaluates the kinds separately in `operator/pkg/gateway-api/routechecks` /
-`status_route.go:77-98,144-150,178-207` and appends both in `ingestion/gateway.go:194-210`. This
-demo does not apply a conflicting route. So poc2 gained a third listener, `https-grpc`, still on
-port 443, distinguished by SNI (the name the client presents in the TLS handshake) — the same
-pattern demo 09 used for its wildcard and exact certificates. The plain HTTP listener on port 80
-has no hostname and already serves any Host; the GRPCRoute attaches there too, which is gRPC over
-cleartext HTTP/2 (h2c). `:authority` is the HTTP/2 header the route's hostnames match on;
-`grpcurl -authority` sets it.
+## What you get
 
-**2. A second leaf from the same root.** `shop-tls` cannot grow this name: adding a SAN would not
-change the listener's hostname, and the listener is what SNI selects. Certificate `grpc-tls` is
-issued in `shop-edge` by the same ClusterIssuer `ca-issuer`: common name and the one SAN
-`grpc.poc2.shop.poc.local`. `tls-proof.sh` recorded `subject=CN=grpc.poc2.shop.poc.local`,
-`issuer=CN=clustermesh-root-ca`, `sha256 Fingerprint=DD:A5:35:55:F6:93:90:9D:B4:BD:22:C1:E2:1D:94:36:E6:53:59:C1:65:AC:F6:86:3B:32:4C:FF:DB:0E:42:CF`,
-`notBefore=Sep 18 19:02:42 2026 GMT`, `notAfter=Dec 17 19:02:42 2026 GMT`.
-`openssl verify -CAfile .tmp/root-ca.crt .tmp/grpc-poc2.crt` printed `.tmp/grpc-poc2.crt: OK`.
-`openssl verify -CAfile docs/root-ca.crt .tmp/grpc-poc2.crt` printed `unable to get local issuer certificate`
-and `error .tmp/grpc-poc2.crt: verification failed` ([issue #60](https://github.com/ephico2real2/cilium-implementation-poc/issues/60)).
-The live root fingerprint in the same transcript is
-`sha256 Fingerprint=F4:FD:F8:B7:78:D9:D3:9E:69:53:E1:CB:FB:26:CD:1A:9B:85:48:66:D4:48:8D:08:0F:E9:73:7E:8A:97:BF:27`,
-so every TLS client in this demo mounts `.tmp/root-ca.crt` exported from secret
-`clustermesh-root-ca`, the same file demo 39 uses. grpcurl will not take `-authority` and
-`-servername` together; `-authority` is the TLS server name.
+- poc1 `grpc.poc.local` at `172.18.255.240`: h2c `:80` and TLS `:443` →
+  `{ "status": "SERVING" }`.
+- poc2 `grpc.poc2.shop.poc.local` at `172.18.255.177`: the same two
+  calls → `SERVING`.
+- `shop-gw` has `3/3` listeners Programmed (`https`, `https-grpc`,
+  `http`); GRPCRoute `grpc` is `accepted=2/2 resolved=2/2`.
+- A CiliumNetworkPolicy (an allow that Cilium enforces at the pod)
+  named `grpc` admits the Gateway (`fromEntities: ingress`) on TCP/9090.
+  Without it Hubble records `Policy denied DROPPED` from identity 8.
+- Leaf `grpc-tls`: CN and SAN `grpc.poc2.shop.poc.local`, issuer
+  `CN=clustermesh-root-ca`; `.tmp/root-ca.crt` verifies; `docs/root-ca.crt`
+  fails ([issue #60](https://github.com/ephico2real2/cilium-implementation-poc/issues/60)).
+- `check.sh` at `2026-09-18T19:37:08Z`: 10 PASS, 0 FAIL, 1 WARN (11
+  rows). The WARN is `command -v grpcurl: not found` on the Mac.
 
-**3. poc1 had nothing to re-run until the apps came back.** The brief's starting fact was that
-demo 09's `GRPCRoute` still sat on `routes-gw` at `172.18.255.240`. It did not:
-`kubectl --context kind-poc1 get grpcroute -A` was empty, because the lab's stack script applies
-only the Gateway, not the demo 09 apps and routes. Those two files were applied on poc1 so the
-re-run had a target. After that, `grpcurl -plaintext -authority grpc.poc.local 172.18.255.240:80
-grpc.health.v1.Health/Check` and the TLS form on `:443` both returned `"status": "SERVING"`.
+## Architecture
 
-**4. The first apply on poc2 was accepted and still dropped.** The Deployment, the Service
-(`appProtocol: kubernetes.io/h2c`, without which Envoy speaks HTTP/1.1 to the pod), the
-Certificate, the third listener and the GRPCRoute all came up: three listeners Programmed, the
-route Accepted and ResolvedRefs on both parents, and the pod Available. `Health/Check` against
-`.177` then hit a deadline. Every apply re-proves that drop through `policy-proof.sh`; Hubble
-named it:
-`Sep 18 19:37:18.678: 10.20.0.33:53156 (ingress) <> shop-edge/grpc-c59b4f578-dqr55:9090 (ID:145376) Policy denied DROPPED (TCP Flags: SYN)`.
-`source identity 8 (reserved:ingress)`. Demo 41 left a default-deny policy in `shop-edge` that
-selects every pod labelled `part-of: shop`. Its `ingress: [{}]` section contains no explicit allow,
-so the endpoint's only realized ingress allowance was Cilium's localhost rule. Kubelet
-probes (`reserved:host`) worked and the Gateway's identity (`reserved:ingress`) did not. A small
-policy using the same `fromEntities: ingress` allowance as the generated `api-gateway` rule,
-restricted to TCP/9090, turned the second apply into `SERVING` on plaintext and TLS.
+A request from a container on the `kind` bridge takes this path:
 
-**5. Reflection lists three names, not four.** `grpcurl list` on both clusters prints
-`grpc.health.v1.Health` and both `ServerReflection` services, which is exactly what demo 09
-recorded. `routedemo.Echo` is a health status the process sets so a route *could* match on that
-name; it is not a service reflection can list. Calling `routedemo.Echo/DoesNotExist` returns
-`target server does not expose service "routedemo.Echo"`: grpcurl asks reflection (which is
-matched) for a descriptor, then the backend says no. A wrong Host, `wrong.poc.local`, returns
-`server does not support the reflection API` — no GRPCRoute matched, so reflection is not
-forwarded. That is what Cilium's Envoy does with a name nobody claimed as gRPC.
+```text
+        grpcurl -authority grpc.poc2.shop.poc.local
+                         │
+            ┌────────────┴────────────┐
+            │ h2c :80                 │ TLS SNI :443
+            ▼                         ▼
+         shop-gw  172.18.255.177  (poc2)
+         http:80   (no hostname)      https-grpc:443  grpc.poc2.shop.poc.local
+                                      (grpc-tls)
+            │                         │
+            └────────────┬────────────┘
+                         ▼
+                   grpc :9090
+                   routedemo -mode grpc
+                   CNP grpc → reserved:ingress
+```
 
-**6. One source of truth for the door.** A Gateway's listeners are one object. The third listener
-and the Certificate were added to demo 40's files, and this demo's apply runs those files rather
-than a copy. Cleanup removes the route, the app, the policy and the leaf, and leaves the
-listener: it is now part of poc2's door. The Mac has no `grpcurl`; that check is a warning with
-`brew install grpcurl`, not a failure. No image was built (gotcha #118); `routedemo:local` was
-already on all four nodes.
-
-**The reference card — names, addresses, certificates, doors.** Read from the live clusters
-(`kubectl --context kind-poc2 -n shop-edge get gateway,certificate,grpcroute`, `openssl s_client`,
-the transcript).
-
-*The names and their addresses.*
+`https` on the same address still serves `api.poc2.shop.poc.local`
+(demo 41's HTTPRoute). A Gateway listener has one hostname. Gateway API
+requires that `:authority` intersect the route's hostnames, and forbids
+an HTTPRoute and a GRPCRoute sharing a hostname on one listener. Cilium
+1.20.2 evaluates the kinds separately
+([read, not measured](../../docs/REVIEW_DEMO53.md)). This page uses a
+distinct name and stays portable.
 
 | Name | Address | What it is | Who answers |
 |---|---|---|---|
-| `grpc.poc.local` | `172.18.255.240` | demo 09's gRPC name on poc1's `routes-gw` | poc1 |
-| `grpc.poc2.shop.poc.local` | `172.18.255.177` | poc2's gRPC name on `shop-gw` | poc2 |
-| `api.poc2.shop.poc.local` | `172.18.255.177` | the shop HTTP name, same door, different listener | poc2 |
+| `grpc.poc.local` | `172.18.255.240` | demo 09's gRPC name on `routes-gw` | poc1 |
+| `grpc.poc2.shop.poc.local` | `172.18.255.177` | gRPC name on `shop-gw` | poc2 (`kind-l2-announce`) |
+| `api.poc2.shop.poc.local` | `172.18.255.177` | shop HTTP name, same door, different listener | poc2 (`kind-l2-announce`) |
 
-*The certificate.* One `Certificate` `grpc-tls` in `shop-edge` on poc2 (also present in the
-shared manifest demo 40 applies; unused on poc1, which has no `https-grpc` listener):
+`.177` comes from poc2's gateway-pool (an LB IPAM pool). L2 announcement
+means one node answers ARP for the address, a lease per Service.
+
+The `:80` listener has no hostname and already serves any Host; the
+GRPCRoute attaches there as h2c. `:authority` is the HTTP/2
+pseudo-header the route's `hostnames` match on. grpcurl's `-authority`
+flag sets it and is also the TLS server name — passing `-servername` as
+well is an error.
+
+## Prerequisites
+
+- kind `v0.33.0`, kubectl `v1.36.4`, Cilium `1.20.2`, Hubble CLI
+  `1.19.4` ([`scripts/bootstrap/versions.env`](../../scripts/bootstrap/versions.env)).
+- poc1 and poc2 up; demos 40 and 41 applied; image `routedemo:local`
+  already on the nodes (this is not a docker build).
+- The live root, not `docs/root-ca.crt`:
+
+```bash
+scripts/lab-trust.sh export kind-poc2
+```
+
+- Demo 09's apps and routes on poc1 when `grpcroute/grpc` is absent
+  (`lab-stack.sh` applies only `01-gateway.yaml`):
+
+```bash
+kubectl --context kind-poc1 apply -f demos/09-routes/02-apps.yaml
+kubectl --context kind-poc1 apply -f demos/09-routes/03-routes.yaml
+```
+
+`apply.sh` does both of those before the poc2 steps.
+
+## Steps
+
+Do these in order from the repo root, after the prerequisites:
+
+### 1. Deploy the app and the CiliumNetworkPolicy
+
+`routedemo:local -mode grpc` in `shop-edge`, Service port 9090 with
+`appProtocol: kubernetes.io/h2c` (without it Envoy speaks HTTP/1.1 to
+the pod). Demo 41's `default-deny-ingress` selects `part-of: shop` and
+`ingress: [{}]` is default-deny ([gotcha #80](../../docs/GOTCHAS.md#80));
+the CNP is the explicit allow on TCP/9090. Probes are TCP: the process
+speaks HTTP/2 on `:9090`.
+
+```bash
+kubectl --context kind-poc2 apply -f demos/53-grpc-parity/10-poc2-grpc-app.yaml
+kubectl --context kind-poc2 -n shop-edge wait deploy/grpc \
+  --for=condition=Available --timeout=120s
+```
+
+Result: `deployment.apps/grpc condition met`;
+`ciliumnetworkpolicy.cilium.io/grpc unchanged`.
+
+```text
+deployment.apps/grpc unchanged
+service/grpc unchanged
+ciliumnetworkpolicy.cilium.io/grpc unchanged
+deployment.apps/grpc condition met
+```
+
+### 2. Add the listener and the GRPCRoute
+
+`https` is already `api.poc2.shop.poc.local`. The Certificate and the
+`https-grpc` listener live in demo 40 so that apply stays the source of
+truth. The GRPCRoute parents `https-grpc` and `http`, hostname
+`grpc.poc2.shop.poc.local`, three method matches from demo 09 (Health
+and both reflection services).
+
+```bash
+kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/20-certificates.yaml
+kubectl --context kind-poc2 -n shop-edge wait certificate/grpc-tls \
+  --for=condition=Ready --timeout=90s
+kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/30-gateways-poc2.yaml
+kubectl --context kind-poc2 -n shop-edge wait --for=condition=Programmed \
+  gateway/shop-gw --timeout=120s
+kubectl --context kind-poc2 apply -f demos/53-grpc-parity/30-poc2-grpcroute.yaml
+```
+
+Result: `certificate.cert-manager.io/grpc-tls condition met`; shop-gw
+`3/3` listeners Programmed; grpcroute all parents
+Accepted+ResolvedRefs.
+
+```text
+certificate.cert-manager.io/grpc-tls condition met
+kind-poc2 gateway/shop-gw: 3/3 listeners Programmed
+kind-poc2 grpcroute/grpc: all parents Accepted+ResolvedRefs
+```
+
+### 3. Prove the policy drop
+
+Every apply re-proves that CNP `grpc` is what lets `reserved:ingress`
+(identity 8) reach `:9090`.
+
+```bash
+demos/53-grpc-parity/policy-proof.sh
+```
+
+Result: Health/Check hits `DeadlineExceeded`; Hubble
+`Policy denied DROPPED` from `(ingress)` identity 8; re-apply restores
+`{ "status": "SERVING" }`.
+
+```text
+Error invoking method "grpc.health.v1.Health/Check": rpc error: code = DeadlineExceeded desc = failed to query for service descriptor "grpc.health.v1.Health": context deadline exceeded
+Sep 18 19:37:18.678: 10.20.0.33:53156 (ingress) <> shop-edge/grpc-c59b4f578-dqr55:9090 (ID:145376) Policy denied DROPPED (TCP Flags: SYN)
+source identity 8 (reserved:ingress)
+{
+  "status": "SERVING"
+}
+policy-proof: CNP grpc required; Policy denied DROPPED from (ingress) identity 8; SERVING restored
+```
+
+### 4. Prove the leaf
+
+`tls-proof.sh` prints the live leaf and which root verifies it.
+
+```bash
+demos/53-grpc-parity/tls-proof.sh
+```
+
+Result: `subject=CN=grpc.poc2.shop.poc.local`,
+`issuer=CN=clustermesh-root-ca`, SAN `DNS:grpc.poc2.shop.poc.local`,
+`sha256 Fingerprint=DD:A5:35:55:F6:93:90:9D:B4:BD:22:C1:E2:1D:94:36:E6:53:59:C1:65:AC:F6:86:3B:32:4C:FF:DB:0E:42:CF`,
+`notBefore=Sep 18 19:02:42 2026 GMT`,
+`notAfter=Dec 17 19:02:42 2026 GMT`; live root OK; docs root failed.
+
+```text
+.tmp/grpc-poc2.crt: OK
+error 20 at 0 depth lookup: unable to get local issuer certificate
+error .tmp/grpc-poc2.crt: verification failed
+tls-proof: live root OK; docs/root-ca.crt failed (issue #60)
+```
+
+## Verify
+
+From a container on the `kind` network (the Mac has no `grpcurl`):
+
+```bash
+docker run --rm --network kind fullstorydev/grpcurl:latest \
+  -plaintext -max-time 10 -authority grpc.poc2.shop.poc.local \
+  172.18.255.177:80 grpc.health.v1.Health/Check
+```
+
+Expect `{ "status": "SERVING" }`. The same call with
+`-authority grpc.poc.local` at `172.18.255.240:80` is poc1. TLS mounts
+`.tmp/root-ca.crt` and uses `:443`. A method the route does not match,
+and a wrong `:authority`, are [GUIDE.md](GUIDE.md) exercises 1 and 2.
+
+```bash
+demos/53-grpc-parity/check.sh
+```
+
+Recorded `2026-09-18T19:37:08Z`:
+
+```text
+== demo 53 — gRPC parity on the Cilium clusters (poc1 re-run, poc2 first GRPCRoute)
+  STATUS WHAT                                                                   MEASURED                                             RULE
+  PASS   root CA for TLS rows                                                   .tmp/root-ca.crt (live)                              clustermesh-root-ca via scripts/lab-trust.sh export; docs/root-ca.crt only if fingerprints match
+  PASS   poc1 h2c Health/Check @ 172.18.255.240:80                              { "status": "SERVING" }                              grpcurl -plaintext -authority grpc.poc.local 172.18.255.240:80 → {"status":"SERVING"}
+  PASS   poc1 TLS Health/Check @ 172.18.255.240:443                             { "status": "SERVING" }                              grpcurl -cacert .tmp/root-ca.crt -authority grpc.poc.local 172.18.255.240:443 → {"status":"SERVING"}
+  PASS   poc1 grpcurl list via reflection                                       grpc.health.v1.Health grpc.reflection.v1.ServerReflection grpc.reflection.v1alph list shows grpc.health.v1.Health and both ServerReflection services (demo 09)
+  PASS   poc2 h2c Health/Check @ 172.18.255.177:80                              { "status": "SERVING" }                              grpcurl -plaintext -authority grpc.poc2.shop.poc.local 172.18.255.177:80 → {"status":"SERVING"}
+  PASS   poc2 TLS Health/Check @ 172.18.255.177:443                             { "status": "SERVING" }                              grpcurl -cacert .tmp/root-ca.crt -authority grpc.poc2.shop.poc.local 172.18.255.177:443 → {"status":"SERVING"}
+  PASS   poc2 grpcurl list via reflection                                       grpc.health.v1.Health grpc.reflection.v1.ServerReflection grpc.reflection.v1alph list shows grpc.health.v1.Health and both ServerReflection services (demo 09)
+  PASS   poc2 grpcroute/grpc Accepted on both parents                           accepted=2/2 resolved=2/2                            every parent Accepted=True and ResolvedRefs=True (≥ 2 parents: https-grpc and http)
+  PASS   poc2 shop-gw listener https-grpc Programmed                            Programmed=True                                      status.listeners[name=https-grpc] Programmed=True
+  PASS   poc2 grpc-tls Ready                                                    Ready=True                                           Certificate grpc-tls Ready=True
+  WARN   Mac grpcurl (not installed)                                            command -v grpcurl: not found                        skip: brew install grpcurl, then grpcurl -plaintext -authority grpc.poc2.shop.poc.local 172.18.255.177:80 grpc.health.v1.Health/Check
+```
+
+## Reference
+
+Certificate spec (`20-certificates.yaml` in demo 40):
 
 ```yaml
-kind: Certificate                     # cert-manager.io/v1, namespace shop-edge
+kind: Certificate
+metadata: {name: grpc-tls, namespace: shop-edge}
 spec:
   secretName: grpc-tls
   commonName: grpc.poc2.shop.poc.local
   dnsNames:
-    - grpc.poc2.shop.poc.local        # CN repeated as the only SAN
-  issuerRef: {kind: ClusterIssuer, name: ca-issuer}   # → CA secret clustermesh-root-ca
+    - grpc.poc2.shop.poc.local
+  issuerRef: {kind: ClusterIssuer, name: ca-issuer}
 ```
 
-One name, not three: this leaf is for one listener on one cluster, not for a VIP that can move.
-A wildcard `*.shop.poc.local` would not cover the two-label name (demo 40 already measured that
-for the HTTP names). The issued leaf: `subject=CN=grpc.poc2.shop.poc.local`,
+Issued leaf: `subject=CN=grpc.poc2.shop.poc.local`,
 `issuer=CN=clustermesh-root-ca`, SAN `DNS:grpc.poc2.shop.poc.local`,
-`notBefore=Sep 18 19:02:42 2026 GMT`, `notAfter=Dec 17 19:02:42 2026 GMT`,
+`notBefore=Sep 18 19:02:42 2026 GMT`,
+`notAfter=Dec 17 19:02:42 2026 GMT`,
 fingerprint `DD:A5:35:55:F6:93:90:9D:B4:BD:22:C1:E2:1D:94:36:E6:53:59:C1:65:AC:F6:86:3B:32:4C:FF:DB:0E:42:CF`.
-A client trusts `.tmp/root-ca.crt` (the live root), not `docs/root-ca.crt` (issue #60).
+A client trusts `.tmp/root-ca.crt` (live root
+`sha256 Fingerprint=F4:FD:F8:B7:78:D9:D3:9E:69:53:E1:CB:FB:26:CD:1A:9B:85:48:66:D4:48:8D:08:0F:E9:73:7E:8A:97:BF:27`).
+`list` names Health and both reflection services; `routedemo.Echo` is a
+health status name, not a reflected service.
 
-*The door.* poc2 `shop-gw` after this demo, three listeners, one address:
+| File | What |
+|---|---|
+| [`10-poc2-grpc-app.yaml`](10-poc2-grpc-app.yaml) | Deployment + Service + CNP `grpc` |
+| [`../40-shop-mesh-phase0/20-certificates.yaml`](../40-shop-mesh-phase0/20-certificates.yaml) | `Certificate` `grpc-tls` |
+| [`../40-shop-mesh-phase0/30-gateways-poc2.yaml`](../40-shop-mesh-phase0/30-gateways-poc2.yaml) | `shop-gw` listener `https-grpc` |
+| [`30-poc2-grpcroute.yaml`](30-poc2-grpcroute.yaml) | GRPCRoute on `https-grpc` and `http` |
+| [`apply.sh`](apply.sh) / [`check.sh`](check.sh) / [`cleanup.sh`](cleanup.sh) | land, prove, remove |
+| [`policy-proof.sh`](policy-proof.sh) / [`tls-proof.sh`](tls-proof.sh) | the two proofs |
 
-```text
-                  grpc.poc2.shop.poc.local ─── 172.18.255.177 ─── poc2 (kind-l2-announce)
-                  api.poc2.shop.poc.local  ─── 172.18.255.177 ─── same Service, SNI picks the cert
-                              │
-             ┌────────────────┴──────────────────────────────┐
-             │  poc2  shop-gw  .177                          │
-             │   https:443      api.poc2.shop.poc.local  (shop-tls)  → HTTPRoute shop-api
-             │   https-grpc:443 grpc.poc2.shop.poc.local (grpc-tls)  → GRPCRoute grpc
-             │   http:80        (no hostname)                        → both, by Host / :authority
-             │        │                                              │
-             │        ▼                                              ▼
-             │  api-gateway :80                          grpc :9090 (routedemo -mode grpc)
-             └───────────────────────────────────────────────────────┘
+## Troubleshooting
+
+- TLS verify fails with `unable to get local issuer certificate`:
+  `docs/root-ca.crt` is a previous build
+  ([issue #60](https://github.com/ephico2real2/cilium-implementation-poc/issues/60));
+  use `.tmp/root-ca.crt` from the export under *Prerequisites*.
+- Health/Check returns `DeadlineExceeded`: CNP `grpc` is missing and
+  demo 41's default-deny drops `reserved:ingress`
+  ([gotcha #80](../../docs/GOTCHAS.md#80)); re-apply
+  [`10-poc2-grpc-app.yaml`](10-poc2-grpc-app.yaml).
+- grpcurl errors when both `-authority` and `-servername` are set: pass
+  `-authority` only.
+
+## Clean up
+
+```bash
+demos/53-grpc-parity/cleanup.sh
 ```
 
-**What the review caught** (Codex and Grok, `docs/REVIEW_DEMO53.md`; OB1's pass is owed — the Fable usage
-limit ended it, as it did for demo 41):
+Removes the route, the app, CNP `grpc`, and `grpc-tls` (Certificate +
+Secret). The `https-grpc` listener stays — it is demo 40's door. Re-apply
+`20-certificates.yaml` to restore the leaf.
 
-- The apply script wiped the transcript on every run, so the Hubble drop and the certificate checks quoted here
-  lived in no artefact. They are now recorded proofs that every apply re-runs: delete the policy, watch the drop,
-  restore it, watch `SERVING` return; and both `openssl verify` outcomes.
-- Cilium 1.20.2 appears not to implement the Gateway API's rule that an HTTPRoute and a GRPCRoute overlapping on
-  one listener and hostname must have exactly one accepted — read from its code, not measured; this demo never
-  relied on it, which is why the gRPC name has its own listener.
-- The regression row's "not found means skip" also matched a missing `kubectl`; a missing tool is a failure now.
-- This recap had called the default-deny rule "allow-all"; Cilium's docs say the opposite, and so does step 4 now.
-- Demo 40's own check had been failing its door rows since demo 41 attached routes (its rule wanted 404); the rule
-  now accepts 404 before routes and 200 after.
+## What's next
 
-Before the review, the first apply had already changed three things: poc1's route restored (the stack script never
-applied it), TLS against the live root (the file in `docs/` is the previous build's — issue #60), and the
-`fromEntities: ingress` policy after demo 41's default-deny dropped the Gateway's first call.
-
-**What you can do with it right now.**
-
-- `docker run --rm --network kind fullstorydev/grpcurl:latest -plaintext -authority grpc.poc2.shop.poc.local 172.18.255.177:80 grpc.health.v1.Health/Check` — `"status": "SERVING"`.
-- The same command with `-authority grpc.poc.local` and `172.18.255.240:80` — poc1, still SERVING.
-- `demos/53-grpc-parity/check.sh` — ten PASS rows and a WARN if `grpcurl` is not on the Mac.
-- `demos/53-grpc-parity/GUIDE.md` exercise 2 — the wrong Host, and the sentence Envoy actually returns.
-
-**Where the next demo starts.** Demos 51 and 52 take this app, this client and this route shape
-onto Envoy Gateway's doors, one load balancer each. The two `SERVING` lines above are the Cilium
-column of that comparison; `docs/EG-VS-CILIUM.md` is written in enhancement 007 phase 4, not here.
+- [GUIDE.md](GUIDE.md) — unmatched method, wrong `:authority`, `list`.
+- Demos 51 and 54 put this app and this route shape on Envoy Gateway.
+- The Cilium column of `docs/EG-VS-CILIUM.md` is enhancement 007 phase 4
+  ([enhancement 007](../../enhancements/007-envoy-gateway-lab.md) §4
+  row 3b, issue
+  [#58](https://github.com/ephico2real2/cilium-implementation-poc/issues/58)).
+- The shop door and the HTTPRoute are
+  [demo 40](../40-shop-mesh-phase0/README.md) and
+  [demo 41](../41-shop-mesh-phase1/README.md)
+  ([enhancement 002](../../enhancements/002-shop-platform-clustermesh.md)).

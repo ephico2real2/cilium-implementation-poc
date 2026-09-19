@@ -1,14 +1,17 @@
 ---
 name: demo-guide
-description: Write a demo's RECAP.md as a structured guide — the page shape used by the Kubernetes docs (tutorial page), GitHub Docs (article contents), Google's developer style guide (procedures) and Diátaxis (how-to) — fixed headings in a fixed order, one imperative action per step with its recorded result, the architecture up front, the reference at the back, nothing about the runs that failed. Covers the demo's three pages — RECAP.md (the guide), README.md (the record) and GUIDE.md (the exercises). Invoke for every Envoy Gateway lab demo (50 onward; supersedes demo-recap's narrative walk-through) and whenever the operator asks for "a proper guide".
+description: Write a demo's RECAP.md as a structured guide — the page shape used by the Kubernetes docs (tutorial page), GitHub Docs (article contents), Google's developer style guide (procedures) and Diátaxis (how-to) — fixed headings in a fixed order, one imperative action per step with its recorded result, the architecture up front, the reference at the back, nothing about the runs that failed. Covers the demo's three pages — RECAP.md (the guide), README.md (the record) and GUIDE.md (the exercises). Invoke for every demo with a RECAP (40, 41, 50, 51, 53, 54 and on; supersedes demo-recap's narrative walk-through) and whenever the operator asks for "a proper guide".
 ---
 
 # Demo guide — the structured page
 
 The operator, 2026-09-19, on the narrative recap: *"this is all over the place… google how to structure git doc for
 writing a proper guide… I only wanna see what worked and how did it."* This skill replaces `demo-recap`'s walk-through
-for the Envoy Gateway lab (demos 50, 51, 54 and on — the operator, 2026-09-19: *"update the other docs in demo 54
-first and the previous demos on envoy with kubevip and metallb"*). The Cilium demos' recaps (40, 41, 53) stay.
+for every demo that has a RECAP: the Envoy Gateway lab (50, 51, 54 and on — the operator, 2026-09-19: *"update the
+other docs in demo 54 first and the previous demos on envoy with kubevip and metallb"*) and the shop-platform demos on
+Cilium (40, 41, 53 — the same day: *"finish all merging first and then you will restart from a branch from a fresh
+main"*, tier 1 of the rewrite). Older demos are rewritten to it when they are next run or referenced; the
+observability build-outs (16, 21, 25, 38) stay records and get the formatting rules only.
 
 ## Where the shape comes from
 
