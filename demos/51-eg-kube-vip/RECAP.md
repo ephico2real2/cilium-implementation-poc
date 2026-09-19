@@ -1,204 +1,412 @@
-# What demo 51 did — the walk-through
+# Demo 51 — two clusters, three kube-vip doors, and a VIP that moves
 
-**The goal** — Enhancement 007 builds a second lab next to the Cilium one so a
-reader can name every part Cilium had bundled: two kind clusters, stock
-networking, Envoy Gateway, and the two software load balancers a bare-metal
-team actually chooses between. Demo 50 poured the slab. Demo 51 is the first
-door: kube-vip alone, no MetalLB, and the contract a team is handed — the
-`EnvoyProxy` names the class and the address; the platform's load balancer
-claims nothing else.
+This page hangs kube-vip (a DaemonSet that answers ARP for a Service
+address) on demo 50's two clusters and opens three Envoy Gateway doors.
+Each door's `EnvoyProxy` names `kube-vip.io/kube-vip-class` and pins the
+IP. A class-less Service stays `<pending>`. The product VIP lives in one
+cluster at a time. MetalLB is not installed.
 
-**1. Every door names its load balancer, and kube-vip claims nothing else.**
-A Gateway (Envoy Gateway's front door — its own Envoy Deployment and Service,
-not a share of the node's proxy) does not pick an address by existing. The
-`EnvoyProxy` attached to it, created in the same file and before the Gateway,
-sets `envoyService.loadBalancerClass: kube-vip.io/kube-vip-class` and pins
-the IP with `kube-vip.io/loadbalancerIPs`. kube-vip runs class-only: the
-DaemonSet has `lb_class_only=true`, the cloud-provider has
-`KUBEVIP_ENABLE_LOADBALANCERCLASS=true`, and `--taint` is omitted so a worker
-can be the ARP leader. A class-less `type: LoadBalancer` Service in `shop`
-(`probe-noclass`, kept as a standing exhibit) stays `<pending>` on both
-clusters — no label, no annotation, no ingress IP. That is D11, the
-operator's training rule, measured while kube-vip is the only load balancer
-in the building.
+## What you get
 
-**2. "Configured" is not "answered on the wire."** Phase 0 taught that
-`Gateway.spec.addresses` writes the Envoy Service's `externalIPs` and that
-nobody announces those. Demo 51 re-ran the experiment on both clusters: a
-throwaway Gateway `probe-noproxy` with only `spec.addresses` (`.245` on eg1,
-`.181` on eg2) produced `externalIPs` set, `status.loadBalancer` empty, and
-**0 ARP replies** from a container on `kind-eg`. Then it was deleted. The
-reachable doors set *both* fields at create time — `spec.addresses` so
-`status.addresses` stays honest (Envoy Gateway will not invent a different
-one), and the `EnvoyProxy` annotation so kube-vip answers. Attaching the
-class later cannot work: the Service field is immutable, measured in phase 0
-as `may not change once set`.
+- `loadBalancerClass` is mandatory (D11): `probe-noclass` stays
+  `<pending>` on both clusters (`class=(none) ingress=(none)
+  impl=(none) ann=(none)`, age 2884 s / 2882 s).
+- Two clusters, three doors: `eg1-gw` at `172.19.255.240`, `eg2-gw` at
+  `172.19.255.176`, product VIP `eg-vip-gw` at `172.19.255.16` in one
+  cluster at a time.
+- One `Certificate` `eg-tls` per cluster, CN `api.eg.poc.local`, six
+  SANs; both Ready.
+- gRPC `SERVING` on h2c `:80` and TLS `:443` behind every door; no
+  `BackendTrafficPolicy`.
+- R7: `spec.addresses` alone writes `externalIPs` (`.245` / `.181`) and
+  `Received 0 response(s)`.
+- VIP move: probes `samples=33 ok=24 fail=9`, gap `9.368 s` / `9.377 s`;
+  kube-vip's window `10.837 s` / `10.909 s`.
+- `check.sh` at `2026-09-19T00:42:08Z`: 39 PASS, 0 FAIL. No MetalLB
+  (`metallb-system` `NotFound` on both).
 
-**3. Two Gateways per cluster, and the shared address lives in one.** eg1's
-own door is `eg1-gw` at `172.19.255.240`; eg2's is `eg2-gw` at
-`172.19.255.176`. The product door `eg-vip-gw` at `172.19.255.16` lives in
-one cluster at a time (`VIP_HOME=eg1`). Two VIP Gateways would be two ARP
-responders. `scripts/eg-vip-move.sh kube-vip eg2` deletes the other
-cluster first. Before: three `arping .16` replies from `eg1-worker`
-(`6e:8c:28:fa:31:1f`); after, three from `eg2-control-plane`
-(`1e:c6:bf:d8:18:97`). A `curl -m 1` every 0.5 s during the move counted
-**33 samples, 24 ok, 9 fail, a gap of 9.368 s**; back, **9.377 s** (9 fails
-in 33). Each failed probe says why: six timed out (nobody answered the
-address), two or three were refused, one got a 404 from a door whose routes
-were already gone. kube-vip's own logs put the exact no-announcer window at
-**10.837 s** and **10.909 s**: the new cluster saw the Service within a
-quarter of a second of the old one's `Deleting VIP` and answered the moment
-its Envoy pod turned Ready — kube-vip starts the per-Service election only
-once a local endpoint is ready, because the Service is
-`externalTrafficPolicy: Local` (Envoy Gateway's default); that is also why
-`eg2-control-plane` answered after the move. The gap is one Envoy pod's
-start-up, not Cilium's ~40 ms lease move. Creating the VIP on eg2 did not
-fail with ".16 in use".
+## Architecture
 
-**4. One certificate, six names, no grant.** Each cluster issues `eg-tls`
-from `ClusterIssuer/eg-ca-issuer` (the lab root in `.tmp/eg-root-ca.crt`,
-never committed — issue #60). The CN is the product name
-`api.eg.poc.local`. The SANs are that name, the two per-cluster API names,
-and three gRPC names. A wildcard was rejected in demo 40: `*.eg.poc.local`
-covers one label and not `api.eg1.poc.local`. gRPC cannot share an API
-hostname on one listener (demo 53 / Gateway API: if an HTTPRoute and a
-GRPCRoute intersect, the implementation accepts exactly one), so gRPC has
-its own names. The Gateways live in `shop` with the Secret, so Envoy
-Gateway does not need a ReferenceGrant. The issued leaves share
-`subject=CN=api.eg.poc.local` and `issuer=CN=eg-root-ca`, valid 2026-09-18
-→ 2026-12-17; the fingerprints differ (eg1 `09:91:08:A6…`, eg2
-`2C:20:A5:38…`).
+The path a request takes:
 
-**5. Two HTTPS listeners on one port, and gRPC on both h2c and TLS.** Envoy
-Gateway Accepted `https:443` and `https-grpc:443` with different hostnames
-on the same Gateway — the brief's stop-condition did not fire. Behind the
-doors: `shopapi:local` (kind-loaded, not built; `/healthz`, `X-Served-By`
-from the route filter) and `routedemo:local -mode grpc` with
-`appProtocol: kubernetes.io/h2c` on port 9090. Phase 0's premise held: no
-`BackendTrafficPolicy` was required. `grpcurl -plaintext -authority
-grpc.eg1.poc.local 172.19.255.240:80` returned `SERVING`; the same with
-`-cacert .tmp/eg-root-ca.crt` on `:443`; `list` via reflection named
-Health and both reflection services. Repeated on `.176` and `.16`. The
-`:80` listener also carries the 301 to https for the API names only, so
-plaintext gRPC is not redirected.
+```text
+                         Mac
+                         route 172.19/16 → 192.168.64.2
+                              │
+                         kind-eg  172.19.0.0/16
+              ┌───────────────┴───────────────┐
+              │                               │
+             eg1                             eg2
+         eg-vip-gw  172.19.255.16        (eg-vip-gw absent)
+         announced by eg1-worker
+         eg1-gw     172.19.255.240       eg2-gw  172.19.255.176
+         announced by eg1-worker         announced by eg2-worker
+              │                               │
+              ▼                               ▼
+         shopapi + grpc                  shopapi + grpc
+         X-Served-By: eg1                X-Served-By: eg2
+```
 
-**6. MetalLB is not here, and the Cilium clusters were not touched.**
-`kubectl get ns metallb-system` is `NotFound` on both eg1 and eg2. poc1
-and poc2 stayed `Exited (137)` on the `kind` network. `kind load` of the
-two existing images worked; a second apply skipped them because `crictl
-images` already showed them. `shopctl probe` WARNed —
-`api.eg.poc.local` does not resolve until the operator adds the hosts
-block — and every check used `--resolve` or `-authority`. `check.sh` is
-39 PASS, 0 FAIL.
-
-**The reference card — names, addresses, certificates, doors.** Read from
-the live objects (`hosts-entries.sh`, `kubectl get gateway,certificate -n
-shop`, `openssl x509` on `secret/eg-tls`, `scripts/eg-vip-move.sh
---status`).
-
-*The names and their addresses.* The lab has no DNS server for
-`.poc.local`; the records live in `/etc/hosts` on the machine that runs
-the clients, and `hosts-entries.sh` prints them from live state:
-
-| Name | Address | What it is | Who answers for it |
+| Name | Address | What it is | Who answers |
 |---|---|---|---|
-| `api.eg.poc.local` | `172.19.255.16` | the **product name** — cluster-agnostic | whichever cluster holds `eg-vip-gw` (eg1 today, `eg1-worker`) |
-| `api.eg1.poc.local` | `172.19.255.240` | eg1's own door | eg1 (`eg1-worker`) |
-| `api.eg2.poc.local` | `172.19.255.176` | eg2's own door | eg2 (`eg2-worker`) |
-| `grpc.eg.poc.local` | `172.19.255.16` | gRPC on the product door | same announcer as `api.eg.poc.local` |
-| `grpc.eg1.poc.local` | `172.19.255.240` | gRPC on eg1 | eg1 |
-| `grpc.eg2.poc.local` | `172.19.255.176` | gRPC on eg2 | eg2 |
+| `api.eg.poc.local` / `eg-vip-gw` | `172.19.255.16` | product door — HTTP `200/eg1`, gRPC `SERVING` | `eg1-worker` |
+| `api.eg1.poc.local` / `eg1-gw` | `172.19.255.240` | eg1's own door — HTTP `200/eg1`, gRPC `SERVING` | `eg1-worker` |
+| `api.eg2.poc.local` / `eg2-gw` | `172.19.255.176` | eg2's own door — HTTP `200/eg2`, gRPC `SERVING` | `eg2-worker` |
+| `grpc.eg.poc.local` | `172.19.255.16` | gRPC on the product door | `eg1-worker` |
+| `grpc.eg1.poc.local` | `172.19.255.240` | gRPC on eg1 | `eg1-worker` |
+| `grpc.eg2.poc.local` | `172.19.255.176` | gRPC on eg2 | `eg2-worker` |
 
-*The certificate.* **One `Certificate` per cluster — two in total, the same
-spec in both — not one per service or per door.** Both doors in a cluster
-reference the same Secret, `eg-tls`. No ReferenceGrant: Gateways are in
-`shop` with the Secret.
+Recorded final table (`2026-09-19T00:40:23Z`):
+
+```text
+CLUSTER  DOOR       ADDRESS          PROG   LB_CLASS                     ANNOUNCED_BY           HTTP         GRPC_H2C   GRPC_TLS
+eg1      eg1-gw     172.19.255.240   True   kube-vip.io/kube-vip-class   eg1-worker             200/eg1      SERVING    SERVING
+eg1      eg-vip-gw  172.19.255.16    True   kube-vip.io/kube-vip-class   eg1-worker             200/eg1      SERVING    SERVING
+eg2      eg2-gw     172.19.255.176   True   kube-vip.io/kube-vip-class   eg2-worker             200/eg2      SERVING    SERVING
+```
+
+## Prerequisites
+
+- Demo 50's lab: clusters eg1 and eg2, Envoy Gateway, `GatewayClass eg`,
+  cert-manager, lab root `.tmp/eg-root-ca.crt`.
+
+```bash
+scripts/eg-up.sh eg1 eg2
+```
+
+- A route on the Mac to the lab bridge
+  ([gotcha #120](../../docs/GOTCHAS.md#120)):
+
+```bash
+sudo route -n add -net 172.19.0.0/16 192.168.64.2
+```
+
+- Images `shopapi:local` and `routedemo:local` already on the machine
+  (gotcha #118 — this is not a docker build).
+- Pins from
+  [`scripts/bootstrap/versions-eg.env`](../../scripts/bootstrap/versions-eg.env):
+  Gateway API `v1.6.2`, Envoy Gateway `v1.9.1`, cert-manager `v1.21.1`,
+  kube-vip `v1.2.4`, kube-vip cloud-provider `v0.0.12`.
+
+## Steps
+
+Do these in order from the repo root:
+
+### 1. Bring up the two-cluster lab
+
+Confirm both APIs are Ready.
+
+```bash
+kubectl --context kind-eg1 get --raw /readyz
+kubectl --context kind-eg2 get --raw /readyz
+```
+
+Result: `ok` on both (`2026-09-19T00:40:23Z`).
+
+```text
+ok
+```
+
+### 2. Install kube-vip in both clusters
+
+RBAC, DaemonSet and cloud-provider live under `clusters/eg/` (one source
+of truth). Each cluster gets its own `kubevip` ConfigMap. kube-vip runs
+class-only (`lb_class_only=true`, `KUBEVIP_ENABLE_LOADBALANCERCLASS=true`).
+
+```bash
+kubectl --context kind-eg1 apply -f clusters/eg/kube-vip-rbac.yaml
+kubectl --context kind-eg1 apply -f demos/51-eg-kube-vip/10-kubevip-cm-eg1.yaml
+kubectl --context kind-eg1 apply -f clusters/eg/kube-vip-ds.yaml
+kubectl --context kind-eg1 apply -f clusters/eg/kube-vip-cloud-provider.yaml
+kubectl --context kind-eg1 -n kube-system rollout status ds/kube-vip-ds --timeout=120s
+kubectl --context kind-eg1 -n kube-system wait deploy/kube-vip-cloud-provider \
+  --for=condition=Available --timeout=120s
+kubectl --context kind-eg2 apply -f clusters/eg/kube-vip-rbac.yaml
+kubectl --context kind-eg2 apply -f demos/51-eg-kube-vip/10-kubevip-cm-eg2.yaml
+kubectl --context kind-eg2 apply -f clusters/eg/kube-vip-ds.yaml
+kubectl --context kind-eg2 apply -f clusters/eg/kube-vip-cloud-provider.yaml
+kubectl --context kind-eg2 -n kube-system rollout status ds/kube-vip-ds --timeout=120s
+kubectl --context kind-eg2 -n kube-system wait deploy/kube-vip-cloud-provider \
+  --for=condition=Available --timeout=120s
+```
+
+Result: DS rolled out on both; cloud-provider `condition met` on both.
+
+```text
+daemon set "kube-vip-ds" successfully rolled out
+deployment.apps/kube-vip-cloud-provider condition met
+```
+
+### 3. Issue the certificates
+
+One `Certificate` `eg-tls` per cluster, the same spec in both. Gateways
+live in `shop` with the Secret, so no ReferenceGrant.
+
+```bash
+kubectl --context kind-eg1 apply -f demos/51-eg-kube-vip/20-certificates.yaml
+kubectl --context kind-eg1 -n shop wait certificate/eg-tls \
+  --for=condition=Ready --timeout=90s
+kubectl --context kind-eg2 apply -f demos/51-eg-kube-vip/20-certificates.yaml
+kubectl --context kind-eg2 -n shop wait certificate/eg-tls \
+  --for=condition=Ready --timeout=90s
+```
+
+Result: Ready on both.
+
+```text
+certificate.cert-manager.io/eg-tls condition met
+```
+
+### 4. Create the doors
+
+Each `EnvoyProxy` sits in the same file, before its Gateway, because the
+class is immutable. The VIP door is created in `VIP_HOME` only (default
+eg1).
+
+```bash
+kubectl --context kind-eg1 -n shop wait --for=condition=Programmed \
+  gateway/eg1-gw --timeout=180s
+kubectl --context kind-eg2 -n shop wait --for=condition=Programmed \
+  gateway/eg2-gw --timeout=180s
+scripts/eg-vip-move.sh kube-vip eg1
+```
+
+Result: per-cluster doors Programmed; VIP present in eg1 only;
+responder `eg1-worker` (`6e:8c:28:fa:31:1f`).
+
+```text
+envoyproxy.gateway.envoyproxy.io/eg1-gw-proxy unchanged
+gateway.gateway.networking.k8s.io/eg1-gw configured
+gateway.gateway.networking.k8s.io/eg1-gw condition met
+envoyproxy.gateway.envoyproxy.io/eg2-gw-proxy unchanged
+gateway.gateway.networking.k8s.io/eg2-gw configured
+== VIP 172.19.255.16 present in: eg1
+  eg-vip-gw: present address=172.19.255.16 Programmed=True
+  eg-vip-gw: absent
+== responder MAC 6e:8c:28:fa:31:1f → eg1-worker 172.19.0.3/16
+```
+
+### 5. Deploy the app and routes
+
+`shopapi:local` and `routedemo:local -mode grpc` sit behind the doors.
+Per-cluster routes always; VIP routes only where `eg-vip-gw` is.
+
+```bash
+kubectl --context kind-eg1 apply -f demos/51-eg-kube-vip/40-app.yaml
+kubectl --context kind-eg1 -n shop wait deploy/shopapi --for=condition=Available --timeout=120s
+kubectl --context kind-eg1 -n shop wait deploy/grpc --for=condition=Available --timeout=120s
+kubectl --context kind-eg2 apply -f demos/51-eg-kube-vip/40-app.yaml
+kubectl --context kind-eg2 -n shop wait deploy/shopapi --for=condition=Available --timeout=120s
+kubectl --context kind-eg2 -n shop wait deploy/grpc --for=condition=Available --timeout=120s
+```
+
+Result: both Deployments Available; every route
+`Accepted+ResolvedRefs`.
+
+```text
+deployment.apps/shopapi condition met
+deployment.apps/grpc condition met
+kind-eg1 httproute/shop-api: all parents Accepted+ResolvedRefs
+kind-eg1 httproute/shop-redirect: all parents Accepted+ResolvedRefs
+kind-eg1 grpcroute/grpc: all parents Accepted+ResolvedRefs
+kind-eg2 httproute/shop-api: all parents Accepted+ResolvedRefs
+kind-eg1 httproute/shop-api-vip: all parents Accepted+ResolvedRefs
+```
+
+### 6. Record the R7 experiment
+
+A throwaway Gateway `probe-noproxy` with `spec.addresses` and no
+`EnvoyProxy` writes `externalIPs` and nobody answers ARP
+([enhancement 007 §3.3](../../enhancements/007-envoy-gateway-lab.md)).
+
+```bash
+demos/51-eg-kube-vip/apply.sh
+```
+
+Result: `externalIPs` set, `status.loadBalancer={}`,
+`Received 0 response(s)`, then `NotFound` on both.
+
+```text
+R7 eg1 Service externalIPs=['172.19.255.245'] status.loadBalancer={}
+Received 0 response(s) (0 request(s), 0 broadcast(s))
+R7 eg1 post-delete gateway/probe-noproxy: NotFound
+R7 eg2 Service externalIPs=['172.19.255.181'] status.loadBalancer={}
+Received 0 response(s) (0 request(s), 0 broadcast(s))
+R7 eg2 post-delete gateway/probe-noproxy: NotFound
+```
+
+### 7. Move the VIP and measure
+
+The script deletes the other cluster first, waits for that Envoy Service
+to be gone, then creates the VIP door on the target.
+
+```bash
+scripts/eg-vip-move.sh kube-vip eg2
+scripts/eg-vip-move.sh kube-vip eg1
+```
+
+Result:
+
+```text
+VIP move eg2: samples=33 ok=24 fail=9
+VIP move eg2: first_fail=1789778455.797 last_fail=1789778465.165 gap_s=9.368
+VIP move eg2: fail_kinds=000/curl28x6 000/curl7x2 404/curl0x1  (http_code/curl-exit: 28=timeout no responder, 7=refused, 0=answered non-200)
+VIP move eg1: samples=33 ok=24 fail=9
+VIP move eg1: first_fail=1789778480.456 last_fail=1789778489.833 gap_s=9.377
+VIP move eg1: fail_kinds=000/curl28x6 000/curl7x3  (http_code/curl-exit: 28=timeout no responder, 7=refused, 0=answered non-200)
+```
+
+The probe gap is the new Envoy pod turning Ready: kube-vip elects among
+ready LOCAL endpoints (`externalTrafficPolicy: Local`) and the log
+window is 10.837 s / 10.909 s
+([docs/REVIEW_DEMO51.md](../../docs/REVIEW_DEMO51.md)).
+
+### 8. Probe every door from the Mac
+
+HTTPS verifies the leaf against `.tmp/eg-root-ca.crt`. gRPC is probed
+on h2c and TLS. Each SAN name is checked as a TLS leaf.
+
+```bash
+curl -s --resolve api.eg1.poc.local:443:172.19.255.240 \
+  --cacert .tmp/eg-root-ca.crt https://api.eg1.poc.local/healthz
+curl -s --resolve api.eg2.poc.local:443:172.19.255.176 \
+  --cacert .tmp/eg-root-ca.crt https://api.eg2.poc.local/healthz
+curl -s --resolve api.eg.poc.local:443:172.19.255.16 \
+  --cacert .tmp/eg-root-ca.crt https://api.eg.poc.local/healthz
+docker run --rm --network kind-eg fullstorydev/grpcurl:latest \
+  -plaintext -authority grpc.eg1.poc.local \
+  172.19.255.240:80 grpc.health.v1.Health/Check
+openssl s_client -connect 172.19.255.240:443 \
+  -servername api.eg1.poc.local -verify_hostname api.eg1.poc.local \
+  -CAfile .tmp/eg-root-ca.crt -verify_return_error
+```
+
+Result: `200` and `X-Served-By` per door; `301` on `:80` for the API
+names; gRPC `SERVING`; six TLS leaves `verify=ok`.
+
+```text
+https://api.eg1.poc.local @ 172.19.255.240 → 200 X-Served-By=eg1
+http://api.eg1.poc.local @ 172.19.255.240 → 301 Location=https://api.eg1.poc.local/healthz
+https://api.eg2.poc.local @ 172.19.255.176 → 200 X-Served-By=eg2
+https://api.eg.poc.local @ 172.19.255.16 → 200 X-Served-By=eg1
+{
+  "status": "SERVING"
+}
+TLS leaf api.eg1.poc.local @ 172.19.255.240: verify=ok subject=api.eg.poc.local issuer=eg-root-ca san=api.eg1.poc.local
+TLS leaf grpc.eg1.poc.local @ 172.19.255.240: verify=ok subject=api.eg.poc.local issuer=eg-root-ca san=grpc.eg1.poc.local
+TLS leaf api.eg2.poc.local @ 172.19.255.176: verify=ok subject=api.eg.poc.local issuer=eg-root-ca san=api.eg2.poc.local
+TLS leaf grpc.eg2.poc.local @ 172.19.255.176: verify=ok subject=api.eg.poc.local issuer=eg-root-ca san=grpc.eg2.poc.local
+TLS leaf api.eg.poc.local @ 172.19.255.16: verify=ok subject=api.eg.poc.local issuer=eg-root-ca san=api.eg.poc.local
+TLS leaf grpc.eg.poc.local @ 172.19.255.16: verify=ok subject=api.eg.poc.local issuer=eg-root-ca san=grpc.eg.poc.local
+```
+
+## Verify
+
+From the Mac:
+
+```bash
+curl -s --resolve api.eg1.poc.local:443:172.19.255.240 \
+  --cacert .tmp/eg-root-ca.crt https://api.eg1.poc.local/healthz
+```
+
+Expect `200` and `X-Served-By: eg1`.
+
+```bash
+docker run --rm --network kind-eg fullstorydev/grpcurl:latest \
+  -plaintext -authority grpc.eg1.poc.local \
+  172.19.255.240:80 grpc.health.v1.Health/Check
+```
+
+Expect `{"status": "SERVING"}`.
+
+```bash
+scripts/eg-vip-move.sh --status
+```
+
+Expect the VIP in eg1, responder `eg1-worker`.
+
+```bash
+demos/51-eg-kube-vip/check.sh
+```
+
+Recorded `2026-09-19T00:42:08Z`: 39 PASS, 0 FAIL.
+
+```text
+demo 51 check: 0 FAIL
+```
+
+## Reference
+
+Certificate spec (`20-certificates.yaml`), one per cluster:
 
 ```yaml
-kind: Certificate                     # cert-manager.io/v1, namespace shop, in BOTH clusters
+kind: Certificate
 spec:
   secretName: eg-tls
-  commonName: api.eg.poc.local         # the CN is the product name
-  dnsNames:                            # six SANs — API + gRPC, product + per-cluster
+  commonName: api.eg.poc.local
+  dnsNames:
     - api.eg.poc.local
     - api.eg1.poc.local
     - api.eg2.poc.local
     - grpc.eg1.poc.local
     - grpc.eg2.poc.local
     - grpc.eg.poc.local
-  issuerRef: {kind: ClusterIssuer, name: eg-ca-issuer}   # → CA secret eg-root-ca, .tmp/eg-root-ca.crt
+  issuerRef: {kind: ClusterIssuer, name: eg-ca-issuer}
 ```
 
-The issued leaves: both clusters, `subject=CN=api.eg.poc.local`,
-`issuer=CN=eg-root-ca`, the six SANs, valid 2026-09-18 23:54:09Z →
-2026-12-17 23:54:09Z; fingerprints eg1
-`09:91:08:A6:4C:1B:51:F2:97:16:2E:FF:B9:FA:65:1D:AD:C1:B5:79:DD:F6:18:5C:14:6D:3C:96:4F:30:A2:43`,
-eg2
-`2C:20:A5:38:46:18:D5:63:3E:44:4B:A2:83:27:60:91:61:05:C6:06:E1:F1:79:F4:12:EA:68:32:05:6D:69:AE`.
-
-*The doors.* Four Gateway objects exist as YAML; three are live (the VIP
-is on eg1 only). Each has HTTPS `:443` for the API name, HTTPS `:443` for
-the gRPC name, and HTTP `:80` for the 301 and for plaintext gRPC:
+Issued leaves: both `subject=CN=api.eg.poc.local`, `issuer=CN=eg-root-ca`,
+the six SANs, valid 2026-09-18 23:54:09Z → 2026-12-17 23:54:09Z.
 
 ```text
-                  api.eg.poc.local / grpc.eg.poc.local ─── 172.19.255.16
-                              │          announced by ONE cluster (eg-vip-gw)
-             ┌────────────────┴───────────┐             ┌──────────────────────────┐
-             │  eg1                       │             │  eg2                     │
-             │  eg-vip-gw  .16            │             │  (eg-vip-gw absent)      │
-             │   https:443 api.eg.poc.local (eg-tls)    │                          │
-             │   https-grpc:443 grpc.eg.poc.local       │                          │
-             │   http:80  → 301 / h2c gRPC│             │                          │
-             │                            │             │                          │
-             │  eg1-gw     .240           │             │  eg2-gw     .176         │
-             │   https:443 api.eg1.poc.local            │   https:443 api.eg2.poc.local
-             │   https-grpc:443 grpc.eg1.poc.local      │   https-grpc:443 grpc.eg2.poc.local
-             │   http:80  → 301 / h2c     │             │   http:80  → 301 / h2c   │
-             │        │                   │             │        │                 │
-             │        ▼                   │             │        ▼                 │
-             │  shopapi + grpc (shop)     │             │  shopapi + grpc (shop)   │
-             │  X-Served-By: eg1          │             │  X-Served-By: eg2        │
-             └────────────────────────────┘             └──────────────────────────┘
-   kube-vip:  eg1 range-envoy-gateway-system .240–.245; range-default .200–.205
-              eg2 range-envoy-gateway-system .176–.181; range-default .136–.141
-              class kube-vip.io/kube-vip-class only; class-less stays pending
+eg1 09:91:08:A6:4C:1B:51:F2:97:16:2E:FF:B9:FA:65:1D:AD:C1:B5:79:DD:F6:18:5C:14:6D:3C:96:4F:30:A2:43
+eg2 2C:20:A5:38:46:18:D5:63:3E:44:4B:A2:83:27:60:91:61:05:C6:06:E1:F1:79:F4:12:EA:68:32:05:6D:69:AE
 ```
 
-**What the review caught.** OB3 (Claude Opus 5, while the Fable quota is
-out), Codex and Grok, 2026-09-18, `docs/REVIEW_DEMO51.md`:
+| File | What |
+|---|---|
+| [`clusters/eg/kube-vip-*.yaml`](../../clusters/eg/kube-vip-ds.yaml) | RBAC, DaemonSet, cloud-provider — one source of truth |
+| [`10-kubevip-cm-eg1.yaml`](10-kubevip-cm-eg1.yaml) / [`10-kubevip-cm-eg2.yaml`](10-kubevip-cm-eg2.yaml) | `kubevip` ConfigMap per cluster |
+| [`15-probe-noclass.yaml`](15-probe-noclass.yaml) | D11 exhibit — class-less LoadBalancer, stays `<pending>` |
+| [`20-certificates.yaml`](20-certificates.yaml) | `Certificate` `eg-tls`, six dnsNames |
+| [`30-gateways-eg1.yaml`](30-gateways-eg1.yaml) / [`30-gateways-eg2.yaml`](30-gateways-eg2.yaml) | EnvoyProxy then Gateway; VIP pair applied to one cluster |
+| [`40-app.yaml`](40-app.yaml) | `shopapi` + `grpc` |
+| [`50-routes-eg1.yaml`](50-routes-eg1.yaml) / [`50-routes-eg2.yaml`](50-routes-eg2.yaml) | per-cluster routes; VIP routes only with `eg-vip-gw` |
+| [`apply.sh`](apply.sh) / [`check.sh`](check.sh) / [`cleanup.sh`](cleanup.sh) | land, prove, remove |
+| [`scripts/eg-vip-move.sh`](../../scripts/eg-vip-move.sh) | delete-other-first; `--status` prints who has `.16` |
 
-- the "no metallb-system" row called a dead `kubectl` a PASS — a refused
-  connection is not `NotFound` (demo 50's defect, again).
-- "probe-noclass stays pending" passed for a Service seconds old and never
-  looked for kube-vip's claim marks; it now requires 30 s of `<pending>`
-  with no `implementation` label and no `loadbalancerIPs` annotation.
-- a failed redirect probe printed `http_code=000000` — an `|| echo 000`
-  doubled the `000` curl already prints.
-- `arping -c 3` was one broadcast and two unicasts to the first responder;
-  the responder rows now broadcast every probe (`-b`).
-- `eg-vip-move.sh` deleted the other cluster's Gateway but never waited for
-  its Envoy Service — the object kube-vip announces, held by the
-  `load-balancer-cleanup` finalizer (66 ms after the Gateway in the first
-  recording; unbounded with the cloud-provider down). It now waits.
-- the docs blamed the gap on the wrong step; kube-vip's logs gave the
-  composition above, and the probe loop now records why each probe failed.
-- every HTTPS probe carried `-k`, so `--cacert` verified nothing (a bogus
-  CA still got 200); the `k` is gone and each of the six SAN names is now
-  proved with `openssl s_client`.
-- the R7 clean-up was an echo, not a recorded `NotFound`.
-- the gRPC rows would have accepted `NOT_SERVING`, and the Gateway
-  address is now checked against the Service's own ingress.
+Address blocks ([enhancement 007 §3.1](../../enhancements/007-envoy-gateway-lab.md)):
+`172.19.255.192/26` (eg1 — kube-vip doors `.240–.245`),
+`172.19.255.128/26` (eg2 — `.176–.181`),
+`172.19.255.0/26` (shared — product VIP `.16`).
 
-**What you can do with it right now.**
+```bash
+scripts/eg-vip-move.sh kube-vip eg1
+scripts/eg-vip-move.sh kube-vip eg2
+scripts/eg-vip-move.sh --status
+```
 
-- `scripts/eg-vip-move.sh --status` — who holds `.16` (expect eg1,
-  `eg1-worker`).
-- `curl --cacert .tmp/eg-root-ca.crt --resolve api.eg1.poc.local:443:172.19.255.240 https://api.eg1.poc.local/healthz` — 200 and `X-Served-By: eg1`.
-- `docker run --rm --network kind-eg fullstorydev/grpcurl:latest -plaintext -authority grpc.eg.poc.local 172.19.255.16:80 grpc.health.v1.Health/Check` — `SERVING`.
-- `demos/51-eg-kube-vip/check.sh` — the 39 rows.
+## Troubleshooting
 
-**Where the next demo starts.** Demo 52 installs MetalLB beside this
-kube-vip, gives the same doors the other class and the MetalLB addresses,
-repeats R7, and writes the side-by-side table. The contract does not
-change: the `EnvoyProxy` still names the class; a class-less Service is
-still nobody's.
+- Mac clients time out while the cluster is healthy: the `172.19` route
+  is missing ([gotcha #120](../../docs/GOTCHAS.md#120)); add it under
+  *Prerequisites*.
+- Two ARP responders for `.16`: the move script deletes the other
+  cluster first.
+- A class-less Service stays `<pending>` (D11): kube-vip runs class-only;
+  `probe-noclass` is the exhibit.
+
+## Clean up
+
+```bash
+demos/51-eg-kube-vip/cleanup.sh
+```
+
+Removes the doors, app, kube-vip and `shop`. Demo 50's clusters stay.
+
+## What's next
+
+- Demo 52 installs MetalLB
+  ([enhancement 007 §4](../../enhancements/007-envoy-gateway-lab.md)).
+- [Demo 54](../54-eg-poc1-kube-vip/RECAP.md) is the one-cluster picture.
+- Phase 4 of [enhancement 007](../../enhancements/007-envoy-gateway-lab.md)
+  is `docs/EG-VS-CILIUM.md`.

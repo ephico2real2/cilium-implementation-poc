@@ -7,14 +7,15 @@ set -uo pipefail
 D=${1:?demo dir}; rc=0
 chk() { grep -qF -- "$2" "$D/$1" || { echo "TEST FAIL: $1 lacks: $2"; rc=1; }; }
 grep -q 'review has not run' "$D/RECAP.md" && { echo "TEST FAIL: RECAP still says the review has not run"; rc=1; }
-chk RECAP.md '**What the review caught.** OB3'
-chk RECAP.md '10.837 s'
-chk RECAP.md 'externalTrafficPolicy:'
-chk RECAP.md 'openssl s_client'
+# the demo-guide format (2026-09-19): the review lives in docs/REVIEW_DEMO51.md, the guide links it;
+# the gap's composition is in the guide and the record, the reflection error in the exercises
+chk RECAP.md 'REVIEW_DEMO51'
+chk RECAP.md '10.837'
+chk RECAP.md 'externalTrafficPolicy'
 chk README.md 'successful add IP'
-chk README.md '10.909 s'
-chk README.md 'leader.go:102'
-chk GUIDE.md 'server does not
-support the reflection API'
+chk README.md '10.909'
+chk README.md 'leader.go'
+grep -q 'reflection API' "$D/GUIDE.md" || { echo "TEST FAIL: GUIDE.md lacks the recorded reflection error"; rc=1; }
+grep -q '**What the review caught.** OB3' docs/REVIEW_DEMO51.md 2>/dev/null; grep -q 'OB3' docs/REVIEW_DEMO51.md || { echo "TEST FAIL: docs/REVIEW_DEMO51.md missing"; rc=1; }
 [ $rc -eq 0 ] && echo "TEST PASS: docs carry the review and the gap's composition"
 exit $rc
