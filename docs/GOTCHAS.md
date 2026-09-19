@@ -3166,9 +3166,9 @@ isolation_http_code=000 curl_rc=28
 ```
 
 **What happened:** macOS `route add` is per boot. A reboot dropped the static route to
-`172.19/16` (and, on a rebuilt Mac, the Cilium lab's `172.18/16` too). The Docker VM
-still answered at `192.168.64.2` (ping 0.881 ms) and a busybox wget on `kind-eg` got
-`/healthz` → ok, so nothing in the lab was wrong. `curl_rc=28` and
+`172.19/16` (and, on a rebuilt Mac, the Cilium lab's `172.18/16` too). The first apply's
+in-cluster half had already programmed both Gateways and recorded three ARP replies
+per door, so nothing in the lab was wrong. `curl_rc=28` and
 `isolation_http_code=000` are the Mac talking into a black hole.
 
 **The fix:** the operator re-adds the route — both `172.18/16` for the Cilium lab and
@@ -3201,17 +3201,24 @@ bootstrap_look_up com.google.Chrome.MachPortRendezvousServer.1: Permission denie
 network-service crash loop instead of exiting. The process that has already done the
 work is not a reliable waiter.
 
-**The fix:** `apply.sh`'s `browser_shot` runs Chrome under `timeout 60` (coreutils)
-with a throwaway `--user-data-dir` and `--no-first-run`. The PNG on disk is the
-result, not the exit code. The third apply recorded:
+**The fix:** `apply.sh`'s `browser_shot` starts Chrome in the background and
+polls for the PNG (0.2 s steps, 60 s ceiling). The wait is for the FILE:
+the size must be stable across two polls. Chrome exited on its own within
+the wait in the recorded run (`chrome_rc=0`). When Chrome is still running
+once the file is complete, the harness kills it. If no file appears, it
+prints `no screenshot written within 60 s` — it never claims a write that
+did not happen. A throwaway `--user-data-dir` and `--no-first-run`.
+The fourth apply recorded:
 
 ```text
-chrome_rc=124 (124 = killed by the timeout after writing the file)
+/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --disable-gpu --no-first-run --window-size=1000,500 --user-data-dir=<tmp> --host-resolver-rules="MAP api.eg-poc1.poc.local 172.19.255.100" --screenshot=/Users/olasumbo/gitRepos/cilium-implementation-poc/demos/54-eg-poc1-kube-vip/output/browser.png http://api.eg-poc1.poc.local/orders
+screenshot written after 2.0 s; chrome_rc=0
 demos/54-eg-poc1-kube-vip/output/browser.png: PNG image data, 1000 x 500, 8-bit/color RGB, non-interlaced
 ```
 
-`124` is GNU `timeout` killing the process. The first apply, with no Mac route
-(#120), recorded the same `chrome_rc=124` and `no screenshot written`.
+The first three applies used GNU `timeout 60` and recorded `chrome_rc=124`.
+The first apply, with no Mac route (#120), recorded the same `chrome_rc=124`
+and `no screenshot written`.
 
 **The lesson:** a process that has produced its artefact may still not exit — judge
 by the artefact and bound the wait.

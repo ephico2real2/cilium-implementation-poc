@@ -3,9 +3,9 @@
 **The goal** — Enhancement 007 builds a second lab next to the Cilium one so a
 reader can name every part Cilium had bundled. Demo 50 poured the slab on
 two clusters. Demo 51 hung kube-vip on both and proved the fail cases.
-Demo 54 is the one-cluster picture the operator asked for: one kind
-cluster (`eg-poc1`), the default CNI, kube-vip, and Envoy Gateway API,
-with HTTP and gRPC through two separate Gateways, reachable from the
+Demo 54 is the one-cluster picture: one kind
+cluster (`eg-poc1`), default CNI, kube-vip, and Envoy Gateway API,
+with HTTP and gRPC through two Gateways, reachable from the
 MacBook — curl, grpcurl, and the browser. The fail cases stay in demo 51.
 
 **1. The guide grew a one-cluster lab.**
@@ -14,10 +14,10 @@ alone is this lab: it mints its own root (D8 holds per lab), the
 transcript lands here, and the PEM is `.tmp/eg-poc1-root-ca.crt`.
 Mixing the two labs exits 2 before any work. The 2026-09-19T13:10:02Z
 run installed the network, the cluster from `clusters/eg-poc1.yaml`
-(control-plane plus worker, kubeadm patches, pinned node image, pod
-CIDR `10.70.0.0/16`, service CIDR `10.71.0.0/16`), 10 Gateway API CRDs
-at `channel=standard` `bundle-version=v1.6.2`, 8 `gateway.envoyproxy.io`
-CRDs via `helm template | kubectl apply --server-side`, the controller
+(control-plane plus worker, pod CIDR `10.70.0.0/16`, service CIDR
+`10.71.0.0/16`), 10 Gateway API CRDs at `channel=standard`
+`bundle-version=v1.6.2`, 8 `gateway.envoyproxy.io` CRDs via
+`helm template | kubectl apply --server-side`, the controller
 with `crds.enabled=false`, `GatewayClass eg` (`Accepted=True`),
 cert-manager (`Available=True`), and the root
 `91:84:DE:7D:65:FE:12:9A:35:23:0A:E1:17:24:BD:C3:E5:67:78:8E:56:34:A1:6A:64:6E:BB:1D:AF:7E:E3:81`.
@@ -43,27 +43,31 @@ the gRPC door with the API host returned `isolation_http_code=404`. Two
 lines, not a test suite.
 
 **3. kube-vip announces, and Docker can see it.**
-The DaemonSet, the cloud-provider and the RBAC are the phase 0 files
-under `clusters/eg/` — one source of truth, not copied. The ConfigMap
-gives `range-envoy-gateway-system` `.100–.110` and `range-default`
-`.72–.79`. apply.sh records `arping -b -c 3` from `busybox:1.36` on
+The DaemonSet, cloud-provider and RBAC are the phase 0 files under
+`clusters/eg/`; the ConfigMap gives the doors `.100–.110`. apply.sh records `arping -b -c 3` from `busybox:1.36` on
 `kind-eg` (every probe a broadcast), maps the reply MAC to a node,
 shows the `/32` on that node's `eth0`, and greps kube-vip for
-`adding VIP` / `successful add IP`. The third apply's arping got three
-replies from `fa:1f:d6:0f:1e:ae` for `.100` (0.006 ms, 0.021 ms,
-0.016 ms) and three for `.101` (0.005 ms, 0.019 ms, 0.011 ms); both
-mapped to `eg-poc1-worker`. That node's `eth0` carries `172.19.0.3/16`
-and both VIPs as `/32 scope global deprecated`. `deprecated` here
-means kube-vip added the address with a zero preferred lifetime so the
-node never uses the VIP as a source. The add timestamps are the first
-apply's in-cluster half, reprinted later: 13:14:15 `adding VIP` for
-both addresses, 13:14:26 `successful add IP` on `.101` and
-`layer 2 broadcaster starting` on both.
+`adding VIP` / `successful add IP`. arping got three replies from
+`fa:1f:d6:0f:1e:ae` for each address — `eg-poc1-worker`. That node's `eth0` carries `172.19.0.3/16`
+and both VIPs as `/32 scope global deprecated` with
+`preferred_lft forever`. `deprecated` is kube-vip adding the address
+with a zero preferred lifetime (v1.2.4 `pkg/vip/address.go:172-176`:
+`PreferedLft = 0`, `ValidLft = math.MaxInt`). The kernel
+(`net/ipv4/devinet.c` `set_ifa_lifetime`) turns that into
+`IFA_F_DEPRECATED` plus `IFA_F_PERMANENT`, and `inet_fill_ifaddr`
+reports both lifetimes as infinity, so `ip` prints `deprecated` with
+`preferred_lft forever`. Both Envoy pods and the `envoy-gateway` pod
+run on `eg-poc1-worker`, both door Services are
+`externalTrafficPolicy: Local` (Envoy Gateway's default), and kube-vip
+with `svc_election` elects only among nodes with a ready local
+endpoint — the worker is the only candidate. The fourth apply's record shows all three phrases for both doors
+(`adding VIP`, `successful add IP`, `layer 2 broadcaster starting`);
+the 13:14:15 / 13:14:26 stamps are the first apply's, reprinted
+by the whole-log read.
 
 **4. What we did in Docker is part of the proof.**
-The cluster sits on `kind-eg`, the reservation trick: Docker allocates
-node addresses from `172.19.0.0/17` only, so `172.19.255.0/24` can never
-be a node address. The third apply recorded IPv4 `Subnet=172.19.0.0/16`
+The cluster sits on `kind-eg`: Docker allocates node addresses from
+`172.19.0.0/17` only, so `172.19.255.0/24` can never be a node address. The third apply recorded IPv4 `Subnet=172.19.0.0/16`
 `IPRange=172.19.0.0/17` `Gateway=172.19.0.1` (the IPv6 block's
 `IPRange` prints `invalid Prefix` and is skipped), the two node
 containers `eg-poc1-control-plane 172.19.0.2 e6:61:1d:ac:15:3a` and
@@ -78,51 +82,42 @@ The Mac routes `172.19/16` to the Docker VM. apply.sh records
 `netstat -rn | grep 172.19`; if the route is absent it prints the
 `sudo route` command and continues — no script runs sudo. The first
 apply, 2026-09-19T13:14Z, printed `no 172.19 route on this Mac` and
-every Mac client failed (`curl_rc=28`, grpcurl `Failed to dial target
-host … context deadline exceeded`, Chrome wrote nothing in 60 s) while
-the first apply's in-cluster half had already programmed both Gateways
-and recorded three ARP replies per door. That is gotcha #120: macOS
-`route add` is per boot. The operator re-added `172.19.0.0/16` via
-`192.168.64.2`. The third apply recorded the route as
+every Mac client failed (`curl_rc=28`, grpcurl deadline, Chrome wrote
+nothing) while both Gateways were Programmed and each door had three
+ARP replies — gotcha #120. The operator re-added `172.19.0.0/16` via
+`192.168.64.2`. The third apply recorded
 `172.19 192.168.64.2 UGSc bridge100`. From that route,
 `curl --resolve` hit `/healthz` at `.100` and got 200 plus
 `X-Served-By: eg-poc1` (from ConfigMap `eg-cluster`) on both `:80` and
 `:443` (`--cacert .tmp/eg-poc1-root-ca.crt`, verification not skipped).
-`/orders` is the page behind the door. shopapi reads `DB_URL`
-(`main.go:56`); the default (enhancement 002 R3,
-`db-service.poc.local`) was the second apply's body
-(`lookup db-service.poc.local on 10.71.0.10:53`). `shop-db` is local
-to this demo (`45-shop-db.yaml`, postgres:16-alpine, emptyDir). The
-third apply's `/orders` was 200 with three rows: keyboard 4999 ¢,
-mouse 1999 ¢, monitor 24900 ¢. `grpcurl` on the Mac against `.101:80`
-and `.101:443` both returned `{"status": "SERVING"}`; `list` named
+`/orders` is the page behind the door. shopapi's default `DB_URL`
+(`main.go:56`, enhancement 002 R3) was the second apply's body
+(`lookup db-service.poc.local`). `shop-db` is local to this demo
+(`45-shop-db.yaml`, postgres:16-alpine, emptyDir). The third apply's
+`/orders` was 200 with three rows: keyboard 4999 ¢, mouse 1999 ¢,
+monitor 24900 ¢. `grpcurl` on the Mac against `.101:80` and `.101:443`
+both returned `{"status": "SERVING"}`; `list` named
 `grpc.health.v1.Health` and both reflection services. check.sh repeats
-those rows from a container on `kind-eg`, so it does not need the Go
-cache, and it matches `"status": "SERVING"` exactly — a substring test
-would accept `NOT_SERVING`.
+those rows from a container on `kind-eg` (no Go cache) and matches
+`"status": "SERVING"` exactly.
 
 **6. The browser is the same door without `/etc/hosts`.**
 apply.sh launches Chrome headless with `--host-resolver-rules` mapping
-the API name to `.100`, under `timeout 60` with a throwaway
-`--user-data-dir` and `--no-first-run` (gotcha #121: Chrome 153 writes
-the PNG and never exits). The third apply recorded `chrome_rc=124` and
+the API name to `.100` (gotcha #121: Chrome 153 writes the PNG and
+never exits). The wait is for the file; Chrome is killed
+(`chrome_rc=143`). The third apply recorded `chrome_rc=124` and
 `PNG image data, 1000 x 500`. Chrome asks for `text/html`; `jsonview`
 renders the three orders as a page — that is why `:80` has no
 redirect. `hosts-entries.sh` printed the two names at 2026-09-19T14:18Z
 and never writes `/etc/hosts`. One `Certificate` `eg-poc1-tls` covers
-both names (CN the API name, 90 days / 30 days), issued by
-`ClusterIssuer eg-ca-issuer`. The third apply's `print_leaf`:
-`subject=CN=api.eg-poc1.poc.local`, both SANs,
-`notAfter=Dec 18 13:14:14 2026 GMT`,
-`sha256=15:4B:20:78:0E:BD:71:EB:C4:18:AF:B0:6C:68:53:C3:A6:54:75:B5:55:7C:7F:DF:8B:7C:38:A8:84:6A:4E:2D`
-(no serial was printed). Gateways live in `shop` with the Secret, so
-no ReferenceGrant. Behind the doors: `shopapi:local` with `shop-db`,
-and `routedemo:local -mode grpc` with `appProtocol: kubernetes.io/h2c`.
-No docker build — `kind load` of the existing images when a node lacks
-them. The final table: both doors `Programmed=True`, class
-`kube-vip.io/kube-vip-class`, announced by `eg-poc1-worker`, HTTP
-`200/eg-poc1` and GRPC `SERVING`. `check.sh` at 2026-09-19T14:20:02Z:
-15 PASS, 0 FAIL.
+both names (the card has the spec and the issued leaf). Gateways live
+in `shop` with the Secret, so no ReferenceGrant. Behind the doors:
+`shopapi:local` with `shop-db`, and `routedemo:local -mode grpc` with
+`appProtocol: kubernetes.io/h2c`. No docker build — `kind load` of
+the existing images when a node lacks them. The final table: both
+doors `Programmed=True`, class `kube-vip.io/kube-vip-class`, announced
+by `eg-poc1-worker`, HTTP `200/eg-poc1` and GRPC `SERVING`. `check.sh`
+at 2026-09-19T14:20:02Z: 15 PASS, 0 FAIL.
 
 **The reference card — names, addresses, certificates, doors.** Read
 from the live objects after apply (`hosts-entries.sh`,
@@ -189,8 +184,15 @@ The issued leaf (`print_leaf`, third apply):
  shop-db (postgres:16-alpine, this demo)
 ```
 
-**What the review caught.** The adversarial review has not run on this
-head yet.
+**What the review caught.** OB3 (Claude Opus 5), Codex and Grok,
+2026-09-19, `docs/REVIEW_DEMO54.md`: the record had lost `.100`'s
+`successful add IP` to kubectl's 10-lines-per-pod default; `check.sh`
+accepted `True` as a ready count, a `/32` on the wrong node and a curl
+that failed after good headers; `cleanup.sh` deleted the cloud-provider
+before the door Services it must release; `browser_shot` waited 60 s for
+a file written in 1.4 s; #120 cited two unrecorded figures. The
+`deprecated` explanation two reviewers called wrong is what kube-vip's
+and the kernel's source say — it stayed, with the reconciliation.
 
 **What you can do with it right now.**
 
@@ -200,5 +202,4 @@ head yet.
 - `demos/54-eg-poc1-kube-vip/check.sh` — 15 PASS.
 
 **Where the next demo starts.** Demo 52 installs MetalLB on the
-two-cluster lab beside demo 51's kube-vip. This demo stays the
-one-cluster proof. The fail cases are already written in demo 51.
+two-cluster lab. The fail cases stay in demo 51.

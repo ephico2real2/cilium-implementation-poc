@@ -2,8 +2,7 @@
 
 Run from the repo root after `demos/54-eg-poc1-kube-vip/apply.sh`.
 poc1 and poc2 are paused — do not resume them. No sudo is required
-for the curls or grpcurl (`--resolve` and `-authority` do the name).
-The hosts block is only for the real browser.
+for the three exercises (`--resolve` and `-authority` do the name).
 
 The Mac must have a route to `172.19/16` (gotcha
 [#120](../../docs/GOTCHAS.md#120)). If `netstat -rn | grep 172.19` is
@@ -14,33 +13,40 @@ healthy:
 sudo route -n add -net 172.19.0.0/16 192.168.64.2
 ```
 
-## 1. Open the browser after the hosts block
+## Prerequisite (operator, sudo): the hosts block
 
 ```bash
 demos/54-eg-poc1-kube-vip/hosts-entries.sh
 ```
 
 Add the two lines to `/etc/hosts` (the script never writes the file).
-Recorded (third apply):
+Recorded (fourth apply):
 
 ```text
-# ---- cilium-kind-poc demo54 (generated 2026-09-19T14:18Z by demos/54-eg-poc1-kube-vip/hosts-entries.sh) ----
+# ---- cilium-kind-poc demo54 (generated 2026-09-19T15:12Z by demos/54-eg-poc1-kube-vip/hosts-entries.sh) ----
 172.19.255.100  api.eg-poc1.poc.local
 172.19.255.101  grpc.eg-poc1.poc.local
 # ---- end cilium-kind-poc demo54 ----
 ```
 
+This is the only step that writes outside the repo. The three
+exercises below are read-only.
+
+## 1. Open the browser
+
 Then open `http://api.eg-poc1.poc.local/orders`.
 
 *Expect:* the shop's `/orders` page — Chrome asks for `text/html` and
-`jsonview` renders the three rows the third apply recorded
+`jsonview` renders the three rows the fourth apply recorded
 (`keyboard` 4999 ¢, `mouse` 1999 ¢, `monitor` 24900 ¢), served over
 plain http (this door has no redirect). apply.sh already took a
 headless screenshot of the same URL into `output/browser.png`
 (`PNG image data, 1000 x 500`) using Chrome's
 `--host-resolver-rules`, so `/etc/hosts` is not required for that
-shot. `chrome_rc=124` is the 60 s timeout (gotcha #121), not a failed
-page.
+shot. The wait is for the file (size stable across two polls). Chrome
+exited on its own within the wait in the recorded run (`chrome_rc=0`);
+when it is still running once the file is complete, the harness
+kills it (gotcha #121).
 
 ## 2. The curl pair
 
@@ -53,7 +59,7 @@ curl -s --resolve api.eg-poc1.poc.local:443:172.19.255.100 \
   -D - -o /dev/null https://api.eg-poc1.poc.local/healthz
 ```
 
-*Expect:* both 200 and `X-Served-By: eg-poc1`. Recorded (third apply):
+*Expect:* both 200 and `X-Served-By: eg-poc1`. Recorded (fourth apply):
 
 ```text
 http://api.eg-poc1.poc.local/healthz @ 172.19.255.100:80 → 200 X-Served-By=eg-poc1 curl_rc=0
@@ -75,7 +81,7 @@ go run github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.4 \
   172.19.255.101:443 grpc.health.v1.Health/Check
 ```
 
-*Expect:* both print `{"status": "SERVING"}`. Recorded (third apply):
+*Expect:* both print `{"status": "SERVING"}`. Recorded (fourth apply):
 
 ```text
 {

@@ -201,7 +201,7 @@ rec bash -c 'wait_route grpcroute grpc'
 # ---- 7. L2 PROOF ----
 echo "== 7. L2 PROOF (arping → MAC → node, /32 on eth0, kube-vip logs)"
 l2_proof() { # ip
-  local ip=$1 out mac node
+  local ip=$1 out mac node logs
   echo "---- arping -b -c 3 $ip ----"
   out=$(docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 \
     arping -b -c 3 -I eth0 "$ip" 2>&1 || true)
@@ -224,9 +224,29 @@ l2_proof() { # ip
     echo "---- docker exec $node ip -4 addr show eth0 ----"
     docker exec "$node" ip -4 addr show eth0
   fi
-  echo "---- kube-vip DS logs for $ip (adding VIP / successful add IP) ----"
-  kubectl --context "$CTX" -n kube-system logs -l app.kubernetes.io/name=kube-vip-ds \
-    --timestamps 2>/dev/null | grep "$ip" || true
+  # --tail=-1: with a selector kubectl defaults to the LAST 10 LINES PER POD, and the
+  # worker's `successful add IP` sat 11th from the end (measured 2026-09-19 — the first
+  # three applies recorded the .100 block without it). --prefix names the pod, so the
+  # reader sees which node logged the watcher's `adding VIP` and which one added the IP.
+  echo "---- kube-vip DS logs for $ip (adding VIP / successful add IP; whole log, pod-prefixed) ----"
+  logs=$(kubectl --context "$CTX" -n kube-system logs -l app.kubernetes.io/name=kube-vip-ds \
+    --tail=-1 --prefix --timestamps 2>/dev/null | grep -F "$ip" || true)
+  printf '%s\n' "$logs"
+  if printf '%s\n' "$logs" | grep -qF "adding VIP"; then
+    echo "adding VIP for $ip: present"
+  else
+    echo "adding VIP for $ip: ABSENT (kube-vip pod restarted since the add, or the add never happened)"
+  fi
+  if printf '%s\n' "$logs" | grep -qF "successful add IP address=$ip"; then
+    echo "successful add IP for $ip: present"
+  else
+    echo "successful add IP for $ip: ABSENT (kube-vip pod restarted since the add, or the add never happened)"
+  fi
+  if printf '%s\n' "$logs" | grep -qF "layer 2 broadcaster starting"; then
+    echo "layer 2 broadcaster starting for $ip: present"
+  else
+    echo "layer 2 broadcaster starting for $ip: ABSENT (kube-vip pod restarted since the add, or the add never happened)"
+  fi
 }
 export -f l2_proof
 export CTX CLUSTER
@@ -354,25 +374,49 @@ browser_shot() {
     echo "Chrome is absent at $CHROME — skipping screenshot"
     return 0
   fi
-  local shot="$PWD/$HERE/output/browser.png" profile rc=0
-  # Measured 2026-09-19: Chrome 153 writes the PNG and then hangs in a network-service
-  # crash loop instead of exiting, so it runs under a 60 s timeout with a throwaway
-  # profile; the PNG on disk is the result, not the exit code.
+  local shot="$PWD/$HERE/output/browser.png" profile rc=0 pid i waited="" size1 size2
+  # Measured 2026-09-19: Chrome 153 writes the PNG (1.40 s) and then hangs in a
+  # network-service crash loop instead of exiting (gotcha #121). The PNG on disk is
+  # the result, so the wait is FOR THE FILE — polled every 0.2 s, 60 s ceiling — and
+  # Chrome is killed the moment the file exists (rc 143 expected). A throwaway
+  # profile, --no-first-run. Never claim a write that did not happen.
   profile=$(mktemp -d)
   rm -f "$shot"
-  echo "timeout 60 $CHROME --headless=new --disable-gpu --no-first-run --window-size=1000,500 --user-data-dir=<tmp> --host-resolver-rules=\"MAP ${HTTP_HOST} ${HTTP_ADDR}\" --screenshot=$shot http://${HTTP_HOST}/orders"
-  timeout 60 "$CHROME" --headless=new --disable-gpu --no-first-run --window-size=1000,500 \
+  echo "$CHROME --headless=new --disable-gpu --no-first-run --window-size=1000,500 --user-data-dir=<tmp> --host-resolver-rules=\"MAP ${HTTP_HOST} ${HTTP_ADDR}\" --screenshot=$shot http://${HTTP_HOST}/orders"
+  "$CHROME" --headless=new --disable-gpu --no-first-run --window-size=1000,500 \
     --user-data-dir="$profile" \
     --host-resolver-rules="MAP ${HTTP_HOST} ${HTTP_ADDR}" \
     --screenshot="$shot" \
-    "http://${HTTP_HOST}/orders" >/dev/null 2>&1 || rc=$?
+    "http://${HTTP_HOST}/orders" >/dev/null 2>&1 &
+  pid=$!
+  for i in $(seq 1 300); do
+    # a non-empty file is not a finished file: require the size to hold for one
+    # more poll before Chrome is killed, or a half-written PNG would pass `-s`
+    if [ -s "$shot" ]; then
+      size1=$(stat -f %z "$shot" 2>/dev/null || stat -c %s "$shot")
+      sleep 0.2
+      size2=$(stat -f %z "$shot" 2>/dev/null || stat -c %s "$shot")
+      if [ "$size1" = "$size2" ]; then
+        waited=$(awk -v n="$i" 'BEGIN{printf "%.1f", (n+1)*0.2}')
+        break
+      fi
+    fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      break
+    fi
+    sleep 0.2
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+  fi
+  wait "$pid" 2>/dev/null || rc=$?
   rm -rf "$profile"
-  echo "chrome_rc=$rc (124 = killed by the timeout after writing the file)"
   if [ -s "$shot" ]; then
+    echo "screenshot written after ${waited:-<0.2} s; chrome_rc=$rc"
     file "$HERE/output/browser.png"
   else
     # recorded, not fatal: apply records what happened, check.sh judges it
-    echo "no screenshot written"
+    echo "no screenshot written within 60 s"
   fi
 }
 export -f browser_shot

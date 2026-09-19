@@ -13,6 +13,14 @@ echo "== $CTX"
 kubectl --context "$CTX" -n shop delete httproute --all --ignore-not-found
 kubectl --context "$CTX" -n shop delete grpcroute --all --ignore-not-found
 kubectl --context "$CTX" -n shop delete gateway --all --ignore-not-found
+# The door Services (envoy-gateway-system, owned by the GatewayClass) carry
+# service.kubernetes.io/load-balancer-cleanup, which only the cloud-provider
+# clears (demo 51 review A1: 66 ms with it running, unbounded with it gone).
+# Wait for them to be gone BEFORE the provider goes; no match → exit 0 at once.
+for gw in http-gw grpc-gw; do
+  kubectl --context "$CTX" -n envoy-gateway-system wait svc \
+    -l "gateway.envoyproxy.io/owning-gateway-name=$gw" --for=delete --timeout=60s
+done
 kubectl --context "$CTX" -n shop delete envoyproxy --all --ignore-not-found
 kubectl --context "$CTX" -n shop delete certificate eg-poc1-tls --ignore-not-found
 kubectl --context "$CTX" -n shop delete secret eg-poc1-tls --ignore-not-found

@@ -33,7 +33,7 @@ ds_out=$(kubectl --context "$CTX" -n kube-system get ds kube-vip-ds \
 ds_rc=$?
 if [ "$ds_rc" -ne 0 ]; then
   row fail "kube-vip DS ready" "kubectl failed: $(printf '%s' "$ds_out" | tr '\n' ' ' | head -c 60)" "R4 — kube-vip-ds ready (v1.2.4, lb_class_only, no taint)"
-elif [ -n "$ds_out" ] && [ "${ds_out#*/}" != "0" ] && [ "${ds_out%%/*}" = "${ds_out#*/}" ]; then
+elif printf '%s' "$ds_out" | grep -Eq '^[0-9]+/[0-9]+$' && [ "${ds_out%%/*}" = "${ds_out#*/}" ] && [ "${ds_out%%/*}" -gt 0 ]; then
   row ok "kube-vip DS ready" "ready=$ds_out" "R4 — kube-vip-ds ready (v1.2.4, lb_class_only, no taint)"
 else
   row fail "kube-vip DS ready" "ready=${ds_out:-absent}" "R4 — kube-vip-ds ready (v1.2.4, lb_class_only, no taint)"
@@ -109,40 +109,60 @@ else
     "D11 — EnvoyProxy names kube-vip.io/kube-vip-class on both doors"
 fi
 
-# 6–7. ARP one responder 3/3, every probe a broadcast
+# 6–7. ARP one responder 3/3, every probe a broadcast. The responder's MAC is
+# mapped to a kind node and kept (ARP_NODE_<ip>) for the eth0 rows below.
+ARP_NODE_100=""; ARP_NODE_101=""
+node_of_mac() { # mac → node name on kind-eg, or ""
+  local want node nmac
+  want=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  for node in $(kind get nodes --name eg-poc1 2>/dev/null); do
+    nmac=$(docker inspect -f '{{(index .NetworkSettings.Networks "kind-eg").MacAddress}}' "$node" 2>/dev/null \
+      | tr '[:upper:]' '[:lower:]')
+    if [ -n "$nmac" ] && [ "$nmac" = "$want" ]; then
+      printf '%s' "$node"
+      return 0
+    fi
+  done
+  return 1
+}
 arping_check() { # ip label
-  local ip=$1 label=$2 out n macs
+  local ip=$1 label=$2 out n macs mac node
   out=$(docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 \
     arping -b -c 3 -I eth0 "$ip" 2>&1 || true)
   n=$(printf '%s\n' "$out" | grep -c 'Unicast reply' || true)
   macs=$(printf '%s\n' "$out" | awk '/Unicast reply/{gsub(/[\[\]]/,"",$5); print $5}' | sort -u | wc -l | tr -d ' ')
+  mac=$(printf '%s\n' "$out" | awk '/Unicast reply/{gsub(/[\[\]]/,"",$5); print $5; exit}')
+  node=$(node_of_mac "$mac" || true)
+  case "$ip" in
+    "$HTTP_ADDR") ARP_NODE_100=$node ;;
+    "$GRPC_ADDR") ARP_NODE_101=$node ;;
+  esac
   if [ "$n" -eq 3 ] && [ "$macs" -eq 1 ]; then
-    row ok "ARP $label $ip one responder 3/3" "replies=$n unique_mac=$macs" "R4 / R8 — arping 3 of 3 from ONE MAC"
+    row ok "ARP $label $ip one responder 3/3" "replies=$n unique_mac=$macs node=${node:-?}" "R4 / R8 — arping 3 of 3 from ONE MAC"
   else
-    row fail "ARP $label $ip one responder 3/3" "replies=$n unique_mac=$macs" "R4 / R8 — arping 3 of 3 from ONE MAC"
+    row fail "ARP $label $ip one responder 3/3" "replies=$n unique_mac=$macs node=${node:-?}" "R4 / R8 — arping 3 of 3 from ONE MAC"
   fi
 }
 arping_check "$HTTP_ADDR" http-gw
 arping_check "$GRPC_ADDR" grpc-gw
 
-# 8–9. VIP is a /32 on a node's eth0 (kube-vip's L2 announcement in Docker)
-vip_on_eth0() { # ip
-  local ip=$1 node out found=""
-  for node in $(kind get nodes --name eg-poc1 2>/dev/null); do
-    out=$(docker exec "$node" ip -4 addr show eth0 2>/dev/null || true)
-    if printf '%s\n' "$out" | grep -q "$ip"; then
-      found=$node
-      break
-    fi
-  done
-  if [ -n "$found" ]; then
-    row ok "VIP $ip on a node's eth0" "node=$found" "R4 — kube-vip announces the /32 on the elected node's eth0"
+# 8–9. the VIP is a /32 on the ELECTED node's eth0 — the node whose MAC answered
+# the ARP probe, not any node (a stale /32 left elsewhere is not the announcement).
+vip_on_eth0() { # ip arp_node
+  local ip=$1 node=$2 out
+  if [ -z "$node" ]; then
+    row fail "VIP $ip on the elected node's eth0" "no ARP responder mapped to a node" "R4 — kube-vip announces the /32 on the elected node's eth0"
+    return
+  fi
+  out=$(docker exec "$node" ip -4 addr show eth0 2>/dev/null || true)
+  if printf '%s\n' "$out" | grep -Eq "^[[:space:]]*inet ${ip//./\\.}/32 "; then
+    row ok "VIP $ip on the elected node's eth0" "node=$node /32" "R4 — kube-vip announces the /32 on the elected node's eth0"
   else
-    row fail "VIP $ip on a node's eth0" "absent" "R4 — kube-vip announces the /32 on the elected node's eth0"
+    row fail "VIP $ip on the elected node's eth0" "absent on $node" "R4 — kube-vip announces the /32 on the elected node's eth0"
   fi
 }
-vip_on_eth0 "$HTTP_ADDR"
-vip_on_eth0 "$GRPC_ADDR"
+vip_on_eth0 "$HTTP_ADDR" "$ARP_NODE_100"
+vip_on_eth0 "$GRPC_ADDR" "$ARP_NODE_101"
 
 # 10. http 200 + X-Served-By
 http_door() {
@@ -159,7 +179,7 @@ http_door() {
       print
       exit
     }')
-  if [ "$code" = 200 ] && [ "$served" = eg-poc1 ]; then
+  if [ "$rc" -eq 0 ] && [ "$code" = 200 ] && [ "$served" = eg-poc1 ]; then
     row ok "http://${HTTP_HOST} 200 + X-Served-By" "http_code=$code X-Served-By=$served" "R8 — 200 and X-Served-By=eg-poc1"
   else
     row fail "http://${HTTP_HOST} 200 + X-Served-By" "http_code=${code:-000} X-Served-By=${served:-absent} curl_rc=$rc" "R8 — 200 and X-Served-By=eg-poc1"
@@ -179,7 +199,7 @@ https_door() {
     --connect-timeout 5 --max-time 10 2>/dev/null) || rc=$?
   hdr=$(printf '%s' "$hdr" | tr -d '\r')
   code=$(printf '%s' "$hdr" | awk 'BEGIN{c="000"} NR==1 && /HTTP/{c=$2} END{print c}')
-  if [ "$code" = 200 ]; then
+  if [ "$rc" -eq 0 ] && [ "$code" = 200 ]; then
     row ok "https://${HTTP_HOST} 200" "http_code=$code" "R8 — 200 against the lab root"
   else
     row fail "https://${HTTP_HOST} 200" "http_code=${code:-000} curl_rc=$rc" "R8 — 200 against the lab root"
@@ -203,9 +223,9 @@ d=json.load(sys.stdin)
 if not isinstance(d, list) or len(d) < 1:
     sys.exit(1)
 print(len(d))
-' <"$bodyf") || parse_rc=$?
+' <"$bodyf" 2>/dev/null) || parse_rc=$?
   rm -f "$bodyf"
-  if [ "$code" = 200 ] && [ "$parse_rc" -eq 0 ]; then
+  if [ "$rc" -eq 0 ] && [ "$code" = 200 ] && [ "$parse_rc" -eq 0 ]; then
     row ok "http://${HTTP_HOST} /orders 200 (the page behind the door)" \
       "http_code=$code items=$n" \
       "the page behind the door — 200 and a JSON array (≥ 1)"

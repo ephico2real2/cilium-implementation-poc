@@ -1,11 +1,13 @@
 # shop-db — Postgres local to this demo so /orders can be a page.
 #
-# Measured 2026-09-19 (output/browser.png, transcript "bash -c mac_orders"):
-# shopapi's GET /orders answered 503 "failed to connect to `user=shop
-# database=shop`: hostname resolving error: lookup db-service.poc.local".
+# Measured 2026-09-19. The second apply's "bash -c mac_orders" (transcript)
+# recorded the body "failed to connect to `user=shop database=shop`: hostname
+# resolving error: lookup db-service.poc.local". That run's probe did not
+# print the status — shopapi's handler returns 503 (main.go:122).
 # shopapi (demos/40-shop-mesh-phase0/shopapi/main.go:34,56) defaults DB_URL
 # to the mesh lab's external database. That database is enhancement 002 R3
 # (db-service.poc.local, a TCPRoute on poc1) and does not exist here.
+# GET /orders was 503 in demos 40/41 (demo 41 README:125: GET /orders HTTP/2 503).
 # This Deployment is local to demo 54 — a demo, not a database (emptyDir).
 #
 #   kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/45-shop-db.yaml

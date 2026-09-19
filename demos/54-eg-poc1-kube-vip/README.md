@@ -68,7 +68,7 @@ one-root rule holds per lab.
 | [`check.sh`](check.sh) | at most 15 PASS/FAIL rows; exit = FAIL count |
 | [`cleanup.sh`](cleanup.sh) | doors, app, kube-vip, `shop` — leaves the cluster |
 | [`hosts-entries.sh`](hosts-entries.sh) | the two names from live Gateway addresses; never writes `/etc/hosts` |
-| [`GUIDE.md`](GUIDE.md) | three read-only things a reader does |
+| [`GUIDE.md`](GUIDE.md) | hosts-block prerequisite (operator, sudo) and three read-only exercises |
 
 The lab root PEM is **`.tmp/eg-poc1-root-ca.crt`** (gitignored, issue #60).
 
@@ -94,25 +94,25 @@ the two `eg-poc1` nodes with their `kind-eg` IPv4 and MAC
 (`docker inspect` uses `index` because the network name is hyphenated),
 `kubectl get nodes -o wide`, the kube-proxy mode from its ConfigMap, and
 the kindnet DaemonSet. Stock networking is kindnet + kube-proxy
-`iptables`; there is no Cilium. Recorded (third apply):
+`iptables`; there is no Cilium. Recorded (fourth apply):
 
 ```text
 ---- kind-eg IPv4 (IPv6 IPRange prints invalid Prefix; skip that block) ----
 Subnet=172.19.0.0/16 IPRange=172.19.0.0/17 Gateway=172.19.0.1
 ---- eg-poc1 nodes on kind-eg (IPv4 + MAC) ----
-eg-poc1-control-plane Up About an hour
-eg-poc1-worker Up About an hour
+eg-poc1-control-plane Up 2 hours
+eg-poc1-worker Up 2 hours
 eg-poc1-control-plane 172.19.0.2 e6:61:1d:ac:15:3a
 eg-poc1-worker 172.19.0.3 fa:1f:d6:0f:1e:ae
 ---- kubectl get nodes -o wide ----
-NAME                    STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION            CONTAINER-RUNTIME
-eg-poc1-control-plane   Ready    control-plane   67m   v1.36.4   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
-eg-poc1-worker          Ready    <none>          67m   v1.36.4   172.19.0.3    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+NAME                    STATUS   ROLES           AGE    VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION            CONTAINER-RUNTIME
+eg-poc1-control-plane   Ready    control-plane   122m   v1.36.4   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+eg-poc1-worker          Ready    <none>          122m   v1.36.4   172.19.0.3    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
 ---- stock networking: kube-proxy mode + kindnet DS ----
     mode: iptables
 NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
-kindnet      2         2         2       2            2           kubernetes.io/os=linux   67m
-kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   67m
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   122m
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   122m
 ```
 
 ## How kube-vip announces
@@ -126,22 +126,40 @@ For each door, apply.sh step 7 records:
 3. `docker exec <that node> ip -4 addr show eth0` — the VIP is a `/32`
    on the node's `eth0`. That is kube-vip's L2 announcement made visible
    in Docker.
-4. The kube-vip DaemonSet log lines `adding VIP` / `successful add IP`
-   for that address.
+4. The kube-vip DaemonSet log (`--tail=-1 --prefix`): `adding VIP`,
+   `successful add IP`, `layer 2 broadcaster starting` — one present
+   or ABSENT line per phrase.
 
 `scope global deprecated` on the two `/32`s is kube-vip adding each
 address with a zero preferred lifetime so the node never uses the VIP
-as a source address. The log timestamps below (13:14:15 adding VIP →
-13:14:26 successful add IP / layer 2 broadcaster starting) are the
-first apply's in-cluster half; the third apply reprints them.
-Recorded (third apply):
+as a source address (kube-vip v1.2.4 `pkg/vip/address.go:172-176`:
+`PreferedLft = 0` "so it isn't used as source address according to
+RFC 3484"; `ValidLft = math.MaxInt`). The kernel
+(`net/ipv4/devinet.c` `set_ifa_lifetime`) turns a zero preferred
+lifetime into `IFA_F_DEPRECATED` and an infinite valid lifetime into
+`IFA_F_PERMANENT`; `inet_fill_ifaddr` then reports both lifetimes as
+infinity for a PERMANENT address, so `ip` prints `deprecated` with
+`preferred_lft forever`.
+
+Both VIPs sit on `eg-poc1-worker` because kube-vip runs `svc_election`
+and the door Services are `externalTrafficPolicy: Local` (Envoy
+Gateway's default): a node is a candidate only while it has a Ready
+Envoy endpoint (kube-vip v1.2.4 `pkg/services/leader.go:98-102`,
+`pkg/endpoints/endpoints_generic.go:93-95`), and both Envoy
+Deployments and the `envoy-gateway` pod were scheduled on the worker.
+Move an Envoy pod and the announcer moves with it.
+
+The log lines are pod-prefixed. Both pods logged `adding VIP` at
+13:14:15; the worker logged `successful add IP` at
+13:14:26.716945797Z. Those are the first apply's in-cluster
+timestamps, reprinted by the whole-log read. Recorded (fourth apply):
 
 ```text
 ---- arping -b -c 3 172.19.255.100 ----
 ARPING 172.19.255.100 from 172.19.0.4 eth0
-Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.006ms
-Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.021ms
-Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.016ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.005ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.014ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.010ms
 Sent 3 probe(s) (0 broadcast(s))
 Received 3 response(s) (0 request(s), 0 broadcast(s))
 MAC fa:1f:d6:0f:1e:ae → node eg-poc1-worker
@@ -153,21 +171,27 @@ MAC fa:1f:d6:0f:1e:ae → node eg-poc1-worker
        valid_lft forever preferred_lft forever
     inet 172.19.255.101/32 scope global deprecated eth0
        valid_lft forever preferred_lft forever
----- kube-vip DS logs for 172.19.255.100 (adding VIP / successful add IP) ----
-2026-09-19T13:14:15.362709375Z 2026/09/19 13:14:15 INFO new instance namespace=envoy-gateway-system service=envoy-shop-http-gw-fccf2727 addresses=[172.19.255.100] hostnames=[]
-2026-09-19T13:14:15.362905875Z 2026/09/19 13:14:15 INFO (svcs) adding VIP ip=172.19.255.100 interface=eth0 namespace=envoy-gateway-system name=envoy-shop-http-gw-fccf2727
-2026-09-19T13:14:26.716946422Z 2026/09/19 13:14:26 INFO layer 2 broadcaster starting IP=172.19.255.100 device=eth0
-2026-09-19T13:14:26.716946922Z 2026/09/19 13:14:26 INFO [ARP manager] inserting ARP/NDP instance name=172.19.255.100/32-eth0
+---- kube-vip DS logs for 172.19.255.100 (adding VIP / successful add IP; whole log, pod-prefixed) ----
+[pod/kube-vip-ds-lm6zw/kube-vip] 2026-09-19T13:14:15.362709375Z 2026/09/19 13:14:15 INFO new instance namespace=envoy-gateway-system service=envoy-shop-http-gw-fccf2727 addresses=[172.19.255.100] hostnames=[]
+[pod/kube-vip-ds-lm6zw/kube-vip] 2026-09-19T13:14:15.362905875Z 2026/09/19 13:14:15 INFO (svcs) adding VIP ip=172.19.255.100 interface=eth0 namespace=envoy-gateway-system name=envoy-shop-http-gw-fccf2727
+[pod/kube-vip-ds-xm9rf/kube-vip] 2026-09-19T13:14:15.362849167Z 2026/09/19 13:14:15 INFO new instance namespace=envoy-gateway-system service=envoy-shop-http-gw-fccf2727 addresses=[172.19.255.100] hostnames=[]
+[pod/kube-vip-ds-xm9rf/kube-vip] 2026-09-19T13:14:15.363006000Z 2026/09/19 13:14:15 INFO (svcs) adding VIP ip=172.19.255.100 interface=eth0 namespace=envoy-gateway-system name=envoy-shop-http-gw-fccf2727
+[pod/kube-vip-ds-xm9rf/kube-vip] 2026-09-19T13:14:26.716945797Z 2026/09/19 13:14:26 INFO successful add IP address=172.19.255.100
+[pod/kube-vip-ds-xm9rf/kube-vip] 2026-09-19T13:14:26.716946422Z 2026/09/19 13:14:26 INFO layer 2 broadcaster starting IP=172.19.255.100 device=eth0
+[pod/kube-vip-ds-xm9rf/kube-vip] 2026-09-19T13:14:26.716946922Z 2026/09/19 13:14:26 INFO [ARP manager] inserting ARP/NDP instance name=172.19.255.100/32-eth0
+adding VIP for 172.19.255.100: present
+successful add IP for 172.19.255.100: present
+layer 2 broadcaster starting for 172.19.255.100: present
 ```
 
-Recorded (third apply):
+Recorded (fourth apply):
 
 ```text
 ---- arping -b -c 3 172.19.255.101 ----
 ARPING 172.19.255.101 from 172.19.0.4 eth0
-Unicast reply from 172.19.255.101 [fa:1f:d6:0f:1e:ae] 0.005ms
-Unicast reply from 172.19.255.101 [fa:1f:d6:0f:1e:ae] 0.019ms
-Unicast reply from 172.19.255.101 [fa:1f:d6:0f:1e:ae] 0.011ms
+Unicast reply from 172.19.255.101 [fa:1f:d6:0f:1e:ae] 0.006ms
+Unicast reply from 172.19.255.101 [fa:1f:d6:0f:1e:ae] 0.026ms
+Unicast reply from 172.19.255.101 [fa:1f:d6:0f:1e:ae] 0.015ms
 Sent 3 probe(s) (0 broadcast(s))
 Received 3 response(s) (0 request(s), 0 broadcast(s))
 MAC fa:1f:d6:0f:1e:ae → node eg-poc1-worker
@@ -179,12 +203,17 @@ MAC fa:1f:d6:0f:1e:ae → node eg-poc1-worker
        valid_lft forever preferred_lft forever
     inet 172.19.255.101/32 scope global deprecated eth0
        valid_lft forever preferred_lft forever
----- kube-vip DS logs for 172.19.255.101 (adding VIP / successful add IP) ----
-2026-09-19T13:14:15.561115792Z 2026/09/19 13:14:15 INFO new instance namespace=envoy-gateway-system service=envoy-shop-grpc-gw-8c4f0319 addresses=[172.19.255.101] hostnames=[]
-2026-09-19T13:14:15.561421625Z 2026/09/19 13:14:15 INFO (svcs) adding VIP ip=172.19.255.101 interface=eth0 namespace=envoy-gateway-system name=envoy-shop-grpc-gw-8c4f0319
-2026-09-19T13:14:26.727077672Z 2026/09/19 13:14:26 INFO successful add IP address=172.19.255.101
-2026-09-19T13:14:26.727190839Z 2026/09/19 13:14:26 INFO layer 2 broadcaster starting IP=172.19.255.101 device=eth0
-2026-09-19T13:14:26.727198047Z 2026/09/19 13:14:26 INFO [ARP manager] inserting ARP/NDP instance name=172.19.255.101/32-eth0
+---- kube-vip DS logs for 172.19.255.101 (adding VIP / successful add IP; whole log, pod-prefixed) ----
+[pod/kube-vip-ds-lm6zw/kube-vip] 2026-09-19T13:14:15.561115792Z 2026/09/19 13:14:15 INFO new instance namespace=envoy-gateway-system service=envoy-shop-grpc-gw-8c4f0319 addresses=[172.19.255.101] hostnames=[]
+[pod/kube-vip-ds-lm6zw/kube-vip] 2026-09-19T13:14:15.561421625Z 2026/09/19 13:14:15 INFO (svcs) adding VIP ip=172.19.255.101 interface=eth0 namespace=envoy-gateway-system name=envoy-shop-grpc-gw-8c4f0319
+[pod/kube-vip-ds-xm9rf/kube-vip] 2026-09-19T13:14:15.561219334Z 2026/09/19 13:14:15 INFO new instance namespace=envoy-gateway-system service=envoy-shop-grpc-gw-8c4f0319 addresses=[172.19.255.101] hostnames=[]
+[pod/kube-vip-ds-xm9rf/kube-vip] 2026-09-19T13:14:15.561319334Z 2026/09/19 13:14:15 INFO (svcs) adding VIP ip=172.19.255.101 interface=eth0 namespace=envoy-gateway-system name=envoy-shop-grpc-gw-8c4f0319
+[pod/kube-vip-ds-xm9rf/kube-vip] 2026-09-19T13:14:26.727077672Z 2026/09/19 13:14:26 INFO successful add IP address=172.19.255.101
+[pod/kube-vip-ds-xm9rf/kube-vip] 2026-09-19T13:14:26.727190839Z 2026/09/19 13:14:26 INFO layer 2 broadcaster starting IP=172.19.255.101 device=eth0
+[pod/kube-vip-ds-xm9rf/kube-vip] 2026-09-19T13:14:26.727198047Z 2026/09/19 13:14:26 INFO [ARP manager] inserting ARP/NDP instance name=172.19.255.101/32-eth0
+adding VIP for 172.19.255.101: present
+successful add IP for 172.19.255.101: present
+layer 2 broadcaster starting for 172.19.255.101: present
 ```
 
 ## From the MacBook
@@ -225,7 +254,7 @@ go run github.com/fullstorydev/grpcurl/cmd/grpcurl@v1.9.4 \
 Isolation is shown once each way: grpcurl against `172.19.255.100:80`
 with the gRPC authority is not SERVING; curl
 `http://api.eg-poc1.poc.local/healthz` at `172.19.255.101` is not 200.
-Two lines, not a test suite. Recorded (third apply):
+Two lines, not a test suite. Recorded (fourth apply):
 
 ```text
 172.19             192.168.64.2       UGSc            bridge100
@@ -260,15 +289,18 @@ isolation_http_code=404 curl_rc=0
 
 apply.sh takes a headless Chrome screenshot from the Mac. No `/etc/hosts`
 is needed for that shot — Chrome's `--host-resolver-rules` maps the
-name. `chrome_rc=124` is GNU `timeout` killing Chrome after 60 s
-(gotcha [#121](../../docs/GOTCHAS.md#121)): Chrome 153 writes the PNG
-and does not exit. The artefact on disk is the result.
+name. The wait is for the PNG (polled every 0.2 s, 60 s ceiling): a
+non-empty file is not enough — the size must be stable across two
+polls. Chrome exited on its own within the wait in the recorded run
+(`chrome_rc=0`). When Chrome is still running once the file is
+complete, the harness kills it. The artefact on disk is the result
+(gotcha [#121](../../docs/GOTCHAS.md#121)).
 
-Recorded (third apply):
+Recorded (fourth apply):
 
 ```text
-timeout 60 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --disable-gpu --no-first-run --window-size=1000,500 --user-data-dir=<tmp> --host-resolver-rules="MAP api.eg-poc1.poc.local 172.19.255.100" --screenshot=/Users/olasumbo/gitRepos/cilium-implementation-poc/demos/54-eg-poc1-kube-vip/output/browser.png http://api.eg-poc1.poc.local/orders
-chrome_rc=124 (124 = killed by the timeout after writing the file)
+/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --disable-gpu --no-first-run --window-size=1000,500 --user-data-dir=<tmp> --host-resolver-rules="MAP api.eg-poc1.poc.local 172.19.255.100" --screenshot=/Users/olasumbo/gitRepos/cilium-implementation-poc/demos/54-eg-poc1-kube-vip/output/browser.png http://api.eg-poc1.poc.local/orders
+screenshot written after 2.0 s; chrome_rc=0
 demos/54-eg-poc1-kube-vip/output/browser.png: PNG image data, 1000 x 500, 8-bit/color RGB, non-interlaced
 ```
 
@@ -283,10 +315,10 @@ demos/54-eg-poc1-kube-vip/hosts-entries.sh
 #   demos/54-eg-poc1-kube-vip/hosts-entries.sh | sudo tee -a /etc/hosts
 ```
 
-Recorded (third apply):
+Recorded (fourth apply):
 
 ```text
-# ---- cilium-kind-poc demo54 (generated 2026-09-19T14:18Z by demos/54-eg-poc1-kube-vip/hosts-entries.sh) ----
+# ---- cilium-kind-poc demo54 (generated 2026-09-19T15:12Z by demos/54-eg-poc1-kube-vip/hosts-entries.sh) ----
 172.19.255.100  api.eg-poc1.poc.local
 172.19.255.101  grpc.eg-poc1.poc.local
 # ---- end cilium-kind-poc demo54 ----
@@ -296,7 +328,7 @@ Then open `http://api.eg-poc1.poc.local/orders`.
 
 ## Final table
 
-Recorded (third apply):
+Recorded (fourth apply):
 
 ```text
 DOOR       ADDRESS          PROG   CLASS                        ANNOUNCED_BY           HTTP_or_GRPC
@@ -306,10 +338,10 @@ grpc-gw    172.19.255.101   True   kube-vip.io/kube-vip-class   eg-poc1-worker  
 
 `check.sh` (exit 0), 15 PASS, 0 FAIL.
 
-Recorded 2026-09-19T14:20:02Z:
+Recorded (fourth apply):
 
 ```text
-### 2026-09-19T14:20:02Z
+### 2026-09-19T15:12:49Z
 $ demos/54-eg-poc1-kube-vip/check.sh
 == demo 54 — one cluster, kube-vip, two Gateways (HTTP isolated from gRPC)
   STATUS WHAT                                                                   MEASURED                                             RULE
@@ -318,10 +350,10 @@ $ demos/54-eg-poc1-kube-vip/check.sh
   PASS   http-gw Programmed at 172.19.255.100                                   addr=172.19.255.100 svcIngress=172.19.255.100 Programmed=True R4 / R8 — Gateway address and Service ingress both equal 172.19.255.100
   PASS   grpc-gw Programmed at 172.19.255.101                                   addr=172.19.255.101 svcIngress=172.19.255.101 Programmed=True R4 / R8 — Gateway address and Service ingress both equal 172.19.255.101
   PASS   both Envoy Services carry the class                                    http=kube-vip.io/kube-vip-class grpc=kube-vip.io/kube-vip-class D11 — EnvoyProxy names kube-vip.io/kube-vip-class on both doors
-  PASS   ARP http-gw 172.19.255.100 one responder 3/3                           replies=3 unique_mac=1                               R4 / R8 — arping 3 of 3 from ONE MAC
-  PASS   ARP grpc-gw 172.19.255.101 one responder 3/3                           replies=3 unique_mac=1                               R4 / R8 — arping 3 of 3 from ONE MAC
-  PASS   VIP 172.19.255.100 on a node's eth0                                    node=eg-poc1-worker                                  R4 — kube-vip announces the /32 on the elected node's eth0
-  PASS   VIP 172.19.255.101 on a node's eth0                                    node=eg-poc1-worker                                  R4 — kube-vip announces the /32 on the elected node's eth0
+  PASS   ARP http-gw 172.19.255.100 one responder 3/3                           replies=3 unique_mac=1 node=eg-poc1-worker           R4 / R8 — arping 3 of 3 from ONE MAC
+  PASS   ARP grpc-gw 172.19.255.101 one responder 3/3                           replies=3 unique_mac=1 node=eg-poc1-worker           R4 / R8 — arping 3 of 3 from ONE MAC
+  PASS   VIP 172.19.255.100 on the elected node's eth0                          node=eg-poc1-worker /32                              R4 — kube-vip announces the /32 on the elected node's eth0
+  PASS   VIP 172.19.255.101 on the elected node's eth0                          node=eg-poc1-worker /32                              R4 — kube-vip announces the /32 on the elected node's eth0
   PASS   http://api.eg-poc1.poc.local 200 + X-Served-By                         http_code=200 X-Served-By=eg-poc1                    R8 — 200 and X-Served-By=eg-poc1
   PASS   https://api.eg-poc1.poc.local 200                                      http_code=200                                        R8 — 200 against the lab root
   PASS   http://api.eg-poc1.poc.local /orders 200 (the page behind the door)    http_code=200 items=3                                the page behind the door — 200 and a JSON array (≥ 1)
@@ -333,7 +365,7 @@ demo 54 check: 0 FAIL
 
 ## The first two runs
 
-The third apply is the one this page quotes. The first two are why
+The fourth apply is the one this page quotes. The first two are why
 apply.sh records the Mac's route and why
 [`45-shop-db.yaml`](45-shop-db.yaml) exists.
 
