@@ -1,0 +1,31 @@
+# One leaf for the one-cluster lab. ClusterIssuer/eg-ca-issuer (scripts/eg-up.sh
+# eg-poc1 / D8) signs from this lab's root exported at .tmp/eg-poc1-root-ca.crt
+# (gitignored — issue #60). Gateways live in `shop` with this Secret, so no
+# ReferenceGrant is needed.
+#
+# Two dnsNames, not a wildcard: TLS wildcards are single-label (RFC 6125) and
+# demo 53 measured that an HTTPRoute and a GRPCRoute may not share a hostname
+# on one listener. This lab isolates the protocols on two Gateways, so each
+# name belongs to one door.
+#
+# duration 2160h / renewBefore 720h — cert-manager's 90d/30d default, written
+# out the way demo 51's leaf lives (90 days, renew at 30 days remaining).
+#
+#   kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/20-certificate.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: eg-poc1-tls
+  namespace: shop
+spec:
+  secretName: eg-poc1-tls
+  commonName: api.eg-poc1.poc.local
+  duration: 2160h
+  renewBefore: 720h
+  dnsNames:
+    - api.eg-poc1.poc.local
+    - grpc.eg-poc1.poc.local
+  issuerRef:
+    name: eg-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io

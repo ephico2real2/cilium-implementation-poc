@@ -1,0 +1,995 @@
+
+=== eg-up.sh start 2026-09-19T13:10:02Z clusters=eg-poc1 ===
+=== THIS SCRIPT STOPS AT THE CONTROLLER, THE GATEWAYCLASS, CERT-MANAGER AND THE LAB ROOT ===
+=== no load balancers, no Gateways, no apps — demo 54 installs kube-vip and the two Gateways ===
+=== pins: GATEWAY_API=v1.6.2 ENVOY_GATEWAY=v1.9.1 CERT_MANAGER=v1.21.1 ===
+### 2026-09-19T13:10:02Z
+$ scripts/eg-net.sh
+exists with 172.19.0.0/16, kept
+
+### 2026-09-19T13:10:03Z
+$ docker network inspect kind-eg --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+subnet=172.19.0.0/16 ip-range=172.19.0.0/17 gateway=172.19.0.1
+subnet=fc00:f853:ccd:e794::/64 ip-range=invalid Prefix gateway=fc00:f853:ccd:e794::1
+
+
+### 2026-09-19T13:10:03Z
+$ env KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg kind create cluster --config clusters/eg-poc1.yaml --image kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+Creating cluster "eg-poc1" ...
+ • Ensuring node image (kindest/node:v1.36.4) 🖼️  ...
+WARNING: Overriding docker network due to KIND_EXPERIMENTAL_DOCKER_NETWORK
+WARNING: Here be dragons! This is not supported currently.
+ ✓ Ensuring node image (kindest/node:v1.36.4) 🖼️
+ • Preparing nodes 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-eg-poc1"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-eg-poc1
+
+Have a nice day! 👋
+
+### 2026-09-19T13:10:22Z
+$ kubectl --context kind-eg-poc1 wait --for=condition=Ready nodes --all --timeout=180s
+node/eg-poc1-control-plane condition met
+node/eg-poc1-worker condition met
+
+### 2026-09-19T13:10:34Z
+$ kubectl --context kind-eg-poc1 get nodes -o wide
+NAME                    STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION            CONTAINER-RUNTIME
+eg-poc1-control-plane   Ready    control-plane   26s   v1.36.4   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+eg-poc1-worker          Ready    <none>          12s   v1.36.4   172.19.0.3    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+
+node IPv4 InternalIPs (must be in 172.19.0.0/17, none in 172.19.255.0/24):
+eg-poc1-control-plane 172.19.0.2
+eg-poc1-worker 172.19.0.3
+### 2026-09-19T13:10:34Z
+$ kubectl --context kind-eg-poc1 -n kube-system get ds kindnet kube-proxy
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   23s
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   24s
+
+### 2026-09-19T13:10:34Z
+$ bash -c kubectl --context kind-eg-poc1 -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+    mode: iptables
+
+### 2026-09-19T13:10:34Z
+$ helm_r repo add jetstack https://charts.jetstack.io --force-update
+"jetstack" has been added to your repositories
+
+### 2026-09-19T13:10:35Z
+$ helm_r repo update jetstack
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "jetstack" chart repository
+Update Complete. ⎈Happy Helming!⎈
+
+### 2026-09-19T13:10:35Z
+$ kubectl --context kind-eg-poc1 apply --server-side --force-conflicts -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.2/standard-install.yaml
+customresourcedefinition.apiextensions.k8s.io/backendtlspolicies.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gatewayclasses.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gateways.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/grpcroutes.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/httproutes.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/listenersets.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/referencegrants.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/tcproutes.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/tlsroutes.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/udproutes.gateway.networking.k8s.io serverside-applied
+validatingadmissionpolicy.admissionregistration.k8s.io/safe-upgrades.gateway.networking.k8s.io serverside-applied
+validatingadmissionpolicybinding.admissionregistration.k8s.io/safe-upgrades.gateway.networking.k8s.io serverside-applied
+
+### 2026-09-19T13:10:36Z
+$ bash -c 
+set -euo pipefail
+n=$(kubectl --context kind-eg-poc1 get crd -o name | grep -c '\.gateway\.networking\.k8s\.io$' || true)
+echo "gateway.networking.k8s.io CRDs: $n (want 10)"
+[ "$n" -eq 10 ] || { echo "D10: expected 10 Gateway API CRDs, got $n" >&2; exit 1; }
+fail=0
+while read -r crd; do
+  ch=$(kubectl --context kind-eg-poc1 get "$crd" -o jsonpath='{.metadata.annotations.gateway\.networking\.k8s\.io/channel}')
+  ver=$(kubectl --context kind-eg-poc1 get "$crd" -o jsonpath='{.metadata.annotations.gateway\.networking\.k8s\.io/bundle-version}')
+  echo "$crd channel=$ch bundle-version=$ver"
+  if [ "$ch" != standard ] || [ "$ver" != "v1.6.2" ]; then
+    echo "D10 FAIL: $crd channel=$ch bundle-version=$ver (want channel=standard bundle-version=v1.6.2)" >&2
+    fail=1
+  fi
+done < <(kubectl --context kind-eg-poc1 get crd -o name | grep '\.gateway\.networking\.k8s\.io$')
+exit $fail
+
+gateway.networking.k8s.io CRDs: 10 (want 10)
+customresourcedefinition.apiextensions.k8s.io/backendtlspolicies.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/gatewayclasses.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/gateways.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/grpcroutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/httproutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/listenersets.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/referencegrants.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/tcproutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/tlsroutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/udproutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+
+### 2026-09-19T13:10:37Z
+$ bash -c helm template eg-crds oci://docker.io/envoyproxy/gateway-crds-helm --version v1.9.1 --set crds.gatewayAPI.enabled=false --set crds.envoyGateway.enabled=true | kubectl --context kind-eg-poc1 apply --server-side --force-conflicts -f -
+Pulled: docker.io/envoyproxy/gateway-crds-helm:v1.9.1
+Digest: sha256:45693764cab8aae661bc32f0f706f5c8e5aaa9a151b6d03fb0a468cc535a155c
+customresourcedefinition.apiextensions.k8s.io/backends.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/backendtrafficpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clienttrafficpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/envoyextensionpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/envoypatchpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/envoyproxies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/httproutefilters.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/securitypolicies.gateway.envoyproxy.io serverside-applied
+
+### 2026-09-19T13:10:38Z
+$ bash -c 
+set -euo pipefail
+n=$(kubectl --context kind-eg-poc1 get crd -o name | grep -c '\.gateway\.envoyproxy\.io$' || true)
+echo "gateway.envoyproxy.io CRDs: $n (want 8)"
+kubectl --context kind-eg-poc1 get crd -o name | grep '\.gateway\.envoyproxy\.io$'
+[ "$n" -eq 8 ] || { echo "expected 8 gateway.envoyproxy.io CRDs, got $n" >&2; exit 1; }
+
+gateway.envoyproxy.io CRDs: 8 (want 8)
+customresourcedefinition.apiextensions.k8s.io/backends.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/backendtrafficpolicies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/clienttrafficpolicies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/envoyextensionpolicies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/envoypatchpolicies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/envoyproxies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/httproutefilters.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/securitypolicies.gateway.envoyproxy.io
+
+### 2026-09-19T13:10:38Z
+$ helm_r upgrade --install eg oci://docker.io/envoyproxy/gateway-helm --version v1.9.1 -n envoy-gateway-system --create-namespace --kube-context kind-eg-poc1 --set crds.enabled=false
+Release "eg" does not exist. Installing it now.
+Pulled: docker.io/envoyproxy/gateway-helm:v1.9.1
+Digest: sha256:91bae9aedb91ab34731e987afe01a3ccf454393015abeca705eea8ee15553e86
+NAME: eg
+LAST DEPLOYED: Sat Sep 19 08:10:39 2026
+NAMESPACE: envoy-gateway-system
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+TEST SUITE: None
+NOTES:
+**************************************************************************
+*** PLEASE BE PATIENT: Envoy Gateway may take a few minutes to install ***
+**************************************************************************
+
+Envoy Gateway is an open source project for managing Envoy Proxy as a standalone or Kubernetes-based application gateway.
+
+Thank you for installing Envoy Gateway! 🎉
+
+Your release is named: eg. 🎉
+
+Your release is in namespace: envoy-gateway-system. 🎉
+
+To learn more about the release, try:
+
+  $ helm status eg -n envoy-gateway-system
+  $ helm get all eg -n envoy-gateway-system
+
+To have a quickstart of Envoy Gateway, please refer to https://gateway.envoyproxy.io/latest/tasks/quickstart.
+
+To get more details, please visit https://gateway.envoyproxy.io and https://github.com/envoyproxy/gateway.
+
+### 2026-09-19T13:10:46Z
+$ kubectl --context kind-eg-poc1 -n envoy-gateway-system rollout status deploy/envoy-gateway --timeout=180s
+Waiting for deployment "envoy-gateway" rollout to finish: 0 of 1 updated replicas are available...
+deployment "envoy-gateway" successfully rolled out
+
+### 2026-09-19T13:10:48Z
+$ kubectl --context kind-eg-poc1 apply -f clusters/eg/gatewayclass.yaml
+gatewayclass.gateway.networking.k8s.io/eg created
+
+### 2026-09-19T13:10:48Z
+$ kubectl --context kind-eg-poc1 wait --for=condition=Accepted gatewayclass/eg --timeout=60s
+gatewayclass.gateway.networking.k8s.io/eg condition met
+
+### 2026-09-19T13:10:48Z
+$ helm_r upgrade --install cert-manager jetstack/cert-manager --version v1.21.1 --namespace cert-manager --create-namespace --kube-context kind-eg-poc1 --set crds.enabled=true --wait --timeout 5m
+Release "cert-manager" does not exist. Installing it now.
+NAME: cert-manager
+LAST DEPLOYED: Sat Sep 19 08:10:48 2026
+NAMESPACE: cert-manager
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+TEST SUITE: None
+NOTES:
+cert-manager v1.21.1 has been deployed successfully!
+
+In order to begin issuing certificates, you will need to set up a ClusterIssuer
+or Issuer resource (for example, by creating a 'letsencrypt-staging' issuer).
+
+More information on the different types of issuers and how to configure them
+can be found in our documentation:
+
+https://cert-manager.io/docs/configuration/
+
+For information on how to configure cert-manager to automatically provision
+Certificates for Ingress resources, take a look at the `ingress-shim`
+documentation:
+
+https://cert-manager.io/docs/usage/ingress/
+
+For information on how to configure cert-manager to automatically provision
+Certificates for Gateway API resources, take a look at the `gateway resource`
+documentation:
+
+https://cert-manager.io/docs/usage/gateway/
+
+### 2026-09-19T13:11:04Z
+$ kubectl --context kind-eg-poc1 -n cert-manager wait deploy --all --for=condition=Available --timeout=180s
+deployment.apps/cert-manager condition met
+deployment.apps/cert-manager-cainjector condition met
+deployment.apps/cert-manager-webhook condition met
+
+### 2026-09-19T13:11:05Z
+$ kubectl --context kind-eg-poc1 apply -f clusters/eg/eg-root-ca.yaml
+issuer.cert-manager.io/selfsigned-bootstrap created
+certificate.cert-manager.io/eg-root-ca created
+clusterissuer.cert-manager.io/eg-ca-issuer created
+
+### 2026-09-19T13:11:05Z
+$ kubectl --context kind-eg-poc1 -n cert-manager wait certificate/eg-root-ca --for=condition=Ready --timeout=120s
+certificate.cert-manager.io/eg-root-ca condition met
+
+### 2026-09-19T13:11:05Z
+$ kubectl --context kind-eg-poc1 wait clusterissuer/eg-ca-issuer --for=condition=Ready --timeout=120s
+clusterissuer.cert-manager.io/eg-ca-issuer condition met
+
+### 2026-09-19T13:11:05Z
+$ bash -c kubectl --context kind-eg-poc1 -n cert-manager get secret eg-root-ca -o jsonpath='{.data.tls\.crt}' | base64 -d > .tmp/eg-poc1-root-ca.crt
+
+### 2026-09-19T13:11:05Z
+$ openssl x509 -in .tmp/eg-poc1-root-ca.crt -noout -subject -issuer -fingerprint -sha256
+subject=CN=eg-root-ca
+issuer=CN=eg-root-ca
+sha256 Fingerprint=91:84:DE:7D:65:FE:12:9A:35:23:0A:E1:17:24:BD:C3:E5:67:78:8E:56:34:A1:6A:64:6E:BB:1D:AF:7E:E3:81
+
+root PEM is .tmp/eg-poc1-root-ca.crt (gitignored). A committed copy drifts on every rebuild (issue #60).
+CLUSTER  NODES/IPs                                        KUBEPROXY  GW_API       EG_CRDS  GATEWAYCLASS ENVOY-GATEWAY  CERT-MANAGER   ROOT_SHA256
+eg-poc1  eg-poc1-control-plane=172.19.0.2 eg-poc1-worker=172.19.0.3  iptables   10@v1.6.2    8        Accepted=True 1/1            Available=True 91:84:DE:7D:65:FE:12:9A:35:23:0A:E1:17:24:BD:C3:E5:67:78:8E:56:34:A1:6A:64:6E:BB:1D:AF:7E:E3:81
+eg-up: done. demo 54 installs kube-vip and the two Gateways
+
+### 2026-09-19T13:14:08Z — demo 54 apply
+### 2026-09-19T13:14:08Z
+$ kubectl --context kind-eg-poc1 get --raw /readyz
+ok
+### 2026-09-19T13:14:09Z
+$ bash -c docker_lab
+---- kind-eg IPv4 (IPv6 IPRange prints invalid Prefix; skip that block) ----
+Subnet=172.19.0.0/16 IPRange=172.19.0.0/17 Gateway=172.19.0.1
+---- eg-poc1 nodes on kind-eg (IPv4 + MAC) ----
+eg-poc1-control-plane Up 4 minutes
+eg-poc1-worker Up 4 minutes
+eg-poc1-control-plane 172.19.0.2 e6:61:1d:ac:15:3a
+eg-poc1-worker 172.19.0.3 fa:1f:d6:0f:1e:ae
+---- kubectl get nodes -o wide ----
+NAME                    STATUS   ROLES           AGE     VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION            CONTAINER-RUNTIME
+eg-poc1-control-plane   Ready    control-plane   4m1s    v1.36.4   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+eg-poc1-worker          Ready    <none>          3m47s   v1.36.4   172.19.0.3    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+---- stock networking: kube-proxy mode + kindnet DS ----
+    mode: iptables
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   3m58s
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   3m59s
+
+### 2026-09-19T13:14:09Z
+$ kubectl --context kind-eg-poc1 apply -f clusters/eg/kube-vip-rbac.yaml -f clusters/eg/kube-vip-ds.yaml -f clusters/eg/kube-vip-cloud-provider.yaml -f demos/54-eg-poc1-kube-vip/10-kubevip-cm.yaml
+serviceaccount/kube-vip created
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-role created
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-binding created
+daemonset.apps/kube-vip-ds created
+serviceaccount/kube-vip-cloud-controller created
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-role created
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-binding created
+Warning: spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[1].preference.matchExpressions[0].key: node-role.kubernetes.io/master is use "node-role.kubernetes.io/control-plane" instead
+deployment.apps/kube-vip-cloud-provider created
+configmap/kubevip created
+
+### 2026-09-19T13:14:09Z
+$ kubectl --context kind-eg-poc1 -n kube-system rollout status ds/kube-vip-ds --timeout=120s
+Waiting for daemon set "kube-vip-ds" rollout to finish: 0 of 2 updated pods are available...
+Waiting for daemon set "kube-vip-ds" rollout to finish: 1 of 2 updated pods are available...
+daemon set "kube-vip-ds" successfully rolled out
+
+### 2026-09-19T13:14:11Z
+$ kubectl --context kind-eg-poc1 -n kube-system wait deploy/kube-vip-cloud-provider --for=condition=Available --timeout=120s
+deployment.apps/kube-vip-cloud-provider condition met
+
+### 2026-09-19T13:14:13Z
+$ kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/00-namespace.yaml
+namespace/shop created
+
+### 2026-09-19T13:14:13Z
+$ bash -c kubectl --context kind-eg-poc1 apply -f -
+configmap/eg-cluster created
+
+### 2026-09-19T13:14:13Z
+$ kind load docker-image shopapi:local routedemo:local --name eg-poc1
+Image: "shopapi:local" with ID "sha256:a18c0904a8767fc195926b31b6337a3c7de70644be7daaf84acf072c7c252b4d" not yet present on node "eg-poc1-control-plane", loading...
+Image: "shopapi:local" with ID "sha256:a18c0904a8767fc195926b31b6337a3c7de70644be7daaf84acf072c7c252b4d" not yet present on node "eg-poc1-worker", loading...
+Image: "routedemo:local" with ID "sha256:e6be1061064a7a65161e408cb35115a2bd38e28c6fce6f480f5e91f309b05268" not yet present on node "eg-poc1-control-plane", loading...
+Image: "routedemo:local" with ID "sha256:e6be1061064a7a65161e408cb35115a2bd38e28c6fce6f480f5e91f309b05268" not yet present on node "eg-poc1-worker", loading...
+
+### 2026-09-19T13:14:14Z
+$ kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/20-certificate.yaml
+certificate.cert-manager.io/eg-poc1-tls created
+
+### 2026-09-19T13:14:14Z
+$ kubectl --context kind-eg-poc1 -n shop wait certificate/eg-poc1-tls --for=condition=Ready --timeout=90s
+certificate.cert-manager.io/eg-poc1-tls condition met
+
+### 2026-09-19T13:14:15Z
+$ bash -c print_leaf
+subject=CN=api.eg-poc1.poc.local
+X509v3 Subject Alternative Name: 
+    DNS:api.eg-poc1.poc.local, DNS:grpc.eg-poc1.poc.local
+notAfter=Dec 18 13:14:14 2026 GMT
+sha256=15:4B:20:78:0E:BD:71:EB:C4:18:AF:B0:6C:68:53:C3:A6:54:75:B5:55:7C:7F:DF:8B:7C:38:A8:84:6A:4E:2D
+
+### 2026-09-19T13:14:15Z
+$ kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/30-gateways.yaml
+envoyproxy.gateway.envoyproxy.io/http-gw-proxy created
+gateway.gateway.networking.k8s.io/http-gw created
+envoyproxy.gateway.envoyproxy.io/grpc-gw-proxy created
+gateway.gateway.networking.k8s.io/grpc-gw created
+
+### 2026-09-19T13:14:15Z
+$ kubectl --context kind-eg-poc1 -n shop wait --for=condition=Programmed gateway/http-gw --timeout=180s
+gateway.gateway.networking.k8s.io/http-gw condition met
+
+### 2026-09-19T13:14:26Z
+$ kubectl --context kind-eg-poc1 -n shop wait --for=condition=Programmed gateway/grpc-gw --timeout=180s
+gateway.gateway.networking.k8s.io/grpc-gw condition met
+
+### 2026-09-19T13:14:26Z
+$ bash -c wait_envoy_deploy http-gw
+deployment.apps/envoy-shop-http-gw-fccf2727 condition met
+
+### 2026-09-19T13:14:27Z
+$ bash -c wait_envoy_deploy grpc-gw
+deployment.apps/envoy-shop-grpc-gw-8c4f0319 condition met
+
+### 2026-09-19T13:14:27Z
+$ kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/40-app.yaml
+deployment.apps/shopapi created
+service/shopapi created
+deployment.apps/grpc created
+service/grpc created
+
+### 2026-09-19T13:14:27Z
+$ kubectl --context kind-eg-poc1 -n shop wait deploy/shopapi --for=condition=Available --timeout=120s
+deployment.apps/shopapi condition met
+
+### 2026-09-19T13:14:33Z
+$ kubectl --context kind-eg-poc1 -n shop wait deploy/grpc --for=condition=Available --timeout=120s
+deployment.apps/grpc condition met
+
+### 2026-09-19T13:14:34Z
+$ kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/50-routes.yaml
+httproute.gateway.networking.k8s.io/shop-api created
+grpcroute.gateway.networking.k8s.io/grpc created
+
+### 2026-09-19T13:14:34Z
+$ bash -c wait_route httproute shop-api
+kind-eg-poc1 httproute/shop-api: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T13:14:34Z
+$ bash -c wait_route grpcroute grpc
+kind-eg-poc1 grpcroute/grpc: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T13:14:34Z
+$ bash -c l2_proof "$1" bash 172.19.255.100
+---- arping -b -c 3 172.19.255.100 ----
+ARPING 172.19.255.100 from 172.19.0.4 eth0
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.005ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.032ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.014ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+MAC fa:1f:d6:0f:1e:ae → node eg-poc1-worker
+---- docker exec eg-poc1-worker ip -4 addr show eth0 ----
+11: eth0@if21: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 65535 qdisc noqueue state UP group default  link-netnsid 0
+    inet 172.19.0.3/16 brd 172.19.255.255 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet 172.19.255.100/32 scope global deprecated eth0
+       valid_lft forever preferred_lft forever
+    inet 172.19.255.101/32 scope global deprecated eth0
+       valid_lft forever preferred_lft forever
+---- kube-vip DS logs for 172.19.255.100 (adding VIP / successful add IP) ----
+2026-09-19T13:14:15.362709375Z 2026/09/19 13:14:15 INFO new instance namespace=envoy-gateway-system service=envoy-shop-http-gw-fccf2727 addresses=[172.19.255.100] hostnames=[]
+2026-09-19T13:14:15.362905875Z 2026/09/19 13:14:15 INFO (svcs) adding VIP ip=172.19.255.100 interface=eth0 namespace=envoy-gateway-system name=envoy-shop-http-gw-fccf2727
+2026-09-19T13:14:26.716946422Z 2026/09/19 13:14:26 INFO layer 2 broadcaster starting IP=172.19.255.100 device=eth0
+2026-09-19T13:14:26.716946922Z 2026/09/19 13:14:26 INFO [ARP manager] inserting ARP/NDP instance name=172.19.255.100/32-eth0
+
+### 2026-09-19T13:14:37Z
+$ bash -c l2_proof "$1" bash 172.19.255.101
+---- arping -b -c 3 172.19.255.101 ----
+ARPING 172.19.255.101 from 172.19.0.4 eth0
+Unicast reply from 172.19.255.101 [fa:1f:d6:0f:1e:ae] 0.006ms
+Unicast reply from 172.19.255.101 [fa:1f:d6:0f:1e:ae] 0.032ms
+Unicast reply from 172.19.255.101 [fa:1f:d6:0f:1e:ae] 0.023ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+MAC fa:1f:d6:0f:1e:ae → node eg-poc1-worker
+---- docker exec eg-poc1-worker ip -4 addr show eth0 ----
+11: eth0@if21: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 65535 qdisc noqueue state UP group default  link-netnsid 0
+    inet 172.19.0.3/16 brd 172.19.255.255 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet 172.19.255.100/32 scope global deprecated eth0
+       valid_lft forever preferred_lft forever
+    inet 172.19.255.101/32 scope global deprecated eth0
+       valid_lft forever preferred_lft forever
+---- kube-vip DS logs for 172.19.255.101 (adding VIP / successful add IP) ----
+2026-09-19T13:14:15.561115792Z 2026/09/19 13:14:15 INFO new instance namespace=envoy-gateway-system service=envoy-shop-grpc-gw-8c4f0319 addresses=[172.19.255.101] hostnames=[]
+2026-09-19T13:14:15.561421625Z 2026/09/19 13:14:15 INFO (svcs) adding VIP ip=172.19.255.101 interface=eth0 namespace=envoy-gateway-system name=envoy-shop-grpc-gw-8c4f0319
+2026-09-19T13:14:26.727077672Z 2026/09/19 13:14:26 INFO successful add IP address=172.19.255.101
+2026-09-19T13:14:26.727190839Z 2026/09/19 13:14:26 INFO layer 2 broadcaster starting IP=172.19.255.101 device=eth0
+2026-09-19T13:14:26.727198047Z 2026/09/19 13:14:26 INFO [ARP manager] inserting ARP/NDP instance name=172.19.255.101/32-eth0
+
+### 2026-09-19T13:14:41Z
+$ bash -c mac_route
+no 172.19 route on this Mac — the clients below will fail until:
+  sudo route -n add -net 172.19.0.0/16 192.168.64.2
+
+### 2026-09-19T13:14:41Z
+$ bash -c mac_http
+http://api.eg-poc1.poc.local/healthz @ 172.19.255.100:80 → 000 X-Served-By=- curl_rc=28
+
+### 2026-09-19T13:14:46Z
+$ bash -c mac_https
+https://api.eg-poc1.poc.local/healthz @ 172.19.255.100:443 → 000 X-Served-By=- curl_rc=28
+
+### 2026-09-19T13:14:51Z
+$ bash -c mac_orders
+http://api.eg-poc1.poc.local/orders @ 172.19.255.100:80 curl_rc=28 body_head:
+
+
+### 2026-09-19T13:14:56Z
+$ bash -c mac_grpc
+-- gRPC h2c grpc.eg-poc1.poc.local 172.19.255.101:80
+Failed to dial target host "172.19.255.101:80": context deadline exceeded
+exit status 1
+grpcurl_h2c_rc=1
+-- gRPC TLS grpc.eg-poc1.poc.local 172.19.255.101:443
+Failed to dial target host "172.19.255.101:443": context deadline exceeded
+exit status 1
+grpcurl_tls_rc=1
+-- gRPC list (reflection) grpc.eg-poc1.poc.local 172.19.255.101:80
+Failed to dial target host "172.19.255.101:80": context deadline exceeded
+exit status 1
+grpcurl_list_rc=1
+
+### 2026-09-19T13:15:28Z
+$ bash -c mac_isolation
+-- isolation: grpcurl against HTTP door 172.19.255.100:80 with grpc authority (expect not SERVING)
+Failed to dial target host "172.19.255.100:80": context deadline exceeded
+exit status 1
+isolation_grpcurl_rc=1
+-- isolation: curl http://api.eg-poc1.poc.local/healthz at gRPC door 172.19.255.101:80 (expect not 200)
+isolation_http_code=000 curl_rc=28
+
+### 2026-09-19T13:15:43Z
+$ bash -c browser_shot
+timeout 60 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --disable-gpu --no-first-run --window-size=1000,500 --user-data-dir=<tmp> --host-resolver-rules="MAP api.eg-poc1.poc.local 172.19.255.100" --screenshot=/Users/olasumbo/gitRepos/cilium-implementation-poc/demos/54-eg-poc1-kube-vip/output/browser.png http://api.eg-poc1.poc.local/orders
+chrome_rc=124 (124 = killed by the timeout after writing the file)
+no screenshot written
+[exit code: 1]
+
+
+### 2026-09-19T14:09:26Z — demo 54 apply
+### 2026-09-19T14:09:26Z
+$ kubectl --context kind-eg-poc1 get --raw /readyz
+ok
+### 2026-09-19T14:09:26Z
+$ bash -c docker_lab
+---- kind-eg IPv4 (IPv6 IPRange prints invalid Prefix; skip that block) ----
+Subnet=172.19.0.0/16 IPRange=172.19.0.0/17 Gateway=172.19.0.1
+---- eg-poc1 nodes on kind-eg (IPv4 + MAC) ----
+eg-poc1-control-plane Up 59 minutes
+eg-poc1-worker Up 59 minutes
+eg-poc1-control-plane 172.19.0.2 e6:61:1d:ac:15:3a
+eg-poc1-worker 172.19.0.3 fa:1f:d6:0f:1e:ae
+---- kubectl get nodes -o wide ----
+NAME                    STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION            CONTAINER-RUNTIME
+eg-poc1-control-plane   Ready    control-plane   59m   v1.36.4   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+eg-poc1-worker          Ready    <none>          59m   v1.36.4   172.19.0.3    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+---- stock networking: kube-proxy mode + kindnet DS ----
+    mode: iptables
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   59m
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   59m
+
+### 2026-09-19T14:09:26Z
+$ kubectl --context kind-eg-poc1 apply -f clusters/eg/kube-vip-rbac.yaml -f clusters/eg/kube-vip-ds.yaml -f clusters/eg/kube-vip-cloud-provider.yaml -f demos/54-eg-poc1-kube-vip/10-kubevip-cm.yaml
+serviceaccount/kube-vip unchanged
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-role unchanged
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-binding unchanged
+daemonset.apps/kube-vip-ds unchanged
+serviceaccount/kube-vip-cloud-controller unchanged
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-role unchanged
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-binding unchanged
+deployment.apps/kube-vip-cloud-provider unchanged
+configmap/kubevip unchanged
+
+### 2026-09-19T14:09:26Z
+$ kubectl --context kind-eg-poc1 -n kube-system rollout status ds/kube-vip-ds --timeout=120s
+daemon set "kube-vip-ds" successfully rolled out
+
+### 2026-09-19T14:09:26Z
+$ kubectl --context kind-eg-poc1 -n kube-system wait deploy/kube-vip-cloud-provider --for=condition=Available --timeout=120s
+deployment.apps/kube-vip-cloud-provider condition met
+
+### 2026-09-19T14:09:27Z
+$ kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/00-namespace.yaml
+namespace/shop unchanged
+
+### 2026-09-19T14:09:27Z
+$ bash -c kubectl --context kind-eg-poc1 apply -f -
+configmap/eg-cluster unchanged
+
+### 2026-09-19T14:09:27Z
+$ kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/20-certificate.yaml
+certificate.cert-manager.io/eg-poc1-tls unchanged
+
+### 2026-09-19T14:09:27Z
+$ kubectl --context kind-eg-poc1 -n shop wait certificate/eg-poc1-tls --for=condition=Ready --timeout=90s
+certificate.cert-manager.io/eg-poc1-tls condition met
+
+### 2026-09-19T14:09:28Z
+$ bash -c print_leaf
+subject=CN=api.eg-poc1.poc.local
+X509v3 Subject Alternative Name: 
+    DNS:api.eg-poc1.poc.local, DNS:grpc.eg-poc1.poc.local
+notAfter=Dec 18 13:14:14 2026 GMT
+sha256=15:4B:20:78:0E:BD:71:EB:C4:18:AF:B0:6C:68:53:C3:A6:54:75:B5:55:7C:7F:DF:8B:7C:38:A8:84:6A:4E:2D
+
+### 2026-09-19T14:09:28Z
+$ kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/30-gateways.yaml
+envoyproxy.gateway.envoyproxy.io/http-gw-proxy unchanged
+gateway.gateway.networking.k8s.io/http-gw configured
+envoyproxy.gateway.envoyproxy.io/grpc-gw-proxy unchanged
+gateway.gateway.networking.k8s.io/grpc-gw configured
+
+### 2026-09-19T14:09:28Z
+$ kubectl --context kind-eg-poc1 -n shop wait --for=condition=Programmed gateway/http-gw --timeout=180s
+gateway.gateway.networking.k8s.io/http-gw condition met
+
+### 2026-09-19T14:09:28Z
+$ kubectl --context kind-eg-poc1 -n shop wait --for=condition=Programmed gateway/grpc-gw --timeout=180s
+gateway.gateway.networking.k8s.io/grpc-gw condition met
+
+### 2026-09-19T14:09:28Z
+$ bash -c wait_envoy_deploy http-gw
+deployment.apps/envoy-shop-http-gw-fccf2727 condition met
+
+### 2026-09-19T14:09:28Z
+$ bash -c wait_envoy_deploy grpc-gw
+deployment.apps/envoy-shop-grpc-gw-8c4f0319 condition met
+
+### 2026-09-19T14:09:29Z
+$ kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/40-app.yaml
+deployment.apps/shopapi unchanged
+service/shopapi unchanged
+deployment.apps/grpc unchanged
+service/grpc unchanged
+
+### 2026-09-19T14:09:29Z
+$ kubectl --context kind-eg-poc1 -n shop wait deploy/shopapi --for=condition=Available --timeout=120s
+deployment.apps/shopapi condition met
+
+### 2026-09-19T14:09:29Z
+$ kubectl --context kind-eg-poc1 -n shop wait deploy/grpc --for=condition=Available --timeout=120s
+deployment.apps/grpc condition met
+
+### 2026-09-19T14:09:29Z
+$ kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/50-routes.yaml
+httproute.gateway.networking.k8s.io/shop-api configured
+grpcroute.gateway.networking.k8s.io/grpc configured
+
+### 2026-09-19T14:09:29Z
+$ bash -c wait_route httproute shop-api
+kind-eg-poc1 httproute/shop-api: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T14:09:29Z
+$ bash -c wait_route grpcroute grpc
+kind-eg-poc1 grpcroute/grpc: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T14:09:29Z
+$ bash -c l2_proof "$1" bash 172.19.255.100
+---- arping -b -c 3 172.19.255.100 ----
+ARPING 172.19.255.100 from 172.19.0.4 eth0
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.010ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.016ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.013ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+MAC fa:1f:d6:0f:1e:ae → node eg-poc1-worker
+---- docker exec eg-poc1-worker ip -4 addr show eth0 ----
+11: eth0@if21: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 65535 qdisc noqueue state UP group default  link-netnsid 0
+    inet 172.19.0.3/16 brd 172.19.255.255 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet 172.19.255.100/32 scope global deprecated eth0
+       valid_lft forever preferred_lft forever
+    inet 172.19.255.101/32 scope global deprecated eth0
+       valid_lft forever preferred_lft forever
+---- kube-vip DS logs for 172.19.255.100 (adding VIP / successful add IP) ----
+2026-09-19T13:14:15.362709375Z 2026/09/19 13:14:15 INFO new instance namespace=envoy-gateway-system service=envoy-shop-http-gw-fccf2727 addresses=[172.19.255.100] hostnames=[]
+2026-09-19T13:14:15.362905875Z 2026/09/19 13:14:15 INFO (svcs) adding VIP ip=172.19.255.100 interface=eth0 namespace=envoy-gateway-system name=envoy-shop-http-gw-fccf2727
+2026-09-19T13:14:26.716946422Z 2026/09/19 13:14:26 INFO layer 2 broadcaster starting IP=172.19.255.100 device=eth0
+2026-09-19T13:14:26.716946922Z 2026/09/19 13:14:26 INFO [ARP manager] inserting ARP/NDP instance name=172.19.255.100/32-eth0
+
+### 2026-09-19T14:09:33Z
+$ bash -c l2_proof "$1" bash 172.19.255.101
+---- arping -b -c 3 172.19.255.101 ----
+ARPING 172.19.255.101 from 172.19.0.4 eth0
+Unicast reply from 172.19.255.101 [fa:1f:d6:0f:1e:ae] 0.006ms
+Unicast reply from 172.19.255.101 [fa:1f:d6:0f:1e:ae] 0.013ms
+Unicast reply from 172.19.255.101 [fa:1f:d6:0f:1e:ae] 0.013ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+MAC fa:1f:d6:0f:1e:ae → node eg-poc1-worker
+---- docker exec eg-poc1-worker ip -4 addr show eth0 ----
+11: eth0@if21: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 65535 qdisc noqueue state UP group default  link-netnsid 0
+    inet 172.19.0.3/16 brd 172.19.255.255 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet 172.19.255.100/32 scope global deprecated eth0
+       valid_lft forever preferred_lft forever
+    inet 172.19.255.101/32 scope global deprecated eth0
+       valid_lft forever preferred_lft forever
+---- kube-vip DS logs for 172.19.255.101 (adding VIP / successful add IP) ----
+2026-09-19T13:14:15.561115792Z 2026/09/19 13:14:15 INFO new instance namespace=envoy-gateway-system service=envoy-shop-grpc-gw-8c4f0319 addresses=[172.19.255.101] hostnames=[]
+2026-09-19T13:14:15.561421625Z 2026/09/19 13:14:15 INFO (svcs) adding VIP ip=172.19.255.101 interface=eth0 namespace=envoy-gateway-system name=envoy-shop-grpc-gw-8c4f0319
+2026-09-19T13:14:26.727077672Z 2026/09/19 13:14:26 INFO successful add IP address=172.19.255.101
+2026-09-19T13:14:26.727190839Z 2026/09/19 13:14:26 INFO layer 2 broadcaster starting IP=172.19.255.101 device=eth0
+2026-09-19T13:14:26.727198047Z 2026/09/19 13:14:26 INFO [ARP manager] inserting ARP/NDP instance name=172.19.255.101/32-eth0
+
+### 2026-09-19T14:09:36Z
+$ bash -c mac_route
+172.19             192.168.64.2       UGSc            bridge100       
+
+### 2026-09-19T14:09:36Z
+$ bash -c mac_http
+http://api.eg-poc1.poc.local/healthz @ 172.19.255.100:80 → 200 X-Served-By=eg-poc1 curl_rc=0
+
+### 2026-09-19T14:09:36Z
+$ bash -c mac_https
+https://api.eg-poc1.poc.local/healthz @ 172.19.255.100:443 → 200 X-Served-By=eg-poc1 curl_rc=0
+
+### 2026-09-19T14:09:36Z
+$ bash -c mac_orders
+http://api.eg-poc1.poc.local/orders @ 172.19.255.100:80 curl_rc=0 body_head:
+failed to connect to `user=shop database=shop`: hostname resolving error: lookup db-service.poc.local on 10.71.0.10:53: dial udp 10.71.0.10:53: i/o timeout
+
+### 2026-09-19T14:09:38Z
+$ bash -c mac_grpc
+-- gRPC h2c grpc.eg-poc1.poc.local 172.19.255.101:80
+{
+  "status": "SERVING"
+}
+grpcurl_h2c_rc=0
+-- gRPC TLS grpc.eg-poc1.poc.local 172.19.255.101:443
+{
+  "status": "SERVING"
+}
+grpcurl_tls_rc=0
+-- gRPC list (reflection) grpc.eg-poc1.poc.local 172.19.255.101:80
+grpc.health.v1.Health
+grpc.reflection.v1.ServerReflection
+grpc.reflection.v1alpha.ServerReflection
+grpcurl_list_rc=0
+
+### 2026-09-19T14:09:41Z
+$ bash -c mac_isolation
+-- isolation: grpcurl against HTTP door 172.19.255.100:80 with grpc authority (expect not SERVING)
+Error invoking method "grpc.health.v1.Health/Check": failed to query for service descriptor "grpc.health.v1.Health": server does not support the reflection API
+exit status 1
+isolation_grpcurl_rc=1
+-- isolation: curl http://api.eg-poc1.poc.local/healthz at gRPC door 172.19.255.101:80 (expect not 200)
+isolation_http_code=404 curl_rc=0
+
+### 2026-09-19T14:09:41Z
+$ bash -c browser_shot
+timeout 60 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --disable-gpu --no-first-run --window-size=1000,500 --user-data-dir=<tmp> --host-resolver-rules="MAP api.eg-poc1.poc.local 172.19.255.100" --screenshot=/Users/olasumbo/gitRepos/cilium-implementation-poc/demos/54-eg-poc1-kube-vip/output/browser.png http://api.eg-poc1.poc.local/orders
+chrome_rc=124 (124 = killed by the timeout after writing the file)
+demos/54-eg-poc1-kube-vip/output/browser.png: PNG image data, 1000 x 500, 8-bit/color RGB, non-interlaced
+
+### 2026-09-19T14:10:41Z
+$ demos/54-eg-poc1-kube-vip/hosts-entries.sh
+# ---- cilium-kind-poc demo54 (generated 2026-09-19T14:10Z by demos/54-eg-poc1-kube-vip/hosts-entries.sh) ----
+172.19.255.100  api.eg-poc1.poc.local
+172.19.255.101  grpc.eg-poc1.poc.local
+# ---- end cilium-kind-poc demo54 ----
+
+### 2026-09-19T14:10:42Z
+$ bash -c final_table
+DOOR       ADDRESS          PROG   CLASS                        ANNOUNCED_BY           HTTP_or_GRPC
+http-gw    172.19.255.100   True   kube-vip.io/kube-vip-class   eg-poc1-worker         HTTP 200/eg-poc1
+grpc-gw    172.19.255.101   True   kube-vip.io/kube-vip-class   eg-poc1-worker         GRPC SERVING
+
+
+### 2026-09-19T14:17:35Z — demo 54 apply
+### 2026-09-19T14:17:35Z
+$ kubectl --context kind-eg-poc1 get --raw /readyz
+ok
+### 2026-09-19T14:17:35Z
+$ bash -c docker_lab
+---- kind-eg IPv4 (IPv6 IPRange prints invalid Prefix; skip that block) ----
+Subnet=172.19.0.0/16 IPRange=172.19.0.0/17 Gateway=172.19.0.1
+---- eg-poc1 nodes on kind-eg (IPv4 + MAC) ----
+eg-poc1-control-plane Up About an hour
+eg-poc1-worker Up About an hour
+eg-poc1-control-plane 172.19.0.2 e6:61:1d:ac:15:3a
+eg-poc1-worker 172.19.0.3 fa:1f:d6:0f:1e:ae
+---- kubectl get nodes -o wide ----
+NAME                    STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION            CONTAINER-RUNTIME
+eg-poc1-control-plane   Ready    control-plane   67m   v1.36.4   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+eg-poc1-worker          Ready    <none>          67m   v1.36.4   172.19.0.3    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+---- stock networking: kube-proxy mode + kindnet DS ----
+    mode: iptables
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   67m
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   67m
+
+### 2026-09-19T14:17:36Z
+$ kubectl --context kind-eg-poc1 apply -f clusters/eg/kube-vip-rbac.yaml -f clusters/eg/kube-vip-ds.yaml -f clusters/eg/kube-vip-cloud-provider.yaml -f demos/54-eg-poc1-kube-vip/10-kubevip-cm.yaml
+serviceaccount/kube-vip unchanged
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-role unchanged
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-binding unchanged
+daemonset.apps/kube-vip-ds unchanged
+serviceaccount/kube-vip-cloud-controller unchanged
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-role unchanged
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-binding unchanged
+deployment.apps/kube-vip-cloud-provider unchanged
+configmap/kubevip unchanged
+
+### 2026-09-19T14:17:36Z
+$ kubectl --context kind-eg-poc1 -n kube-system rollout status ds/kube-vip-ds --timeout=120s
+daemon set "kube-vip-ds" successfully rolled out
+
+### 2026-09-19T14:17:36Z
+$ kubectl --context kind-eg-poc1 -n kube-system wait deploy/kube-vip-cloud-provider --for=condition=Available --timeout=120s
+deployment.apps/kube-vip-cloud-provider condition met
+
+### 2026-09-19T14:17:36Z
+$ kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/00-namespace.yaml
+namespace/shop unchanged
+
+### 2026-09-19T14:17:36Z
+$ bash -c kubectl --context kind-eg-poc1 apply -f -
+configmap/eg-cluster unchanged
+
+### 2026-09-19T14:17:36Z
+$ kind load docker-image shopapi:local routedemo:local --name eg-poc1
+Image: "shopapi:local" with ID "sha256:a18c0904a8767fc195926b31b6337a3c7de70644be7daaf84acf072c7c252b4d" not yet present on node "eg-poc1-control-plane", loading...
+Image: "shopapi:local" with ID "sha256:a18c0904a8767fc195926b31b6337a3c7de70644be7daaf84acf072c7c252b4d" not yet present on node "eg-poc1-worker", loading...
+Image: "routedemo:local" with ID "sha256:e6be1061064a7a65161e408cb35115a2bd38e28c6fce6f480f5e91f309b05268" not yet present on node "eg-poc1-control-plane", loading...
+Image: "routedemo:local" with ID "sha256:e6be1061064a7a65161e408cb35115a2bd38e28c6fce6f480f5e91f309b05268" not yet present on node "eg-poc1-worker", loading...
+
+### 2026-09-19T14:17:37Z
+$ kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/20-certificate.yaml
+certificate.cert-manager.io/eg-poc1-tls unchanged
+
+### 2026-09-19T14:17:37Z
+$ kubectl --context kind-eg-poc1 -n shop wait certificate/eg-poc1-tls --for=condition=Ready --timeout=90s
+certificate.cert-manager.io/eg-poc1-tls condition met
+
+### 2026-09-19T14:17:37Z
+$ bash -c print_leaf
+subject=CN=api.eg-poc1.poc.local
+X509v3 Subject Alternative Name: 
+    DNS:api.eg-poc1.poc.local, DNS:grpc.eg-poc1.poc.local
+notAfter=Dec 18 13:14:14 2026 GMT
+sha256=15:4B:20:78:0E:BD:71:EB:C4:18:AF:B0:6C:68:53:C3:A6:54:75:B5:55:7C:7F:DF:8B:7C:38:A8:84:6A:4E:2D
+
+### 2026-09-19T14:17:38Z
+$ kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/30-gateways.yaml
+envoyproxy.gateway.envoyproxy.io/http-gw-proxy unchanged
+gateway.gateway.networking.k8s.io/http-gw configured
+envoyproxy.gateway.envoyproxy.io/grpc-gw-proxy unchanged
+gateway.gateway.networking.k8s.io/grpc-gw configured
+
+### 2026-09-19T14:17:38Z
+$ kubectl --context kind-eg-poc1 -n shop wait --for=condition=Programmed gateway/http-gw --timeout=180s
+gateway.gateway.networking.k8s.io/http-gw condition met
+
+### 2026-09-19T14:17:38Z
+$ kubectl --context kind-eg-poc1 -n shop wait --for=condition=Programmed gateway/grpc-gw --timeout=180s
+gateway.gateway.networking.k8s.io/grpc-gw condition met
+
+### 2026-09-19T14:17:38Z
+$ bash -c wait_envoy_deploy http-gw
+deployment.apps/envoy-shop-http-gw-fccf2727 condition met
+
+### 2026-09-19T14:17:38Z
+$ bash -c wait_envoy_deploy grpc-gw
+deployment.apps/envoy-shop-grpc-gw-8c4f0319 condition met
+
+### 2026-09-19T14:17:38Z
+$ kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/45-shop-db.yaml
+configmap/shop-db-init created
+deployment.apps/shop-db created
+service/shop-db created
+
+### 2026-09-19T14:17:39Z
+$ kubectl --context kind-eg-poc1 -n shop rollout status deploy/shop-db --timeout=180s
+Waiting for deployment "shop-db" rollout to finish: 0 of 1 updated replicas are available...
+deployment "shop-db" successfully rolled out
+
+### 2026-09-19T14:17:44Z
+$ kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/40-app.yaml
+deployment.apps/shopapi configured
+service/shopapi unchanged
+deployment.apps/grpc unchanged
+service/grpc unchanged
+
+### 2026-09-19T14:17:44Z
+$ kubectl --context kind-eg-poc1 -n shop wait deploy/shopapi --for=condition=Available --timeout=120s
+deployment.apps/shopapi condition met
+
+### 2026-09-19T14:17:45Z
+$ kubectl --context kind-eg-poc1 -n shop wait deploy/grpc --for=condition=Available --timeout=120s
+deployment.apps/grpc condition met
+
+### 2026-09-19T14:17:45Z
+$ kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/50-routes.yaml
+httproute.gateway.networking.k8s.io/shop-api configured
+grpcroute.gateway.networking.k8s.io/grpc configured
+
+### 2026-09-19T14:17:45Z
+$ bash -c wait_route httproute shop-api
+kind-eg-poc1 httproute/shop-api: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T14:17:45Z
+$ bash -c wait_route grpcroute grpc
+kind-eg-poc1 grpcroute/grpc: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T14:17:45Z
+$ bash -c l2_proof "$1" bash 172.19.255.100
+---- arping -b -c 3 172.19.255.100 ----
+ARPING 172.19.255.100 from 172.19.0.4 eth0
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.006ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.021ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.016ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+MAC fa:1f:d6:0f:1e:ae → node eg-poc1-worker
+---- docker exec eg-poc1-worker ip -4 addr show eth0 ----
+11: eth0@if21: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 65535 qdisc noqueue state UP group default  link-netnsid 0
+    inet 172.19.0.3/16 brd 172.19.255.255 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet 172.19.255.100/32 scope global deprecated eth0
+       valid_lft forever preferred_lft forever
+    inet 172.19.255.101/32 scope global deprecated eth0
+       valid_lft forever preferred_lft forever
+---- kube-vip DS logs for 172.19.255.100 (adding VIP / successful add IP) ----
+2026-09-19T13:14:15.362709375Z 2026/09/19 13:14:15 INFO new instance namespace=envoy-gateway-system service=envoy-shop-http-gw-fccf2727 addresses=[172.19.255.100] hostnames=[]
+2026-09-19T13:14:15.362905875Z 2026/09/19 13:14:15 INFO (svcs) adding VIP ip=172.19.255.100 interface=eth0 namespace=envoy-gateway-system name=envoy-shop-http-gw-fccf2727
+2026-09-19T13:14:26.716946422Z 2026/09/19 13:14:26 INFO layer 2 broadcaster starting IP=172.19.255.100 device=eth0
+2026-09-19T13:14:26.716946922Z 2026/09/19 13:14:26 INFO [ARP manager] inserting ARP/NDP instance name=172.19.255.100/32-eth0
+
+### 2026-09-19T14:17:49Z
+$ bash -c l2_proof "$1" bash 172.19.255.101
+---- arping -b -c 3 172.19.255.101 ----
+ARPING 172.19.255.101 from 172.19.0.4 eth0
+Unicast reply from 172.19.255.101 [fa:1f:d6:0f:1e:ae] 0.005ms
+Unicast reply from 172.19.255.101 [fa:1f:d6:0f:1e:ae] 0.019ms
+Unicast reply from 172.19.255.101 [fa:1f:d6:0f:1e:ae] 0.011ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+MAC fa:1f:d6:0f:1e:ae → node eg-poc1-worker
+---- docker exec eg-poc1-worker ip -4 addr show eth0 ----
+11: eth0@if21: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 65535 qdisc noqueue state UP group default  link-netnsid 0
+    inet 172.19.0.3/16 brd 172.19.255.255 scope global eth0
+       valid_lft forever preferred_lft forever
+    inet 172.19.255.100/32 scope global deprecated eth0
+       valid_lft forever preferred_lft forever
+    inet 172.19.255.101/32 scope global deprecated eth0
+       valid_lft forever preferred_lft forever
+---- kube-vip DS logs for 172.19.255.101 (adding VIP / successful add IP) ----
+2026-09-19T13:14:15.561115792Z 2026/09/19 13:14:15 INFO new instance namespace=envoy-gateway-system service=envoy-shop-grpc-gw-8c4f0319 addresses=[172.19.255.101] hostnames=[]
+2026-09-19T13:14:15.561421625Z 2026/09/19 13:14:15 INFO (svcs) adding VIP ip=172.19.255.101 interface=eth0 namespace=envoy-gateway-system name=envoy-shop-grpc-gw-8c4f0319
+2026-09-19T13:14:26.727077672Z 2026/09/19 13:14:26 INFO successful add IP address=172.19.255.101
+2026-09-19T13:14:26.727190839Z 2026/09/19 13:14:26 INFO layer 2 broadcaster starting IP=172.19.255.101 device=eth0
+2026-09-19T13:14:26.727198047Z 2026/09/19 13:14:26 INFO [ARP manager] inserting ARP/NDP instance name=172.19.255.101/32-eth0
+
+### 2026-09-19T14:17:52Z
+$ bash -c mac_route
+172.19             192.168.64.2       UGSc            bridge100       
+
+### 2026-09-19T14:17:52Z
+$ bash -c mac_http
+http://api.eg-poc1.poc.local/healthz @ 172.19.255.100:80 → 200 X-Served-By=eg-poc1 curl_rc=0
+
+### 2026-09-19T14:17:52Z
+$ bash -c mac_https
+https://api.eg-poc1.poc.local/healthz @ 172.19.255.100:443 → 200 X-Served-By=eg-poc1 curl_rc=0
+
+### 2026-09-19T14:17:52Z
+$ bash -c mac_orders
+http://api.eg-poc1.poc.local/orders @ 172.19.255.100:80 → 200 X-Served-By=eg-poc1 curl_rc=0 body_head:
+[{"id":1,"item":"keyboard","amount_cents":4999},{"id":2,"item":"mouse","amount_cents":1999},{"id":3,"item":"monitor","amount_cents":24900}]
+
+
+### 2026-09-19T14:17:52Z
+$ bash -c mac_grpc
+-- gRPC h2c grpc.eg-poc1.poc.local 172.19.255.101:80
+{
+  "status": "SERVING"
+}
+grpcurl_h2c_rc=0
+-- gRPC TLS grpc.eg-poc1.poc.local 172.19.255.101:443
+{
+  "status": "SERVING"
+}
+grpcurl_tls_rc=0
+-- gRPC list (reflection) grpc.eg-poc1.poc.local 172.19.255.101:80
+grpc.health.v1.Health
+grpc.reflection.v1.ServerReflection
+grpc.reflection.v1alpha.ServerReflection
+grpcurl_list_rc=0
+
+### 2026-09-19T14:17:54Z
+$ bash -c mac_isolation
+-- isolation: grpcurl against HTTP door 172.19.255.100:80 with grpc authority (expect not SERVING)
+Error invoking method "grpc.health.v1.Health/Check": failed to query for service descriptor "grpc.health.v1.Health": server does not support the reflection API
+exit status 1
+isolation_grpcurl_rc=1
+-- isolation: curl http://api.eg-poc1.poc.local/healthz at gRPC door 172.19.255.101:80 (expect not 200)
+isolation_http_code=404 curl_rc=0
+
+### 2026-09-19T14:17:54Z
+$ bash -c browser_shot
+timeout 60 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --disable-gpu --no-first-run --window-size=1000,500 --user-data-dir=<tmp> --host-resolver-rules="MAP api.eg-poc1.poc.local 172.19.255.100" --screenshot=/Users/olasumbo/gitRepos/cilium-implementation-poc/demos/54-eg-poc1-kube-vip/output/browser.png http://api.eg-poc1.poc.local/orders
+chrome_rc=124 (124 = killed by the timeout after writing the file)
+demos/54-eg-poc1-kube-vip/output/browser.png: PNG image data, 1000 x 500, 8-bit/color RGB, non-interlaced
+
+### 2026-09-19T14:18:54Z
+$ demos/54-eg-poc1-kube-vip/hosts-entries.sh
+# ---- cilium-kind-poc demo54 (generated 2026-09-19T14:18Z by demos/54-eg-poc1-kube-vip/hosts-entries.sh) ----
+172.19.255.100  api.eg-poc1.poc.local
+172.19.255.101  grpc.eg-poc1.poc.local
+# ---- end cilium-kind-poc demo54 ----
+
+### 2026-09-19T14:18:54Z
+$ bash -c final_table
+DOOR       ADDRESS          PROG   CLASS                        ANNOUNCED_BY           HTTP_or_GRPC
+http-gw    172.19.255.100   True   kube-vip.io/kube-vip-class   eg-poc1-worker         HTTP 200/eg-poc1
+grpc-gw    172.19.255.101   True   kube-vip.io/kube-vip-class   eg-poc1-worker         GRPC SERVING
+
+### 2026-09-19T14:20:02Z
+$ demos/54-eg-poc1-kube-vip/check.sh
+
+== demo 54 — one cluster, kube-vip, two Gateways (HTTP isolated from gRPC)
+  STATUS WHAT                                                                   MEASURED                                             RULE
+  PASS   kube-vip DS ready                                                      ready=2/2                                            R4 — kube-vip-ds ready (v1.2.4, lb_class_only, no taint)
+  PASS   kube-vip-cloud-provider Available                                      Available=True                                       R4 — cloud-provider v0.0.12 Available
+  PASS   http-gw Programmed at 172.19.255.100                                   addr=172.19.255.100 svcIngress=172.19.255.100 Programmed=True R4 / R8 — Gateway address and Service ingress both equal 172.19.255.100
+  PASS   grpc-gw Programmed at 172.19.255.101                                   addr=172.19.255.101 svcIngress=172.19.255.101 Programmed=True R4 / R8 — Gateway address and Service ingress both equal 172.19.255.101
+  PASS   both Envoy Services carry the class                                    http=kube-vip.io/kube-vip-class grpc=kube-vip.io/kube-vip-class D11 — EnvoyProxy names kube-vip.io/kube-vip-class on both doors
+  PASS   ARP http-gw 172.19.255.100 one responder 3/3                           replies=3 unique_mac=1                               R4 / R8 — arping 3 of 3 from ONE MAC
+  PASS   ARP grpc-gw 172.19.255.101 one responder 3/3                           replies=3 unique_mac=1                               R4 / R8 — arping 3 of 3 from ONE MAC
+  PASS   VIP 172.19.255.100 on a node's eth0                                    node=eg-poc1-worker                                  R4 — kube-vip announces the /32 on the elected node's eth0
+  PASS   VIP 172.19.255.101 on a node's eth0                                    node=eg-poc1-worker                                  R4 — kube-vip announces the /32 on the elected node's eth0
+  PASS   http://api.eg-poc1.poc.local 200 + X-Served-By                         http_code=200 X-Served-By=eg-poc1                    R8 — 200 and X-Served-By=eg-poc1
+  PASS   https://api.eg-poc1.poc.local 200                                      http_code=200                                        R8 — 200 against the lab root
+  PASS   http://api.eg-poc1.poc.local /orders 200 (the page behind the door)    http_code=200 items=3                                the page behind the door — 200 and a JSON array (≥ 1)
+  PASS   gRPC h2c grpc.eg-poc1.poc.local @ 172.19.255.101:80                    SERVING                                              R10 — grpcurl -plaintext Health/Check → SERVING
+  PASS   gRPC TLS grpc.eg-poc1.poc.local @ 172.19.255.101:443                   SERVING                                              R10 — grpcurl -cacert Health/Check → SERVING
+  PASS   stock networking                                                       kube-proxy=iptables cilium_ds=0 cilium_crd=0         R2 — kube-proxy iptables, 0 Cilium DS/CRD
+
+demo 54 check: 0 FAIL
+

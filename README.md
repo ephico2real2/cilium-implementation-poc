@@ -1,7 +1,7 @@
 # cilium-implementation-poc
 
 A reproducible proof of concept of what **Cilium 1.20.2** and **Hubble** give you over a stock CNI + kube-proxy
-cluster — **measured, not quoted**. Two kind clusters in a ClusterMesh with no kube-proxy and no other CNI, 43 demos
+cluster — **measured, not quoted**. Two kind clusters in a ClusterMesh with no kube-proxy and no other CNI, 44 demos
 from the first Hubble flow to policies generated from observed traffic, every command with its recorded output, and a
 GitHub Action that builds and exercises the whole lab from the same scripts a laptop uses.
 
@@ -171,6 +171,7 @@ on the one before.
 | | **The vanilla lab — Envoy Gateway, kindnet, two software load balancers** | | |
 | 50 | [The vanilla lab's clusters](demos/50-eg-clusters/README.md) | two kind clusters on `kind-eg` (reservation trick, kindnet + kube-proxy iptables, no Cilium), Gateway API standard-channel CRDs, Envoy Gateway's eight CRDs and the controller, `GatewayClass eg`, cert-manager and the shared lab root; no load balancers, no Gateways, no apps | [RECAP.md](demos/50-eg-clusters/RECAP.md) (plain English), [`output/transcript.txt`](demos/50-eg-clusters/output/transcript.txt), `check.sh` |
 | 51 | [Envoy Gateway with kube-vip — alone](demos/51-eg-kube-vip/README.md) | kube-vip class-only on both EG clusters, doors that name their load balancer on the `EnvoyProxy`, the R7 silent-`externalIPs` experiment, the shared VIP moved delete-other-first (gap 10.486 s / 8.976 s), shopapi + gRPC `SERVING` on h2c and TLS; MetalLB is not here | [RECAP.md](demos/51-eg-kube-vip/RECAP.md) (plain English), [`output/transcript.txt`](demos/51-eg-kube-vip/output/transcript.txt), `check.sh` |
+| 54 | [One cluster, kube-vip, two Gateways](demos/54-eg-poc1-kube-vip/README.md) | one kind cluster `eg-poc1` (kindnet + kube-proxy iptables, no Cilium); two doors (`http-gw` `.100`, `grpc-gw` `.101`); kube-vip announces both from `eg-poc1-worker`; the Mac's curl, grpcurl and Chrome; `check.sh` 15 PASS | [RECAP.md](demos/54-eg-poc1-kube-vip/RECAP.md) (plain English), [`output/transcript.txt`](demos/54-eg-poc1-kube-vip/output/transcript.txt), `check.sh` |
 | | **Observability** — hub on poc1, poc2 a spoke | | |
 | 10 | [Flow export → OpenTelemetry](demos/10-tracing/README.md) | Hubble's dynamic exporter per node tailed by a Collector into OTLP; every flow persistent and queryable — events, not spans (gotcha #30) | [pods + output](demos/10-tracing/README.md#evidence) |
 | 16 | [Prometheus + Grafana, then Hubble on dashboards](demos/16-monitoring/README.md) | kube-prometheus-stack, then one Cilium Helm change: 6 ServiceMonitors, 6 dashboards, 52/52 targets, exemplars proven with a `traceparent` | [11 captures](demos/16-monitoring/README.md#evidence) |

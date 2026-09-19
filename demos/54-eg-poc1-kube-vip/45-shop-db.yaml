@@ -1,0 +1,60 @@
+# shop-db — Postgres local to this demo so /orders can be a page.
+#
+# Measured 2026-09-19 (output/browser.png, transcript "bash -c mac_orders"):
+# shopapi's GET /orders answered 503 "failed to connect to `user=shop
+# database=shop`: hostname resolving error: lookup db-service.poc.local".
+# shopapi (demos/40-shop-mesh-phase0/shopapi/main.go:34,56) defaults DB_URL
+# to the mesh lab's external database. That database is enhancement 002 R3
+# (db-service.poc.local, a TCPRoute on poc1) and does not exist here.
+# This Deployment is local to demo 54 — a demo, not a database (emptyDir).
+#
+#   kubectl --context kind-eg-poc1 apply -f demos/54-eg-poc1-kube-vip/45-shop-db.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shop-db-init
+  namespace: shop
+  labels: {app.kubernetes.io/name: shop-db, app.kubernetes.io/part-of: shop}
+data:
+  orders.sql: |
+    CREATE TABLE IF NOT EXISTS orders (id bigserial PRIMARY KEY, item text NOT NULL, amount_cents bigint NOT NULL);
+    INSERT INTO orders (item, amount_cents) VALUES ('keyboard', 4999), ('mouse', 1999), ('monitor', 24900);
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shop-db
+  namespace: shop
+  labels: {app.kubernetes.io/name: shop-db, app.kubernetes.io/part-of: shop}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: shop-db}}
+  template:
+    metadata: {labels: {app: shop-db, app.kubernetes.io/name: shop-db, app.kubernetes.io/part-of: shop}}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - {name: POSTGRES_USER, value: shop}
+            - {name: POSTGRES_PASSWORD, value: shop}
+            - {name: POSTGRES_DB, value: shop}
+          ports: [{containerPort: 5432}]
+          readinessProbe: {exec: {command: [pg_isready, -U, shop, -d, shop]}, periodSeconds: 5}
+          resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 256Mi}}
+          volumeMounts:
+            - {name: init, mountPath: /docker-entrypoint-initdb.d}
+            - {name: data, mountPath: /var/lib/postgresql/data}
+      volumes:
+        - {name: init, configMap: {name: shop-db-init}}
+        - {name: data, emptyDir: {}}   # a demo, not a database
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shop-db
+  namespace: shop
+  labels: {app.kubernetes.io/name: shop-db, app.kubernetes.io/part-of: shop}
+spec:
+  selector: {app: shop-db}
+  ports: [{name: postgres, port: 5432, targetPort: 5432}]

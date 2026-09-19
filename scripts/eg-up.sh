@@ -1,27 +1,32 @@
 #!/usr/bin/env bash
-# eg-up.sh — THE GUIDE for the vanilla Envoy Gateway lab (enhancement 007 phase 1, demo 50).
-# The network, both clusters, the three-command Envoy Gateway install, GatewayClass eg,
-# cert-manager, and the shared lab root. Nothing else: no load balancers, no Gateways,
-# no apps — those are demos 51 (kube-vip) and 52 (MetalLB).
+# eg-up.sh — THE GUIDE for the vanilla Envoy Gateway lab (enhancement 007).
+# The network, the cluster(s), the three-command Envoy Gateway install, GatewayClass eg,
+# cert-manager, and the lab root. Nothing else: no load balancers, no Gateways, no apps.
+# The LAB is a function of the argument list, nothing else:
 #
-#   scripts/eg-up.sh           # both clusters (default)
-#   scripts/eg-up.sh eg1 eg2   # same
-#   scripts/eg-up.sh eg1       # one cluster
+#   scripts/eg-up.sh                # two-cluster lab: eg1 + eg2 (default)
+#   scripts/eg-up.sh eg1 eg2        # same
+#   scripts/eg-up.sh eg1            # two-cluster lab, one cluster (eg1 first)
+#   scripts/eg-up.sh eg-poc1        # one-cluster lab (demo 54)
 #
-# Idempotent. Every applied command is recorded through scripts/record.sh into
-# demos/50-eg-clusters/output/transcript.txt (append, never truncate). Linux-runner
-# safe: no macOS-only commands. Reads scripts/bootstrap/versions-eg.env.
+# Mixing labs (`eg-up.sh eg1 eg-poc1`) is a usage error (exit 2).
+# Idempotent. Every applied command is recorded through scripts/record.sh
+# (append, never truncate). Linux-runner safe. Reads scripts/bootstrap/versions-eg.env.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck disable=SC1091
 . scripts/bootstrap/versions-eg.env
 
-# The lab root (D8) is minted ONCE, on ROOT_HOME, and every other cluster copies its
-# Secret — whatever this invocation's argument list is. `eg-up.sh eg2` after eg1 exists
-# must copy eg1's root, never mint a second one; and eg1 is always processed first so a
-# two-cluster run has the root before the copy.
-ROOT_HOME=eg1
-want_eg1=0; want_eg2=0
+# The lab root (D8) is minted ONCE per lab, on ROOT_HOME, and every other cluster
+# in that lab copies its Secret. The two-cluster lab (eg1/eg2) and the one-cluster
+# lab (eg-poc1) each have their own root. `eg-up.sh eg2` after eg1 exists must copy
+# eg1's root, never mint a second one; eg1 is always processed first so a two-cluster
+# run has the root before the copy. Mixing the two labs is refused before any work.
+usage() {
+  echo "usage: $0 [eg1 eg2] | [eg-poc1]" >&2
+}
+
+want_eg1=0; want_eg2=0; want_poc1=0
 if [ $# -eq 0 ]; then
   set -- eg1 eg2
 fi
@@ -29,15 +34,34 @@ for c in "$@"; do
   case "$c" in
     eg1) want_eg1=1 ;;
     eg2) want_eg2=1 ;;
-    *) echo "usage: $0 [eg1 eg2]" >&2; exit 2 ;;
+    eg-poc1) want_poc1=1 ;;
+    *) usage; exit 2 ;;
   esac
 done
-set --
-[ "$want_eg1" -eq 1 ] && set -- eg1
-[ "$want_eg2" -eq 1 ] && set -- "$@" eg2
+if [ "$want_poc1" -eq 1 ] && { [ "$want_eg1" -eq 1 ] || [ "$want_eg2" -eq 1 ]; }; then
+  usage
+  echo "eg-up: do not mix the two-cluster lab (eg1/eg2) with the one-cluster lab (eg-poc1)" >&2
+  exit 2
+fi
+
+if [ "$want_poc1" -eq 1 ]; then
+  ROOT_HOME=eg-poc1
+  TRANSCRIPT=demos/54-eg-poc1-kube-vip/output/transcript.txt
+  ROOT_CRT=.tmp/eg-poc1-root-ca.crt
+  DONE_MSG="demo 54 installs kube-vip and the two Gateways"
+  set -- eg-poc1
+else
+  # two-cluster lab: eg1 first so the root exists before any copy
+  ROOT_HOME=eg1
+  TRANSCRIPT=demos/50-eg-clusters/output/transcript.txt
+  ROOT_CRT=.tmp/eg-root-ca.crt
+  DONE_MSG="Demos 51/52 install the load balancers and the Gateways."
+  set --
+  [ "$want_eg1" -eq 1 ] && set -- eg1
+  [ "$want_eg2" -eq 1 ] && set -- "$@" eg2
+fi
 
 export RECORD_STRICT=1
-TRANSCRIPT=demos/50-eg-clusters/output/transcript.txt
 mkdir -p "$(dirname "$TRANSCRIPT")" .tmp
 rec() { scripts/record.sh "$TRANSCRIPT" "$@"; }
 
@@ -74,7 +98,7 @@ export -f helm_r
   echo
   echo "=== eg-up.sh start $(date -u +%Y-%m-%dT%H:%M:%SZ) clusters=$* ==="
   echo "=== THIS SCRIPT STOPS AT THE CONTROLLER, THE GATEWAYCLASS, CERT-MANAGER AND THE LAB ROOT ==="
-  echo "=== no load balancers, no Gateways, no apps — those are demos 51 (kube-vip) and 52 (MetalLB) ==="
+  echo "=== no load balancers, no Gateways, no apps — $DONE_MSG ==="
   echo "=== pins: GATEWAY_API=$GATEWAY_API_VERSION ENVOY_GATEWAY=$ENVOY_GATEWAY_VERSION CERT_MANAGER=$CERT_MANAGER_VERSION ==="
 } | tee -a "$TRANSCRIPT"
 
@@ -222,13 +246,13 @@ print(json.dumps({\"apiVersion\": \"v1\", \"kind\": \"Secret\", \"type\": s.get(
 done
 
 # export the root once (gitignored — issue #60) and print the fingerprint
-say "7b. export the lab root to .tmp/eg-root-ca.crt (not committed; issue #60)"
-rec bash -c "kubectl --context kind-$ROOT_HOME -n cert-manager get secret eg-root-ca -o jsonpath='{.data.tls\\.crt}' | base64 -d > .tmp/eg-root-ca.crt"
-rec openssl x509 -in .tmp/eg-root-ca.crt -noout -subject -issuer -fingerprint -sha256
-echo "root PEM is .tmp/eg-root-ca.crt (gitignored). A committed copy drifts on every rebuild (issue #60)." | tee -a "$TRANSCRIPT"
+say "7b. export the lab root to $ROOT_CRT (not committed; issue #60)"
+rec bash -c "kubectl --context kind-$ROOT_HOME -n cert-manager get secret eg-root-ca -o jsonpath='{.data.tls\\.crt}' | base64 -d > $ROOT_CRT"
+rec openssl x509 -in "$ROOT_CRT" -noout -subject -issuer -fingerprint -sha256
+echo "root PEM is $ROOT_CRT (gitignored). A committed copy drifts on every rebuild (issue #60)." | tee -a "$TRANSCRIPT"
 
 # ---------------------------------------------------------------- (8) final table
-say "8. final table — no load balancers, no Gateways, no apps (demos 51/52)"
+say "8. final table — no load balancers, no Gateways, no apps ($DONE_MSG)"
 {
   printf '%-8s %-48s %-10s %-12s %-8s %-12s %-14s %-14s %s\n' \
     CLUSTER NODES/IPs KUBEPROXY GW_API EG_CRDS GATEWAYCLASS ENVOY-GATEWAY CERT-MANAGER ROOT_SHA256
@@ -247,4 +271,4 @@ say "8. final table — no load balancers, no Gateways, no apps (demos 51/52)"
   done
 } | tee -a "$TRANSCRIPT"
 
-echo "eg-up: done. Demos 51/52 install the load balancers and the Gateways." | tee -a "$TRANSCRIPT"
+echo "eg-up: done. $DONE_MSG" | tee -a "$TRANSCRIPT"

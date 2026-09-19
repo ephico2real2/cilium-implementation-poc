@@ -97,6 +97,8 @@ Each says: the **symptom** you will see, the **cause**, the **fix**, and where t
 | [61](#61) | OBI prints its first span ~40 s after Ready and exports spans 10–20 s after the request — the page's log check run straight after `rollout status` is empty, and nothing is wrong | OBI |
 | [60](#60) | Tetragon crash-loops on Docker Desktop < 4.30 — the VM kernel has no `CONFIG_SECURITY`, the exec sensor's kprobe symbol does not exist, and no helm value fixes a kernel; plus the creation-time `/procHost` mount without which events silently lose their pod. The same missing LSM hooks stop OBI's non-Go tracer (Postgres, Redis) | Tetragon / OBI / Docker Desktop |
 | [59](#59) | The dynamic Hubble metrics config cannot change a registered metric's context options: helm succeeded, every agent logged a refusal every 10 s and kept the old labels | monitoring |
+| [120](#120) | The Mac's static route to the lab network is gone after a reboot — every client on the MacBook times out while the cluster is healthy | networking / demo 54 |
+| [121](#121) | Headless Chrome 153 writes the screenshot and never exits | tooling / demo 54 |
 
 ---
 
@@ -3148,6 +3150,71 @@ anything still running, waits five seconds and **verifies** nothing is up before
 
 **The lesson:** "stopped" is the state a second after the command; a container's restart policy is a promise about
 the seconds after that. Read the policy before trusting a stop — and read `docker ps` again a minute later.
+
+## <a name="120"></a>120. The Mac's static route to the lab network is gone after a reboot — every client on the MacBook times out while the cluster is healthy
+
+**Where:** the M5, 2026-09-19T13:14Z, demo 54's first apply. The cluster was already up
+(`scripts/eg-up.sh eg-poc1` at 13:10Z); apply.sh's in-cluster half programmed both
+Gateways and recorded three ARP replies per door. Every client on the MacBook then
+failed:
+
+```text
+no 172.19 route on this Mac — the clients below will fail until:
+  sudo route -n add -net 172.19.0.0/16 192.168.64.2
+Failed to dial target host "172.19.255.101:80": context deadline exceeded
+isolation_http_code=000 curl_rc=28
+```
+
+**What happened:** macOS `route add` is per boot. A reboot dropped the static route to
+`172.19/16` (and, on a rebuilt Mac, the Cilium lab's `172.18/16` too). The Docker VM
+still answered at `192.168.64.2` (ping 0.881 ms) and a busybox wget on `kind-eg` got
+`/healthz` → ok, so nothing in the lab was wrong. `curl_rc=28` and
+`isolation_http_code=000` are the Mac talking into a black hole.
+
+**The fix:** the operator re-adds the route — both `172.18/16` for the Cilium lab and
+`172.19/16` for this one on a rebuilt Mac:
+
+```bash
+sudo route -n add -net 172.18.0.0/16 192.168.64.2
+sudo route -n add -net 172.19.0.0/16 192.168.64.2
+```
+
+apply.sh's `mac_route` step records the route (`172.19 192.168.64.2 UGSc bridge100`
+on the second and third applies) or prints the command and continues, so the record
+shows which half failed. No script runs sudo.
+
+**The lesson:** the first thing a client-side failure proves is the client's route.
+Check `netstat -rn` before the cluster.
+
+## <a name="121"></a>121. Headless Chrome 153 writes the screenshot and never exits
+
+**Where:** the M5, 2026-09-19, demo 54's browser smoke test — before `apply.sh` bounded
+the wait. Chrome wrote `output/browser.png` and then ran **>120 s** after the PNG
+existed, repeating:
+
+```text
+ERROR:content/browser/network_service_instance_impl.cc:655] Network service crashed or was terminated, restarting service
+bootstrap_look_up com.google.Chrome.MachPortRendezvousServer.1: Permission denied (1100)
+```
+
+**What happened:** headless Chrome 153 produces the screenshot and then hangs in a
+network-service crash loop instead of exiting. The process that has already done the
+work is not a reliable waiter.
+
+**The fix:** `apply.sh`'s `browser_shot` runs Chrome under `timeout 60` (coreutils)
+with a throwaway `--user-data-dir` and `--no-first-run`. The PNG on disk is the
+result, not the exit code. The third apply recorded:
+
+```text
+chrome_rc=124 (124 = killed by the timeout after writing the file)
+demos/54-eg-poc1-kube-vip/output/browser.png: PNG image data, 1000 x 500, 8-bit/color RGB, non-interlaced
+```
+
+`124` is GNU `timeout` killing the process. The first apply, with no Mac route
+(#120), recorded the same `chrome_rc=124` and `no screenshot written`.
+
+**The lesson:** a process that has produced its artefact may still not exit — judge
+by the artefact and bound the wait.
 
 ## The meta-lesson
 
