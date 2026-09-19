@@ -1,0 +1,79 @@
+# shopapi (demo 40) + routedemo -mode grpc (demo 09 / 53). CLUSTER comes from
+# ConfigMap/eg-cluster, written per cluster by apply.sh. imagePullPolicy: Never
+# — shopapi:local and routedemo:local are kind-loaded (phase 0: a multi-arch
+# INDEX fails on this kind; these single-image tags load). No Cilium policy:
+# there is no Cilium on these clusters (R2).
+#
+#   kubectl --context kind-eg1 apply -f demos/51-eg-kube-vip/40-app.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shopapi
+  namespace: shop
+  labels: {app.kubernetes.io/name: shopapi, app.kubernetes.io/part-of: shop}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: shopapi}}
+  template:
+    metadata: {labels: {app: shopapi, app.kubernetes.io/name: shopapi, app.kubernetes.io/part-of: shop}}
+    spec:
+      containers:
+        - name: shopapi
+          image: shopapi:local
+          imagePullPolicy: Never
+          ports: [{containerPort: 8080}]
+          env:
+            - name: CLUSTER
+              valueFrom:
+                configMapKeyRef: {name: eg-cluster, key: name}
+          livenessProbe:  {httpGet: {path: /healthz, port: 8080}, initialDelaySeconds: 3, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, initialDelaySeconds: 2, periodSeconds: 5}
+          resources: {requests: {cpu: 25m, memory: 32Mi}, limits: {memory: 96Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shopapi
+  namespace: shop
+  labels: {app.kubernetes.io/name: shopapi, app.kubernetes.io/part-of: shop}
+spec:
+  selector: {app: shopapi}
+  ports: [{name: http, port: 80, targetPort: 8080}]
+---
+# TCP probes: the process speaks HTTP/2 (gRPC) on :9090. An httpGet would be a
+# protocol error (demo 53). appProtocol is how the Gateway learns h2c — without
+# it Envoy talks HTTP/1.1 and every call fails with a protocol error that looks
+# like an application bug (demo 09; phase 0 R0.6: no BackendTrafficPolicy needed).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpc
+  namespace: shop
+  labels: {app.kubernetes.io/name: grpc, app.kubernetes.io/part-of: shop}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: grpc}}
+  template:
+    metadata: {labels: {app: grpc, app.kubernetes.io/name: grpc, app.kubernetes.io/part-of: shop}}
+    spec:
+      containers:
+        - name: app
+          image: routedemo:local
+          imagePullPolicy: Never
+          args: ["-mode", "grpc", "-addr", ":9090"]
+          env: [{name: APP_NAME, value: grpc}]
+          ports: [{containerPort: 9090}]
+          livenessProbe:  {tcpSocket: {port: 9090}, initialDelaySeconds: 3, periodSeconds: 10}
+          readinessProbe: {tcpSocket: {port: 9090}, initialDelaySeconds: 2, periodSeconds: 5}
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grpc
+  namespace: shop
+  labels: {app.kubernetes.io/name: grpc, app.kubernetes.io/part-of: shop}
+spec:
+  selector: {app: grpc}
+  ports:
+    - {name: grpc, port: 9090, targetPort: 9090, appProtocol: kubernetes.io/h2c}
