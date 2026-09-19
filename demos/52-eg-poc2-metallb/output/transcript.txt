@@ -1,0 +1,1480 @@
+
+=== eg-up.sh start 2026-09-19T21:30:41Z clusters=eg-poc2 ===
+=== THIS SCRIPT STOPS AT THE CONTROLLER, THE GATEWAYCLASS, CERT-MANAGER AND THE LAB ROOT ===
+=== no load balancers, no Gateways, no apps — demo 52 installs MetalLB and the two Gateways ===
+=== pins: GATEWAY_API=v1.6.2 ENVOY_GATEWAY=v1.9.1 CERT_MANAGER=v1.21.1 ===
+### 2026-09-19T21:30:41Z
+$ scripts/eg-net.sh
+exists with 172.19.0.0/16, kept
+
+### 2026-09-19T21:30:41Z
+$ docker network inspect kind-eg --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+subnet=172.19.0.0/16 ip-range=172.19.0.0/17 gateway=172.19.0.1
+subnet=fc00:f853:ccd:e794::/64 ip-range=invalid Prefix gateway=fc00:f853:ccd:e794::1
+
+
+### 2026-09-19T21:30:41Z
+$ env KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg kind create cluster --config clusters/eg-poc2.yaml --image kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+Creating cluster "eg-poc2" ...
+ • Ensuring node image (kindest/node:v1.36.4) 🖼️  ...
+WARNING: Overriding docker network due to KIND_EXPERIMENTAL_DOCKER_NETWORK
+WARNING: Here be dragons! This is not supported currently.
+ ✓ Ensuring node image (kindest/node:v1.36.4) 🖼️
+ • Preparing nodes 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-eg-poc2"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-eg-poc2
+
+Not sure what to do next? 😅  Check out https://kind.sigs.k8s.io/docs/user/quick-start/
+
+### 2026-09-19T21:30:57Z
+$ kubectl --context kind-eg-poc2 wait --for=condition=Ready nodes --all --timeout=180s
+node/eg-poc2-control-plane condition met
+node/eg-poc2-worker condition met
+
+### 2026-09-19T21:31:08Z
+$ kubectl --context kind-eg-poc2 get nodes -o wide
+NAME                    STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION            CONTAINER-RUNTIME
+eg-poc2-control-plane   Ready    control-plane   20s   v1.36.4   172.19.0.4    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+eg-poc2-worker          Ready    <none>          11s   v1.36.4   172.19.0.5    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+
+node IPv4 InternalIPs (must be in 172.19.0.0/17, none in 172.19.255.0/24):
+eg-poc2-control-plane 172.19.0.4
+eg-poc2-worker 172.19.0.5
+### 2026-09-19T21:31:08Z
+$ kubectl --context kind-eg-poc2 -n kube-system get ds kindnet kube-proxy
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   17s
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   18s
+
+### 2026-09-19T21:31:08Z
+$ bash -c kubectl --context kind-eg-poc2 -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+    mode: iptables
+
+### 2026-09-19T21:31:08Z
+$ helm_r repo add jetstack https://charts.jetstack.io --force-update
+"jetstack" has been added to your repositories
+
+### 2026-09-19T21:31:09Z
+$ helm_r repo update jetstack
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "jetstack" chart repository
+Update Complete. ⎈Happy Helming!⎈
+
+### 2026-09-19T21:31:09Z
+$ kubectl --context kind-eg-poc2 apply --server-side --force-conflicts -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.2/standard-install.yaml
+customresourcedefinition.apiextensions.k8s.io/backendtlspolicies.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gatewayclasses.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/gateways.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/grpcroutes.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/httproutes.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/listenersets.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/referencegrants.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/tcproutes.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/tlsroutes.gateway.networking.k8s.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/udproutes.gateway.networking.k8s.io serverside-applied
+validatingadmissionpolicy.admissionregistration.k8s.io/safe-upgrades.gateway.networking.k8s.io serverside-applied
+validatingadmissionpolicybinding.admissionregistration.k8s.io/safe-upgrades.gateway.networking.k8s.io serverside-applied
+
+### 2026-09-19T21:31:10Z
+$ bash -c 
+set -euo pipefail
+n=$(kubectl --context kind-eg-poc2 get crd -o name | grep -c '\.gateway\.networking\.k8s\.io$' || true)
+echo "gateway.networking.k8s.io CRDs: $n (want 10)"
+[ "$n" -eq 10 ] || { echo "D10: expected 10 Gateway API CRDs, got $n" >&2; exit 1; }
+fail=0
+while read -r crd; do
+  ch=$(kubectl --context kind-eg-poc2 get "$crd" -o jsonpath='{.metadata.annotations.gateway\.networking\.k8s\.io/channel}')
+  ver=$(kubectl --context kind-eg-poc2 get "$crd" -o jsonpath='{.metadata.annotations.gateway\.networking\.k8s\.io/bundle-version}')
+  echo "$crd channel=$ch bundle-version=$ver"
+  if [ "$ch" != standard ] || [ "$ver" != "v1.6.2" ]; then
+    echo "D10 FAIL: $crd channel=$ch bundle-version=$ver (want channel=standard bundle-version=v1.6.2)" >&2
+    fail=1
+  fi
+done < <(kubectl --context kind-eg-poc2 get crd -o name | grep '\.gateway\.networking\.k8s\.io$')
+exit $fail
+
+gateway.networking.k8s.io CRDs: 10 (want 10)
+customresourcedefinition.apiextensions.k8s.io/backendtlspolicies.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/gatewayclasses.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/gateways.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/grpcroutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/httproutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/listenersets.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/referencegrants.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/tcproutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/tlsroutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+customresourcedefinition.apiextensions.k8s.io/udproutes.gateway.networking.k8s.io channel=standard bundle-version=v1.6.2
+
+### 2026-09-19T21:31:11Z
+$ bash -c helm template eg-crds oci://docker.io/envoyproxy/gateway-crds-helm --version v1.9.1 --set crds.gatewayAPI.enabled=false --set crds.envoyGateway.enabled=true | kubectl --context kind-eg-poc2 apply --server-side --force-conflicts -f -
+Pulled: docker.io/envoyproxy/gateway-crds-helm:v1.9.1
+Digest: sha256:45693764cab8aae661bc32f0f706f5c8e5aaa9a151b6d03fb0a468cc535a155c
+customresourcedefinition.apiextensions.k8s.io/backends.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/backendtrafficpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clienttrafficpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/envoyextensionpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/envoypatchpolicies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/envoyproxies.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/httproutefilters.gateway.envoyproxy.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/securitypolicies.gateway.envoyproxy.io serverside-applied
+
+### 2026-09-19T21:31:12Z
+$ bash -c 
+set -euo pipefail
+n=$(kubectl --context kind-eg-poc2 get crd -o name | grep -c '\.gateway\.envoyproxy\.io$' || true)
+echo "gateway.envoyproxy.io CRDs: $n (want 8)"
+kubectl --context kind-eg-poc2 get crd -o name | grep '\.gateway\.envoyproxy\.io$'
+[ "$n" -eq 8 ] || { echo "expected 8 gateway.envoyproxy.io CRDs, got $n" >&2; exit 1; }
+
+gateway.envoyproxy.io CRDs: 8 (want 8)
+customresourcedefinition.apiextensions.k8s.io/backends.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/backendtrafficpolicies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/clienttrafficpolicies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/envoyextensionpolicies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/envoypatchpolicies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/envoyproxies.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/httproutefilters.gateway.envoyproxy.io
+customresourcedefinition.apiextensions.k8s.io/securitypolicies.gateway.envoyproxy.io
+
+### 2026-09-19T21:31:12Z
+$ helm_r upgrade --install eg oci://docker.io/envoyproxy/gateway-helm --version v1.9.1 -n envoy-gateway-system --create-namespace --kube-context kind-eg-poc2 --set crds.enabled=false
+Release "eg" does not exist. Installing it now.
+Pulled: docker.io/envoyproxy/gateway-helm:v1.9.1
+Digest: sha256:91bae9aedb91ab34731e987afe01a3ccf454393015abeca705eea8ee15553e86
+NAME: eg
+LAST DEPLOYED: Sat Sep 19 16:31:13 2026
+NAMESPACE: envoy-gateway-system
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+TEST SUITE: None
+NOTES:
+**************************************************************************
+*** PLEASE BE PATIENT: Envoy Gateway may take a few minutes to install ***
+**************************************************************************
+
+Envoy Gateway is an open source project for managing Envoy Proxy as a standalone or Kubernetes-based application gateway.
+
+Thank you for installing Envoy Gateway! 🎉
+
+Your release is named: eg. 🎉
+
+Your release is in namespace: envoy-gateway-system. 🎉
+
+To learn more about the release, try:
+
+  $ helm status eg -n envoy-gateway-system
+  $ helm get all eg -n envoy-gateway-system
+
+To have a quickstart of Envoy Gateway, please refer to https://gateway.envoyproxy.io/latest/tasks/quickstart.
+
+To get more details, please visit https://gateway.envoyproxy.io and https://github.com/envoyproxy/gateway.
+
+### 2026-09-19T21:31:20Z
+$ kubectl --context kind-eg-poc2 -n envoy-gateway-system rollout status deploy/envoy-gateway --timeout=180s
+Waiting for deployment "envoy-gateway" rollout to finish: 0 of 1 updated replicas are available...
+deployment "envoy-gateway" successfully rolled out
+
+### 2026-09-19T21:31:22Z
+$ kubectl --context kind-eg-poc2 apply -f clusters/eg/gatewayclass.yaml
+gatewayclass.gateway.networking.k8s.io/eg created
+
+### 2026-09-19T21:31:22Z
+$ kubectl --context kind-eg-poc2 wait --for=condition=Accepted gatewayclass/eg --timeout=60s
+gatewayclass.gateway.networking.k8s.io/eg condition met
+
+### 2026-09-19T21:31:22Z
+$ helm_r upgrade --install cert-manager jetstack/cert-manager --version v1.21.1 --namespace cert-manager --create-namespace --kube-context kind-eg-poc2 --set crds.enabled=true --wait --timeout 5m
+Release "cert-manager" does not exist. Installing it now.
+NAME: cert-manager
+LAST DEPLOYED: Sat Sep 19 16:31:22 2026
+NAMESPACE: cert-manager
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+TEST SUITE: None
+NOTES:
+cert-manager v1.21.1 has been deployed successfully!
+
+In order to begin issuing certificates, you will need to set up a ClusterIssuer
+or Issuer resource (for example, by creating a 'letsencrypt-staging' issuer).
+
+More information on the different types of issuers and how to configure them
+can be found in our documentation:
+
+https://cert-manager.io/docs/configuration/
+
+For information on how to configure cert-manager to automatically provision
+Certificates for Ingress resources, take a look at the `ingress-shim`
+documentation:
+
+https://cert-manager.io/docs/usage/ingress/
+
+For information on how to configure cert-manager to automatically provision
+Certificates for Gateway API resources, take a look at the `gateway resource`
+documentation:
+
+https://cert-manager.io/docs/usage/gateway/
+
+### 2026-09-19T21:31:36Z
+$ kubectl --context kind-eg-poc2 -n cert-manager wait deploy --all --for=condition=Available --timeout=180s
+deployment.apps/cert-manager condition met
+deployment.apps/cert-manager-cainjector condition met
+deployment.apps/cert-manager-webhook condition met
+
+### 2026-09-19T21:31:36Z
+$ kubectl --context kind-eg-poc2 apply -f clusters/eg/eg-root-ca.yaml
+issuer.cert-manager.io/selfsigned-bootstrap created
+certificate.cert-manager.io/eg-root-ca created
+clusterissuer.cert-manager.io/eg-ca-issuer created
+
+### 2026-09-19T21:31:37Z
+$ kubectl --context kind-eg-poc2 -n cert-manager wait certificate/eg-root-ca --for=condition=Ready --timeout=120s
+certificate.cert-manager.io/eg-root-ca condition met
+
+### 2026-09-19T21:31:37Z
+$ kubectl --context kind-eg-poc2 wait clusterissuer/eg-ca-issuer --for=condition=Ready --timeout=120s
+clusterissuer.cert-manager.io/eg-ca-issuer condition met
+
+### 2026-09-19T21:31:37Z
+$ bash -c kubectl --context kind-eg-poc2 -n cert-manager get secret eg-root-ca -o jsonpath='{.data.tls\.crt}' | base64 -d > .tmp/eg-poc2-root-ca.crt
+
+### 2026-09-19T21:31:37Z
+$ openssl x509 -in .tmp/eg-poc2-root-ca.crt -noout -subject -issuer -fingerprint -sha256
+subject=CN=eg-root-ca
+issuer=CN=eg-root-ca
+sha256 Fingerprint=A3:D7:73:DE:6C:2B:8F:BA:28:7C:D3:3A:F8:B5:52:10:F6:F8:0A:6A:25:C6:BE:2C:B5:82:64:6C:25:8F:08:EE
+
+root PEM is .tmp/eg-poc2-root-ca.crt (gitignored). A committed copy drifts on every rebuild (issue #60).
+CLUSTER  NODES/IPs                                        KUBEPROXY  GW_API       EG_CRDS  GATEWAYCLASS ENVOY-GATEWAY  CERT-MANAGER   ROOT_SHA256
+eg-poc2  eg-poc2-control-plane=172.19.0.4 eg-poc2-worker=172.19.0.5  iptables   10@v1.6.2    8        Accepted=True 1/1            Available=True A3:D7:73:DE:6C:2B:8F:BA:28:7C:D3:3A:F8:B5:52:10:F6:F8:0A:6A:25:C6:BE:2C:B5:82:64:6C:25:8F:08:EE
+eg-up: done. demo 52 installs MetalLB and the two Gateways
+
+### 2026-09-19T21:31:53Z — demo 52 apply
+### 2026-09-19T21:31:53Z
+$ kubectl --context kind-eg-poc2 get --raw /readyz
+ok
+### 2026-09-19T21:31:53Z
+$ bash -c docker_lab
+---- kind-eg IPv4 (IPv6 IPRange prints invalid Prefix; skip that block) ----
+Subnet=172.19.0.0/16 IPRange=172.19.0.0/17 Gateway=172.19.0.1
+---- eg-poc2 nodes on kind-eg (IPv4 + MAC) ----
+eg-poc2-worker Up About a minute
+eg-poc2-control-plane Up About a minute
+eg-poc2-worker 172.19.0.5 36:20:3a:e4:50:8d
+eg-poc2-control-plane 172.19.0.4 96:06:5c:96:19:0b
+---- kubectl get nodes -o wide ----
+NAME                    STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION            CONTAINER-RUNTIME
+eg-poc2-control-plane   Ready    control-plane   65s   v1.36.4   172.19.0.4    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+eg-poc2-worker          Ready    <none>          56s   v1.36.4   172.19.0.5    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+---- stock networking: kube-proxy mode + kindnet DS ----
+    mode: iptables
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   62s
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   63s
+
+### 2026-09-19T21:31:53Z
+$ helm repo add metallb https://metallb.github.io/metallb --force-update
+"metallb" has been added to your repositories
+
+### 2026-09-19T21:31:53Z
+$ helm upgrade --install metallb metallb/metallb --version 0.16.0 -n metallb-system --create-namespace --kube-context kind-eg-poc2 --set loadBalancerClass=metallb.io/metallb --set speaker.frr.enabled=false --set frrk8s.enabled=false
+Release "metallb" does not exist. Installing it now.
+NAME: metallb
+LAST DEPLOYED: Sat Sep 19 16:31:53 2026
+NAMESPACE: metallb-system
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+TEST SUITE: None
+NOTES:
+MetalLB is now running in the cluster.
+
+Now you can configure it via its CRs. Please refer to the metallb official docs
+on how to use the CRs.
+
+### 2026-09-19T21:31:54Z
+$ kubectl --context kind-eg-poc2 -n metallb-system wait deploy -l app.kubernetes.io/component=controller --for=condition=Available --timeout=180s
+deployment.apps/metallb-controller condition met
+
+### 2026-09-19T21:32:07Z
+$ kubectl --context kind-eg-poc2 -n metallb-system rollout status ds -l app.kubernetes.io/component=speaker --timeout=180s
+Waiting for daemon set "metallb-speaker" rollout to finish: 0 of 2 updated pods are available...
+Waiting for daemon set "metallb-speaker" rollout to finish: 1 of 2 updated pods are available...
+daemon set "metallb-speaker" successfully rolled out
+
+### 2026-09-19T21:32:13Z
+$ bash -c kubectl --context kind-eg-poc2 -n metallb-system get deploy,ds -o yaml | grep -E 'lb-class|loadBalancerClass'
+          - --lb-class=metallb.io/metallb
+          - --lb-class=metallb.io/metallb
+
+### 2026-09-19T21:32:13Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/10-metallb-pool.yaml
+ipaddresspool.metallb.io/eg-poc2-services created
+ipaddresspool.metallb.io/eg-poc2-doors created
+l2advertisement.metallb.io/eg-poc2-l2 created
+
+### 2026-09-19T21:32:13Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/00-namespace.yaml
+namespace/shop created
+
+### 2026-09-19T21:32:13Z
+$ bash -c kubectl --context kind-eg-poc2 apply -f -
+configmap/eg-cluster created
+
+### 2026-09-19T21:32:13Z
+$ kind load docker-image shopapi:local --name eg-poc2
+Image: "shopapi:local" with ID "sha256:a18c0904a8767fc195926b31b6337a3c7de70644be7daaf84acf072c7c252b4d" not yet present on node "eg-poc2-worker", loading...
+Image: "shopapi:local" with ID "sha256:a18c0904a8767fc195926b31b6337a3c7de70644be7daaf84acf072c7c252b4d" not yet present on node "eg-poc2-control-plane", loading...
+
+### 2026-09-19T21:32:14Z
+$ env CLUSTER=eg-poc2 demos/52-eg-poc2-metallb/grpcdemo/build.sh
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Containerfile
+#1 transferring dockerfile: 770B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/golang:1.25-alpine
+#2 ...
+
+#3 [internal] load metadata for gcr.io/distroless/static-debian12:nonroot
+#3 DONE 0.2s
+
+#2 [internal] load metadata for docker.io/library/golang:1.25-alpine
+#2 DONE 0.3s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 2B done
+#4 DONE 0.0s
+
+#5 [build 1/6] FROM docker.io/library/golang:1.25-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59
+#5 resolve docker.io/library/golang:1.25-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 done
+#5 DONE 0.0s
+
+#6 [stage-1 1/2] FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+#6 resolve gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab done
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 568B done
+#7 DONE 0.0s
+
+#8 [build 5/6] COPY . .
+#8 CACHED
+
+#9 [build 4/6] RUN go mod download
+#9 CACHED
+
+#10 [build 2/6] WORKDIR /src
+#10 CACHED
+
+#11 [build 6/6] RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /grpcdemo .
+#11 CACHED
+
+#12 [build 3/6] COPY go.mod go.sum ./
+#12 CACHED
+
+#13 [stage-1 2/2] COPY --from=build /grpcdemo /grpcdemo
+#13 CACHED
+
+#14 exporting to image
+#14 exporting layers done
+#14 exporting manifest sha256:333a0a9d3f9fc75c20439e500a1454fb6592ea5a2c79fb86318f3b60d6d2aad2 done
+#14 exporting config sha256:b9ab678e717ea923493237a786c013c95b815a8fc4e0151d9bcb189821d59f3c done
+#14 exporting attestation manifest sha256:c628a18a8203181137946c3381e46493a7e23ecb348ead81c37fc58977308e62 done
+#14 exporting manifest list sha256:2e22859c1eca53dfb53bd1702d191e8aecd2310de173bb1926437e4d0e151086 done
+#14 naming to docker.io/library/grpcdemo:local done
+#14 unpacking to docker.io/library/grpcdemo:local done
+#14 DONE 0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/lintubjkxhngk13m7p2u03vv0
+Image: "grpcdemo:local" with ID "sha256:2e22859c1eca53dfb53bd1702d191e8aecd2310de173bb1926437e4d0e151086" not yet present on node "eg-poc2-worker", loading...
+Image: "grpcdemo:local" with ID "sha256:2e22859c1eca53dfb53bd1702d191e8aecd2310de173bb1926437e4d0e151086" not yet present on node "eg-poc2-control-plane", loading...
+
+### 2026-09-19T21:32:16Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/20-certificate.yaml
+certificate.cert-manager.io/eg-poc2-tls created
+
+### 2026-09-19T21:32:16Z
+$ kubectl --context kind-eg-poc2 -n shop wait certificate/eg-poc2-tls --for=condition=Ready --timeout=90s
+certificate.cert-manager.io/eg-poc2-tls condition met
+
+### 2026-09-19T21:32:16Z
+$ bash -c print_leaf
+subject=CN=api.eg-poc2.poc.local
+X509v3 Subject Alternative Name: 
+    DNS:api.eg-poc2.poc.local, DNS:grpc.eg-poc2.poc.local
+notAfter=Dec 18 21:32:16 2026 GMT
+sha256=92:B0:EF:5D:BA:EB:38:93:45:F3:59:FA:3D:4B:27:AE:9B:70:82:20:6B:39:D7:AF:54:B1:93:95:1F:01:B8:85
+
+### 2026-09-19T21:32:16Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/30-gateways.yaml
+envoyproxy.gateway.envoyproxy.io/http-gw-proxy created
+gateway.gateway.networking.k8s.io/http-gw created
+envoyproxy.gateway.envoyproxy.io/grpc-gw-proxy created
+gateway.gateway.networking.k8s.io/grpc-gw created
+
+### 2026-09-19T21:32:16Z
+$ kubectl --context kind-eg-poc2 -n shop wait --for=condition=Programmed gateway/http-gw --timeout=180s
+gateway.gateway.networking.k8s.io/http-gw condition met
+
+### 2026-09-19T21:32:28Z
+$ kubectl --context kind-eg-poc2 -n shop wait --for=condition=Programmed gateway/grpc-gw --timeout=180s
+gateway.gateway.networking.k8s.io/grpc-gw condition met
+
+### 2026-09-19T21:32:28Z
+$ bash -c wait_envoy_deploy http-gw
+deployment.apps/envoy-shop-http-gw-fccf2727 condition met
+
+### 2026-09-19T21:32:28Z
+$ bash -c wait_envoy_deploy grpc-gw
+deployment.apps/envoy-shop-grpc-gw-8c4f0319 condition met
+
+### 2026-09-19T21:32:28Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/45-shop-db.yaml
+configmap/shop-db-init created
+deployment.apps/shop-db created
+service/shop-db created
+
+### 2026-09-19T21:32:28Z
+$ kubectl --context kind-eg-poc2 -n shop rollout status deploy/shop-db --timeout=180s
+Waiting for deployment "shop-db" rollout to finish: 0 of 1 updated replicas are available...
+deployment "shop-db" successfully rolled out
+
+### 2026-09-19T21:32:39Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/40-app.yaml
+deployment.apps/shopapi created
+service/shopapi created
+
+### 2026-09-19T21:32:39Z
+$ kubectl --context kind-eg-poc2 -n shop wait deploy/shopapi --for=condition=Available --timeout=120s
+deployment.apps/shopapi condition met
+
+### 2026-09-19T21:32:45Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/41-grpcdemo.yaml
+deployment.apps/grpcdemo-v1 created
+service/grpc-v1 created
+deployment.apps/grpcdemo-v2 created
+service/grpc-v2 created
+
+### 2026-09-19T21:32:45Z
+$ kubectl --context kind-eg-poc2 -n shop wait deploy/grpcdemo-v1 --for=condition=Available --timeout=120s
+deployment.apps/grpcdemo-v1 condition met
+
+### 2026-09-19T21:32:51Z
+$ kubectl --context kind-eg-poc2 -n shop wait deploy/grpcdemo-v2 --for=condition=Available --timeout=120s
+deployment.apps/grpcdemo-v2 condition met
+
+### 2026-09-19T21:32:51Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/50-routes.yaml
+httproute.gateway.networking.k8s.io/shop-api created
+grpcroute.gateway.networking.k8s.io/orders created
+
+### 2026-09-19T21:32:51Z
+$ bash -c wait_route httproute shop-api
+kind-eg-poc2 httproute/shop-api: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T21:32:51Z
+$ bash -c wait_route grpcroute orders
+kind-eg-poc2 grpcroute/orders: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T21:32:51Z
+$ bash -c l2_proof "$1" bash 172.19.255.150
+---- arping -b -c 3 172.19.255.150 ----
+ARPING 172.19.255.150 from 172.19.0.6 eth0
+Unicast reply from 172.19.255.150 [36:20:3a:e4:50:8d] 0.014ms
+Unicast reply from 172.19.255.150 [36:20:3a:e4:50:8d] 0.083ms
+Unicast reply from 172.19.255.150 [36:20:3a:e4:50:8d] 0.122ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+MAC 36:20:3a:e4:50:8d → node eg-poc2-worker
+---- ServiceL2Status / speaker (whole log, --tail=-1 --prefix) ----
+CRD servicel2statuses.metallb.io: present
+No resources found in envoy-gateway-system namespace.
+---- Service events IPAllocated / announcing from node (172.19.255.150) ----
+39s         Normal   IPAllocated         service/envoy-shop-http-gw-fccf2727                 Assigned IP ["172.19.255.150"]
+39s         Normal   IPAllocated         service/envoy-shop-grpc-gw-8c4f0319                 Assigned IP ["172.19.255.151"]
+27s         Normal   nodeAssigned        service/envoy-shop-grpc-gw-8c4f0319                 announcing from node "eg-poc2-worker" with protocol "layer2"
+27s         Normal   nodeAssigned        service/envoy-shop-http-gw-fccf2727                 announcing from node "eg-poc2-worker" with protocol "layer2"
+---- docker exec eg-poc2-worker ip -4 addr show eth0 (MetalLB does NOT add 172.19.255.150) ----
+11: eth0@if125: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 65535 qdisc noqueue state UP group default  link-netnsid 0
+    inet 172.19.0.5/16 brd 172.19.255.255 scope global eth0
+       valid_lft forever preferred_lft forever
+172.19.255.150 NOT on eg-poc2-worker eth0 — MetalLB answers ARP for it, kube-proxy delivers it
+
+### 2026-09-19T21:32:55Z
+$ bash -c l2_proof "$1" bash 172.19.255.151
+---- arping -b -c 3 172.19.255.151 ----
+ARPING 172.19.255.151 from 172.19.0.6 eth0
+Unicast reply from 172.19.255.151 [36:20:3a:e4:50:8d] 0.114ms
+Unicast reply from 172.19.255.151 [36:20:3a:e4:50:8d] 0.120ms
+Unicast reply from 172.19.255.151 [36:20:3a:e4:50:8d] 0.083ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+MAC 36:20:3a:e4:50:8d → node eg-poc2-worker
+---- ServiceL2Status / speaker (whole log, --tail=-1 --prefix) ----
+CRD servicel2statuses.metallb.io: present
+No resources found in envoy-gateway-system namespace.
+---- Service events IPAllocated / announcing from node (172.19.255.151) ----
+43s         Normal   IPAllocated         service/envoy-shop-http-gw-fccf2727                 Assigned IP ["172.19.255.150"]
+43s         Normal   IPAllocated         service/envoy-shop-grpc-gw-8c4f0319                 Assigned IP ["172.19.255.151"]
+31s         Normal   nodeAssigned        service/envoy-shop-grpc-gw-8c4f0319                 announcing from node "eg-poc2-worker" with protocol "layer2"
+31s         Normal   nodeAssigned        service/envoy-shop-http-gw-fccf2727                 announcing from node "eg-poc2-worker" with protocol "layer2"
+---- docker exec eg-poc2-worker ip -4 addr show eth0 (MetalLB does NOT add 172.19.255.151) ----
+11: eth0@if125: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 65535 qdisc noqueue state UP group default  link-netnsid 0
+    inet 172.19.0.5/16 brd 172.19.255.255 scope global eth0
+       valid_lft forever preferred_lft forever
+172.19.255.151 NOT on eg-poc2-worker eth0 — MetalLB answers ARP for it, kube-proxy delivers it
+
+### 2026-09-19T21:32:59Z
+$ bash -c mac_route
+172.19             192.168.64.2       UGSc            bridge100       
+
+### 2026-09-19T21:32:59Z
+$ bash -c mac_http
+http://api.eg-poc2.poc.local/healthz @ 172.19.255.150:80 → 200 X-Served-By=eg-poc2 curl_rc=0
+
+### 2026-09-19T21:32:59Z
+$ bash -c mac_https
+https://api.eg-poc2.poc.local/healthz @ 172.19.255.150:443 → 200 X-Served-By=eg-poc2 curl_rc=0
+
+### 2026-09-19T21:32:59Z
+$ bash -c mac_orders
+http://api.eg-poc2.poc.local/orders @ 172.19.255.150:80 → 200 X-Served-By=eg-poc2 curl_rc=0 body_head:
+[{"id":1,"item":"keyboard","amount_cents":4999},{"id":2,"item":"mouse","amount_cents":1999},{"id":3,"item":"monitor","amount_cents":24900}]
+
+
+### 2026-09-19T21:32:59Z
+$ bash -c grpc_matrix
+-- T1 list + describe shop.v1.Orders
+grpc.health.v1.Health
+grpc.reflection.v1.ServerReflection
+grpc.reflection.v1alpha.ServerReflection
+shop.v1.Orders
+T1_list_rc=0
+shop.v1.Orders is a service:
+service Orders {
+  rpc GetOrder ( .shop.v1.GetOrderRequest ) returns ( .shop.v1.Order );
+  rpc ListOrders ( .shop.v1.ListOrdersRequest ) returns ( .shop.v1.ListOrdersResponse );
+  rpc SlowOrder ( .shop.v1.SlowOrderRequest ) returns ( .shop.v1.Order );
+  rpc WatchOrders ( .shop.v1.WatchOrdersRequest ) returns ( stream .shop.v1.OrderEvent );
+}
+T1_describe_rc=0
+T T1 expected=four RPCs via reflection observed=ListOrders GetOrder WatchOrders SlowOrder PASS
+-- T2 ListOrders h2c → v1, three orders, served_by grpcdemo-v1-
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    }
+  ],
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+T2_rc=0
+T T2 expected=3 orders version v1 served_by grpcdemo-v1- observed=v1 + three rows PASS
+-- T3 ListOrders TLS :443 --cacert (never -insecure)
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    }
+  ],
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+T3_rc=0
+T T3 expected=TLS ListOrders v1 observed=v1 rc=0 PASS
+-- T4 GetOrder id=2 → version v2 (routing by method)
+{
+  "id": "2",
+  "item": "mouse",
+  "amountCents": "1999",
+  "servedBy": "grpcdemo-v2-6b8fdbcd7f-ggff6",
+  "version": "v2"
+}
+T4_rc=0
+T T4 expected=GetOrder id=2 version v2 observed=v2 PASS
+-- T5 ListOrders -H x-version:v2 → v2; without header → v1
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v2-6b8fdbcd7f-ggff6",
+      "version": "v2"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v2-6b8fdbcd7f-ggff6",
+      "version": "v2"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v2-6b8fdbcd7f-ggff6",
+      "version": "v2"
+    }
+  ],
+  "servedBy": "grpcdemo-v2-6b8fdbcd7f-ggff6",
+  "version": "v2"
+}
+T5_v2_rc=0
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    }
+  ],
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+T5_v1_rc=0
+T T5 expected=x-version v2 then default v1 observed=v2 then v1 PASS
+-- T6 WatchOrders count=5 interval_ms=200 → five events
+{
+  "order": {
+    "id": "1",
+    "item": "keyboard",
+    "amountCents": "4999",
+    "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+{
+  "order": {
+    "id": "2",
+    "item": "mouse",
+    "amountCents": "1999",
+    "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+{
+  "order": {
+    "id": "3",
+    "item": "monitor",
+    "amountCents": "24900",
+    "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+{
+  "order": {
+    "id": "1",
+    "item": "keyboard",
+    "amountCents": "4999",
+    "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+{
+  "order": {
+    "id": "2",
+    "item": "mouse",
+    "amountCents": "1999",
+    "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+T6_rc=0
+T T6 expected=5 streamed events observed=events=5 PASS
+-- T7 GetOrder id=99 → Code: NotFound
+ERROR:
+  Code: NotFound
+  Message: order 99 not found
+exit status 69
+T7_rc=1
+T T7 expected=Code: NotFound observed=NotFound PASS
+-- T8 shop.v1.Orders/NoSuchMethod → Code: Unimplemented
+Error invoking method "shop.v1.Orders/NoSuchMethod": service "shop.v1.Orders" does not include a method named "NoSuchMethod"
+exit status 1
+T8_rc=1
+T T8 expected=Code: Unimplemented observed=Error invoking method "shop.v1.Orders/NoSuchMethod": service "shop.v1.Orders" do rc=1 FAIL
+-- T9 SlowOrder delay_ms=3000 -max-time 1 → Code: DeadlineExceeded
+ERROR:
+  Code: DeadlineExceeded
+  Message: context deadline exceeded
+exit status 68
+T9_rc=1
+T T9 expected=Code: DeadlineExceeded observed=DeadlineExceeded PASS
+-- T10 -v ListOrders → x-served-by / x-version metadata
+
+Resolved method descriptor:
+rpc ListOrders ( .shop.v1.ListOrdersRequest ) returns ( .shop.v1.ListOrdersResponse );
+
+Request metadata to send:
+(empty)
+
+Response headers received:
+content-type: application/grpc
+date: Sat, 19 Sep 2026 21:33:05 GMT
+x-served-by: grpcdemo-v1-55c9966f5c-hwtjj
+x-version: v1
+
+Response contents:
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    }
+  ],
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+
+Response trailers received:
+(empty)
+Sent 0 requests and received 1 response
+T10_rc=0
+T T10 expected=metadata x-served-by + x-version observed=both present PASS
+-- T11 TLS with a bogus CA (not -insecure) → fail
+Failed to dial target host "172.19.255.151:443": tls: failed to verify certificate: x509: certificate signed by unknown authority
+exit status 1
+T11_rc=1
+T T11 expected=TLS fails with bogus CA observed=Failed to dial target host "172.19.255.151:443": tls: failed to verify certifica rc=1 PASS
+-- T12 isolation: grpc authority at HTTP door; api host at gRPC door
+Error invoking method "grpc.health.v1.Health/Check": failed to query for service descriptor "grpc.health.v1.Health": server does not support the reflection API
+exit status 1
+isolation_grpcurl_rc=1
+isolation_http_code=404 curl_rc=0
+T T12 expected=grpc@.150 not served; curl@.151 → 404 observed=grpcurl_rc=1 http=404 PASS
+-- T13 Health/Check "" and shop.v1.Orders → SERVING
+{
+  "status": "SERVING"
+}
+T13_empty_rc=0
+{
+  "status": "SERVING"
+}
+T13_svc_rc=0
+T T13 expected={"status": "SERVING"} for "" and shop.v1.Orders observed=SERVING SERVING PASS
+
+==== gRPC matrix summary ====
+TEST EXPECTED                                         OBSERVED                     RESULT
+T1   four RPCs via reflection                         ListOrders GetOrder WatchOrders SlowOrder PASS
+T2   3 orders version v1 served_by grpcdemo-v1-       v1 + three rows              PASS
+T3   TLS ListOrders v1                                v1 rc=0                      PASS
+T4   GetOrder id=2 version v2                         v2                           PASS
+T5   x-version v2 then default v1                     v2 then v1                   PASS
+T6   5 streamed events                                events=5                     PASS
+T7   Code: NotFound                                   NotFound                     PASS
+T8   Code: Unimplemented                              Error invoking method "shop.v1.Orders/NoSuchMethod": service "shop.v1.Orders" do rc=1 FAIL
+T9   Code: DeadlineExceeded                           DeadlineExceeded             PASS
+T10  metadata x-served-by + x-version                 both present                 PASS
+T11  TLS fails with bogus CA                          Failed to dial target host "172.19.255.151:443": tls: failed to verify certifica rc=1 PASS
+T12  grpc@.150 not served; curl@.151 → 404          grpcurl_rc=1 http=404        PASS
+T13  {"status": "SERVING"} for "" and shop.v1.Orders  SERVING SERVING              PASS
+
+### 2026-09-19T21:33:06Z
+$ bash -c browser_shot
+/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --disable-gpu --no-first-run --window-size=1000,500 --user-data-dir=<tmp> --host-resolver-rules="MAP api.eg-poc2.poc.local 172.19.255.150" --screenshot=/Users/olasumbo/gitRepos/cilium-implementation-poc/demos/52-eg-poc2-metallb/output/browser.png http://api.eg-poc2.poc.local/orders
+screenshot written after 5.0 s; chrome_rc=0
+demos/52-eg-poc2-metallb/output/browser.png: PNG image data, 1000 x 500, 8-bit/color RGB, non-interlaced
+
+### 2026-09-19T21:33:11Z
+$ demos/52-eg-poc2-metallb/hosts-entries.sh
+# ---- cilium-kind-poc demo52 (generated 2026-09-19T21:33Z by demos/52-eg-poc2-metallb/hosts-entries.sh) ----
+172.19.255.150  api.eg-poc2.poc.local
+172.19.255.151  grpc.eg-poc2.poc.local
+# ---- end cilium-kind-poc demo52 ----
+
+### 2026-09-19T21:33:11Z
+$ bash -c final_table
+DOOR       ADDRESS          PROG   CLASS                  ANNOUNCED_BY           HTTP_or_GRPC
+http-gw    172.19.255.150   True   metallb.io/metallb     eg-poc2-worker         HTTP 200/eg-poc2
+grpc-gw    172.19.255.151   True   metallb.io/metallb     eg-poc2-worker         GRPC SERVING
+
+
+### 2026-09-19T21:37:23Z — demo 52 apply
+### 2026-09-19T21:37:23Z
+$ kubectl --context kind-eg-poc2 get --raw /readyz
+ok
+### 2026-09-19T21:37:24Z
+$ bash -c docker_lab
+---- kind-eg IPv4 (IPv6 IPRange prints invalid Prefix; skip that block) ----
+Subnet=172.19.0.0/16 IPRange=172.19.0.0/17 Gateway=172.19.0.1
+---- eg-poc2 nodes on kind-eg (IPv4 + MAC) ----
+eg-poc2-worker Up 6 minutes
+eg-poc2-control-plane Up 6 minutes
+eg-poc2-worker 172.19.0.5 36:20:3a:e4:50:8d
+eg-poc2-control-plane 172.19.0.4 96:06:5c:96:19:0b
+---- kubectl get nodes -o wide ----
+NAME                    STATUS   ROLES           AGE     VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION            CONTAINER-RUNTIME
+eg-poc2-control-plane   Ready    control-plane   6m36s   v1.36.4   172.19.0.4    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+eg-poc2-worker          Ready    <none>          6m27s   v1.36.4   172.19.0.5    <none>        Debian GNU/Linux 13 (trixie)   7.0.12-linuxkit (arm64)   containerd://2.3.4
+---- stock networking: kube-proxy mode + kindnet DS ----
+    mode: iptables
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   6m33s
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   6m34s
+
+### 2026-09-19T21:37:24Z
+$ helm repo add metallb https://metallb.github.io/metallb --force-update
+"metallb" has been added to your repositories
+
+### 2026-09-19T21:37:24Z
+$ helm upgrade --install metallb metallb/metallb --version 0.16.0 -n metallb-system --create-namespace --kube-context kind-eg-poc2 --set loadBalancerClass=metallb.io/metallb --set speaker.frr.enabled=false --set frrk8s.enabled=false
+Release "metallb" has been upgraded. Happy Helming!
+NAME: metallb
+LAST DEPLOYED: Sat Sep 19 16:37:24 2026
+NAMESPACE: metallb-system
+STATUS: deployed
+REVISION: 2
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+NOTES:
+MetalLB is now running in the cluster.
+
+Now you can configure it via its CRs. Please refer to the metallb official docs
+on how to use the CRs.
+
+### 2026-09-19T21:37:25Z
+$ kubectl --context kind-eg-poc2 -n metallb-system wait deploy -l app.kubernetes.io/component=controller --for=condition=Available --timeout=180s
+deployment.apps/metallb-controller condition met
+
+### 2026-09-19T21:37:25Z
+$ kubectl --context kind-eg-poc2 -n metallb-system rollout status ds -l app.kubernetes.io/component=speaker --timeout=180s
+daemon set "metallb-speaker" successfully rolled out
+
+### 2026-09-19T21:37:25Z
+$ bash -c kubectl --context kind-eg-poc2 -n metallb-system get deploy,ds -o yaml | grep -E 'lb-class|loadBalancerClass'
+          - --lb-class=metallb.io/metallb
+          - --lb-class=metallb.io/metallb
+
+### 2026-09-19T21:37:25Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/10-metallb-pool.yaml
+ipaddresspool.metallb.io/eg-poc2-services unchanged
+ipaddresspool.metallb.io/eg-poc2-doors unchanged
+l2advertisement.metallb.io/eg-poc2-l2 unchanged
+
+### 2026-09-19T21:37:26Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/00-namespace.yaml
+namespace/shop unchanged
+
+### 2026-09-19T21:37:26Z
+$ bash -c kubectl --context kind-eg-poc2 apply -f -
+configmap/eg-cluster unchanged
+
+### 2026-09-19T21:37:26Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/20-certificate.yaml
+certificate.cert-manager.io/eg-poc2-tls unchanged
+
+### 2026-09-19T21:37:26Z
+$ kubectl --context kind-eg-poc2 -n shop wait certificate/eg-poc2-tls --for=condition=Ready --timeout=90s
+certificate.cert-manager.io/eg-poc2-tls condition met
+
+### 2026-09-19T21:37:27Z
+$ bash -c print_leaf
+subject=CN=api.eg-poc2.poc.local
+X509v3 Subject Alternative Name: 
+    DNS:api.eg-poc2.poc.local, DNS:grpc.eg-poc2.poc.local
+notAfter=Dec 18 21:32:16 2026 GMT
+sha256=92:B0:EF:5D:BA:EB:38:93:45:F3:59:FA:3D:4B:27:AE:9B:70:82:20:6B:39:D7:AF:54:B1:93:95:1F:01:B8:85
+
+### 2026-09-19T21:37:27Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/30-gateways.yaml
+envoyproxy.gateway.envoyproxy.io/http-gw-proxy unchanged
+gateway.gateway.networking.k8s.io/http-gw configured
+envoyproxy.gateway.envoyproxy.io/grpc-gw-proxy unchanged
+gateway.gateway.networking.k8s.io/grpc-gw configured
+
+### 2026-09-19T21:37:27Z
+$ kubectl --context kind-eg-poc2 -n shop wait --for=condition=Programmed gateway/http-gw --timeout=180s
+gateway.gateway.networking.k8s.io/http-gw condition met
+
+### 2026-09-19T21:37:27Z
+$ kubectl --context kind-eg-poc2 -n shop wait --for=condition=Programmed gateway/grpc-gw --timeout=180s
+gateway.gateway.networking.k8s.io/grpc-gw condition met
+
+### 2026-09-19T21:37:27Z
+$ bash -c wait_envoy_deploy http-gw
+deployment.apps/envoy-shop-http-gw-fccf2727 condition met
+
+### 2026-09-19T21:37:27Z
+$ bash -c wait_envoy_deploy grpc-gw
+deployment.apps/envoy-shop-grpc-gw-8c4f0319 condition met
+
+### 2026-09-19T21:37:27Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/45-shop-db.yaml
+configmap/shop-db-init unchanged
+deployment.apps/shop-db unchanged
+service/shop-db unchanged
+
+### 2026-09-19T21:37:28Z
+$ kubectl --context kind-eg-poc2 -n shop rollout status deploy/shop-db --timeout=180s
+deployment "shop-db" successfully rolled out
+
+### 2026-09-19T21:37:28Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/40-app.yaml
+deployment.apps/shopapi unchanged
+service/shopapi unchanged
+
+### 2026-09-19T21:37:28Z
+$ kubectl --context kind-eg-poc2 -n shop wait deploy/shopapi --for=condition=Available --timeout=120s
+deployment.apps/shopapi condition met
+
+### 2026-09-19T21:37:28Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/41-grpcdemo.yaml
+deployment.apps/grpcdemo-v1 unchanged
+service/grpc-v1 unchanged
+deployment.apps/grpcdemo-v2 unchanged
+service/grpc-v2 unchanged
+
+### 2026-09-19T21:37:28Z
+$ kubectl --context kind-eg-poc2 -n shop wait deploy/grpcdemo-v1 --for=condition=Available --timeout=120s
+deployment.apps/grpcdemo-v1 condition met
+
+### 2026-09-19T21:37:28Z
+$ kubectl --context kind-eg-poc2 -n shop wait deploy/grpcdemo-v2 --for=condition=Available --timeout=120s
+deployment.apps/grpcdemo-v2 condition met
+
+### 2026-09-19T21:37:28Z
+$ kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/50-routes.yaml
+httproute.gateway.networking.k8s.io/shop-api configured
+grpcroute.gateway.networking.k8s.io/orders configured
+
+### 2026-09-19T21:37:28Z
+$ bash -c wait_route httproute shop-api
+kind-eg-poc2 httproute/shop-api: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T21:37:29Z
+$ bash -c wait_route grpcroute orders
+kind-eg-poc2 grpcroute/orders: all parents Accepted+ResolvedRefs
+
+### 2026-09-19T21:37:29Z
+$ bash -c l2_proof "$1" bash 172.19.255.150
+---- arping -b -c 3 172.19.255.150 ----
+ARPING 172.19.255.150 from 172.19.0.6 eth0
+Unicast reply from 172.19.255.150 [36:20:3a:e4:50:8d] 0.139ms
+Unicast reply from 172.19.255.150 [36:20:3a:e4:50:8d] 0.154ms
+Unicast reply from 172.19.255.150 [36:20:3a:e4:50:8d] 0.115ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+MAC 36:20:3a:e4:50:8d → node eg-poc2-worker
+---- ServiceL2Status / speaker (whole log, --tail=-1 --prefix) ----
+CRD servicel2statuses.metallb.io: present
+NAME       SERVICE                       NAMESPACE              NODE
+l2-c4857   envoy-shop-grpc-gw-8c4f0319   envoy-gateway-system   eg-poc2-worker
+l2-htcxz   envoy-shop-http-gw-fccf2727   envoy-gateway-system   eg-poc2-worker
+---- Service events IPAllocated / announcing from node (172.19.255.150) ----
+5m16s       Normal   IPAllocated         service/envoy-shop-http-gw-fccf2727                 Assigned IP ["172.19.255.150"]
+5m16s       Normal   IPAllocated         service/envoy-shop-grpc-gw-8c4f0319                 Assigned IP ["172.19.255.151"]
+5m4s        Normal   nodeAssigned        service/envoy-shop-grpc-gw-8c4f0319                 announcing from node "eg-poc2-worker" with protocol "layer2"
+5m4s        Normal   nodeAssigned        service/envoy-shop-http-gw-fccf2727                 announcing from node "eg-poc2-worker" with protocol "layer2"
+---- docker exec eg-poc2-worker ip -4 addr show eth0 (MetalLB does NOT add 172.19.255.150) ----
+11: eth0@if125: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 65535 qdisc noqueue state UP group default  link-netnsid 0
+    inet 172.19.0.5/16 brd 172.19.255.255 scope global eth0
+       valid_lft forever preferred_lft forever
+172.19.255.150 NOT on eg-poc2-worker eth0 — MetalLB answers ARP for it, kube-proxy delivers it
+
+### 2026-09-19T21:37:32Z
+$ bash -c l2_proof "$1" bash 172.19.255.151
+---- arping -b -c 3 172.19.255.151 ----
+ARPING 172.19.255.151 from 172.19.0.6 eth0
+Unicast reply from 172.19.255.151 [36:20:3a:e4:50:8d] 0.090ms
+Unicast reply from 172.19.255.151 [36:20:3a:e4:50:8d] 0.080ms
+Unicast reply from 172.19.255.151 [36:20:3a:e4:50:8d] 0.084ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+MAC 36:20:3a:e4:50:8d → node eg-poc2-worker
+---- ServiceL2Status / speaker (whole log, --tail=-1 --prefix) ----
+CRD servicel2statuses.metallb.io: present
+NAME       SERVICE                       NAMESPACE              NODE
+l2-c4857   envoy-shop-grpc-gw-8c4f0319   envoy-gateway-system   eg-poc2-worker
+l2-htcxz   envoy-shop-http-gw-fccf2727   envoy-gateway-system   eg-poc2-worker
+---- Service events IPAllocated / announcing from node (172.19.255.151) ----
+5m20s       Normal   IPAllocated         service/envoy-shop-http-gw-fccf2727                 Assigned IP ["172.19.255.150"]
+5m20s       Normal   IPAllocated         service/envoy-shop-grpc-gw-8c4f0319                 Assigned IP ["172.19.255.151"]
+5m8s        Normal   nodeAssigned        service/envoy-shop-grpc-gw-8c4f0319                 announcing from node "eg-poc2-worker" with protocol "layer2"
+5m8s        Normal   nodeAssigned        service/envoy-shop-http-gw-fccf2727                 announcing from node "eg-poc2-worker" with protocol "layer2"
+---- docker exec eg-poc2-worker ip -4 addr show eth0 (MetalLB does NOT add 172.19.255.151) ----
+11: eth0@if125: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 65535 qdisc noqueue state UP group default  link-netnsid 0
+    inet 172.19.0.5/16 brd 172.19.255.255 scope global eth0
+       valid_lft forever preferred_lft forever
+172.19.255.151 NOT on eg-poc2-worker eth0 — MetalLB answers ARP for it, kube-proxy delivers it
+
+### 2026-09-19T21:37:36Z
+$ bash -c mac_route
+172.19             192.168.64.2       UGSc            bridge100       
+
+### 2026-09-19T21:37:36Z
+$ bash -c mac_http
+http://api.eg-poc2.poc.local/healthz @ 172.19.255.150:80 → 200 X-Served-By=eg-poc2 curl_rc=0
+
+### 2026-09-19T21:37:36Z
+$ bash -c mac_https
+https://api.eg-poc2.poc.local/healthz @ 172.19.255.150:443 → 200 X-Served-By=eg-poc2 curl_rc=0
+
+### 2026-09-19T21:37:36Z
+$ bash -c mac_orders
+http://api.eg-poc2.poc.local/orders @ 172.19.255.150:80 → 200 X-Served-By=eg-poc2 curl_rc=0 body_head:
+[{"id":1,"item":"keyboard","amount_cents":4999},{"id":2,"item":"mouse","amount_cents":1999},{"id":3,"item":"monitor","amount_cents":24900}]
+
+
+### 2026-09-19T21:37:36Z
+$ bash -c grpc_matrix
+-- T1 list + describe shop.v1.Orders
+grpc.health.v1.Health
+grpc.reflection.v1.ServerReflection
+grpc.reflection.v1alpha.ServerReflection
+shop.v1.Orders
+T1_list_rc=0
+shop.v1.Orders is a service:
+service Orders {
+  rpc GetOrder ( .shop.v1.GetOrderRequest ) returns ( .shop.v1.Order );
+  rpc ListOrders ( .shop.v1.ListOrdersRequest ) returns ( .shop.v1.ListOrdersResponse );
+  rpc SlowOrder ( .shop.v1.SlowOrderRequest ) returns ( .shop.v1.Order );
+  rpc WatchOrders ( .shop.v1.WatchOrdersRequest ) returns ( stream .shop.v1.OrderEvent );
+}
+T1_describe_rc=0
+T T1 expected=four RPCs via reflection observed=ListOrders GetOrder WatchOrders SlowOrder PASS
+-- T2 ListOrders h2c → v1, three orders, served_by grpcdemo-v1-
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    }
+  ],
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+T2_rc=0
+T T2 expected=3 orders version v1 served_by grpcdemo-v1- observed=v1 + three rows PASS
+-- T3 ListOrders TLS :443 --cacert (never -insecure)
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    }
+  ],
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+T3_rc=0
+T T3 expected=TLS ListOrders v1 observed=v1 rc=0 PASS
+-- T4 GetOrder id=2 → version v2 (routing by method)
+{
+  "id": "2",
+  "item": "mouse",
+  "amountCents": "1999",
+  "servedBy": "grpcdemo-v2-6b8fdbcd7f-ggff6",
+  "version": "v2"
+}
+T4_rc=0
+T T4 expected=GetOrder id=2 version v2 observed=v2 PASS
+-- T5 ListOrders -H x-version:v2 → v2; without header → v1
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v2-6b8fdbcd7f-ggff6",
+      "version": "v2"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v2-6b8fdbcd7f-ggff6",
+      "version": "v2"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v2-6b8fdbcd7f-ggff6",
+      "version": "v2"
+    }
+  ],
+  "servedBy": "grpcdemo-v2-6b8fdbcd7f-ggff6",
+  "version": "v2"
+}
+T5_v2_rc=0
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    }
+  ],
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+T5_v1_rc=0
+T T5 expected=x-version v2 then default v1 observed=v2 then v1 PASS
+-- T6 WatchOrders count=5 interval_ms=200 → five events
+{
+  "order": {
+    "id": "1",
+    "item": "keyboard",
+    "amountCents": "4999",
+    "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+{
+  "order": {
+    "id": "2",
+    "item": "mouse",
+    "amountCents": "1999",
+    "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+{
+  "order": {
+    "id": "3",
+    "item": "monitor",
+    "amountCents": "24900",
+    "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+{
+  "order": {
+    "id": "1",
+    "item": "keyboard",
+    "amountCents": "4999",
+    "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+{
+  "order": {
+    "id": "2",
+    "item": "mouse",
+    "amountCents": "1999",
+    "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+T6_rc=0
+T T6 expected=5 streamed events observed=events=5 PASS
+-- T7 GetOrder id=99 → Code: NotFound
+ERROR:
+  Code: NotFound
+  Message: order 99 not found
+exit status 69
+T7_rc=1
+T T7 expected=Code: NotFound observed=NotFound PASS
+-- T8a shop.v1.Orders/NoSuchMethod (descriptor) → Code: Unimplemented + unknown method
+ERROR:
+  Code: Unimplemented
+  Message: unknown method NoSuchMethod for service shop.v1.Orders
+exit status 76
+T8a_rc=1
+T T8a expected=Code: Unimplemented + unknown method observed=Unimplemented unknown method PASS
+-- T8b shop.v1.Nope/Do (descriptor) → Code: Unimplemented + empty Message
+ERROR:
+  Code: Unimplemented
+  Message: 
+exit status 76
+T8b_rc=1
+T T8b expected=Code: Unimplemented + empty Message observed=Unimplemented empty Message PASS
+-- T9 SlowOrder delay_ms=3000 -max-time 1 → Code: DeadlineExceeded
+ERROR:
+  Code: DeadlineExceeded
+  Message: context deadline exceeded
+exit status 68
+T9_rc=1
+T T9 expected=Code: DeadlineExceeded observed=DeadlineExceeded PASS
+-- T10 -v ListOrders → x-served-by / x-version metadata
+
+Resolved method descriptor:
+rpc ListOrders ( .shop.v1.ListOrdersRequest ) returns ( .shop.v1.ListOrdersResponse );
+
+Request metadata to send:
+(empty)
+
+Response headers received:
+content-type: application/grpc
+date: Sat, 19 Sep 2026 21:37:42 GMT
+x-served-by: grpcdemo-v1-55c9966f5c-hwtjj
+x-version: v1
+
+Response contents:
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+      "version": "v1"
+    }
+  ],
+  "servedBy": "grpcdemo-v1-55c9966f5c-hwtjj",
+  "version": "v1"
+}
+
+Response trailers received:
+(empty)
+Sent 0 requests and received 1 response
+T10_rc=0
+T T10 expected=metadata x-served-by + x-version observed=both present PASS
+-- T11 TLS with a bogus CA (not -insecure) → fail
+Failed to dial target host "172.19.255.151:443": tls: failed to verify certificate: x509: certificate signed by unknown authority
+exit status 1
+T11_rc=1
+T T11 expected=TLS fails with bogus CA observed=Failed to dial target host "172.19.255.151:443": tls: failed to verify certifica rc=1 PASS
+-- T12 isolation: grpc authority at HTTP door; api host at gRPC door
+Error invoking method "grpc.health.v1.Health/Check": failed to query for service descriptor "grpc.health.v1.Health": server does not support the reflection API
+exit status 1
+isolation_grpcurl_rc=1
+isolation_http_code=404 curl_rc=0
+T T12 expected=grpc@.150 not served; curl@.151 → 404 observed=grpcurl_rc=1 http=404 PASS
+-- T13 Health/Check "" and shop.v1.Orders → SERVING
+{
+  "status": "SERVING"
+}
+T13_empty_rc=0
+{
+  "status": "SERVING"
+}
+T13_svc_rc=0
+T T13 expected={"status": "SERVING"} for "" and shop.v1.Orders observed=SERVING SERVING PASS
+
+==== gRPC matrix summary ====
+TEST EXPECTED                                         OBSERVED                     RESULT
+T1   four RPCs via reflection                         ListOrders GetOrder WatchOrders SlowOrder PASS
+T2   3 orders version v1 served_by grpcdemo-v1-       v1 + three rows              PASS
+T3   TLS ListOrders v1                                v1 rc=0                      PASS
+T4   GetOrder id=2 version v2                         v2                           PASS
+T5   x-version v2 then default v1                     v2 then v1                   PASS
+T6   5 streamed events                                events=5                     PASS
+T7   Code: NotFound                                   NotFound                     PASS
+T8a  Code: Unimplemented + unknown method             Unimplemented unknown method PASS
+T8b  Code: Unimplemented + empty Message              Unimplemented empty Message  PASS
+T9   Code: DeadlineExceeded                           DeadlineExceeded             PASS
+T10  metadata x-served-by + x-version                 both present                 PASS
+T11  TLS fails with bogus CA                          Failed to dial target host "172.19.255.151:443": tls: failed to verify certifica rc=1 PASS
+T12  grpc@.150 not served; curl@.151 → 404          grpcurl_rc=1 http=404        PASS
+T13  {"status": "SERVING"} for "" and shop.v1.Orders  SERVING SERVING              PASS
+
+### 2026-09-19T21:37:43Z
+$ bash -c browser_shot
+/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --disable-gpu --no-first-run --window-size=1000,500 --user-data-dir=<tmp> --host-resolver-rules="MAP api.eg-poc2.poc.local 172.19.255.150" --screenshot=/Users/olasumbo/gitRepos/cilium-implementation-poc/demos/52-eg-poc2-metallb/output/browser.png http://api.eg-poc2.poc.local/orders
+screenshot written after 2.0 s; chrome_rc=0
+demos/52-eg-poc2-metallb/output/browser.png: PNG image data, 1000 x 500, 8-bit/color RGB, non-interlaced
+
+### 2026-09-19T21:37:45Z
+$ demos/52-eg-poc2-metallb/hosts-entries.sh
+# ---- cilium-kind-poc demo52 (generated 2026-09-19T21:37Z by demos/52-eg-poc2-metallb/hosts-entries.sh) ----
+172.19.255.150  api.eg-poc2.poc.local
+172.19.255.151  grpc.eg-poc2.poc.local
+# ---- end cilium-kind-poc demo52 ----
+
+### 2026-09-19T21:37:45Z
+$ bash -c final_table
+DOOR       ADDRESS          PROG   CLASS                  ANNOUNCED_BY           HTTP_or_GRPC
+http-gw    172.19.255.150   True   metallb.io/metallb     eg-poc2-worker         HTTP 200/eg-poc2
+grpc-gw    172.19.255.151   True   metallb.io/metallb     eg-poc2-worker         GRPC SERVING
+
+### 2026-09-19T21:37:52Z
+$ demos/52-eg-poc2-metallb/check.sh
+
+== demo 52 — one cluster, MetalLB, two Gateways (HTTP isolated from gRPC)
+  STATUS WHAT                                                                   MEASURED                                             RULE
+  PASS   MetalLB controller Available + speaker DS                              Available=True ready=2/2                             R5 — controller Available, speaker N/N (chart 0.16.0, --lb-class)
+  PASS   http-gw Programmed at 172.19.255.150                                   addr=172.19.255.150 svcIngress=172.19.255.150 Programmed=True R5 / R8 — Gateway address and Service ingress both equal 172.19.255.150
+  PASS   grpc-gw Programmed at 172.19.255.151                                   addr=172.19.255.151 svcIngress=172.19.255.151 Programmed=True R5 / R8 — Gateway address and Service ingress both equal 172.19.255.151
+  PASS   both Envoy Services carry the class                                    http=metallb.io/metallb grpc=metallb.io/metallb      D11 — EnvoyProxy names metallb.io/metallb on both doors
+  PASS   ARP http-gw 172.19.255.150 one responder 3/3                           replies=3 unique_mac=1 node=eg-poc2-worker           R5 / R8 — arping -b 3 of 3 from ONE MAC
+  PASS   ARP grpc-gw 172.19.255.151 one responder 3/3                           replies=3 unique_mac=1 node=eg-poc2-worker           R5 / R8 — arping -b 3 of 3 from ONE MAC
+  PASS   VIP 172.19.255.150 NOT on any node's eth0                              absent on all nodes                                  R5 — MetalLB answers ARP; kube-proxy delivers; no /32 on eth0
+  PASS   ServiceL2Status / announcing from node                                 envoy-shop-grpc-gw=eg-poc2-worker envoy-shop-http-gw=eg-poc2-worker R5 — MetalLB names the announcing node for both doors
+  PASS   http://api.eg-poc2.poc.local 200 + X-Served-By                         http_code=200 X-Served-By=eg-poc2                    R8 — 200 and X-Served-By=eg-poc2
+  PASS   https://api.eg-poc2.poc.local 200                                      http_code=200                                        R8 — 200 against the lab root
+  PASS   http://api.eg-poc2.poc.local /orders 200 (the page behind the door)    http_code=200 items=3                                the page behind the door — 200 and a JSON array (≥ 1)
+  PASS   gRPC Health "" SERVING                                                 SERVING                                              R10 — exact "status": "SERVING"
+  PASS   gRPC ListOrders v1                                                     version=v1                                           R10 — service default → grpc-v1
+  PASS   gRPC GetOrder v2                                                       version=v2                                           R10 — method match → grpc-v2
+  PASS   gRPC ListOrders x-version v2                                           version=v2                                           R10 — metadata match → grpc-v2
+  PASS   gRPC WatchOrders 5 events                                              events=5                                             R10 — streamed OrderEvent × 5
+  PASS   gRPC GetOrder NotFound                                                 NotFound                                             R10 — unknown id → Code: NotFound
+  PASS   gRPC NoSuchMethod Unimplemented                                        Unimplemented unknown method                         R10 — missing method → Code: Unimplemented + unknown method
+  PASS   gRPC unrouted service Unimplemented                                    Unimplemented empty Message                          R10 — unrouted service → Code: Unimplemented + empty Message
+  PASS   gRPC SlowOrder DeadlineExceeded                                        DeadlineExceeded                                     R10 — -max-time 1 vs delay_ms 3000
+  PASS   gRPC TLS ListOrders                                                    version=v1                                           R10 — TLS ListOrders against the lab root
+
+demo 52 check: 0 FAIL
+

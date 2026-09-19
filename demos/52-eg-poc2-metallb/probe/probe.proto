@@ -1,0 +1,12 @@
+// Descriptor for T8a: declares shop.v1.Orders/NoSuchMethod so grpcurl will
+// send the RPC. This method is NOT served by grpcdemo — the service-default
+// GRPCRoute rule routes it to grpcdemo-v1, which answers Unimplemented.
+syntax = "proto3";
+
+package shop.v1;
+
+import "google/protobuf/empty.proto";
+
+service Orders {
+  rpc NoSuchMethod(google.protobuf.Empty) returns (google.protobuf.Empty);
+}

@@ -8,8 +8,11 @@
 #   scripts/eg-up.sh eg1 eg2        # same
 #   scripts/eg-up.sh eg1            # two-cluster lab, one cluster (eg1 first)
 #   scripts/eg-up.sh eg-poc1        # one-cluster lab (demo 54)
+#   scripts/eg-up.sh eg-poc2        # one-cluster lab (demo 52)
 #
-# Mixing labs (`eg-up.sh eg1 eg-poc1`) is a usage error (exit 2).
+# Mixing labs (`eg-up.sh eg1 eg-poc1`, `eg-up.sh eg-poc1 eg-poc2`) is a usage
+# error (exit 2). Each one-cluster lab is built alone. eg-poc2 and eg2 share
+# 172.19.255.128/26: either present while the other is requested is exit 2.
 # Idempotent. Every applied command is recorded through scripts/record.sh
 # (append, never truncate). Linux-runner safe. Reads scripts/bootstrap/versions-eg.env.
 set -euo pipefail
@@ -18,15 +21,16 @@ cd "$(dirname "$0")/.."
 . scripts/bootstrap/versions-eg.env
 
 # The lab root (D8) is minted ONCE per lab, on ROOT_HOME, and every other cluster
-# in that lab copies its Secret. The two-cluster lab (eg1/eg2) and the one-cluster
-# lab (eg-poc1) each have their own root. `eg-up.sh eg2` after eg1 exists must copy
-# eg1's root, never mint a second one; eg1 is always processed first so a two-cluster
-# run has the root before the copy. Mixing the two labs is refused before any work.
+# in that lab copies its Secret. The two-cluster lab (eg1/eg2) and each one-cluster
+# lab (eg-poc1, eg-poc2) have their own root. `eg-up.sh eg2` after eg1 exists must
+# copy eg1's root, never mint a second one; eg1 is always processed first so a
+# two-cluster run has the root before the copy. Mixing labs is refused before any
+# work. eg-poc2 reuses eg2's /26 — they never coexist.
 usage() {
-  echo "usage: $0 [eg1 eg2] | [eg-poc1]" >&2
+  echo "usage: $0 [eg1 eg2] | [eg-poc1] | [eg-poc2]" >&2
 }
 
-want_eg1=0; want_eg2=0; want_poc1=0
+want_eg1=0; want_eg2=0; want_poc1=0; want_poc2=0
 if [ $# -eq 0 ]; then
   set -- eg1 eg2
 fi
@@ -35,13 +39,32 @@ for c in "$@"; do
     eg1) want_eg1=1 ;;
     eg2) want_eg2=1 ;;
     eg-poc1) want_poc1=1 ;;
+    eg-poc2) want_poc2=1 ;;
     *) usage; exit 2 ;;
   esac
 done
-if [ "$want_poc1" -eq 1 ] && { [ "$want_eg1" -eq 1 ] || [ "$want_eg2" -eq 1 ]; }; then
+if { [ "$want_poc1" -eq 1 ] || [ "$want_poc2" -eq 1 ]; } && { [ "$want_eg1" -eq 1 ] || [ "$want_eg2" -eq 1 ]; }; then
   usage
-  echo "eg-up: do not mix the two-cluster lab (eg1/eg2) with the one-cluster lab (eg-poc1)" >&2
+  echo "eg-up: do not mix the two-cluster lab (eg1/eg2) with a one-cluster lab (eg-poc1/eg-poc2)" >&2
   exit 2
+fi
+if [ "$want_poc1" -eq 1 ] && [ "$want_poc2" -eq 1 ]; then
+  usage
+  echo "eg-up: do not mix the one-cluster labs (eg-poc1 and eg-poc2); each is built alone" >&2
+  exit 2
+fi
+# 172.19.255.128/26 is eg2's block in the two-cluster lab and eg-poc2's block
+# here. kind get clusters before any work; exit 2 with a sentence.
+if [ "$want_poc2" -eq 1 ] || [ "$want_eg2" -eq 1 ]; then
+  existing=$(kind get clusters 2>/dev/null || true)
+  if [ "$want_poc2" -eq 1 ] && printf '%s\n' "$existing" | grep -qx eg2; then
+    echo "eg-up: refuse eg-poc2 while kind cluster eg2 exists — they share 172.19.255.128/26" >&2
+    exit 2
+  fi
+  if [ "$want_eg2" -eq 1 ] && printf '%s\n' "$existing" | grep -qx eg-poc2; then
+    echo "eg-up: refuse eg2 while kind cluster eg-poc2 exists — they share 172.19.255.128/26" >&2
+    exit 2
+  fi
 fi
 
 if [ "$want_poc1" -eq 1 ]; then
@@ -50,6 +73,12 @@ if [ "$want_poc1" -eq 1 ]; then
   ROOT_CRT=.tmp/eg-poc1-root-ca.crt
   DONE_MSG="demo 54 installs kube-vip and the two Gateways"
   set -- eg-poc1
+elif [ "$want_poc2" -eq 1 ]; then
+  ROOT_HOME=eg-poc2
+  TRANSCRIPT=demos/52-eg-poc2-metallb/output/transcript.txt
+  ROOT_CRT=.tmp/eg-poc2-root-ca.crt
+  DONE_MSG="demo 52 installs MetalLB and the two Gateways"
+  set -- eg-poc2
 else
   # two-cluster lab: eg1 first so the root exists before any copy
   ROOT_HOME=eg1

@@ -1,0 +1,11 @@
+# shop is the app namespace AND the Gateway namespace. The Certificate Secret
+# `eg-poc2-tls` lands here; the Gateways live here too, so Envoy Gateway can
+# mount the Secret without a ReferenceGrant. Cleanup deletes the namespace.
+#
+#   kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/00-namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shop
+  labels:
+    app.kubernetes.io/part-of: shop

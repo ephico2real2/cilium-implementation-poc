@@ -1,0 +1,123 @@
+# Two doors on eg-poc2. HTTP and gRPC are isolated on purpose: no HTTPRoute
+# attaches to grpc-gw and no GRPCRoute attaches to http-gw (the operator,
+# 2026-09-19). Each EnvoyProxy is in this file BEFORE its Gateway — the class
+# is immutable on the generated Service (phase 0: attach later and EG logs
+# `spec.loadBalancerClass: may not change once set`). Recreate, never patch.
+#
+# D11: every door names its load balancer. MetalLB runs with
+# `--lb-class=metallb.io/metallb` on controller and speaker.
+#
+# MetalLB requires a requested address to be inside a configured pool
+# (eg-poc2-doors: .150–.160). That is the difference from kube-vip's
+# "even outside the ranges".
+#
+# WHY BOTH spec.addresses AND the EnvoyProxy annotation. Phase 0 / demo 51 R7:
+#   spec.addresses alone → Service.externalIPs, status.loadBalancer empty, 0 ARP.
+#   EnvoyProxy.envoyService (class + metallb.io/loadBalancerIPs) → one ARP responder.
+# Both are set so the Gateway status is honest AND the wire answers.
+#
+# http-gw :80 is HTTP with a hostname and NO redirect — the browser works over
+# plain http (demo 51's :80 is a 301; this lab is the opposite on purpose).
+#
+#   kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/30-gateways.yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: http-gw-proxy
+  namespace: shop
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: LoadBalancer
+        loadBalancerClass: metallb.io/metallb
+        annotations:
+          metallb.io/loadBalancerIPs: "172.19.255.150"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: http-gw
+  namespace: shop
+spec:
+  gatewayClassName: eg
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: http-gw-proxy
+  addresses:
+    - type: IPAddress
+      value: "172.19.255.150"
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: api.eg-poc2.poc.local
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: api.eg-poc2.poc.local
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: eg-poc2-tls
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: grpc-gw-proxy
+  namespace: shop
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: LoadBalancer
+        loadBalancerClass: metallb.io/metallb
+        annotations:
+          metallb.io/loadBalancerIPs: "172.19.255.151"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: grpc-gw
+  namespace: shop
+spec:
+  gatewayClassName: eg
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: grpc-gw-proxy
+  addresses:
+    - type: IPAddress
+      value: "172.19.255.151"
+  listeners:
+    - name: h2c
+      protocol: HTTP
+      port: 80
+      hostname: grpc.eg-poc2.poc.local
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https-grpc
+      protocol: HTTPS
+      port: 443
+      hostname: grpc.eg-poc2.poc.local
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: eg-poc2-tls
+      allowedRoutes:
+        namespaces:
+          from: Same
