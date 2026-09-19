@@ -17,7 +17,7 @@ observability build-outs (16, 21, 25, 38) stay records and get the formatting ru
 
 | Rule | Source |
 |---|---|
-| A page is one content type; a demo guide is a **tutorial**: Overview → Prerequisites → Objectives → Steps → Cleanup → What's next | Kubernetes docs, [page content types](https://kubernetes.io/docs/contribute/style/page-content-types/): *"For `steps`, use numbered lists. Keep the focus on the task itself. If a step requires substantial background, link to the relevant concept page rather than repeating the explanation here."* |
+| A page is one content type. A demo guide takes the **tutorial** page's frame (its sections are `overview`, `prerequisites`, `objectives`, `lessoncontent`, `cleanup`, `whatsnext`) and the **task** page's steps — *What you get* is the objectives, *Steps* the lesson content | Kubernetes docs, [page content types](https://kubernetes.io/docs/contribute/style/page-content-types/); the task page: *"For `steps`, use numbered lists. Keep the focus on the task itself. If a step requires substantial background, link to the relevant concept page rather than repeating the explanation here."* |
 | Title fully describes the page; every page has an intro; prerequisites sit **immediately before** the numbered steps; conceptual → reference → procedural → troubleshooting; a next-steps section when the page is one step of a larger process | GitHub Docs, [contents of an article](https://docs.github.com/en/contributing/style-guide-and-content-model/contents-of-a-github-docs-article) and the [content model](https://docs.github.com/en/contributing/writing-for-github-docs/content-model) |
 | One primary action per numbered step, imperative verb first; *"State the action first and the result second. Keep the result in the same paragraph as the action"*; introduce a procedure with a sentence ending in a colon | Google developer documentation style guide, [procedures](https://developers.google.com/style/procedures) |
 | Address the goal, not the tool; a logical sequence; *omit the unnecessary* — link to reference instead of embedding it; do not teach concepts in the middle of a procedure | [Diátaxis, how-to guides](https://diataxis.fr/how-to-guides/) |
@@ -104,8 +104,10 @@ table, the address block. Tables over prose.>
    are for names only: a file, an object, an address, a flag. A sentence that contains `kubectl …`, `curl …`,
    `docker …`, `go run …`, `helm …`, `arping …` or a `scripts/*.sh` invocation is wrong — move the command into
    a block and keep the sentence about what it does. The same for *Verify*, *Prerequisites* and *Clean up*.
-4. **Every number comes from `output/transcript.txt`, `docs/REVIEW_<demo>.md` or the plan.** Not remembered,
-   not rounded.
+4. **Every number comes from `output/transcript.txt`, `docs/REVIEW_<demo>.md` or the plan** — plus, for lab-wide
+   facts only, `scripts/bootstrap/versions*.env` (the pins) and `docs/SETUP.md` / `NETWORKING_DESIGN.md` (the
+   Mac route, the address plan), each linked where used. Not remembered, not rounded, not summed unless the sum is
+   in a source.
 5. **No history of the runs.** What failed on the way, what a reviewer caught, what was retried — none of it is
    in the guide. The README's record and `docs/REVIEW_*.md` hold that. The one exception is
    *Troubleshooting*: a symptom the reader may hit, with its gotcha link.
@@ -123,7 +125,8 @@ table, the address block. Tables over prose.>
 ## The other two pages — same discipline
 
 **README.md — the record.** For the engineer who runs and re-runs the demo. Fixed H2s, this order: intro (first
-line *"For the reader in a hurry: [RECAP.md](RECAP.md) — the guide"*, then two to four sentences), **Files**
+line *"For the reader in a hurry: [RECAP.md](RECAP.md) — the guide"*, then two to four sentences), **Summary context — the enterprise case** (optional: the operator's
+framing, two paragraphs at most), **Files**
 (table: file → what), **Run it** (the commands, each in a ```bash block, in order), **What was recorded** (one H3
 per step, same titles as the guide's steps; under each: the command block and the recorded output in a ```text
 block — quoted verbatim, the `readmeNN-verbatim.py` gate), **Checks** (the recorded `check.sh` block), **What is

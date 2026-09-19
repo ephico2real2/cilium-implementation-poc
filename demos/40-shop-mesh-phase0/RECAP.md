@@ -22,9 +22,10 @@ demo 41 attaches routes.
   differ (poc1 `43:21:FC:A4…`, poc2 `C8:9E:AB:79…`).
 - `shopapi:local` (every answer stamped `X-Served-By`) loaded on all four
   nodes; both `shopctl` clients built.
-- Lease move poc1 → poc2 and back in ~40 ms; a dying lease lingers
-  ~15 s with an empty holder. `scripts/vip-takeover.sh` deletes the other
-  policy first.
+- Lease move poc1 → poc2 in ~40 ms (agent logs,
+  [docs/REVIEW_DEMO40.md](../../docs/REVIEW_DEMO40.md)); a dying lease
+  lingers ~15 s with an empty holder. `scripts/vip-takeover.sh` deletes
+  the other policy first.
 - `check.sh` at `2026-09-18T13:21:02Z`: 21 PASS, 0 FAIL. Doors answer
   404.
 
@@ -82,8 +83,8 @@ kubectl --context kind-poc1 get --raw /readyz
 kubectl --context kind-poc2 get --raw /readyz
 ```
 
-- A route on the Mac to the kind bridge (the next hop is the Docker VM,
-  so the Mac never ARPs for `.16`):
+- A route on the Mac to the kind bridge ([SETUP.md](../../docs/SETUP.md)
+  §3.5; the next hop is the Docker VM, so the Mac never ARPs for `.16`):
 
 ```bash
 sudo route -n add -net 172.18.0.0/16 192.168.64.2
@@ -98,11 +99,42 @@ demos/40-shop-mesh-phase0/hosts-entries.sh | sudo tee -a /etc/hosts
 
 ## Steps
 
-Do these in order from the repo root. `apply.sh` records the builds
-first (gotcha #118), then steps 1–3; steps 4–5 are those builds; step 6
-is the takeover recorded after:
+Do these in order from the repo root. `apply.sh` records steps 1–5
+(builds first, gotcha #118); step 6 is recorded after the check:
 
-### 1. Apply the pools and L2 policies
+### 1. Build the app image
+
+`shopapi` is `/healthz`, `/ready` (`SELECT 1`), `/orders`; one pool,
+connect timeout 1 s, `SetMaxOpenConns 8`. No Deployment in this phase.
+
+```bash
+demos/40-shop-mesh-phase0/shopapi/build.sh
+```
+
+Result: `shopapi:local` loaded into poc1 and poc2 (config
+`0fe50505…`).
+
+```text
+shopapi:local loaded into poc1 and poc2
+```
+
+### 2. Build the clients
+
+Go and Python share one contract: `probe` hits every path once; `load`
+prints per-second OK/FAIL and which cluster answered. Both accept a bare
+number or Go units (`3`, `3s`, `500ms`). They know only the URL.
+
+```bash
+demos/40-shop-mesh-phase0/client/go/shopctl/build.sh
+```
+
+Result: both binaries written. The Python client is the script itself.
+
+```text
+wrote bin/shopctl-darwin-arm64 bin/shopctl-linux-amd64
+```
+
+### 3. Apply the pools and L2 policies
 
 The shared pool is safe in both clusters: a static `spec.addresses`
 request lands in the pool that holds the address
@@ -126,7 +158,7 @@ cilium-l2announce-default-cilium-gateway-sw-gateway   poc1-control-plane        
 cilium-l2announce-default-rebel-base-lb   poc2-control-plane                                                              2d14h
 ```
 
-### 2. Issue the certificates
+### 4. Issue the certificates
 
 One `Certificate` per cluster, the same spec. A wildcard
 `*.shop.poc.local` covers one label and fails the two-label names
@@ -150,7 +182,7 @@ certificate.cert-manager.io/shop-tls created
 certificate.cert-manager.io/shop-tls condition met
 ```
 
-### 3. Create the Gateways
+### 5. Create the Gateways
 
 Two files, one per cluster. Then `shop-vip-announce` on poc1 only
 (delete from the other first).
@@ -173,8 +205,8 @@ scripts/vip-takeover.sh --status
 ```
 
 Result: all four Programmed; VIP announced by poc1,
-`lease holder=poc1-worker`. ARP for `.16` from the kind bridge: three
-replies from `2a:41:4a:7f:cf:12` (poc1-control-plane).
+`lease holder=poc1-worker`; poc2 `shop-vip-announce: absent`,
+`lease: none`.
 
 ```text
 CLUSTER  GATEWAY      ADDRESS          PROGRAMMED   CERT_READY   VIP_BY
@@ -182,38 +214,6 @@ poc1     shop-gw      172.18.255.242   True         True         -
 poc1     shop-vip-gw  172.18.255.16    True         True         poc1
 poc2     shop-gw      172.18.255.177   True         True         -
 poc2     shop-vip-gw  172.18.255.16    True         True         poc1
-```
-
-### 4. Build the app image
-
-`shopapi` is `/healthz`, `/ready` (`SELECT 1`), `/orders`; one pool,
-connect timeout 1 s, `SetMaxOpenConns 8`. No Deployment in this phase.
-
-```bash
-demos/40-shop-mesh-phase0/shopapi/build.sh
-```
-
-Result: `shopapi:local` loaded into poc1 and poc2 (config
-`0fe50505…`).
-
-```text
-shopapi:local loaded into poc1 and poc2
-```
-
-### 5. Build the clients
-
-Go and Python share one contract: `probe` hits every path once; `load`
-prints per-second OK/FAIL and which cluster answered. Both accept a bare
-number or Go units (`3`, `3s`, `500ms`). They know only the URL.
-
-```bash
-demos/40-shop-mesh-phase0/client/go/shopctl/build.sh
-```
-
-Result: both binaries written. The Python client is the script itself.
-
-```text
-wrote bin/shopctl-darwin-arm64 bin/shopctl-linux-amd64
 ```
 
 ### 6. Measure the takeover
@@ -231,8 +231,7 @@ scripts/vip-takeover.sh poc1
 Result: poc2 acquired the VIP lease on `poc2-control-plane` at 0 s;
 poc1's lease lingered with an empty holder (`27s` in the same listing).
 After 20 s: `announced by: poc2`, `lease holder=poc2-control-plane`,
-poc1 `lease: none`. Restored to poc1 (`poc1-worker` at 0 s). Agent logs:
-the lease moved in ~40 ms.
+poc1 `lease: none`. Restored to poc1 (`poc1-worker` at 0 s).
 
 ```text
 == VIP 172.18.255.16 announced by: poc2
@@ -319,6 +318,13 @@ that shows poc1's fingerprint reached poc1. Issuer `ca-issuer` signs
 from CA secret `clustermesh-root-ca` (the same root in both clusters).
 A client trusts `docs/root-ca.crt`.
 
+On the wire, from the review pass
+([docs/REVIEW_DEMO40.md](../../docs/REVIEW_DEMO40.md)): ARP for `.16`
+from a container on the `kind` bridge got three replies, all from
+`2a:41:4a:7f:cf:12` (poc1-control-plane). Agent logs of one flip: poc1
+`Job stopped` at 12:47:23.527/.530, poc2-worker `Successfully acquired
+lease` at .569 — ~40 ms poc1 → poc2; the return flip was not timed.
+
 Lease name:
 `cilium-l2announce-shop-edge-cilium-gateway-shop-vip-gw` — format
 `cilium-l2announce-<namespace>-cilium-gateway-<gateway-name>`.
@@ -341,8 +347,8 @@ reservation `.40–.47` (not LB IPAM).
 
 - `shopctl` prints `000`: the name does not resolve and the clients have
   no `--resolve` — add the hosts block under *Prerequisites*.
-- `arp -n 172.18.255.16` on this Mac has no entry: the host route's next
-  hop is the Docker VM, so the Mac never ARPs for the VIP.
+- The Mac's ARP table has no entry for `172.18.255.16`: the host route's
+  next hop is the Docker VM, so the Mac never ARPs for the VIP.
 - Two announcers for `.16`: the policy was applied on both — move it
   with `scripts/vip-takeover.sh` (delete-other-first).
 

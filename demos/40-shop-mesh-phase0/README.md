@@ -23,7 +23,9 @@ can watch one side without going through the VIP.
 
 The VIP cannot share a Service with the per-cluster address. Measured
 2026-09-18 on poc1, Cilium 1.20.2: a Gateway with two `spec.addresses`
-gets both IPs on its single Service. A `CiliumL2AnnouncementPolicy`
+gets both IPs on its single Service (`cilium-gateway-two-addr
+lb=172.18.255.246 172.18.255.247`, Programmed=True). A
+`CiliumL2AnnouncementPolicy`
 selects Services, not IPs, so that Gateway would have poc2 announce the
 VIP too — an ARP conflict on the kind bridge. Phase 0 therefore creates
 two Gateways per cluster: `shop-gw` (the per-cluster address, announced
@@ -227,6 +229,8 @@ demos/40-shop-mesh-phase0/client/go/shopctl/bin/shopctl-darwin-arm64 \
   load --rate 5 --duration 2 --timeout 500ms
 ```
 
+Not recorded — measured at review, not by `apply.sh`:
+
 ```text
 SECOND   OK     FAIL   X-SERVED-BY
 1        0      5      -
@@ -238,6 +242,8 @@ latency_ms  p50=2.6  p95=9.8  p99=9.8  max=9.8
 python3 demos/40-shop-mesh-phase0/client/python/shopctl.py \
   load --rate 5 --duration 2 --timeout 500ms
 ```
+
+Not recorded (the same local server):
 
 ```text
 SECOND   OK     FAIL   X-SERVED-BY
@@ -254,8 +260,9 @@ Delete-from-the-other-first. poc2 acquired the VIP lease on
 flip, `--status` printed `announced by: poc2` — a dying lease is not a
 second announcer. Restored to poc1 (`poc1-worker` at 0 s).
 
-`arp -n 172.18.255.16` on this Mac: no entry. The host route sends
-`172.18.0.0/16` to the Docker VM; the next hop is the VM, not `.16`.
+The Mac's ARP table has no entry for `172.18.255.16` (`--status` prints
+it). The host route sends `172.18.0.0/16` to the Docker VM; the next hop
+is the VM, not `.16`.
 
 ```bash
 scripts/vip-takeover.sh poc2
@@ -353,6 +360,9 @@ $ demos/40-shop-mesh-phase0/check.sh
 - A clustermesh global Service with affinity local — demo 41.
 - A write to `/etc/hosts` — `hosts-entries.sh` prints the block; checks
   use `--resolve`.
+- A regression-safe flip: `scripts/lab-regression.sh`'s lease row
+  (`check_l2_leases`) FAILs on any empty-holder lease, so a takeover's
+  ~15 s dying lease inside a regression window trips it — phase 5.
 - A unique VIP marker via `spec.infrastructure.labels` — the marker is
   the Gateway **name** (`io.cilium.gateway/owning-gateway`). Another
   namespace's `shop-vip-gw` would match. The lab has one `shop-edge`.

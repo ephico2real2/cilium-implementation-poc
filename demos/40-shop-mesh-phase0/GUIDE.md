@@ -1,7 +1,7 @@
-# Demo 40 — five things to try
+# Demo 40 — six things to try
 
-Five exercises against the demo once it is up; nothing here changes the
-cluster except exercise 4 and the hosts block under Prerequisites.
+Six exercises against the demo once it is up; nothing here changes the
+cluster except exercise 5 and the hosts block under Prerequisites.
 
 ## Prerequisites
 
@@ -63,7 +63,26 @@ curl -sk --resolve api.poc2.shop.poc.local:443:172.18.255.177 \
   PASS   https://api.poc2.shop.poc.local @ 172.18.255.177 answers               404                                                  http_code=404 in phase 0
 ```
 
-### 3. Read the VIP's leaf
+### 3. Probe the VIP with both clients
+
+The clients know only the URL — the hosts block resolves it (they have
+no `--resolve`). `probe` hits `/healthz`, `/ready`, `/orders` once each.
+
+```bash
+demos/40-shop-mesh-phase0/client/go/shopctl/bin/shopctl-darwin-arm64 \
+  probe --url https://api.shop.poc.local --insecure
+python3 demos/40-shop-mesh-phase0/client/python/shopctl.py \
+  probe --url https://api.shop.poc.local -k
+```
+
+**Expect:** both print `PATH STATUS X-SERVED-BY` and one row per path.
+In phase 0 every STATUS is `404` with `-` for the header (no backend set
+it) and the exit code is 3 — one per failed path (`runProbe` in
+`client/go/shopctl/main.go`); once demo 41 is attached `/healthz` is
+`200 poc1`. Without the hosts block both print `000`. Not in the
+transcript: `apply.sh` does not record a probe.
+
+### 4. Read the VIP's leaf
 
 Each cluster issued its own leaf from the same root. Repeat against
 `.242` with `-servername api.poc1.shop.poc.local` and `.177` with
@@ -83,7 +102,7 @@ echo | openssl s_client -servername api.shop.poc.local \
   PASS   VIP leaf issuer is clustermesh-root-ca                                 issuer=CN=clustermesh-root-ca                        openssl x509 -noout -issuer contains clustermesh-root-ca
 ```
 
-### 4. Flip the VIP announcer (this changes the cluster)
+### 5. Flip the VIP announcer (this changes the cluster)
 
 Deletes `shop-vip-announce` from the other cluster first, then applies
 it to the target. Flip back to poc1 before leaving; `check.sh` assumes
@@ -110,7 +129,7 @@ price of never having two.
   lease holder=poc2-control-plane
 ```
 
-### 5. Run the check
+### 6. Run the check
 
 ```bash
 demos/40-shop-mesh-phase0/check.sh

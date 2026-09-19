@@ -18,13 +18,17 @@ No docker build (gotcha #118). `routedemo:local` is already on the nodes.
 One load-balancer IP, two protocols. An operator who already has
 `shop-gw` at `172.18.255.177` for `api.poc2.shop.poc.local` adds
 `grpc.poc2.shop.poc.local` on that Gateway. A listener has one hostname;
-demo 41's HTTPRoute occupies `https`. Gateway API requires `:authority`
-to intersect the route's hostnames, and forbids an HTTPRoute and a
-GRPCRoute sharing a hostname on one listener. Cilium 1.20.2 evaluates
-the kinds separately ([read, not measured](../../docs/REVIEW_DEMO53.md)).
-poc2 gets listener `https-grpc` on port 443, distinguished by SNI, and
-Certificate `grpc-tls`. The `:80` listener has no hostname; the
-GRPCRoute attaches there as h2c. The path a request takes is in the
+demo 41's HTTPRoute occupies `https`. A route whose hostnames do not
+intersect the listener's is not accepted there (Gateway API v1.6.1,
+`GRPCRoute.spec.hostnames`: *"If both the Listener and GRPCRoute have
+specified hostnames, and none match … the GRPCRoute MUST NOT be
+accepted"*), and Gateway API requires exactly one of an HTTPRoute and a
+GRPCRoute whose hostnames overlap on one listener; Cilium 1.20.2
+evaluates the kinds separately
+([read, not measured](../../docs/REVIEW_DEMO53.md)). poc2 gets listener
+`https-grpc` on port 443, distinguished by SNI, and Certificate
+`grpc-tls`. The `:80` listener has no hostname; the GRPCRoute attaches
+there as h2c (HTTP/2 cleartext). The path a request takes is in the
 [RECAP Architecture](RECAP.md#architecture).
 
 ## Files
@@ -67,22 +71,44 @@ it. Every command goes through `scripts/record.sh`.
 The last apply (`2026-09-18T19:37:03Z`) and the last `check.sh`
 (`2026-09-18T19:37:08Z`).
 
-### 1. Deploy the app and the CiliumNetworkPolicy
+### 1. Add the listener and the leaf
 
-apply.sh exports the live root first, then applies the Deployment, the
-Service and CNP `grpc`. Last apply found poc1's route already present.
+apply.sh exports the live root first (last apply found poc1's route
+already present), then applies demo 40's files — the source of truth
+for `grpc-tls` and `https-grpc`.
 
 ```bash
 scripts/lab-trust.sh export kind-poc2
-kubectl --context kind-poc2 apply -f demos/53-grpc-parity/10-poc2-grpc-app.yaml
-kubectl --context kind-poc2 -n shop-edge wait deploy/grpc \
-  --for=condition=Available --timeout=120s
+kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/20-certificates.yaml
+kubectl --context kind-poc2 -n shop-edge wait certificate/grpc-tls \
+  --for=condition=Ready --timeout=90s
+kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/30-gateways-poc2.yaml
+kubectl --context kind-poc2 -n shop-edge wait --for=condition=Programmed \
+  gateway/shop-gw --timeout=120s
 ```
 
 Recorded (last apply):
 
 ```text
 the issuer's root from kind-poc2 → .tmp/root-ca.crt: subject=CN=clustermesh-root-ca sha256 Fingerprint=F4:FD:F8:B7:78:D9:D3:9E:69:53:E1:CB:FB:26:CD:1A:9B:85:48:66:D4:48:8D:08:0F:E9:73:7E:8A:97:BF:27
+certificate.cert-manager.io/shop-tls unchanged
+certificate.cert-manager.io/grpc-tls unchanged
+certificate.cert-manager.io/shop-tls condition met
+certificate.cert-manager.io/grpc-tls condition met
+gateway.gateway.networking.k8s.io/shop-gw configured
+gateway.gateway.networking.k8s.io/shop-vip-gw configured
+gateway.gateway.networking.k8s.io/shop-gw condition met
+kind-poc2 gateway/shop-gw: 3/3 listeners Programmed
+```
+
+### 2. Deploy the app and the CiliumNetworkPolicy
+
+The Deployment, the Service and CNP `grpc`.
+
+```bash
+kubectl --context kind-poc2 apply -f demos/53-grpc-parity/10-poc2-grpc-app.yaml
+kubectl --context kind-poc2 -n shop-edge wait deploy/grpc \
+  --for=condition=Available --timeout=120s
 ```
 
 Recorded (last apply):
@@ -94,32 +120,17 @@ ciliumnetworkpolicy.cilium.io/grpc unchanged
 deployment.apps/grpc condition met
 ```
 
-### 2. Add the listener and the GRPCRoute
+### 3. Attach the GRPCRoute
 
-Demo 40's files are the source of truth for `grpc-tls` and
-`https-grpc`. The GRPCRoute parents both `https-grpc` and `http`.
+The GRPCRoute parents both `https-grpc` and `http`.
 
 ```bash
-kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/20-certificates.yaml
-kubectl --context kind-poc2 -n shop-edge wait certificate/grpc-tls \
-  --for=condition=Ready --timeout=90s
-kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/30-gateways-poc2.yaml
-kubectl --context kind-poc2 -n shop-edge wait --for=condition=Programmed \
-  gateway/shop-gw --timeout=120s
 kubectl --context kind-poc2 apply -f demos/53-grpc-parity/30-poc2-grpcroute.yaml
 ```
 
 Recorded (last apply):
 
 ```text
-certificate.cert-manager.io/shop-tls unchanged
-certificate.cert-manager.io/grpc-tls unchanged
-certificate.cert-manager.io/shop-tls condition met
-certificate.cert-manager.io/grpc-tls condition met
-gateway.gateway.networking.k8s.io/shop-gw configured
-gateway.gateway.networking.k8s.io/shop-vip-gw configured
-gateway.gateway.networking.k8s.io/shop-gw condition met
-kind-poc2 gateway/shop-gw: 3/3 listeners Programmed
 grpcroute.gateway.networking.k8s.io/grpc configured
 kind-poc2 grpcroute/grpc: all parents Accepted+ResolvedRefs
 ```
@@ -139,7 +150,7 @@ Recorded (last apply):
 Error invoking method "routedemo.Echo/DoesNotExist": target server does not expose service "routedemo.Echo"
 ```
 
-### 3. Prove the policy drop
+### 4. Prove the policy drop
 
 ```bash
 demos/53-grpc-parity/policy-proof.sh
@@ -166,7 +177,7 @@ ciliumnetworkpolicy.cilium.io/grpc created
 policy-proof: CNP grpc required; Policy denied DROPPED from (ingress) identity 8; SERVING restored
 ```
 
-### 4. Prove the leaf
+### 5. Prove the leaf
 
 ```bash
 demos/53-grpc-parity/tls-proof.sh
@@ -224,7 +235,7 @@ $ demos/53-grpc-parity/check.sh
 - Removing the `https-grpc` listener — cleanup leaves it; it is demo 40's
   door.
 - A docker build (gotcha #118).
-- Envoy Gateway doors and `docs/EG-VS-CILIUM.md` — demos 51 / 54 and
+- Envoy Gateway doors and `docs/EG-VS-CILIUM.md` (not yet written) — demos 51 / 54 and
   enhancement 007 phase 4.
 - `routedemo.Echo` as a reflected service — it is a health status name.
   The unmatched method and the wrong `:authority` are

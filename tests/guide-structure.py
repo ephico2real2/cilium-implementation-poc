@@ -58,7 +58,7 @@ def main(path, kind="recap"):
     # rule 3: commands live in fenced bash blocks, never inline in prose
     prose = re.sub(r"```.*?```", "", text, flags=re.S)
     prose = "\n".join(l for l in prose.splitlines() if not l.startswith("|"))
-    inline = re.findall(r"`((?:sudo |RECORD_STRICT=\S+ )?(?:kubectl|curl|docker|helm|kind|arping|grpcurl|go run|bash|python3|route|netstat|openssl|scripts/\S+\.sh|demos/\S+\.sh)\b[^`]{4,})`", prose)
+    inline = re.findall(r"`((?:sudo |RECORD_STRICT=\S+ )?(?:kubectl|curl|docker|helm|kind|arping|arp|grpcurl|go run|bash|python3|route|netstat|openssl|hubble|cilium-dbg|crictl|scripts/\S+\.sh|demos/\S+\.sh)\b[^`]{4,})`", prose)
     for cmd in inline:
         errors.append(f"command inline in prose (rule 3 — use a ```bash block): `{cmd[:60]}`")
     if errors:

@@ -16,6 +16,9 @@ changes the cluster.
 
 The route matches `grpc.health.v1.Health` and both reflection services
 only. `routedemo.Echo` is a health status name, not a reflected service.
+A matched service with a missing method (`grpc.health.v1.Health/NoSuchMethod`)
+answers `does not include a method named "NoSuchMethod"` — Envoy
+forwarded it; the backend answered.
 
 ```bash
 docker run --rm --network kind fullstorydev/grpcurl:latest \
@@ -34,7 +37,9 @@ Error invoking method "routedemo.Echo/DoesNotExist": target server does not expo
 
 No GRPCRoute hostname matches `wrong.poc.local`, so reflection is not
 forwarded. That is Cilium's Envoy for "this Host is not gRPC" on the
-hostname-less `:80` listener.
+hostname-less `:80` listener. An HTTP/1.1 GET with
+`Host: grpc.poc2.shop.poc.local` on the same port is Envoy's 404 (gRPC
+is not HTTP/1.1); `Host: api.poc2.shop.poc.local` there is demo 41's 301.
 
 ```bash
 docker run --rm --network kind fullstorydev/grpcurl:latest \
@@ -42,7 +47,9 @@ docker run --rm --network kind fullstorydev/grpcurl:latest \
   172.18.255.177:80 grpc.health.v1.Health/Check
 ```
 
-**Expect:** the measured wrong-authority error.
+**Expect:** the sentence below (not in this demo's transcript — `apply.sh`
+records only the unmatched-method probe; the same sentence is recorded
+from Envoy Gateway in demo 54's transcript).
 
 ```text
 Error invoking method "grpc.health.v1.Health/Check": failed to query for service descriptor "grpc.health.v1.Health": server does not support the reflection API

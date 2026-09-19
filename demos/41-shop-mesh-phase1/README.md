@@ -86,7 +86,8 @@ the last check (`2026-09-18T14:32:18Z`). Enforcement
 
 apply-both.sh writes ConfigMap `shop-cluster` per context, applies the
 byte-identical platform, and waits for every Deployment Available
-(≤ 180 s). Then it records `cilium-dbg service list` for catalog.
+(≤ 180 s). Then it records the agent's service list for catalog
+(`show_svc`).
 
 ```bash
 kubectl --context kind-poc1 apply \
@@ -132,11 +133,13 @@ Recorded (last apply):
  backend 10.20.0.135 state=active preferred=True
 ```
 
-`cilium-dbg service list` prints the selected set (one backend).
+The agent's service list (`show_svc` above) prints the selected set
+(one backend).
 statedb holds both copies; the BPF map selects the local one
 (`known=2 (clustermesh=1) selected=1 local` — see *Checks*). Cilium
 `pkg/clustermesh/selectbackends.go` sets
-`useRemote = localActiveBackends == 0`. Under enforced policy a
+`useRemote = localActiveBackends == 0 && remoteBackends > 0`. Under
+enforced policy a
 shopper wget of catalog times out: shopper is not a catalog caller.
 
 Recorded (last apply):
@@ -198,8 +201,10 @@ is its own Gateway. HTTP/2 prints the header lowercase.
 
 The reviewed set — default-deny per namespace plus the seven cf2cnp
 policies — is applied before the probes so a rebuilt cluster is
-enforcing. The last apply found the objects already present; *Checks*
-measures the inventory.
+enforcing. The committed transcript (`2026-09-18T14:32:06Z`) predates
+this section of apply-both.sh (commit c9fb1fc), so the apply of these
+files is not in the record; the next apply-both.sh run records it.
+*Checks* measures the inventory.
 
 ```bash
 kubectl --context kind-poc1 apply \
@@ -252,7 +257,22 @@ Seven policies each, `app.kubernetes.io/managed-by: cf2cnp`, stranger
 excluded. Descriptions (same on both clusters) are in the
 [RECAP Reference](RECAP.md#reference).
 
-### 6. Enforce the policies
+### 6. Apply the generated policies
+
+observe-and-enforce.sh applies the regenerated file under audit and
+runs `verdicts-both.sh`. Not in the record: the committed transcript
+holds apply-both.sh's run and `verify_enforcement`; the last
+observe-and-enforce.sh run was not committed.
+
+```bash
+kubectl --context kind-poc1 apply \
+  -f demos/41-shop-mesh-phase1/policies/poc1/cnp-shop-intent.yaml
+kubectl --context kind-poc2 apply \
+  -f demos/41-shop-mesh-phase1/policies/poc2/cnp-shop-intent.yaml
+demos/41-shop-mesh-phase1/verdicts-both.sh 200
+```
+
+### 7. Enforce the policies
 
 Audit mode Disabled on every shop endpoint (gotcha #84: the flag is
 endpoint-local).
@@ -270,7 +290,7 @@ Recorded (last check):
   PASS   X-Served-By never absent on /healthz                                   X-Served-By=poc1                                     the Gateway filter SET the header
 ```
 
-### 7. Verify enforcement
+### 8. Verify enforcement
 
 `verify_enforcement` (inside observe-and-enforce.sh) measures the
 drop, not assumes it.
@@ -293,7 +313,7 @@ kind-poc1: DROPPED stranger->catalog and FORWARDED api-gateway->catalog observed
 kind-poc2: DROPPED stranger->catalog and FORWARDED api-gateway->catalog observed
 ```
 
-### 8. Run the checks
+### 9. Run the checks
 
 apply-both.sh ends on check.sh. The final table from the same run
 (`2026-09-18T14:32:17Z`). HTTP/2 prints `x-served-by` lowercase;

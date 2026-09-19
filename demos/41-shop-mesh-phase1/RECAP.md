@@ -6,8 +6,8 @@ ConfigMap `shop-cluster` (`data.name=poc1` / `poc2`). Every stateless
 Service is a clustermesh global Service with affinity local (remote
 backends known, local ones preferred while healthy). HTTPRoutes attach
 `api-gateway` to every door. CiliumNetworkPolicies (Cilium's
-per-endpoint allow list) are generated from observed Hubble flows, then
-enforced. `/ready` and `/orders` answer 503 until phase 2
+per-endpoint allow list) are generated from observed Hubble flows by
+cf2cnp (the lab's flow-to-policy generator, on poc1), then enforced. `/ready` and `/orders` answer 503 until phase 2
 ([enhancement 002](../../enhancements/002-shop-platform-clustermesh.md)
 R3 — no database).
 
@@ -89,7 +89,9 @@ demos/40-shop-mesh-phase0/hosts-entries.sh | sudo tee -a /etc/hosts
 ## Steps
 
 Do these in order from the repo root (apply-both.sh records the
-platform, the routes, the saved policies and the check; observe-and-enforce.sh
+platform, the routes, the saved policies and the check; on the first
+transition from demo 35 its `remove_legacy_policies` deletes demo 35's
+policies once, before `backend`'s policy exists. observe-and-enforce.sh
 is how the saved set is regenerated):
 
 ### 1. Apply the platform
@@ -202,7 +204,29 @@ demos/41-shop-mesh-phase1/generate-both.sh
 Result: seven CiliumNetworkPolicies per cluster. api-gateway admits
 `reserved:ingress` and shopper; the stranger is not in any selector.
 
-### 6. Enforce the policies
+### 6. Apply the generated policies
+
+`generate-both.sh` overwrote `policies/<cluster>/cnp-shop-intent.yaml`;
+apply it under audit, then read the AUDIT verdicts (0 drops of intended
+paths).
+
+```bash
+kubectl --context kind-poc1 apply \
+  -f demos/41-shop-mesh-phase1/policies/poc1/cnp-shop-intent.yaml
+kubectl --context kind-poc2 apply \
+  -f demos/41-shop-mesh-phase1/policies/poc2/cnp-shop-intent.yaml
+demos/41-shop-mesh-phase1/verdicts-both.sh 200
+```
+
+Result: seven policies per cluster, `managed-by=cf2cnp` — `check.sh`
+measures `7/7 exact names` on both.
+
+```text
+  PASS   poc1 has exactly the seven generated shop policies                     7/7 exact names                                      exact generated policy inventory, managed-by=cf2cnp
+  PASS   poc2 has exactly the seven generated shop policies                     7/7 exact names                                      exact generated policy inventory, managed-by=cf2cnp
+```
+
+### 7. Enforce the policies
 
 Audit mode off on every shop endpoint.
 
@@ -217,7 +241,7 @@ clusters; `/healthz` through the VIP stays `200` `X-Served-By=poc1`.
   PASS   VIP /healthz still 200 after policies                                  http_code=200 X-Served-By=poc1                       probe /healthz is 200 with the header
 ```
 
-### 7. Verify enforcement
+### 8. Verify enforcement
 
 `verify_enforcement` is the measurement: the stranger is not a catalog
 caller; `api-gateway` is.
@@ -237,7 +261,7 @@ kind-poc1: DROPPED stranger->catalog and FORWARDED api-gateway->catalog observed
 kind-poc2: DROPPED stranger->catalog and FORWARDED api-gateway->catalog observed
 ```
 
-### 8. Run the checks
+### 9. Run the checks
 
 ```bash
 demos/41-shop-mesh-phase1/check.sh
@@ -298,12 +322,12 @@ Addresses ([enhancement 002 §8.1](../../enhancements/002-shop-platform-clusterm
 | `172.18.255.242` | `api.poc1.shop.poc.local` | poc1 `shop-gw` |
 | `172.18.255.177` | `api.poc2.shop.poc.local` | poc2 `shop-gw` |
 
-Catalog backends (statedb + BPF map, [docs/REVIEW_DEMO41.md](../../docs/REVIEW_DEMO41.md)):
+Catalog backends (statedb (the agent's backend table) and the BPF map, [docs/REVIEW_DEMO41.md](../../docs/REVIEW_DEMO41.md)):
 poc1 statedb holds `10.10.0.46` (`k8s`) and `10.20.0.135`
 (`clustermesh`); `bpf lb` for `10.11.58.134:80` selects
 `10.10.0.46`. poc2 is the mirror (`10.21.123.1:80` → `10.20.0.135`).
 Cilium `pkg/clustermesh/selectbackends.go` sets
-`useRemote = localActiveBackends == 0`.
+`useRemote = localActiveBackends == 0 && remoteBackends > 0`.
 
 Generated policies (same descriptions on both clusters):
 
@@ -325,9 +349,11 @@ Generated policies (same descriptions on both clusters):
 | [`policies/poc1/`](policies/poc1/) / [`policies/poc2/`](policies/poc2/) | generated CNPs and the AUDIT flows |
 | [`apply-both.sh`](apply-both.sh) / [`observe-and-enforce.sh`](observe-and-enforce.sh) / [`check.sh`](check.sh) / [`cleanup.sh`](cleanup.sh) | land, regenerate, prove, remove |
 
-Resources vs the plan's §8 baseline (17.0 GiB, ~1.1 cores): four nodes
-sum `1007m` CPU / `19395` Mi (~18.9 GiB); the four kind-node containers
-summed to `18.894` GiB (+1.9 GiB, CPU around one core).
+Resources vs the plan's §8 baseline (17.0 GiB, ~1.1 cores):
+node CPU `396+244+200+167m` and memory `7431+5534+3351+3079` Mi
+(`top nodes`, review A12);
+the four kind-node containers summed to `18.894` GiB (+1.9 GiB, CPU
+around one core).
 
 ## Troubleshooting
 

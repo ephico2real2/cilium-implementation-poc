@@ -4,8 +4,8 @@ This page re-runs demo 09's gRPC test on poc1 and lands poc2's first
 GRPCRoute on `shop-gw` (Cilium's front-door object, listeners in the
 node's shared Envoy). HTTP already occupies `api.poc2.shop.poc.local` on
 `172.18.255.177`. gRPC gets its own name on that address —
-`grpc.poc2.shop.poc.local` — a new `https-grpc` listener, plaintext h2c
-on `:80`, and TLS on `:443` through the lab root. Both clusters answer
+`grpc.poc2.shop.poc.local` — a new `https-grpc` listener, plaintext
+h2c (HTTP/2 cleartext) on `:80`, and TLS on `:443` through the lab root. Both clusters answer
 `SERVING`.
 
 ## What you get
@@ -47,11 +47,15 @@ A request from a container on the `kind` bridge takes this path:
 ```
 
 `https` on the same address still serves `api.poc2.shop.poc.local`
-(demo 41's HTTPRoute). A Gateway listener has one hostname. Gateway API
-requires that `:authority` intersect the route's hostnames, and forbids
-an HTTPRoute and a GRPCRoute sharing a hostname on one listener. Cilium
-1.20.2 evaluates the kinds separately
-([read, not measured](../../docs/REVIEW_DEMO53.md)). This page uses a
+(demo 41's HTTPRoute). A Gateway listener has one hostname, and a route
+whose hostnames do not intersect it is not accepted there — Gateway API
+v1.6.1, `GRPCRoute.spec.hostnames`: *"If both the Listener and GRPCRoute
+have specified hostnames, and none match with the criteria above, then
+the GRPCRoute MUST NOT be accepted by the implementation"* — so
+`grpc.poc2.shop.poc.local` needs its own listener. Gateway API also
+requires exactly one of an HTTPRoute and a GRPCRoute whose hostnames
+overlap on one listener; Cilium 1.20.2 evaluates the kinds separately
+(read from its code, not measured). This page uses a
 distinct name and stays portable.
 
 | Name | Address | What it is | Who answers |
@@ -93,9 +97,34 @@ kubectl --context kind-poc1 apply -f demos/09-routes/03-routes.yaml
 
 ## Steps
 
-Do these in order from the repo root, after the prerequisites:
+Do these in order from the repo root, after the prerequisites
+(`apply.sh` runs and records all five):
 
-### 1. Deploy the app and the CiliumNetworkPolicy
+### 1. Add the listener and the leaf
+
+`https` is already `api.poc2.shop.poc.local`. The Certificate and the
+`https-grpc` listener live in demo 40 so that apply stays the source of
+truth.
+
+```bash
+kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/20-certificates.yaml
+kubectl --context kind-poc2 -n shop-edge wait certificate/grpc-tls \
+  --for=condition=Ready --timeout=90s
+kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/30-gateways-poc2.yaml
+kubectl --context kind-poc2 -n shop-edge wait --for=condition=Programmed \
+  gateway/shop-gw --timeout=120s
+```
+
+Result: `certificate.cert-manager.io/grpc-tls condition met`; shop-gw
+`3/3` listeners Programmed.
+
+```text
+certificate.cert-manager.io/grpc-tls condition met
+gateway.gateway.networking.k8s.io/shop-gw condition met
+kind-poc2 gateway/shop-gw: 3/3 listeners Programmed
+```
+
+### 2. Deploy the app and the CiliumNetworkPolicy
 
 `routedemo:local -mode grpc` in `shop-edge`, Service port 9090 with
 `appProtocol: kubernetes.io/h2c` (without it Envoy speaks HTTP/1.1 to
@@ -120,38 +149,29 @@ ciliumnetworkpolicy.cilium.io/grpc unchanged
 deployment.apps/grpc condition met
 ```
 
-### 2. Add the listener and the GRPCRoute
+### 3. Attach the GRPCRoute
 
-`https` is already `api.poc2.shop.poc.local`. The Certificate and the
-`https-grpc` listener live in demo 40 so that apply stays the source of
-truth. The GRPCRoute parents `https-grpc` and `http`, hostname
+The GRPCRoute parents `https-grpc` and `http`, hostname
 `grpc.poc2.shop.poc.local`, three method matches from demo 09 (Health
 and both reflection services).
 
 ```bash
-kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/20-certificates.yaml
-kubectl --context kind-poc2 -n shop-edge wait certificate/grpc-tls \
-  --for=condition=Ready --timeout=90s
-kubectl --context kind-poc2 apply -f demos/40-shop-mesh-phase0/30-gateways-poc2.yaml
-kubectl --context kind-poc2 -n shop-edge wait --for=condition=Programmed \
-  gateway/shop-gw --timeout=120s
 kubectl --context kind-poc2 apply -f demos/53-grpc-parity/30-poc2-grpcroute.yaml
 ```
 
-Result: `certificate.cert-manager.io/grpc-tls condition met`; shop-gw
-`3/3` listeners Programmed; grpcroute all parents
-Accepted+ResolvedRefs.
+Result: grpcroute all parents Accepted+ResolvedRefs.
 
 ```text
-certificate.cert-manager.io/grpc-tls condition met
-kind-poc2 gateway/shop-gw: 3/3 listeners Programmed
+grpcroute.gateway.networking.k8s.io/grpc configured
 kind-poc2 grpcroute/grpc: all parents Accepted+ResolvedRefs
 ```
 
-### 3. Prove the policy drop
+### 4. Prove the policy drop
 
 Every apply re-proves that CNP `grpc` is what lets `reserved:ingress`
-(identity 8) reach `:9090`.
+(identity 8) reach `:9090`: without it the endpoint's only realized
+ingress allow is Cilium's localhost rule (`allow-localhost-ingress`),
+so kubelet's TCP probes (`reserved:host`) pass while Envoy is dropped.
 
 ```bash
 demos/53-grpc-parity/policy-proof.sh
@@ -171,7 +191,7 @@ source identity 8 (reserved:ingress)
 policy-proof: CNP grpc required; Policy denied DROPPED from (ingress) identity 8; SERVING restored
 ```
 
-### 4. Prove the leaf
+### 5. Prove the leaf
 
 `tls-proof.sh` prints the live leaf and which root verifies it.
 

@@ -44,7 +44,7 @@ x-served-by: poc2
 
 ### 2. Read catalog backends under affinity local
 
-`cilium-dbg service list` prints the selected set. statedb holds the
+The agent's service list prints the selected set. statedb holds the
 remote copy (`Source: clustermesh`); the BPF map does not while a
 local backend is Active
 (`pkg/clustermesh/selectbackends.go`).
