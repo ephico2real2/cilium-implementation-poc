@@ -4,9 +4,11 @@
 # with two paths on the spine measures the drop (step 6), then applies
 # 20-gateways-bgp.yaml (Cluster).
 #
-# WHY Local drops: every node advertises the /32; the spine ECMPs flows
-# to both; a node without the Envoy pod has no local endpoint and
-# kube-proxy DROPs the packet.
+# WHY Local drops (one replica): every node advertises the /32; the
+# spine ECMPs flows to both; a node without the Envoy pod has no local
+# endpoint and kube-proxy DROPs the packet. With envoyDeployment
+# replicas: 2 + anti-affinity, each node has a local endpoint — the
+# failure test (step 9) needs that spread.
 #
 #   kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/20a-gateways-bgp-etp-local.yaml
 apiVersion: gateway.envoyproxy.io/v1alpha1
@@ -18,6 +20,16 @@ spec:
   provider:
     type: Kubernetes
     kubernetes:
+      envoyDeployment:
+        replicas: 2
+        pod:
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchLabels:
+                      gateway.envoyproxy.io/owning-gateway-name: bgp-http-gw
       envoyService:
         type: LoadBalancer
         loadBalancerClass: kube-vip.io/kube-vip-class
@@ -70,6 +82,16 @@ spec:
   provider:
     type: Kubernetes
     kubernetes:
+      envoyDeployment:
+        replicas: 2
+        pod:
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchLabels:
+                      gateway.envoyproxy.io/owning-gateway-name: bgp-grpc-gw
       envoyService:
         type: LoadBalancer
         loadBalancerClass: kube-vip.io/kube-vip-class

@@ -244,8 +244,8 @@ export CLUSTER PROJECT FABRIC CTX
 rec bash -c election_record
 unset -f wait_established election_record
 
-# ---- 3. BGP doors with ETP Local FIRST + app + routes ----
-echo "== 3. BGP doors ETP Local (20a) + grpcdemo + routes"
+# ---- 3. BGP doors with ETP Local FIRST + app + shopapi HA + routes ----
+echo "== 3. BGP doors ETP Local (20a) + grpcdemo + shopapi HA + routes"
 if need_kind_load grpcdemo; then
   rec kind load docker-image grpcdemo:local --name "$CLUSTER"
 else
@@ -258,12 +258,52 @@ rec kubectl --context "$CTX" -n shop wait --for=condition=Programmed gateway/bgp
 rec kubectl --context "$CTX" -n shop wait --for=condition=Programmed gateway/bgp-grpc-gw --timeout=180s
 rec bash -c 'wait_envoy_deploy bgp-http-gw'
 rec bash -c 'wait_envoy_deploy bgp-grpc-gw'
+rec kubectl --context "$CTX" -n envoy-gateway-system wait deploy \
+  -l gateway.envoyproxy.io/owning-gateway-name=bgp-http-gw \
+  --for=jsonpath='{.status.readyReplicas}'=2 --timeout=180s
+rec kubectl --context "$CTX" -n envoy-gateway-system wait deploy \
+  -l gateway.envoyproxy.io/owning-gateway-name=bgp-grpc-gw \
+  --for=jsonpath='{.status.readyReplicas}'=2 --timeout=180s
 rec kubectl --context "$CTX" apply -f "$HERE/40-grpcdemo.yaml"
 rec kubectl --context "$CTX" -n shop wait deploy/grpcdemo-v1 --for=condition=Available --timeout=120s
 rec kubectl --context "$CTX" -n shop wait deploy/grpcdemo-v2 --for=condition=Available --timeout=120s
+rec kubectl --context "$CTX" apply -f "$HERE/41-shopapi-ha.yaml"
+rec kubectl --context "$CTX" -n shop wait deploy/shopapi --for=condition=Available --timeout=120s
 rec kubectl --context "$CTX" apply -f "$HERE/50-routes-bgp.yaml"
 rec bash -c 'wait_route httproute shop-api-bgp'
 rec bash -c 'wait_route grpcroute orders-bgp'
+
+# one of each on each node — FAIL the step if both replicas landed on one node
+require_spread() {
+  echo "---- envoy-gateway-system pods ----"
+  kubectl --context "$CTX" -n envoy-gateway-system get pods -o wide
+  echo "---- shopapi pods ----"
+  kubectl --context "$CTX" -n shop get pods -l app=shopapi -o wide
+  local gw nodes nuniq
+  for gw in bgp-http-gw bgp-grpc-gw; do
+    nodes=$(kubectl --context "$CTX" -n envoy-gateway-system get pods \
+      -l "gateway.envoyproxy.io/owning-gateway-name=$gw" \
+      -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' 2>&1) || nodes=""
+    nuniq=$(printf '%s\n' "$nodes" | awk 'NF && !seen[$0]++ {n++} END{print n+0}')
+    echo "$gw nodes: $(printf '%s' "$nodes" | tr '\n' ' ') unique=$nuniq"
+    if [ "$nuniq" -lt 2 ]; then
+      echo "apply.sh: $gw Envoy replicas not spread (one per node required)" >&2
+      return 1
+    fi
+  done
+  nodes=$(kubectl --context "$CTX" -n shop get pods -l app=shopapi \
+    -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' 2>&1) || nodes=""
+  nuniq=$(printf '%s\n' "$nodes" | awk 'NF && !seen[$0]++ {n++} END{print n+0}')
+  echo "shopapi nodes: $(printf '%s' "$nodes" | tr '\n' ' ') unique=$nuniq"
+  if [ "$nuniq" -lt 2 ]; then
+    echo "apply.sh: shopapi replicas not spread (one per node required)" >&2
+    return 1
+  fi
+}
+export -f require_spread
+export CTX
+rec bash -c require_spread
+unset -f require_spread
 
 doors_local() {
   echo "---- spine show ip bgp 10.98.0.10/32 (expect ONE path — the leader) ----"
@@ -339,8 +379,8 @@ client0_http() {
   echo "http://${HTTP_HOST}/healthz @ ${HTTP_ADDR}:80 → ${code} X-Served-By=${served:--} curl_rc=$rc"
   echo "---- ip route get $HTTP_ADDR ----"
   docker exec "$CLIENT" ip route get "$HTTP_ADDR" || true
-  echo "---- traceroute -n $HTTP_ADDR (edge → spine → leaf → node) ----"
-  docker exec "$CLIENT" traceroute -n "$HTTP_ADDR" || true
+  echo "---- traceroute -T -p 80 -n $HTTP_ADDR (edge → spine → leaf → node; TCP to the door's port — UDP probes to high ports are not kube-proxy's and the node forwards them onward, measured) ----"
+  docker exec "$CLIENT" traceroute -T -p 80 -n -m 8 "$HTTP_ADDR" || true
 }
 export -f client0_http
 export CLIENT HTTP_HOST HTTP_ADDR
@@ -352,17 +392,18 @@ echo "== 5. kube-vip BGP active-active (10b)"
 rec kubectl --context "$CTX" apply -f "$HERE/10b-kube-vip-ds-bgp-active-active.yaml"
 t2=$(date +%s)
 rec kubectl --context "$CTX" -n kube-system rollout status ds/kube-vip-ds --timeout=180s
-aa_wait() {
-  local i n
-  for i in $(seq 1 90); do
-    raw=$(docker compose -p "$PROJECT" -f "$FABRIC/compose.yaml" -f "$FABRIC/compose.lan-eg.yaml" \
-      exec -T spine vtysh -c 'show ip bgp 10.98.0.10/32 json' 2>&1) || raw=""
-    n=$(printf '%s' "$raw" | python3 -c '
-import json, sys
+# Count paths whose nexthop is inside 172.19.0.0/17 (a node). The leaf
+# also keeps the door's own prefix learned from the spine (10.200.1.3,
+# AS path 65100 65102 65021 via leaf2) — real BGP; never preferred
+# while a direct node path exists. Judges count NODE paths only.
+node_path_count() { # stdin: show ip bgp PREFIX json → count or FAIL
+  python3 -c '
+import ipaddress, json, sys
+NET = ipaddress.ip_network("172.19.0.0/17")
 try:
     data = json.loads(sys.stdin.read())
 except json.JSONDecodeError:
-    print(0); raise SystemExit
+    print("FAIL"); raise SystemExit
 def paths_of(obj):
     if isinstance(obj, dict):
         if isinstance(obj.get("paths"), list):
@@ -372,27 +413,70 @@ def paths_of(obj):
             if found is not None:
                 return found
     return None
+def hop_ips(path):
+    ips = []
+    if not isinstance(path, dict):
+        return ips
+    for key in ("nexthop", "nexthops", "peer"):
+        nh = path.get(key)
+        if nh is None:
+            continue
+        items = nh if isinstance(nh, list) else [nh]
+        for item in items:
+            if isinstance(item, str):
+                ips.append(item.split("/")[0])
+            elif isinstance(item, dict):
+                ip = item.get("ip") or item.get("nexthop")
+                if ip:
+                    ips.append(str(ip).split("/")[0])
+    return ips
 found = paths_of(data)
-print(len(found) if found is not None else 0)
-')
-    if [ "${n:-0}" -ge 2 ]; then
-      echo "spine paths=2 after ${i}s"
+if found is None:
+    print("FAIL"); raise SystemExit
+n = 0
+for p in found:
+    for ip in hop_ips(p):
+        try:
+            if ipaddress.ip_address(ip) in NET:
+                n += 1
+                break
+        except ValueError:
+            continue
+print(n)
+'
+}
+aa_wait() { # want — the number of NODE paths expected on leaf1 (1 under
+            # ETP Local: kube-vip advertises a Local Service only from the
+            # node with its endpoint — pkg/endpoints/endpoints.go:75-81,
+            # measured; 2 under ETP Cluster). Spine bounce is not a node.
+  local want=${1:-2} i n
+  for i in $(seq 1 90); do
+    raw=$(docker compose -p "$PROJECT" -f "$FABRIC/compose.yaml" -f "$FABRIC/compose.lan-eg.yaml" \
+      exec -T leaf1 vtysh -c 'show ip bgp 10.98.0.10/32 json' 2>&1) || raw=""
+    n=$(printf '%s' "$raw" | node_path_count)
+    if [ "$n" != FAIL ] && [ "${n:-0}" -ge "$want" ]; then
+      echo "leaf1 node_paths=$n (want >= $want nodes) after ${i}s"
       return 0
     fi
     sleep 1
   done
-  echo "apply.sh: spine still has paths=$n for 10.98.0.10/32 after 90s" >&2
+  echo "apply.sh: leaf1 still has node_paths=$n for 10.98.0.10/32 after 90s (want $want)" >&2
   return 1
 }
-export -f aa_wait
+export -f node_path_count aa_wait
 export PROJECT FABRIC
-rec bash -c aa_wait
+# the doors are still ETP Local here: expect ONE node (the one with the Envoy pod) — the second
+# path arrives with ETP Cluster in step 6
+rec bash -c 'aa_wait 1'
 t3=$(date +%s)
-echo "active-active converge: $((t3 - t2))s"
+echo "active-active converge (ETP Local, one node): $((t3 - t2))s"
 aa_record() {
   echo "---- spine show ip bgp 10.98.0.10/32 ----"
   docker compose -p "$PROJECT" -f "$FABRIC/compose.yaml" -f "$FABRIC/compose.lan-eg.yaml" \
     exec -T spine vtysh -c 'show ip bgp 10.98.0.10/32'
+  echo "---- leaf1 show ip bgp 10.98.0.10/32 (two node paths + the spine bounce) ----"
+  docker compose -p "$PROJECT" -f "$FABRIC/compose.yaml" -f "$FABRIC/compose.lan-eg.yaml" \
+    exec -T leaf1 vtysh -c 'show ip bgp 10.98.0.10/32'
   echo "---- spine ip route show 10.98.0.10 (expect two nexthops) ----"
   docker compose -p "$PROJECT" -f "$FABRIC/compose.yaml" -f "$FABRIC/compose.lan-eg.yaml" \
     exec -T spine ip route show 10.98.0.10 || true
@@ -407,10 +491,10 @@ aa_record() {
 export -f aa_record
 export PROJECT FABRIC
 rec bash -c aa_record
-unset -f aa_wait aa_record
+unset -f aa_record
 
 # ---- 6. THE ETP EXPERIMENT ----
-echo "== 6. ETP experiment: Local (two paths) then Cluster"
+echo "== 6. ETP: Local (one node advertises — the pod's) then Cluster (both nodes — ECMP)"
 etp_loop() { # label
   local label=$1 i rc code ok=0 fail=0
   echo "---- $label: 40 curls from client0 ----"
@@ -502,6 +586,12 @@ switch_etp_cluster() {
   kubectl --context "$CTX" -n shop wait --for=condition=Programmed gateway/bgp-grpc-gw --timeout=180s
   wait_envoy_deploy bgp-http-gw
   wait_envoy_deploy bgp-grpc-gw
+  kubectl --context "$CTX" -n envoy-gateway-system wait deploy \
+    -l gateway.envoyproxy.io/owning-gateway-name=bgp-http-gw \
+    --for=jsonpath='{.status.readyReplicas}'=2 --timeout=180s
+  kubectl --context "$CTX" -n envoy-gateway-system wait deploy \
+    -l gateway.envoyproxy.io/owning-gateway-name=bgp-grpc-gw \
+    --for=jsonpath='{.status.readyReplicas}'=2 --timeout=180s
   wait_route httproute shop-api-bgp
   wait_route grpcroute orders-bgp
   etp_final=$(kubectl --context "$CTX" -n envoy-gateway-system get svc \
@@ -512,8 +602,10 @@ switch_etp_cluster() {
 export -f switch_etp_cluster wait_envoy_deploy wait_route
 export CTX HERE
 rec bash -c switch_etp_cluster
+# ETP Cluster: every node has a (cluster-wide) endpoint, so both advertise — two paths on leaf1
+rec bash -c 'aa_wait 2'
 rec bash -c 'etp_loop ETP-Cluster'
-unset -f etp_loop switch_etp_cluster
+unset -f etp_loop switch_etp_cluster aa_wait
 
 # ---- 7. gRPC matrix from client0 ----
 echo "== 7. gRPC matrix from client0 (demo 52's 14 tests; hostname grpc.eg-poc1.poc.local)"
@@ -923,33 +1015,21 @@ export CHROME HERE HTTP_HOST HTTP_ADDR
 rec bash -c browser_shot
 unset -f mac_half browser_shot
 
-# ---- 9. FAILURE, measured ----
-echo "== 9. pause eg-poc1-worker (hold 9 s → Idle; ECMP vs demo 51 ~10 s VIP move)"
-failure_pause() {
-  local worker=eg-poc1-worker start now i rc code ok=0 fail=0 first_fail="" idle_at="" one_path_at=""
-  local worker_ip
-  worker_ip=$(docker inspect -f '{{(index .NetworkSettings.Networks "kind-eg").IPAddress}}' "$worker" 2>/dev/null || echo 172.19.0.3)
-  trap 'docker unpause eg-poc1-worker 2>/dev/null || true' EXIT
-  echo "---- pause $worker ($worker_ip) ----"
-  docker pause "$worker"
-  start=$(date +%s)
-  while now=$(date +%s); [ $((now - start)) -lt 40 ]; do
-    rc=0
-    code=$(docker exec "$CLIENT" curl -s -o /dev/null -w '%{http_code}' \
-      --resolve "${HTTP_HOST}:80:${HTTP_ADDR}" \
-      "http://${HTTP_HOST}/healthz" --connect-timeout 2 --max-time 2) || rc=$?
-    if [ "$rc" -eq 0 ] && [ "$code" = 200 ]; then
-      ok=$((ok + 1))
-    else
-      fail=$((fail + 1))
-      if [ -z "$first_fail" ]; then
-        first_fail=$((now - start))
-      fi
-    fi
-    echo "t+$((now - start))s code=${code:-000} rc=$rc"
-    raw=$(docker compose -p "$PROJECT" -f "$FABRIC/compose.yaml" -f "$FABRIC/compose.lan-eg.yaml" \
-      exec -T leaf1 vtysh -c 'show bgp summary json' 2>&1) || raw=""
-    st=$(printf '%s' "$raw" | WORKER_IP="$worker_ip" python3 -c '
+# ---- 9. FAILURE, measured (two scenarios) ----
+echo "== 9. BGP-only (delete kube-vip on the worker) then silent node (pause 75 s)"
+
+leaf_node_paths() { # leaf → node-path count or FAIL
+  local raw
+  raw=$(docker compose -p "$PROJECT" -f "$FABRIC/compose.yaml" -f "$FABRIC/compose.lan-eg.yaml" \
+    exec -T "$1" vtysh -c 'show ip bgp 10.98.0.10/32 json' 2>&1) || raw=""
+  printf '%s' "$raw" | node_path_count
+}
+
+leaf_peer_state() { # leaf ip
+  local raw
+  raw=$(docker compose -p "$PROJECT" -f "$FABRIC/compose.yaml" -f "$FABRIC/compose.lan-eg.yaml" \
+    exec -T "$1" vtysh -c 'show bgp summary json' 2>&1) || raw=""
+  printf '%s' "$raw" | WORKER_IP="$2" python3 -c '
 import json, os, sys
 ip = os.environ["WORKER_IP"]
 try:
@@ -966,79 +1046,208 @@ def walk(o):
 walk(data)
 p = peers.get(ip) or {}
 print(p.get("state") or p.get("peerState") or p.get("bgpState") or "ABSENT")
-')
-    echo "leaf1 peer $worker_ip state=$st"
-    if [ "$st" = Idle ] && [ -z "$idle_at" ]; then
-      idle_at=$((now - start))
-    fi
-    praw=$(docker compose -p "$PROJECT" -f "$FABRIC/compose.yaml" -f "$FABRIC/compose.lan-eg.yaml" \
-      exec -T spine vtysh -c 'show ip bgp 10.98.0.10/32 json' 2>&1) || praw=""
-    pn=$(printf '%s' "$praw" | python3 -c '
-import json, sys
-try:
-    data = json.loads(sys.stdin.read())
-except json.JSONDecodeError:
-    print("FAIL"); raise SystemExit
-def paths_of(obj):
-    if isinstance(obj, dict):
-        if isinstance(obj.get("paths"), list):
-            return obj["paths"]
-        for v in obj.values():
-            found = paths_of(v)
-            if found is not None:
-                return found
-    return None
-found = paths_of(data)
-print(len(found) if found is not None else "FAIL")
-')
-    echo "spine paths=$pn"
-    if [ "$pn" = 1 ] && [ -z "$one_path_at" ]; then
-      one_path_at=$((now - start))
-    fi
-    sleep 0.5
-  done
-  echo "pause loop ok=$ok fail=$fail first_fail_s=${first_fail:-none} idle_at_s=${idle_at:-none} one_path_at_s=${one_path_at:-none}"
-  echo "---- unpause $worker ----"
-  docker unpause "$worker"
-  local back=""
-  for i in $(seq 1 60); do
-    raw=$(docker compose -p "$PROJECT" -f "$FABRIC/compose.yaml" -f "$FABRIC/compose.lan-eg.yaml" \
-      exec -T leaf1 vtysh -c 'show bgp summary json' 2>&1) || raw=""
-    if printf '%s' "$raw" | python3 scripts/fabric-bgp-summary.py --require "$worker_ip" 2>/dev/null; then
-      praw=$(docker compose -p "$PROJECT" -f "$FABRIC/compose.yaml" -f "$FABRIC/compose.lan-eg.yaml" \
-        exec -T spine vtysh -c 'show ip bgp 10.98.0.10/32 json' 2>&1) || praw=""
-      pn=$(printf '%s' "$praw" | python3 -c '
+'
+}
+
+servers_est_on_leaf() { # leaf → Established SERVERS (AS 65021) count
+  local raw
+  raw=$(docker compose -p "$PROJECT" -f "$FABRIC/compose.yaml" -f "$FABRIC/compose.lan-eg.yaml" \
+    exec -T "$1" vtysh -c 'show bgp summary json' 2>&1) || raw=""
+  printf '%s' "$raw" | python3 -c '
 import json, sys
 try:
     data = json.loads(sys.stdin.read())
 except json.JSONDecodeError:
     print(0); raise SystemExit
-def paths_of(obj):
-    if isinstance(obj, dict):
-        if isinstance(obj.get("paths"), list):
-            return obj["paths"]
-        for v in obj.values():
-            found = paths_of(v)
-            if found is not None:
-                return found
-    return None
-found = paths_of(data)
-print(len(found) if found is not None else 0)
-')
-      if [ "${pn:-0}" -ge 2 ]; then
-        back=$i
-        echo "session Established and two paths again after ${i}s (demo 51 VIP move ~10 s)"
-        break
+peers = {}
+def walk(o):
+    if isinstance(o, dict):
+        if isinstance(o.get("peers"), dict):
+            peers.update(o["peers"])
+        for v in o.values():
+            walk(v)
+walk(data)
+n = 0
+for ip, p in peers.items():
+    asn = str((p or {}).get("remoteAs") or (p or {}).get("remoteAS") or "")
+    st = (p or {}).get("state") or (p or {}).get("peerState") or (p or {}).get("bgpState") or ""
+    if asn == "65021" and st == "Established":
+        n += 1
+print(n)
+'
+}
+
+worker_ready_line() {
+  kubectl --context "$CTX" get node eg-poc1-worker \
+    -o jsonpath='Ready={.status.conditions[?(@.type=="Ready")].status} lastTransitionTime={.status.conditions[?(@.type=="Ready")].lastTransitionTime}{"\n"}' \
+    2>&1 || echo "Ready=? lastTransitionTime=?"
+}
+
+shopapi_ready_eps() {
+  local json
+  json=$(kubectl --context "$CTX" -n shop get endpointslice \
+    -l kubernetes.io/service-name=shopapi -o json 2>&1) || json=""
+  printf '%s' "$json" | python3 -c '
+import json, sys
+try:
+    data = json.loads(sys.stdin.read())
+except json.JSONDecodeError:
+    print("ready_eps=FAIL"); raise SystemExit
+n = 0
+for item in data.get("items") or []:
+    for ep in item.get("endpoints") or []:
+        cond = ep.get("conditions") or {}
+        if cond.get("ready") is True:
+            n += 1
+print("ready_eps=%d" % n)
+' 2>/dev/null || echo "ready_eps=FAIL"
+}
+
+# F3: both nodes × both leaves Established AND two node paths on both
+# leaves — the seventh run's check ran during reconnect and read est=2.
+recovery_wait() { # budget_s
+  local budget=${1:-90} i leaf n est ok
+  for i in $(seq 1 "$budget"); do
+    ok=1
+    for leaf in leaf1 leaf2; do
+      est=$(servers_est_on_leaf "$leaf")
+      n=$(leaf_node_paths "$leaf")
+      if [ "${est:-0}" -lt 2 ] || [ "$n" = FAIL ] || [ "${n:-0}" -lt 2 ]; then
+        ok=0
       fi
+    done
+    if [ "$ok" -eq 1 ]; then
+      echo "recovery: 4 sessions Established; 2 node paths on both leaves after ${i}s"
+      return 0
     fi
     sleep 1
   done
-  echo "recovery_s=${back:-none}"
+  echo "apply.sh: recovery wait failed after ${budget}s (need 4 sessions + 2 node paths on both leaves)" >&2
+  return 1
 }
-export -f failure_pause
-export CLIENT HTTP_HOST HTTP_ADDR PROJECT FABRIC
-rec bash -c failure_pause
-unset -f failure_pause
+
+# (A) BGP-only: delete the worker's kube-vip pod (DS restarts it).
+# TCP close → NOTIFICATION, no hold time; leaf1 node paths 2 → 1 in
+# a second or two. client0 2.5 s loop for 30 s expects ~0 failures
+# (ECMP to the control-plane). Path back when the pod is Running.
+failure_bgp_only() {
+  local worker=eg-poc1-worker start now i rc code ok=0 fail=0 withdrawal="" recovery=""
+  local kv_pod pn
+  kv_pod=$(kubectl --context "$CTX" -n kube-system get pods \
+    -l app.kubernetes.io/name=kube-vip-ds \
+    --field-selector spec.nodeName="$worker" \
+    -o jsonpath='{.items[0].metadata.name}' 2>&1) || kv_pod=""
+  if [ -z "$kv_pod" ]; then
+    echo "apply.sh: no kube-vip pod on $worker" >&2
+    return 1
+  fi
+  echo "---- A: BGP-only — delete kube-vip pod $kv_pod on $worker ----"
+  kubectl --context "$CTX" -n kube-system delete pod "$kv_pod"
+  start=$(date +%s)
+  while now=$(date +%s); [ $((now - start)) -lt 30 ]; do
+    rc=0
+    code=$(docker exec "$CLIENT" curl -s -o /dev/null -w '%{http_code}' \
+      --resolve "${HTTP_HOST}:80:${HTTP_ADDR}" \
+      "http://${HTTP_HOST}/healthz" --connect-timeout 2 --max-time 2) || rc=$?
+    if [ "$rc" -eq 0 ] && [ "$code" = 200 ]; then
+      ok=$((ok + 1))
+    else
+      fail=$((fail + 1))
+    fi
+    pn=$(leaf_node_paths leaf1)
+    echo "t+$((now - start))s code=${code:-000} rc=$rc leaf1 node_paths=$pn"
+    if [ "$pn" = 1 ] && [ -z "$withdrawal" ]; then
+      withdrawal=$((now - start))
+    fi
+    if [ -n "$withdrawal" ] && [ "$pn" != FAIL ] && [ "${pn:-0}" -ge 2 ] && [ -z "$recovery" ]; then
+      recovery=$((now - start))
+    fi
+    sleep 2.5
+  done
+  if [ -z "$recovery" ]; then
+    for i in $(seq 1 60); do
+      kubectl --context "$CTX" -n kube-system wait pod \
+        -l app.kubernetes.io/name=kube-vip-ds \
+        --field-selector spec.nodeName="$worker" \
+        --for=condition=Ready --timeout=5s 2>/dev/null || true
+      pn=$(leaf_node_paths leaf1)
+      echo "leaf1 node_paths=$pn (A recovery)"
+      if [ "$pn" != FAIL ] && [ "${pn:-0}" -ge 2 ]; then
+        now=$(date +%s)
+        recovery=$((now - start))
+        echo "leaf1 two node paths again after ${recovery}s (pod Running)"
+        break
+      fi
+      sleep 1
+    done
+  fi
+  echo "A summary: withdrawal_s=${withdrawal:-none} ok=$ok fail=$fail recovery_s=${recovery:-none}"
+}
+
+# (B) silent node: pause the worker 75 s. BGP withdraws at hold 9 s
+# (dynamic peer ABSENT); Kubernetes' node-monitor-grace-period ≈ 40 s
+# before NotReady; endpoints stay until then, so probes keep failing.
+# Per tick (~5 s): probe, leaf1 node paths, peer state, Ready
+# condition + lastTransitionTime, shopapi EndpointSlice ready count.
+failure_silent_node() {
+  local worker=eg-poc1-worker start now rc code
+  local worker_ip pn st ready_line eps
+  local bgp_withdraw="" node_notready="" first_ok_after="" recovery=""
+  worker_ip=$(docker inspect -f '{{(index .NetworkSettings.Networks "kind-eg").IPAddress}}' "$worker" 2>/dev/null || echo 172.19.0.3)
+  trap 'docker unpause eg-poc1-worker 2>/dev/null || true' EXIT
+  echo "---- B: silent node — pause $worker ($worker_ip) for 75 s ----"
+  docker pause "$worker"
+  start=$(date +%s)
+  while now=$(date +%s); [ $((now - start)) -lt 75 ]; do
+    rc=0
+    code=$(docker exec "$CLIENT" curl -s -o /dev/null -w '%{http_code}' \
+      --resolve "${HTTP_HOST}:80:${HTTP_ADDR}" \
+      "http://${HTTP_HOST}/healthz" --connect-timeout 2 --max-time 2) || rc=$?
+    pn=$(leaf_node_paths leaf1)
+    st=$(leaf_peer_state leaf1 "$worker_ip")
+    ready_line=$(worker_ready_line)
+    eps=$(shopapi_ready_eps)
+    echo "t+$((now - start))s code=${code:-000} rc=$rc leaf1 node_paths=$pn peer $worker_ip state=$st $ready_line $eps"
+    if [ "$pn" = 1 ] && [ -z "$bgp_withdraw" ]; then
+      bgp_withdraw=$((now - start))
+    fi
+    # a frozen kubelet stops reporting, so the condition becomes Unknown, not False
+    # (measured: Ready=Unknown at t+47 s) — anything but True is "not ready"
+    if printf '%s' "$ready_line" | grep -q 'Ready=' && ! printf '%s' "$ready_line" | grep -q 'Ready=True' && [ -z "$node_notready" ]; then
+      node_notready=$((now - start))
+    fi
+    if [ -n "$node_notready" ] && [ "$rc" -eq 0 ] && [ "$code" = 200 ] && [ -z "$first_ok_after" ]; then
+      first_ok_after=$((now - start))
+    fi
+    sleep 5
+  done
+  echo "---- unpause $worker ----"
+  docker unpause "$worker"
+  trap - EXIT
+  for i in $(seq 1 90); do
+    ready_line=$(worker_ready_line)
+    pn=$(leaf_node_paths leaf1)
+    echo "recovery t+${i}s $ready_line leaf1 node_paths=$pn"
+    if printf '%s' "$ready_line" | grep -q 'Ready=True' \
+       && [ "$pn" != FAIL ] && [ "${pn:-0}" -ge 2 ]; then
+      recovery=$i
+      echo "node Ready and two node paths after ${i}s"
+      break
+    fi
+    sleep 1
+  done
+  echo "B summary: bgp_withdraw_s=${bgp_withdraw:-none} node_notready_s=${node_notready:-none} first_ok_after_s=${first_ok_after:-none} recovery_s=${recovery:-none}"
+}
+
+export -f node_path_count leaf_node_paths leaf_peer_state servers_est_on_leaf \
+  worker_ready_line shopapi_ready_eps recovery_wait failure_bgp_only failure_silent_node
+export CLIENT HTTP_HOST HTTP_ADDR PROJECT FABRIC CTX
+rec bash -c failure_bgp_only
+rec bash -c 'recovery_wait 90'
+rec bash -c failure_silent_node
+rec bash -c 'recovery_wait 90'
+unset -f leaf_node_paths leaf_peer_state servers_est_on_leaf \
+  worker_ready_line shopapi_ready_eps recovery_wait failure_bgp_only failure_silent_node node_path_count
 
 # ---- 10. hosts + final table ----
 echo "== 10. hosts-entries.sh + final table"

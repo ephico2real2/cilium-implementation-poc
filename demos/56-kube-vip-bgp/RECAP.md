@@ -68,7 +68,8 @@ is dashed (demo 57, not this run). From
 
 kube-vip cannot keep the L2 doors announced while running
 active-active BGP (`vip_arp=false`). The password in `bgp_peers` is the
-fabric's one MD5 (`lab-bgp` — sheet row 3).
+fabric's password on the router side only — the speaker sends none (sheet row 3: this
+VM's kernel refuses `TCP_MD5SIG`; gobgp aborts a connection it cannot sign, FRR continues unsigned).
 
 ## Prerequisites
 
@@ -103,7 +104,7 @@ Result: <!-- recorded after apply -->
 ### 2. Switch kube-vip to BGP with election on
 
 Apply [`10a-kube-vip-ds-bgp-election.yaml`](10a-kube-vip-ds-bgp-election.yaml)
-(`vip_arp=true`, `svc_election=true`). Only the leader advertises.
+(`vip_arp=false` — kube-vip refuses two modes at once — and `svc_election=true`). Only the leader advertises.
 
 ```bash
 kubectl --context kind-eg-poc1 apply \
@@ -115,13 +116,15 @@ Result: <!-- recorded after apply -->
 ### 3. Create the BGP doors with ETP Local
 
 Apply [`20a-gateways-bgp-etp-local.yaml`](20a-gateways-bgp-etp-local.yaml),
-grpcdemo and the routes. The spine holds one path. Nobody ARPs for a
+grpcdemo, [`41-shopapi-ha.yaml`](41-shopapi-ha.yaml) (2 replicas, one
+per node) and the routes. The spine holds one path. Nobody ARPs for a
 routed address.
 
 ```bash
 kubectl --context kind-eg-poc1 apply \
   -f demos/56-kube-vip-bgp/20a-gateways-bgp-etp-local.yaml \
   -f demos/56-kube-vip-bgp/40-grpcdemo.yaml \
+  -f demos/56-kube-vip-bgp/41-shopapi-ha.yaml \
   -f demos/56-kube-vip-bgp/50-routes-bgp.yaml
 ```
 
@@ -143,6 +146,8 @@ Result: <!-- recorded after apply -->
 
 Apply [`10b-kube-vip-ds-bgp-active-active.yaml`](10b-kube-vip-ds-bgp-active-active.yaml)
 (`vip_arp=false`, `svc_election=false`). Demo 54's doors stop answering.
+leaf1 may hold a third path from the spine; judges count node paths
+only (nexthop in `172.19.0.0/17`).
 
 ```bash
 kubectl --context kind-eg-poc1 apply \
@@ -186,13 +191,26 @@ scripts/fabric-vm-route.sh --apply
 
 Result: <!-- recorded after apply -->
 
-### 9. Pause a worker and measure recovery
+### 9. Measure BGP-only failure then a silent node
 
-Pause `eg-poc1-worker`. The leaf hold is 9 s (Idle); the spine drops to
-one path. Unpause; two paths return. Compare to demo 51's ~10 s VIP
-move.
+Two scenarios, in this order. (A) delete the worker's kube-vip pod —
+the DaemonSet restarts it. leaf1's node-path count goes 2 → 1 within a
+second or two (TCP close → NOTIFICATION, no hold time). `client0`'s
+2.5 s loop for 30 s expects ~0 failures (ECMP to the control-plane);
+the path returns when the pod is Running. (B) pause the worker for
+75 s. BGP withdraws at ≤ 9 s (hold time; the dynamic peer goes
+`ABSENT`); the node goes NotReady at ≈ 40 s; the shopapi endpoints
+drop; 200s resume. BGP fixes the path in seconds; the cluster's own
+endpoints take Kubernetes' node grace period — a silent node needs
+BOTH, and a real deployment tunes `node-monitor-grace-period` /
+readiness probes.
 
 ```bash
+kubectl --context kind-eg-poc1 -n kube-system delete pod \
+  "$(kubectl --context kind-eg-poc1 -n kube-system get pods \
+    -l app.kubernetes.io/name=kube-vip-ds \
+    --field-selector spec.nodeName=eg-poc1-worker \
+    -o jsonpath='{.items[0].metadata.name}')"
 docker pause eg-poc1-worker
 ```
 
@@ -222,13 +240,24 @@ Result: <!-- recorded after apply -->
 | Item | Value |
 |---|---|
 | Cluster ASN | 65021 |
-| Peers | `172.19.254.11:65101:lab-bgp:false`, `172.19.254.12:65102:lab-bgp:false` |
+| Peers | `172.19.254.11:65101::false`, `172.19.254.12:65102::false` (no password — measured: with one, gobgp never leaves ACTIVE on this kernel) |
 | Password | one per fabric (`FABRIC_BGP_PASSWORD=lab-bgp` in [`fabric/.env`](../46-bgp-fabric/fabric/.env); inline in `bgp_peers`) |
 | HTTP door | `10.98.0.10` — class `kube-vip.io/kube-vip-class`, ETP Cluster |
 | gRPC door | `10.98.0.11` — same class, ETP Cluster |
+| Envoy HA | `envoyDeployment.replicas: 2` + required anti-affinity on `gateway.envoyproxy.io/owning-gateway-name` / `kubernetes.io/hostname` |
+| shopapi HA | [`41-shopapi-ha.yaml`](41-shopapi-ha.yaml) — 2 replicas, required anti-affinity on `app: shopapi` |
 | Certificate | Secret `eg-poc1-tls` from demo 54 (unchanged) |
 | Probe descriptors | [`demos/52-eg-poc2-metallb/probe/`](../52-eg-poc2-metallb/probe/) |
 | Sheet | [`NETWORK-TEAM-SHEET.md`](../46-bgp-fabric/NETWORK-TEAM-SHEET.md) Envoy lab rows |
+| leaf1 third path | `10.98.0.10/32` nexthops `172.19.0.2`, `172.19.0.3`, and `10.200.1.3` (the door's own prefix learned from the spine via leaf2, AS path `65100 65102 65021`); the leaf keeps it and never prefers it while a direct node path exists |
+
+```bash
+docker compose -p bgp-fabric exec -T leaf1 vtysh -c 'show ip bgp 10.98.0.10/32'
+```
+
+```text
+<!-- recorded after apply -->
+```
 
 ## Troubleshooting
 

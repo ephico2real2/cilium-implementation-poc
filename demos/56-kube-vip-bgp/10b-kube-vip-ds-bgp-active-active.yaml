@@ -66,8 +66,12 @@ spec:
               value: "true"
             - name: lb_class_name
               value: kube-vip.io/kube-vip-class
+            # vip_leaderelection=false too: kube-vip v1.2.4 logs "leader election is enabled, only the
+            # elected leader will advertise service VIPs; unset enable_leader_election to keep
+            # advertising from every node (ECMP)" (measured 2026-09-20 — with it on, the spine had
+            # no path for 90 s after the switch)
             - name: vip_leaderelection
-              value: "true"
+              value: "false"
             - name: vip_leasename
               value: plndr-cp-lock
             - name: vip_leaseduration
@@ -82,8 +86,14 @@ spec:
               value: "true"
             - name: bgp_as
               value: "65021"
+            # bgp_peers carries NO password: gobgp sets TCP_MD5SIG on its connecting socket
+            # and this Docker VM's kernel refuses it (Protocol not available) — with a password
+            # the session never leaves ACTIVE (measured 2026-09-20: 90 s, no SYN on the leaf);
+            # without, both nodes are Established in 25 s. The fabric's `neighbor SERVERS
+            # password` stays: FRR fails the same setsockopt and continues unsigned. On a real
+            # kernel both sides sign (NETWORK-TEAM-SHEET.md row 3).
             - name: bgp_peers
-              value: "172.19.254.11:65101:lab-bgp:false,172.19.254.12:65102:lab-bgp:false"
+              value: "172.19.254.11:65101::false,172.19.254.12:65102::false"
             - name: bgp_routerid
               valueFrom:
                 fieldRef:

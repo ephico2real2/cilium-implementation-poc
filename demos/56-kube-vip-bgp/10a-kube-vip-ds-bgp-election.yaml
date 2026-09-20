@@ -1,7 +1,9 @@
 # kube-vip v1.2.4 in BGP mode, leader-only (the first setting this demo
 # measures). Same DaemonSet as clusters/eg/kube-vip-ds.yaml plus the BGP
-# env. vip_arp=true and svc_election=true: configureService (which adds
-# the VIP to BGP) runs only on the elected leader
+# env. vip_arp=false (kube-vip v1.2.4 refuses two modes at once —
+# cmd/kube-vip.go:367-392 "multiple kube-vip modes detected", measured:
+# CrashLoopBackOff with ARP and BGP both on) and svc_election=true:
+# configureService (which adds the VIP to BGP) runs only on the elected leader
 # (kube-vip v1.2.4 pkg/services/services.go:203-206,
 # pkg/services/leader.go:146 OnStartedLeading). The spine therefore
 # holds ONE path per /32.
@@ -54,7 +56,7 @@ spec:
           args: [manager]
           env:
             - name: vip_arp
-              value: "true"
+              value: "false"
             - name: port
               value: "6443"
             - name: vip_nodename
@@ -93,8 +95,14 @@ spec:
               value: "true"
             - name: bgp_as
               value: "65021"
+            # bgp_peers carries NO password: gobgp sets TCP_MD5SIG on its connecting socket
+            # and this Docker VM's kernel refuses it (Protocol not available) — with a password
+            # the session never leaves ACTIVE (measured 2026-09-20: 90 s, no SYN on the leaf);
+            # without, both nodes are Established in 25 s. The fabric's `neighbor SERVERS
+            # password` stays: FRR fails the same setsockopt and continues unsigned. On a real
+            # kernel both sides sign (NETWORK-TEAM-SHEET.md row 3).
             - name: bgp_peers
-              value: "172.19.254.11:65101:lab-bgp:false,172.19.254.12:65102:lab-bgp:false"
+              value: "172.19.254.11:65101::false,172.19.254.12:65102::false"
             - name: bgp_routerid
               valueFrom:
                 fieldRef:

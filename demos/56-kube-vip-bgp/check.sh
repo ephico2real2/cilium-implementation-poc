@@ -148,16 +148,18 @@ else
     "both nodes × both leaves — JSON state == Established"
 fi
 
-# 3–4. spine 2 paths for .10 and .11
-bgp_path_count() { # prefix → count or FAIL
+# 3–4. leaf1 2 NODE paths for .10 and .11 (nexthop in 172.19.0.0/17).
+# A third path from the spine (10.200.1.3) is real BGP and is ignored.
+node_path_count() { # prefix → node-path count or FAIL
   local pfx=$1 raw
-  raw=$("${COMPOSE[@]}" exec -T spine vtysh -c "show ip bgp ${pfx} json" 2>&1) || raw=""
+  raw=$("${COMPOSE[@]}" exec -T leaf1 vtysh -c "show ip bgp ${pfx} json" 2>&1) || raw=""
   if [ -z "$raw" ]; then
     echo FAIL
     return 1
   fi
   printf '%s' "$raw" | python3 -c '
-import json, sys
+import ipaddress, json, sys
+NET = ipaddress.ip_network("172.19.0.0/17")
 raw = sys.stdin.read()
 try:
     data = json.loads(raw)
@@ -168,31 +170,52 @@ def paths_of(obj):
     if isinstance(obj, dict):
         if isinstance(obj.get("paths"), list):
             return obj["paths"]
-        if "numPaths" in obj:
-            try:
-                return [None] * int(obj["numPaths"])
-            except (TypeError, ValueError):
-                pass
         for v in obj.values():
             found = paths_of(v)
             if found is not None:
                 return found
     return None
+def hop_ips(path):
+    ips = []
+    if not isinstance(path, dict):
+        return ips
+    for key in ("nexthop", "nexthops", "peer"):
+        nh = path.get(key)
+        if nh is None:
+            continue
+        items = nh if isinstance(nh, list) else [nh]
+        for item in items:
+            if isinstance(item, str):
+                ips.append(item.split("/")[0])
+            elif isinstance(item, dict):
+                ip = item.get("ip") or item.get("nexthop")
+                if ip:
+                    ips.append(str(ip).split("/")[0])
+    return ips
 found = paths_of(data)
 if found is None:
     print("FAIL")
     raise SystemExit(1)
-print(len(found))
+n = 0
+for p in found:
+    for ip in hop_ips(p):
+        try:
+            if ipaddress.ip_address(ip) in NET:
+                n += 1
+                break
+        except ValueError:
+            continue
+print(n)
 '
 }
 for pfx in "${HTTP_ADDR}/32" "${GRPC_ADDR}/32"; do
-  n=$(bgp_path_count "$pfx") || n=FAIL
+  n=$(node_path_count "$pfx") || n=FAIL
   if [ "$n" = 2 ]; then
-    row ok "spine 2 paths for $pfx" "paths=$n" \
-      "active-active — both nodes advertise"
+    row ok "leaf1 2 node paths for $pfx (both nodes)" "node_paths=$n" \
+      "active-active — both nodes advertise to each leaf"
   else
-    row fail "spine 2 paths for $pfx" "paths=${n:-FAIL}" \
-      "active-active — both nodes advertise"
+    row fail "leaf1 2 node paths for $pfx (both nodes)" "node_paths=${n:-FAIL}" \
+      "active-active — both nodes advertise to each leaf"
   fi
 done
 
@@ -233,6 +256,57 @@ print("etp=%s" % ((s.get("spec") or {}).get("externalTrafficPolicy") or "-"))
 }
 expect_door bgp-http-gw "$HTTP_ADDR"
 expect_door bgp-grpc-gw "$GRPC_ADDR"
+
+# Envoy replicas spread: one per node (each BGP door)
+envoy_spread() { # gw
+  local gw=$1 ready_rc=0 nodes_rc=0 ready= nodes= nuniq
+  ready=$(kubectl --context "$CTX" -n envoy-gateway-system get deploy \
+    -l "gateway.envoyproxy.io/owning-gateway-name=$gw" \
+    -o jsonpath='{.items[0].status.readyReplicas}' 2>&1) || ready_rc=$?
+  nodes=$(kubectl --context "$CTX" -n envoy-gateway-system get pods \
+    -l "gateway.envoyproxy.io/owning-gateway-name=$gw" \
+    -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' 2>&1) || nodes_rc=$?
+  nuniq=$(printf '%s\n' "$nodes" | awk 'NF && !seen[$0]++ {n++} END{print n+0}')
+  if [ "$ready_rc" -ne 0 ] || [ "$nodes_rc" -ne 0 ]; then
+    row fail "Envoy replicas spread: one per node" \
+      "kubectl failed gw=$gw ready_rc=$ready_rc nodes_rc=$nodes_rc" \
+      "2 ready Envoy pods, distinct nodeName"
+  elif [ "${ready:-0}" -ge 2 ] 2>/dev/null && [ "$nuniq" -ge 2 ]; then
+    row ok "Envoy replicas spread: one per node" \
+      "$gw ready=$ready nodes=$(printf '%s' "$nodes" | awk 'NF' | sort -u | tr '\n' ',' | sed 's/,$//')" \
+      "2 ready Envoy pods, distinct nodeName"
+  else
+    row fail "Envoy replicas spread: one per node" \
+      "$gw ready=${ready:-?} unique_nodes=$nuniq" \
+      "2 ready Envoy pods, distinct nodeName"
+  fi
+}
+envoy_spread bgp-http-gw
+envoy_spread bgp-grpc-gw
+
+# shopapi replicas spread (2 ready, distinct nodes)
+shopapi_spread() {
+  local ready_rc=0 nodes_rc=0 ready= nodes= nuniq
+  ready=$(kubectl --context "$CTX" -n shop get deploy shopapi \
+    -o jsonpath='{.status.readyReplicas}' 2>&1) || ready_rc=$?
+  nodes=$(kubectl --context "$CTX" -n shop get pods -l app=shopapi \
+    -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' 2>&1) || nodes_rc=$?
+  nuniq=$(printf '%s\n' "$nodes" | awk 'NF && !seen[$0]++ {n++} END{print n+0}')
+  if [ "$ready_rc" -ne 0 ] || [ "$nodes_rc" -ne 0 ]; then
+    row fail "shopapi replicas spread" \
+      "kubectl failed ready_rc=$ready_rc nodes_rc=$nodes_rc" \
+      "2 ready shopapi pods, distinct nodeName"
+  elif [ "${ready:-0}" -ge 2 ] 2>/dev/null && [ "$nuniq" -ge 2 ]; then
+    row ok "shopapi replicas spread" \
+      "ready=$ready nodes=$(printf '%s' "$nodes" | awk 'NF' | sort -u | tr '\n' ',' | sed 's/,$//')" \
+      "2 ready shopapi pods, distinct nodeName"
+  else
+    row fail "shopapi replicas spread" \
+      "ready=${ready:-?} unique_nodes=$nuniq" \
+      "2 ready shopapi pods, distinct nodeName"
+  fi
+}
+shopapi_spread
 
 # 7. client0 curl 200 + X-Served-By
 http_door() {

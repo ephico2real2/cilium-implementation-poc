@@ -26,11 +26,12 @@ the switch). The path a request takes is in the
 
 | File | What |
 |---|---|
-| [`10a-kube-vip-ds-bgp-election.yaml`](10a-kube-vip-ds-bgp-election.yaml) | kube-vip DS, BGP, `vip_arp=true`, `svc_election=true` |
+| [`10a-kube-vip-ds-bgp-election.yaml`](10a-kube-vip-ds-bgp-election.yaml) | kube-vip DS, BGP, `vip_arp=false`, `svc_election=true` |
 | [`10b-kube-vip-ds-bgp-active-active.yaml`](10b-kube-vip-ds-bgp-active-active.yaml) | the final DS: `vip_arp=false`, `svc_election=false` |
-| [`20a-gateways-bgp-etp-local.yaml`](20a-gateways-bgp-etp-local.yaml) | doors at `.10` / `.11`, ETP Local (the experiment) |
-| [`20-gateways-bgp.yaml`](20-gateways-bgp.yaml) | the same doors, ETP Cluster |
+| [`20a-gateways-bgp-etp-local.yaml`](20a-gateways-bgp-etp-local.yaml) | doors at `.10` / `.11`, ETP Local; Envoy `replicas: 2` + anti-affinity |
+| [`20-gateways-bgp.yaml`](20-gateways-bgp.yaml) | the same doors, ETP Cluster; Envoy `replicas: 2` + anti-affinity |
 | [`40-grpcdemo.yaml`](40-grpcdemo.yaml) | grpcdemo v1/v2; image `grpcdemo:local` |
+| [`41-shopapi-ha.yaml`](41-shopapi-ha.yaml) | shopapi `replicas: 2` + anti-affinity; cleanup restores demo 54 |
 | [`50-routes-bgp.yaml`](50-routes-bgp.yaml) | `shop-api-bgp` → `bgp-http-gw`; `orders-bgp` (demo 52's four rules) |
 | [`hosts-entries.sh`](hosts-entries.sh) | prints `api` → `.10`, `grpc` → `.11`; never writes `/etc/hosts` |
 | [`apply.sh`](apply.sh) | the ten recorded steps; matrix FAIL count exits 1 at the end |
@@ -88,7 +89,8 @@ kubectl --context kind-eg-poc1 apply \
 
 ```bash
 kubectl --context kind-eg-poc1 apply \
-  -f demos/56-kube-vip-bgp/20a-gateways-bgp-etp-local.yaml
+  -f demos/56-kube-vip-bgp/20a-gateways-bgp-etp-local.yaml \
+  -f demos/56-kube-vip-bgp/41-shopapi-ha.yaml
 ```
 
 ```text
@@ -108,6 +110,10 @@ docker exec bgp-fabric-client0-1 \
 ```
 
 ### 5. Switch kube-vip to active-active
+
+leaf1 may hold a third path from the spine (`10.200.1.3`, AS path
+`65100 65102 65021`); judges count node paths only (nexthop in
+`172.19.0.0/17`).
 
 ```bash
 kubectl --context kind-eg-poc1 apply \
@@ -149,9 +155,22 @@ scripts/fabric-vm-route.sh --apply
 <!-- recorded after apply -->
 ```
 
-### 9. Pause a worker and measure recovery
+### 9. Measure BGP-only failure then a silent node
+
+(A) delete the worker's kube-vip pod: leaf1 node paths 2 → 1 in a
+second or two; `client0` 2.5 s loop for 30 s expects ~0 failures; the
+path returns when the pod is Running. (B) pause the worker 75 s: BGP
+withdraws at ≤ 9 s; the node goes NotReady at ≈ 40 s; endpoints drop;
+200s resume. BGP fixes the path in seconds; the cluster's own
+endpoints take Kubernetes' node grace period — a silent node needs
+BOTH.
 
 ```bash
+kubectl --context kind-eg-poc1 -n kube-system delete pod \
+  "$(kubectl --context kind-eg-poc1 -n kube-system get pods \
+    -l app.kubernetes.io/name=kube-vip-ds \
+    --field-selector spec.nodeName=eg-poc1-worker \
+    -o jsonpath='{.items[0].metadata.name}')"
 docker pause eg-poc1-worker
 ```
 
@@ -185,7 +204,9 @@ demos/56-kube-vip-bgp/check.sh
 - A change to the fabric or to `eg-poc2`.
 - A Mac `sudo route` — the line is printed; `client0` is the record.
 - Demo 54's shopapi, shop-db and L2 Gateways as objects — they stay;
-  only the L2 announcement stops.
+  shopapi is scaled to 2 for the failure test and cleanup restores
+  [`40-app.yaml`](../54-eg-poc1-kube-vip/40-app.yaml); only the L2
+  announcement stops.
 
 ## Clean up
 
@@ -194,5 +215,5 @@ demos/56-kube-vip-bgp/cleanup.sh
 ```
 
 cleanup.sh removes the BGP routes, Gateways, EnvoyProxies and grpcdemo,
-restores L2 kube-vip, and waits until demo 54's `.100` answers ARP
-again. The fabric stays.
+restores shopapi to demo 54's 1 replica, restores L2 kube-vip, and waits
+until demo 54's `.100` answers ARP again. The fabric stays.

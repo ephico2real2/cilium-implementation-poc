@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # cleanup.sh — remove demo 56's BGP doors, routes and grpcdemo; restore
 # kube-vip to L2 (clusters/eg/kube-vip-ds.yaml) and wait until demo 54's
-# doors answer ARP again (arping .100 3/3). The fabric stays. shopapi,
-# shop-db, demo 54's Gateways, the certificate, the cloud-provider and
+# doors answer ARP again (arping .100 3/3). shopapi is restored to
+# demo 54's 40-app.yaml (replicas: 1). The fabric stays. shop-db,
+# demo 54's Gateways, the certificate, the cloud-provider and
 # eg-poc1 stay. Does not touch poc1, poc2, eg-poc2, CRC, or the kind
 # network.
 #
@@ -27,6 +28,10 @@ kubectl --context "$CTX" -n shop delete envoyproxy bgp-http-gw-proxy bgp-grpc-gw
 kubectl --context "$CTX" -n shop delete deploy grpcdemo-v1 grpcdemo-v2 --ignore-not-found
 kubectl --context "$CTX" -n shop delete svc grpc-v1 grpc-v2 --ignore-not-found
 
+echo "== restore demo 54 shopapi (replicas: 1)"
+kubectl --context "$CTX" apply -f demos/54-eg-poc1-kube-vip/40-app.yaml
+kubectl --context "$CTX" -n shop wait deploy/shopapi --for=condition=Available --timeout=120s
+
 echo "== restore clusters/eg/kube-vip-ds.yaml (L2 mode)"
 kubectl --context "$CTX" apply -f clusters/eg/kube-vip-ds.yaml
 kubectl --context "$CTX" -n kube-system rollout status ds/kube-vip-ds --timeout=180s
@@ -48,4 +53,4 @@ if [ "$replies" -ne 3 ]; then
   exit 1
 fi
 
-echo "demo 56 removed (KEPT: fabric, eg-poc1, demo 54 doors/app/cert, kube-vip L2, .tmp/eg-poc1-root-ca.crt)"
+echo "demo 56 removed (KEPT: fabric, eg-poc1, demo 54 doors/app/cert, shopapi 1 replica, kube-vip L2, .tmp/eg-poc1-root-ca.crt)"

@@ -9,6 +9,11 @@
 # cloud-provider ranges — measured in 51/54) AND Gateway.spec.addresses
 # (so status is honest).
 #
+# envoyDeployment.replicas: 2 + required anti-affinity on
+# gateway.envoyproxy.io/owning-gateway-name / kubernetes.io/hostname
+# (CRD: spec.provider.kubernetes.envoyDeployment.pod.affinity). WHY:
+# the failure test (step 9) needs a door on the surviving node.
+#
 # envoyService.externalTrafficPolicy: Cluster. WHY: with every node
 # advertising the /32, the spine ECMPs flows to both nodes; under Local
 # a node without the Envoy pod drops them. apply.sh measures Local first
@@ -29,6 +34,16 @@ spec:
   provider:
     type: Kubernetes
     kubernetes:
+      envoyDeployment:
+        replicas: 2
+        pod:
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchLabels:
+                      gateway.envoyproxy.io/owning-gateway-name: bgp-http-gw
       envoyService:
         type: LoadBalancer
         loadBalancerClass: kube-vip.io/kube-vip-class
@@ -81,6 +96,16 @@ spec:
   provider:
     type: Kubernetes
     kubernetes:
+      envoyDeployment:
+        replicas: 2
+        pod:
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchLabels:
+                      gateway.envoyproxy.io/owning-gateway-name: bgp-grpc-gw
       envoyService:
         type: LoadBalancer
         loadBalancerClass: kube-vip.io/kube-vip-class

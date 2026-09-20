@@ -35,14 +35,21 @@ docker compose -p bgp-fabric exec -T leaf1 vtysh -c 'show bgp summary json' \
 
 ### 2. Read two paths on the spine
 
-Active-active: every node advertises the `/32`.
+Active-active: every node advertises the `/32`. The spine's two paths
+are the two leaves. leaf1 holds three paths for `10.98.0.10/32`
+(`172.19.0.2`, `172.19.0.3`, and `10.200.1.3` — the door's own prefix
+learned via leaf2, AS path `65100 65102 65021`); the leaf keeps the
+spine bounce and never prefers it while a direct node path exists.
+Judges count node paths (nexthop in `172.19.0.0/17`) only.
 
 ```bash
 docker compose -p bgp-fabric exec -T spine vtysh -c 'show ip bgp 10.98.0.10/32'
 docker compose -p bgp-fabric exec -T spine ip route show 10.98.0.10
+docker compose -p bgp-fabric exec -T leaf1 vtysh -c 'show ip bgp 10.98.0.10/32'
 ```
 
-**Expect:** two paths on the prefix; two nexthops in the kernel.
+**Expect:** two paths on the spine; two nexthops in the kernel; three
+paths on leaf1, two of them nodes.
 
 ```text
 <!-- recorded after apply -->
