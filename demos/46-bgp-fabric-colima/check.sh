@@ -1,0 +1,594 @@
+#!/usr/bin/env bash
+# check.sh — demo 46 Colima PASS/FAIL/WARN rows. Exit = FAIL count.
+# A dead docker/vtysh is a FAIL, never a PASS. Session state is an exact
+# JSON field match (Established), never a substring of the blob.
+# TCP MD5 rows FAIL when signing is not real (wire count, mismatch, kernel).
+#   demos/46-bgp-fabric-colima/check.sh
+set -uo pipefail
+cd "$(dirname "$0")/../.." || exit 1
+# shellcheck disable=SC1091
+. scripts/fabric-colima-lib.sh
+# shellcheck disable=SC1091
+. scripts/bootstrap/versions-eg.env
+NETSHOOT_IMAGE="${NETSHOOT_IMAGE:-nicolaka/netshoot:v0.16}"
+
+fails=0
+row() { # ok|fail|warn  what  measured  rule
+  local st
+  case "$1" in
+    ok)   st=PASS ;;
+    fail) st=FAIL; fails=$((fails + 1)) ;;
+    warn) st=WARN ;;
+    *)    st=$1 ;;
+  esac
+  printf '  %-6s %-70s %-52s %s\n' "$st" "$2" "$3" "$4"
+}
+
+if ! fabric_colima_refuse_wrong_ctx; then
+  exit 1
+fi
+if ! fabric_colima_require_ctx; then
+  exit 1
+fi
+
+COMPOSE=(docker --context "$CTX" compose -p "$FABRIC_COLIMA_PROJECT" -f "$FABRIC_COLIMA_FABRIC/compose.yaml")
+DASH="http://127.0.0.1:${FABRIC_COLIMA_DASHBOARD_PORT}"
+if [ -f "$FABRIC_COLIMA_FABRIC/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$FABRIC_COLIMA_FABRIC/.env"
+  set +a
+fi
+GOOD_PW="${FABRIC_BGP_PASSWORD:-lab-bgp}"
+
+printf '\n== demo 46-colima — the BGP fabric (four FRR routers, Colima VM, TCP MD5 enforced)\n'
+printf '  %-6s %-70s %-52s %s\n' STATUS WHAT MEASURED RULE
+
+# 1. four routers running
+ps_out=$("${COMPOSE[@]}" ps --format '{{.Name}} {{.State}}' 2>&1)
+ps_rc=$?
+if [ "$ps_rc" -ne 0 ]; then
+  row fail "four routers running" "docker failed: $(printf '%s' "$ps_out" | tr '\n' ' ' | head -c 60)" \
+    "R1 — edge spine leaf1 leaf2 running"
+else
+  n=0
+  for svc in edge spine leaf1 leaf2; do
+    if printf '%s\n' "$ps_out" | grep -Eq "${FABRIC_COLIMA_PROJECT}-${svc}-[0-9]+ running"; then
+      n=$((n + 1))
+    fi
+  done
+  if [ "$n" -eq 4 ]; then
+    row ok "four routers running" "running=$n/4" "R1 — edge spine leaf1 leaf2 running"
+  else
+    row fail "four routers running" "running=$n/4" "R1 — edge spine leaf1 leaf2 running"
+  fi
+fi
+
+# 2. six fabric sessions Established
+expect_sessions() {
+  local raw rc=0
+  raw=$("${COMPOSE[@]}" exec -T "$1" vtysh -c 'show bgp summary json' 2>&1) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "vtysh-fail:$1"
+    return 1
+  fi
+  shift
+  if ! printf '%s' "$raw" | python3 scripts/fabric-bgp-summary.py --require "$@"; then
+    echo "not-established:$1"
+    return 1
+  fi
+  return 0
+}
+peer_state() { # service neighbor-ip → Established|other|ABSENT|FAIL
+  local svc=$1 ip=$2 raw rc=0 st
+  raw=$("${COMPOSE[@]}" exec -T "$svc" vtysh -c 'show bgp summary json' 2>&1) || rc=$?
+  if [ "$rc" -ne 0 ] || [ -z "$raw" ]; then
+    printf 'FAIL'
+    return
+  fi
+  st=$(printf '%s' "$raw" | python3 -c '
+import json, sys
+ip = sys.argv[1]
+try:
+    data = json.loads(sys.stdin.read())
+except json.JSONDecodeError:
+    print("FAIL")
+    raise SystemExit
+peers = {}
+def walk(o):
+    if isinstance(o, dict):
+        if "peers" in o and isinstance(o["peers"], dict):
+            peers.update(o["peers"])
+        for v in o.values():
+            walk(v)
+walk(data)
+p = peers.get(ip)
+if p is None:
+    print("ABSENT")
+    raise SystemExit
+for k in ("state", "peerState", "bgpState"):
+    v = p.get(k)
+    if isinstance(v, str) and v:
+        print(v)
+        raise SystemExit
+print("ABSENT")
+' "$ip") || st=FAIL
+  printf '%s' "${st:-FAIL}"
+}
+sess_err=""
+if ! e=$(expect_sessions edge 10.200.1.18 2>&1); then
+  sess_err="edge:${e:-fail}"
+elif ! e=$(expect_sessions spine 10.200.1.2 10.200.1.10 10.200.1.19 2>&1); then
+  sess_err="spine:${e:-fail}"
+elif ! e=$(expect_sessions leaf1 10.200.1.3 2>&1); then
+  sess_err="leaf1:${e:-fail}"
+elif ! e=$(expect_sessions leaf2 10.200.1.11 2>&1); then
+  sess_err="leaf2:${e:-fail}"
+fi
+if [ -z "$sess_err" ]; then
+  row ok "six fabric sessions Established" "6/6 Established" \
+    "R1 — leaf1–spine, leaf2–spine, spine–edge, both directions"
+else
+  row fail "six fabric sessions Established" "$sess_err" \
+    "R1 — leaf1–spine, leaf2–spine, spine–edge, both directions"
+fi
+
+# 3–6. loopbacks from client0
+ping_lo() {
+  local ip=$1 out rc=0
+  out=$("${COMPOSE[@]}" exec -T client0 ping -c 1 -W 2 "$ip" 2>&1) || rc=$?
+  if [ "$rc" -ne 0 ] || ! printf '%s\n' "$out" | grep -Eq '1 received|1 packets received'; then
+    row fail "client0 ping $ip" "docker/ping rc=$rc" "R1 — loopback reachable from client0"
+  else
+    row ok "client0 ping $ip" "rc=0" "R1 — loopback reachable from client0"
+  fi
+}
+ping_lo 10.200.255.1
+ping_lo 10.200.255.2
+ping_lo 10.200.255.11
+ping_lo 10.200.255.12
+
+# 7. wan in leaf1 via spine
+route_out=$("${COMPOSE[@]}" exec -T leaf1 vtysh -c 'show ip route 10.200.100.0/24' 2>&1)
+route_rc=$?
+if [ "$route_rc" -ne 0 ]; then
+  row fail "10.200.100.0/24 in leaf1 via spine" "vtysh failed rc=$route_rc" \
+    "R1 — wan learned via 10.200.1.3"
+elif printf '%s\n' "$route_out" | grep -F -q '10.200.100.0/24' \
+  && printf '%s\n' "$route_out" | grep -F -q '10.200.1.3'; then
+  row ok "10.200.100.0/24 in leaf1 via spine" "via 10.200.1.3" \
+    "R1 — wan learned via 10.200.1.3"
+else
+  row fail "10.200.100.0/24 in leaf1 via spine" "prefix or nexthop absent" \
+    "R1 — wan learned via 10.200.1.3"
+fi
+
+# 8. ECMP
+ecmp_ok=1
+ecmp_msg=""
+for svc in spine leaf1 leaf2; do
+  ecmp_out=$("${COMPOSE[@]}" exec -T "$svc" vtysh -c 'show running-config' 2>&1)
+  ecmp_rc=$?
+  if [ "$ecmp_rc" -ne 0 ]; then
+    ecmp_ok=0
+    ecmp_msg="${ecmp_msg}${svc}:vtysh-fail "
+    continue
+  fi
+  if ! printf '%s\n' "$ecmp_out" | grep -Eq '^[[:space:]]*maximum-paths[[:space:]]+8[[:space:]]*$'; then
+    ecmp_ok=0
+    ecmp_msg="${ecmp_msg}${svc}:no-maximum-paths "
+  fi
+done
+if [ "$ecmp_ok" -eq 1 ]; then
+  row ok "ECMP maximum-paths on spine and leaves" "maximum-paths 8" "R5 — maximum-paths 8"
+else
+  row fail "ECMP maximum-paths on spine and leaves" "$ecmp_msg" "R5 — maximum-paths 8"
+fi
+
+# 9. SERVERS listen both /17s + policy on both leaves
+listen_ok=1
+listen_msg=""
+for leaf in leaf1 leaf2; do
+  lo=$("${COMPOSE[@]}" exec -T "$leaf" vtysh -c 'show running-config' 2>&1)
+  lr=$?
+  if [ "$lr" -ne 0 ]; then
+    listen_ok=0
+    listen_msg="${listen_msg}${leaf}:vtysh-fail "
+    continue
+  fi
+  if ! printf '%s\n' "$lo" | grep -F -q 'bgp listen range 172.19.0.0/17 peer-group SERVERS' \
+     || ! printf '%s\n' "$lo" | grep -F -q 'bgp listen range 172.18.0.0/17 peer-group SERVERS' \
+     || ! printf '%s\n' "$lo" | grep -F -q 'maximum-prefix 64' \
+     || ! printf '%s\n' "$lo" | grep -E -q 'neighbor SERVERS timers 3 9'; then
+    listen_ok=0
+    listen_msg="${listen_msg}${leaf}:policy "
+  fi
+done
+if [ "$listen_ok" -eq 1 ]; then
+  row ok "SERVERS listen both /17s on both leaves" "leaf1+leaf2" \
+    "D5 / §9.1 — listen range on the peer-group"
+else
+  row fail "SERVERS listen both /17s on both leaves" "$listen_msg" \
+    "D5 / §9.1 — listen range on the peer-group"
+fi
+
+# 10. per-cluster VIP prefix-lists
+pl_out=$("${COMPOSE[@]}" exec -T leaf1 vtysh -c 'show running-config' 2>&1)
+pl_rc=$?
+pl_ok=1
+if [ "$pl_rc" -ne 0 ]; then
+  pl_ok=0
+else
+  for want in \
+    'ip prefix-list EG-POC1-VIPS seq 10 permit 10.98.0.0/26 ge 32 le 32' \
+    'ip prefix-list EG-POC2-VIPS seq 10 permit 10.98.0.64/26 ge 32 le 32' \
+    'ip prefix-list EG-ANYCAST-VIPS seq 10 permit 10.98.0.192/26 ge 32 le 32' \
+    'ip prefix-list CILIUM-POC1-VIPS seq 10 permit 10.99.0.0/26 ge 32 le 32' \
+    'ip prefix-list CILIUM-POC2-VIPS seq 10 permit 10.99.0.64/26 ge 32 le 32' \
+    'ip prefix-list CILIUM-ANYCAST-VIPS seq 10 permit 10.99.0.192/26 ge 32 le 32' \
+    'ip prefix-list EG-VIPS seq 10 permit 10.98.0.0/24 ge 32 le 32'
+  do
+    if ! printf '%s\n' "$pl_out" | grep -Fxq "$want"; then
+      pl_ok=0
+      break
+    fi
+  done
+fi
+if [ "$pl_rc" -ne 0 ]; then
+  row fail "per-cluster VIP prefix-lists" "vtysh failed rc=$pl_rc" \
+    "R8 — prefix-list + as-path per cluster"
+elif [ "$pl_ok" -eq 1 ]; then
+  row ok "per-cluster VIP prefix-lists" "EG/CILIUM POC1/POC2/ANYCAST ge 32 le 32" \
+    "R8 — prefix-list + as-path per cluster"
+else
+  row fail "per-cluster VIP prefix-lists" "exact permit lines absent or not permit" \
+    "R8 — prefix-list + as-path per cluster"
+fi
+
+# 11. RFC 8212
+rfc_ok=1
+rfc_msg=""
+for svc in edge spine leaf1 leaf2; do
+  cfg=$("${COMPOSE[@]}" exec -T "$svc" vtysh -c 'show running-config' 2>&1)
+  cr=$?
+  if [ "$cr" -ne 0 ]; then
+    rfc_ok=0
+    rfc_msg="${rfc_msg}${svc}:vtysh-fail "
+    continue
+  fi
+  if ! printf '%s\n' "$cfg" | grep -Eq '^frr defaults traditional[[:space:]]*$' \
+     || ! printf '%s\n' "$cfg" | grep -Eq '^router bgp [0-9]+[[:space:]]*$' \
+     || printf '%s\n' "$cfg" | grep -F -q 'no bgp ebgp-requires-policy'; then
+    rfc_ok=0
+    rfc_msg="${rfc_msg}${svc}:policy-unverified "
+  fi
+done
+if [ "$rfc_ok" -eq 1 ]; then
+  row ok "RFC 8212 in effect" "traditional profile, ebgp-requires-policy on" \
+    "§8 row 5 — traditional defaults, explicit route-maps"
+else
+  row fail "RFC 8212 in effect" "$rfc_msg" \
+    "§8 row 5 — traditional defaults, explicit route-maps"
+fi
+
+# 12. sessions signed on the wire — TCP-MD5 option in the router's netns.
+# Zero packets is a FAIL (an unsigned session also shows zero kernel
+# TcpExtTCPMD5* failures; the wire count is the positive evidence).
+cid=$("${COMPOSE[@]}" ps -q leaf1 2>&1)
+cid_rc=$?
+if [ "$cid_rc" -ne 0 ] || [ -z "$cid" ]; then
+  row fail "sessions signed on the wire" "docker ps -q leaf1 failed" \
+    "§8 row 3 — TCP-MD5 option on the wire"
+else
+  cap=""
+  cap_rc=0
+  cap=$(docker --context "$CTX" run --rm --net "container:${cid}" \
+    --cap-add NET_ADMIN --cap-add NET_RAW \
+    "$NETSHOOT_IMAGE" \
+    timeout 15 tcpdump -nn -v -c 20 -i any 'tcp port 179' 2>&1) || cap_rc=$?
+  if [ "$cap_rc" -ne 0 ] && [ "$cap_rc" -ne 124 ]; then
+    row fail "sessions signed on the wire" "tcpdump/docker rc=$cap_rc" \
+      "§8 row 3 — TCP-MD5 option on the wire"
+  else
+    md5_n=$(printf '%s\n' "$cap" | grep -ciE 'md5valid|tcp-md5|md5')
+    if [ "$md5_n" -gt 0 ]; then
+      row ok "sessions signed on the wire" "md5-option packets=$md5_n" \
+        "§8 row 3 — TCP-MD5 option on the wire"
+    else
+      row fail "sessions signed on the wire" "md5-option packets=0" \
+        "§8 row 3 — TCP-MD5 option on the wire"
+    fi
+  fi
+fi
+
+# 13. a wrong password on ONE side of ONE session must leave Established.
+# Restore always (even when the drop is not seen). A row that cannot restore
+# is a FAIL; the fabric is left as we found it when restore succeeds.
+BAD_PW="wrong-colima-md5"
+restore_leaf1_spine_pw() {
+  "${COMPOSE[@]}" exec -T leaf1 vtysh \
+    -c 'configure terminal' \
+    -c 'router bgp 65101' \
+    -c "neighbor 10.200.1.3 password ${GOOD_PW}" >/dev/null 2>&1
+}
+mismatch_ok=1
+mismatch_msg=""
+before_st=$(peer_state leaf1 10.200.1.3)
+if [ "$before_st" != Established ]; then
+  mismatch_ok=0
+  mismatch_msg="pre:leaf1/10.200.1.3=$before_st"
+else
+  set_rc=0
+  "${COMPOSE[@]}" exec -T leaf1 vtysh \
+    -c 'configure terminal' \
+    -c 'router bgp 65101' \
+    -c "neighbor 10.200.1.3 password ${BAD_PW}" >/dev/null 2>&1 || set_rc=$?
+  if [ "$set_rc" -ne 0 ]; then
+    mismatch_ok=0
+    mismatch_msg="vtysh-set-fail rc=$set_rc"
+  else
+    dropped=""
+    i=0
+    while [ "$i" -lt 30 ]; do
+      st=$(peer_state leaf1 10.200.1.3)
+      if [ "$st" != Established ] && [ "$st" != FAIL ] && [ "$st" != ABSENT ]; then
+        dropped=$st
+        break
+      fi
+      if [ "$st" = FAIL ]; then
+        mismatch_ok=0
+        mismatch_msg="vtysh-poll-fail"
+        break
+      fi
+      i=$((i + 1))
+      sleep 1
+    done
+    if [ "$mismatch_ok" -eq 1 ] && [ -z "$dropped" ]; then
+      mismatch_ok=0
+      mismatch_msg="still Established after 30 s (unsigned look-alike)"
+    elif [ "$mismatch_ok" -eq 1 ]; then
+      mismatch_msg="Established→${dropped}"
+    fi
+  fi
+fi
+rest_rc=0
+restore_leaf1_spine_pw || rest_rc=$?
+if [ "$rest_rc" -ne 0 ]; then
+  row fail "a wrong password breaks the session" "restore-fail rc=$rest_rc ($mismatch_msg)" \
+    "§8 row 3 — mismatch tears the session down; restore required"
+else
+  back=""
+  j=0
+  while [ "$j" -lt 40 ]; do
+    st=$(peer_state leaf1 10.200.1.3)
+    if [ "$st" = Established ]; then
+      back=1
+      break
+    fi
+    if [ "$st" = FAIL ]; then
+      mismatch_ok=0
+      mismatch_msg="${mismatch_msg}; restore-poll-fail"
+      break
+    fi
+    j=$((j + 1))
+    sleep 1
+  done
+  if [ -z "$back" ]; then
+    row fail "a wrong password breaks the session" "could not restore Established ($mismatch_msg)" \
+      "§8 row 3 — mismatch tears the session down; restore required"
+  elif [ "$mismatch_ok" -eq 1 ]; then
+    row ok "a wrong password breaks the session" "$mismatch_msg; restored Established" \
+      "§8 row 3 — mismatch tears the session down; restore required"
+  else
+    row fail "a wrong password breaks the session" "$mismatch_msg; restored Established" \
+      "§8 row 3 — mismatch tears the session down; restore required"
+  fi
+fi
+
+# 14. kernel has CONFIG_TCP_MD5SIG — read from the Colima VM, not a container.
+kcfg=""
+krc=0
+# uname runs on the VM, not the Mac (SC2016 is the point).
+# shellcheck disable=SC2016
+kcfg=$(colima ssh --profile "$FABRIC_COLIMA_PROFILE" -- \
+  sh -c 'uname -r; grep -E "^CONFIG_TCP_MD5SIG=" /boot/config-$(uname -r)' 2>&1) || krc=$?
+if [ "$krc" -ne 0 ]; then
+  row fail "kernel has CONFIG_TCP_MD5SIG" "colima ssh failed rc=$krc" \
+    "§8 row 3 — VM kernel CONFIG_TCP_MD5SIG=y"
+elif printf '%s\n' "$kcfg" | grep -q '^CONFIG_TCP_MD5SIG=y'; then
+  kver=$(printf '%s\n' "$kcfg" | awk '/^[0-9]+\./ {print; exit}')
+  row ok "kernel has CONFIG_TCP_MD5SIG" "CONFIG_TCP_MD5SIG=y kernel=${kver:-?}" \
+    "§8 row 3 — VM kernel CONFIG_TCP_MD5SIG=y"
+else
+  row fail "kernel has CONFIG_TCP_MD5SIG" "absent or not =y" \
+    "§8 row 3 — VM kernel CONFIG_TCP_MD5SIG=y"
+fi
+
+# 15. dashboard reachable, 4/4 routers polled
+dash_raw=""
+dash_rc=0
+dash_raw=$(curl -fsS --max-time 3 "${DASH}/api/state" 2>&1) || dash_rc=$?
+if [ "$dash_rc" -ne 0 ]; then
+  row fail "dashboard reachable, 4/4 routers polled" "curl rc=$dash_rc" \
+    "D8 — /api/state from 127.0.0.1:${FABRIC_COLIMA_DASHBOARD_PORT}"
+else
+  dash_line=""
+  dash_py=0
+  dash_line=$(printf '%s' "$dash_raw" | python3 scripts/fabric-dashboard-state.py) || dash_py=$?
+  if [ "$dash_py" -eq 0 ]; then
+    row ok "dashboard reachable, 4/4 routers polled" "$dash_line" \
+      "D8 — /api/state from 127.0.0.1:${FABRIC_COLIMA_DASHBOARD_PORT}"
+  else
+    row fail "dashboard reachable, 4/4 routers polled" "${dash_line:-parse-fail}" \
+      "D8 — /api/state from 127.0.0.1:${FABRIC_COLIMA_DASHBOARD_PORT}"
+  fi
+fi
+
+# 16. dashboard sessions agree with vtysh (6 fabric Established)
+agree_ok=1
+agree_msg=""
+if [ "$dash_rc" -ne 0 ]; then
+  agree_ok=0
+  agree_msg="no /api/state"
+elif ! agree_msg=$(printf '%s' "$dash_raw" | python3 -c '
+import json, sys
+expected = {
+    ("edge", "10.200.1.18"): 65100,
+    ("spine", "10.200.1.2"): 65101,
+    ("spine", "10.200.1.10"): 65102,
+    ("spine", "10.200.1.19"): 65000,
+    ("leaf1", "10.200.1.3"): 65100,
+    ("leaf2", "10.200.1.11"): 65100,
+}
+try:
+    data = json.loads(sys.stdin.read())
+except ValueError:
+    raise SystemExit("not JSON")
+sessions = data.get("sessions") if isinstance(data, dict) else None
+if not isinstance(sessions, list):
+    raise SystemExit("no session records")
+seen = {}
+for sess in sessions:
+    if isinstance(sess, dict):
+        key = (sess.get("router"), sess.get("peer"))
+        if key in expected:
+            seen[key] = sess
+missing = [k for k in expected if k not in seen]
+if missing:
+    raise SystemExit("dashboard lacks " + ",".join("%s/%s" % k for k in missing))
+bad = [k for k, sess in seen.items()
+       if sess.get("state") != "Established" or sess.get("stale")
+       or sess.get("peerAsn") != expected[k]]
+if bad:
+    raise SystemExit("dashboard not Established: " + ",".join("%s/%s" % k for k in bad))
+if data.get("established") != 6 or data.get("sessionCount") != 6:
+    raise SystemExit("dashboard counters %s/%s" % (data.get("established"), data.get("sessionCount")))
+print("6/6")
+' 2>&1 | tr '\n' ' ' | head -c 80); then
+  agree_ok=0
+  agree_msg=${agree_msg:-dashboard not 6/6}
+fi
+if [ "$agree_ok" -eq 1 ]; then
+  if ! expect_sessions edge 10.200.1.18 >/dev/null 2>&1 \
+     || ! expect_sessions spine 10.200.1.2 10.200.1.10 10.200.1.19 >/dev/null 2>&1 \
+     || ! expect_sessions leaf1 10.200.1.3 >/dev/null 2>&1 \
+     || ! expect_sessions leaf2 10.200.1.11 >/dev/null 2>&1; then
+    agree_ok=0
+    agree_msg="vtysh not 6/6"
+  fi
+fi
+if [ "$agree_ok" -eq 1 ]; then
+  row ok "dashboard sessions agree with vtysh" "6/6 = 6/6" \
+    "D17 — state Established matches fabric-bgp-summary"
+else
+  row fail "dashboard sessions agree with vtysh" "$agree_msg" \
+    "D17 — state Established matches fabric-bgp-summary"
+fi
+
+# 17. agent on mgmt only, show-only
+http_code() {
+  printf '%s\n' "$1" | awk '
+    !seen && /^[[:space:]]*HTTP\/[0-9.]+ [0-9][0-9][0-9]([[:space:]]|$)/ {
+      match($0, /HTTP\/[0-9.]+ [0-9][0-9][0-9]/)
+      c = substr($0, RSTART + RLENGTH - 3, 3)
+      seen = 1
+    }
+    END { print c + 0 }'
+}
+ports_raw=""
+ports_rc=0
+ports_raw=$("${COMPOSE[@]}" ps --format json 2>&1) || ports_rc=$?
+ports_ok=0
+if [ "$ports_rc" -eq 0 ]; then
+  if printf '%s\n' "$ports_raw" | python3 -c '
+import json, sys
+raw = sys.stdin.read()
+objs = []
+try:
+    parsed = json.loads(raw)
+    if isinstance(parsed, list):
+        objs = parsed
+    elif isinstance(parsed, dict):
+        objs = [parsed]
+except json.JSONDecodeError:
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            objs.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+expected = {"edge", "spine", "leaf1", "leaf2"}
+seen = set()
+published = []
+for o in objs:
+    if not isinstance(o, dict):
+        continue
+    name = str(o.get("Service") or o.get("Name") or "")
+    svc = name.replace("bgp-fabric-colima-", "").rsplit("-", 1)[0] if name else ""
+    if svc not in expected:
+        continue
+    seen.add(svc)
+    if "Publishers" not in o and "Ports" not in o:
+        published.append("%s:no-port-field" % svc)
+        continue
+    pubs = o.get("Publishers")
+    if pubs is None:
+        pubs = o.get("Ports") or []
+    if isinstance(pubs, str) and pubs.strip() and pubs.strip() != "[]":
+        published.append("%s:%s" % (svc, pubs))
+    elif isinstance(pubs, list):
+        for p in pubs:
+            if isinstance(p, dict) and (p.get("PublishedPort") or p.get("URL")):
+                published.append("%s:%s" % (svc, p.get("PublishedPort") or p.get("URL")))
+            elif isinstance(p, str) and p.strip():
+                published.append("%s:%s" % (svc, p))
+missing = sorted(expected - seen)
+if missing:
+    print("inventory lacks " + ",".join(missing))
+    raise SystemExit(1)
+if published:
+    print("published " + ",".join(published[:4]))
+    raise SystemExit(1)
+print("no published ports")
+' >/dev/null 2>&1; then
+    ports_ok=1
+  fi
+fi
+reboot_out=""
+sum_out=""
+reboot_rc=0
+sum_rc=0
+reboot_out=$("${COMPOSE[@]}" exec -T dashboard wget -q -S -T 5 -O /dev/null \
+  'http://10.200.200.11:8080/show/bgp-summary%3Breboot' 2>&1) || reboot_rc=$?
+sum_out=$("${COMPOSE[@]}" exec -T dashboard wget -q -S -T 5 -O /dev/null \
+  'http://10.200.200.11:8080/show/bgp-summary' 2>&1) || sum_rc=$?
+reboot_code=$(http_code "$reboot_out")
+sum_code=$(http_code "$sum_out")
+client_blocked=0
+client_rcs=""
+for magent in 10.200.200.1 10.200.200.2 10.200.200.11 10.200.200.12; do
+  client_rc=0
+  "${COMPOSE[@]}" exec -T client0 curl --max-time 3 -s -o /dev/null \
+    "http://$magent:8080/healthz" >/dev/null 2>&1 || client_rc=$?
+  client_rcs="${client_rcs:+$client_rcs,}$client_rc"
+  if [ "$client_rc" -eq 7 ] || [ "$client_rc" -eq 28 ]; then
+    client_blocked=$((client_blocked + 1))
+  fi
+done
+if [ "$ports_ok" -eq 1 ] \
+   && [ "$reboot_code" = 404 ] && [ "$reboot_rc" -ne 0 ] \
+   && [ "$sum_code" = 200 ] && [ "$sum_rc" -eq 0 ] \
+   && [ "$client_blocked" -eq 4 ]; then
+  row ok "agent on mgmt only, show-only" \
+    "no ports; ;reboot=$reboot_code summary=$sum_code; client0_rc=$client_rcs" \
+    "D8 — agent on 10.200.200.0/24, show-only"
+else
+  row fail "agent on mgmt only, show-only" \
+    "ports_ok=$ports_ok ;reboot=${reboot_code:-?}/$reboot_rc summary=${sum_code:-?}/$sum_rc client0_rc=$client_rcs" \
+    "D8 — agent on 10.200.200.0/24, show-only"
+fi
+echo
+echo "demo 46-colima check: $fails FAIL"
+exit "$fails"
