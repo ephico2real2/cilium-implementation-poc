@@ -165,8 +165,9 @@
 
     boxes.edge = Object.assign({ x: width / 2, y: height * 0.12 }, nodeBox({ label: "edge\nAS 65000" }, fontSize, padding));
     boxes.spine = Object.assign({ x: width / 2, y: height * 0.32 }, nodeBox({ label: "spine\nAS 65100" }, fontSize, padding));
-    boxes.leaf1 = Object.assign({ x: width * 0.22, y: height * 0.54 }, nodeBox({ label: "leaf1\nAS 65101" }, fontSize, padding));
-    boxes.leaf2 = Object.assign({ x: width * 0.78, y: height * 0.54 }, nodeBox({ label: "leaf2\nAS 65102" }, fontSize, padding));
+    const leafFrac = width < 700 ? 0.28 : 0.22;
+    boxes.leaf1 = Object.assign({ x: width * leafFrac, y: height * 0.54 }, nodeBox({ label: "leaf1\nAS 65101" }, fontSize, padding));
+    boxes.leaf2 = Object.assign({ x: width * (1 - leafFrac), y: height * 0.54 }, nodeBox({ label: "leaf2\nAS 65102" }, fontSize, padding));
 
     for (const n of nodes) {
       if (routers[n.id] && n.label) {

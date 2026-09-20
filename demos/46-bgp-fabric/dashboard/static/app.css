@@ -62,9 +62,15 @@ body {
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
-.titles { min-width: 0; }
+.titles { min-width: 0; max-width: 100%; }
 h1 { font-size: 16px; margin: 0; font-weight: 650; }
-.lede { margin: 2px 0 0; font-size: 12px; color: var(--muted); max-width: 52em; }
+.lede {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 52em;
+  overflow-wrap: anywhere;
+}
 h2 { font-size: 13px; margin: 0 0 6px; font-weight: 650; color: var(--muted); }
 .meta { display: flex; flex-wrap: wrap; gap: 10px 14px; color: var(--muted); font-size: 12px; justify-content: flex-end; }
 .ws { display: inline-flex; align-items: center; gap: 6px; }
@@ -127,8 +133,9 @@ main {
   position: relative;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
-#graph { flex: 1 1 auto; min-height: 0; }
+#graph { flex: 1 1 auto; min-width: 0; min-height: 0; width: 100%; overflow: hidden; }
 #graph:focus { outline: none; }
 .empty {
   position: absolute;
@@ -194,7 +201,7 @@ main {
   flex-direction: column;
 }
 #rib-pane.stale { background: var(--wash-stale); }
-.why, .status { margin: 0 0 6px; font-size: 12px; color: var(--muted); }
+.why, .status { margin: 0 0 6px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .status:empty, .why:empty { display: none; }
 .table-wrap { overflow: auto; flex: 1; min-height: 0; }
 table { width: 100%; border-collapse: collapse; font: 12px/1.35 var(--mono); }
@@ -240,12 +247,12 @@ tr.path td.nexthop { padding-left: 1.4em; }
   overflow: auto;
   font: 12px/1.45 var(--mono);
 }
-#events li { display: flex; gap: 8px; align-items: baseline; padding: 1px 0; }
+#events li { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; padding: 1px 0; }
 #events .ts { color: var(--muted); flex: 0 0 5.5em; white-space: nowrap; }
 #events .kind { flex: 0 0 4.5em; color: var(--muted); }
 #events .router { flex: 0 0 4.5em; }
 #events .who { flex: 0 0 10em; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-#events .change { color: var(--muted); min-width: 0; }
+#events .change { color: var(--muted); flex: 1 1 10em; min-width: 0; overflow-wrap: anywhere; }
 h2 .dot { margin-right: 4px; vertical-align: middle; }
 
 @media (max-width: 700px) {
@@ -271,10 +278,12 @@ h2 .dot { margin-right: 4px; vertical-align: middle; }
   }
   .tabs {
     display: flex;
+    flex-wrap: wrap;
     border-bottom: 1px solid var(--line);
   }
   .tabs button {
-    flex: 1;
+    flex: 1 1 8em;
+    min-width: 0;
     font: 13px/1.3 var(--sans);
     font-weight: 650;
     color: var(--muted);
@@ -298,4 +307,8 @@ h2 .dot { margin-right: 4px; vertical-align: middle; }
   body[data-tab="events"] #events-pane { display: flex; }
   #events li { flex-wrap: wrap; }
   #events .ts { flex-basis: 5.5em; }
+  .table-wrap { max-width: 100%; }
+  table { table-layout: fixed; width: 100%; max-width: 100%; }
+  th, td { overflow-wrap: anywhere; }
+  th:first-child, td.best { width: 1.2em; }
 }

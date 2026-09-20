@@ -352,6 +352,7 @@
         userPanningEnabled: false,
         boxSelectionEnabled: false,
       });
+      window.__cy = cy;
       cy.on("tap", "node", (ev) => selectRouter(ev.target.id(), "click"));
       cy.on("mouseover", "node", (ev) => {
         ev.target.addClass("hover");
@@ -381,7 +382,7 @@
     // (375 px / leaf2 was the measured case) back inside.
     const paneW = $("graph").clientWidth || m.w;
     const paneH = $("graph").clientHeight || m.h;
-    const inset = 8;
+    const inset = 16;
     cy.nodes().forEach((n) => {
       const bb = n.boundingBox({ includeLabels: true, includeOverlays: false });
       let x = n.position("x");
@@ -527,6 +528,7 @@
       if (!r.ok) throw new Error("events");
       return r.json();
     }).then((events) => {
+      window.__gapFill = { since: id, count: (events || []).length };
       for (const ev of events || []) ingestEvent(ev);
     }).catch(() => {});
   }
@@ -542,6 +544,7 @@
   function connect() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(proto + "://" + location.host + "/ws");
+    window.__ws = ws;
     $("wsdot").className = "dot transitional";
     $("wslabel").textContent = wsAttempts
       ? "WebSocket retrying (" + wsAttempts + ")"
@@ -558,6 +561,7 @@
       wsAttempts += 1;
       $("wsdot").className = "dot down";
       $("wslabel").textContent = "WebSocket retrying (" + wsAttempts + ")";
+      if (window.__holdReconnect) return;
       setTimeout(connect, backoff);
       backoff = Math.min(backoff * 2, 8000);
     };
@@ -607,6 +611,8 @@
     $("tab-rib").addEventListener("click", () => setTab("rib"));
     $("tab-events").addEventListener("click", () => setTab("events"));
     if (shotTab) setTab(shotTab);
+    window.__ingestEvent = ingestEvent;
+    window.__connect = connect;
 
     setInterval(() => {
       document.querySelectorAll("[data-ts]").forEach((el) => {

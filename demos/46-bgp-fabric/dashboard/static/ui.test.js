@@ -54,9 +54,10 @@ test("layoutGraph at 375 px does not overlap six externals", () => {
     padding: 6,
   });
   assert.equal(layout.overlaps.length, 0, JSON.stringify(layout.overlaps));
-  for (const id of six.nodes.map((n) => n.id)) {
-    assert.ok(layout.pos[id], "missing " + id);
-    assert.ok(layout.pos[id].x >= 0 && layout.pos[id].x <= 375, id + " x=" + layout.pos[id].x);
+  for (const id of Object.keys(layout.boxes)) {
+    const b = layout.boxes[id];
+    assert.ok(b.x - b.w / 2 >= -0.5, id + " left " + (b.x - b.w / 2));
+    assert.ok(b.x + b.w / 2 <= 375.5, id + " right " + (b.x + b.w / 2));
   }
 });
 
