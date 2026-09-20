@@ -17,8 +17,14 @@ can attach to. Enforcement is the leaves' `frr.conf` as recorded
 | 6 | Backstops | `maximum-prefix 64` on SERVERS; `maximum-prefix 256` on fabric links | session torn down — prefix-lists first |
 | 7 | Timers | hold 9 / keepalive 3 on every fabric and SERVERS session | `neighbor … timers 3 9` |
 | 9 | What the fabric originates | edge: `10.200.100.0/24`; every router: its `/32` loopback; company supernet `10.200.0.0/16` | `network` statements; `ip prefix-list COMPANY seq 10 permit 10.200.0.0/16 le 32` |
+| 11 | Out-of-band management LAN | `10.200.200.0/24` — edge `.1`, spine `.2`, leaf1 `.11`, leaf2 `.12`, dashboard `.100`, the Docker bridge `.254`; **not in BGP** | compose `mgmt`; no `network 10.200.200` and no `redistribute` in any `frr.conf`; the NMS (dashboard) reaches the show-only agent on these addresses |
 
 Loopbacks: edge `10.200.255.1`, spine `.2`, leaf1 `.11`, leaf2 `.12`.
+
+WAN hosts: client0 `10.200.100.10` (default via edge `.2`). The dashboard
+sits on the management LAN at `10.200.200.100` (published
+`127.0.0.1:8088`; the routers publish no port — the agent is reached over
+mgmt, not through the traffic they route).
 
 ## Envoy Gateway lab (`kind-eg`)
 

@@ -147,7 +147,7 @@ lab: [`scripts/eg-up.sh`](scripts/eg-up.sh) (`eg1 eg2`, `eg-poc1` or `eg-poc2`) 
 | Envoy Gateway | v1.9.1 (its CRDs via the vendor's `helm template \| kubectl apply --server-side`) |
 | kube-vip / kube-vip cloud-provider | v1.2.4 / v0.0.12 |
 | MetalLB | 0.16.0 (L2 in demo 52; the FRR-K8s BGP demo is next) |
-| FRR (the fabric's routers) | 10.5.3 — the tag MetalLB's chart pins |
+| FRR (the fabric's routers) | 10.7.1 — the newest release; the fabric is the network team's gear and picks its own FRR, whatever a consumer such as MetalLB bundles |
 | cert-manager | v1.21.1, one self-signed root per lab, exported under `.tmp/` |
 
 The pins are in [`scripts/bootstrap/versions-eg.env`](scripts/bootstrap/versions-eg.env); the plan is

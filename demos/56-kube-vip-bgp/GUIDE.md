@@ -1,6 +1,6 @@
-# Demo 56 — five things to try
+# Demo 56 — six things to try
 
-Five exercises against the demo once it is up. Exercise 4 restarts a
+Six exercises against the demo once it is up. Exercise 5 restarts a
 kube-vip pod; the others are read-only.
 
 ## Prerequisites
@@ -69,28 +69,46 @@ T T4 expected=GetOrder id=2 version v2 observed=v2 PASS
 T T5 expected=x-version v2 then default v1 observed=v2 then v1 PASS
 ```
 
-### 3. Read the leaf's three paths
+### 3. Read the leaf's node paths
 
 Active-active: both nodes advertise the `/32`. The spine's two
-nexthops are the two leaves. One leaf may also hold the door's own
-prefix bounced back from the spine — the leaf the spine did not pick as
-best (recorded on leaf1 as `65100 65102 65021`); judges count node
-paths (nexthop in `172.19.0.0/17`) only.
+nexthops are the two leaves. Judges count node paths (nexthop in
+`172.19.0.0/17`) only.
 
 ```bash
 docker compose -p bgp-fabric exec -T leaf1 vtysh -c 'show ip bgp 10.98.0.10/32'
 docker compose -p bgp-fabric exec -T spine ip route show 10.98.0.10
 ```
 
-**Expect:** two node paths on leaf1; two nexthops on the spine.
+**Expect:** two node paths on leaf1 after Cluster; two nexthops on the
+spine.
 
 ```text
 leaf1 node_paths=2 (want >= 2 nodes) after 1s
-10.98.0.10 nhid 27 proto bgp metric 20
-  PASS   leaf1 2 node paths for 10.98.0.10/32 (both nodes)                      node_paths=2                                         active-active — both nodes advertise to each leaf
+10.98.0.10 nhid 18 proto bgp metric 20
 ```
 
-### 4. Kill kube-vip on one node and watch the leaf (changes the cluster)
+### 4. Open the dashboard and find this cluster's speakers
+
+The fabric dashboard is at `http://127.0.0.1:8088/?router=leaf1`. Look
+for this cluster's two kube-vip speakers (`172.19.0.2` and
+`172.19.0.3`) as external peers of both leaves. Do not explain the
+page; [demo 46](../46-bgp-fabric/RECAP.md) holds that.
+
+```bash
+curl -fsS --max-time 5 http://127.0.0.1:8088/healthz
+```
+
+**Expect:** both speakers Established on both leaves (four sessions).
+
+```text
+eg-poc1-control-plane 172.19.0.2
+eg-poc1-worker 172.19.0.3
+      "state":"Established",
+recovery: 4 sessions Established; 2 node paths on both leaves after 1s
+```
+
+### 5. Kill kube-vip on one node and watch the leaf (changes the cluster)
 
 Delete the worker's kube-vip pod. The DaemonSet restarts it. leaf1
 drops to one node path and returns when the pod is Running.
@@ -111,16 +129,20 @@ t+2s code=200 rc=0 leaf1 node_paths=2
 A summary: withdrawal_s=0 ok=12 fail=0 recovery_s=2
 ```
 
-### 5. Run the check
+### 6. Run the check
 
 ```bash
 demos/56-kube-vip-bgp/check.sh
 ```
 
-**Expect:** 16 PASS, `demo 56 check: 0 FAIL`.
+**Expect:** 16 rows, 16 PASS, 0 FAIL (recorded at `2026-09-20T19:56:30Z`) — the last
+four rows:
 
 ```text
-demo 56 check: 0 FAIL
+  PASS   client0 x-version v2                                                   v2                                                   demo 52 T5 — x-version v2 → version v2 served_by grpcdemo-v2-
+  PASS   arping routed door 10.98.0.10 → 0 replies                            replies=0                                            routed door — nobody ARPs for a routed address / L2 door unannounced
+  PASS   arping demo 54 L2 door 172.19.255.100 → 0 replies                    replies=0                                            demo 54 L2 door — nobody ARPs for a routed address / L2 door unannounced
+  PASS   SERVERS-IN seq 10 (EG-POC1-VIPS + as-path EG-POC1) invoked > 0         seq10_invoked=24                                     sheet row 4 — EG-POC1-VIPS 10.98.0.0/26 ge 32 le 32 + as-path ^65021$
 ```
 
 ## Clean up

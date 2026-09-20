@@ -62,8 +62,8 @@ Every command is recorded through `scripts/record.sh` into
 
 ## What was recorded
 
-The last apply (`2026-09-20T06:15:08Z`, transcript from line 6960).
-`check.sh` at `2026-09-20T06:19:04Z`: 16 PASS, 0 FAIL.
+The last apply (`2026-09-20T19:53:33Z`) and the `check.sh` recorded after
+it (`2026-09-20T19:56:30Z`).
 
 ### 1. Start from demo 54
 
@@ -74,14 +74,14 @@ docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 \
   arping -b -c 3 -I eth0 172.19.255.100
 ```
 
-Recorded (tenth apply):
+Recorded:
 
 ```text
 ---- arping -b -c 3 172.19.255.100 ----
 ARPING 172.19.255.100 from 172.19.0.6 eth0
-Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.008ms
-Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.010ms
-Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.025ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.006ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.009ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.015ms
 Sent 3 probe(s) (0 broadcast(s))
 Received 3 response(s) (0 request(s), 0 broadcast(s))
 leaf1 SERVERS_peers=0
@@ -95,7 +95,7 @@ kubectl --context kind-eg-poc1 apply \
   -f demos/56-kube-vip-bgp/10a-kube-vip-ds-bgp-election.yaml
 ```
 
-Recorded (tenth apply):
+Recorded:
 
 ```text
 daemonset.apps/kube-vip-ds configured
@@ -104,8 +104,8 @@ SERVERS Established on both leaves after 3s
 eg-poc1-control-plane 172.19.0.2
 eg-poc1-worker 172.19.0.3
       "state":"Established",
+ *> 10.98.0.11/32    172.19.0.2                             0 65021 i
  *> 10.98.0.10/32    172.19.0.3                             0 65021 i
- *> 10.98.0.11/32    172.19.0.3                             0 65021 i
 ```
 
 ### 3. Create the BGP doors and the app
@@ -120,7 +120,7 @@ kubectl --context kind-eg-poc1 apply \
   -f demos/56-kube-vip-bgp/50-routes-bgp.yaml
 ```
 
-Recorded (tenth apply):
+Recorded:
 
 ```text
 envoyproxy.gateway.envoyproxy.io/bgp-http-gw-proxy created
@@ -135,9 +135,9 @@ Waiting for deployment "shopapi" rollout to finish: 1 out of 2 new replicas have
 deployment "shopapi" successfully rolled out
 kind-eg-poc1 httproute/shop-api-bgp: all parents Accepted+ResolvedRefs
 kind-eg-poc1 grpcroute/orders-bgp: all parents Accepted+ResolvedRefs
-bgp-http-gw nodes: eg-poc1-worker eg-poc1-control-plane unique=2
-bgp-grpc-gw nodes: eg-poc1-control-plane eg-poc1-worker unique=2
-shopapi nodes: eg-poc1-control-plane eg-poc1-worker unique=2
+bgp-http-gw nodes: eg-poc1-control-plane eg-poc1-worker unique=2
+bgp-grpc-gw nodes: eg-poc1-worker eg-poc1-control-plane unique=2
+shopapi nodes: eg-poc1-worker eg-poc1-control-plane unique=2
 Received 0 response(s) (0 request(s), 0 broadcast(s))
 ```
 
@@ -154,66 +154,64 @@ docker exec bgp-fabric-client0-1 \
   tcptraceroute -n -m 8 10.98.0.10 80
 ```
 
-Recorded (tenth apply):
+Recorded:
 
 ```text
 grpcurl v1.9.3
 http://api.eg-poc1.poc.local/healthz @ 10.98.0.10:80 → 200 X-Served-By=eg-poc1 curl_rc=0
 10.98.0.10 via 10.200.100.2 dev eth0 src 10.200.100.10 uid 0
- 1  10.200.100.2  0.105 ms  0.010 ms  0.064 ms
- 2  10.200.1.18  0.120 ms  0.097 ms  0.105 ms
- 3  10.200.1.10  0.288 ms  0.117 ms  0.092 ms
- 4  10.98.0.10  0.175 ms  0.151 ms  0.133 ms
- 5  10.98.0.10 [open]  0.120 ms  0.147 ms  0.143 ms
+ 1  10.200.100.2  0.079 ms  0.023 ms  0.026 ms
+ 2  10.200.1.18  0.260 ms  0.072 ms  0.029 ms
+ 3  10.200.1.2  0.095 ms  0.037 ms  0.038 ms
+ 4  10.98.0.10  0.099 ms  0.042 ms  0.076 ms
+ 5  10.98.0.10 [open]  0.091 ms  0.079 ms  0.049 ms
 ```
 
 ### 5. Switch to active-active
 
-`leaf1 node_paths=2` while ETP is still Local (shopapi is on both
-nodes); the spine's two nexthops are the two leaves. A leaf may hold a
-third path: the door's own prefix bounced back from the spine, on
-whichever leaf the spine did NOT pick as best (recorded on leaf1 as
-`65100 65102 65021`). Judges count node paths only.
+`leaf1 node_paths=1` after 2 s (`want >= 1`) while ETP is still Local;
+the spine's two nexthops are the two leaves. Judges count node paths
+only.
 
 ```bash
 kubectl --context kind-eg-poc1 apply \
   -f demos/56-kube-vip-bgp/10b-kube-vip-ds-bgp-active-active.yaml
 ```
 
-Recorded (tenth apply):
+Recorded:
 
 ```text
 daemonset.apps/kube-vip-ds configured
 daemon set "kube-vip-ds" successfully rolled out
-leaf1 node_paths=2 (want >= 1 nodes) after 3s
-10.98.0.10 nhid 27 proto bgp metric 20
+leaf1 node_paths=1 (want >= 1 nodes) after 2s
+10.98.0.10 nhid 18 proto bgp metric 20
 ```
 
 ### 6. Measure ETP Local then Cluster
 
 Two 40-curl loops; `x-pod` names both shopapi pods. Both node paths
-were already up under Local.
+were up after Cluster.
 
 ```bash
 kubectl --context kind-eg-poc1 apply \
   -f demos/56-kube-vip-bgp/20-gateways-bgp.yaml
 ```
 
-Recorded (tenth apply):
+Recorded:
 
 ```text
 ---- ETP-Local: 40 curls from client0 ----
-ETP-Local ok=40 fail=0 x-pod=[shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 ]
-eg-poc1-control-plane 24
-eg-poc1-worker 23
-before: uid=aa9c6579-003f-431c-99fa-1600a253e5ef etp=Local
-after apply 20: uid=aa9c6579-003f-431c-99fa-1600a253e5ef etp=Cluster
+ETP-Local ok=40 fail=0 x-pod=[shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-gtgpm shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-gtgpm shopapi-55dd74569b-gtgpm ]
+eg-poc1-control-plane 40
+eg-poc1-worker 7
+before: uid=a28a317d-f5e5-433d-99f5-72cea2ed5e94 etp=Local
+after apply 20: uid=a28a317d-f5e5-433d-99f5-72cea2ed5e94 etp=Cluster
 final ETP=Cluster
 leaf1 node_paths=2 (want >= 2 nodes) after 1s
 ---- ETP-Cluster: 40 curls from client0 ----
-ETP-Cluster ok=40 fail=0 x-pod=[shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl ]
-eg-poc1-control-plane 25
-eg-poc1-worker 15
+ETP-Cluster ok=40 fail=0 x-pod=[shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-gtgpm shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-gtgpm shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-gtgpm shopapi-55dd74569b-gtgpm shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-kbvz8 shopapi-55dd74569b-gtgpm shopapi-55dd74569b-kbvz8 ]
+eg-poc1-control-plane 40
+eg-poc1-worker 0
 ```
 
 ### 7. Run the gRPC matrix from client0
@@ -222,7 +220,7 @@ eg-poc1-worker 15
 docker exec bgp-fabric-client0-1 grpcurl --version
 ```
 
-Recorded (tenth apply):
+Recorded:
 
 ```text
 ==== gRPC matrix summary ====
@@ -248,13 +246,13 @@ gRPC matrix: 0 FAIL
 
 (A) delete the worker's kube-vip pod (the loop's clock starts once the
 delete has returned, so `withdrawal_s=0` means "already gone by then").
-(B) pause the worker 75 s. BGP withdrew at 13 s; the node went
-`Ready=Unknown` at 51 s (the 50 s default grace period, measured); the
-shopapi endpoint was pruned; and not one of the four probes after that
-succeeded, because the envoy-gateway controller's single replica was
-on the paused node — the surviving Envoy never learned of the pruned
-endpoint; the door came back 7 s after unpause. A silent node needs
-BGP, the grace period AND a live control plane for the door.
+(B) pause the worker 75 s. BGP withdrew at 8 s; the node went
+`Ready=Unknown` at 51 s; shopapi and the door were pruned
+(`ready_eps=1 door_eps=1`); three of the four probes after that
+succeeded (`first_ok_after_s=58`); the envoy-gateway controller's
+single replica was on the paused node; the door came back 10 s after
+unpause. A silent node needs BGP, the grace period AND a live control
+plane for the door.
 
 ```bash
 kubectl --context kind-eg-poc1 -n kube-system delete pod \
@@ -265,19 +263,26 @@ kubectl --context kind-eg-poc1 -n kube-system delete pod \
 docker pause eg-poc1-worker
 ```
 
-Recorded (tenth apply):
+Recorded:
 
 ```text
----- A: BGP-only — delete kube-vip pod kube-vip-ds-fgzpn on eg-poc1-worker ----
+---- A: BGP-only — delete kube-vip pod kube-vip-ds-9k47n on eg-poc1-worker ----
 A summary: withdrawal_s=0 ok=12 fail=0 recovery_s=2
 ---- B: silent node — pause eg-poc1-worker (172.19.0.3) for 75 s; envoy-gateway controller on: eg-poc1-worker ----
-t+13s code=200 rc=0 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=True lastTransitionTime=2026-09-20T05:25:45Z ready_eps=2 door_eps=2
-t+51s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T06:17:30Z ready_eps=1 door_eps=1
-t+59s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T06:17:30Z ready_eps=1 door_eps=1
-t+66s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T06:17:30Z ready_eps=1 door_eps=1
-t+74s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T06:17:30Z ready_eps=1 door_eps=1
-B summary: bgp_withdraw_s=13 node_notready_s=51 first_ok_after_s=none post_notready ok=0 fail=4 recovery_s=7 eg_controller_node=eg-poc1-worker
+t+8s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=True lastTransitionTime=2026-09-20T14:04:57Z ready_eps=2 door_eps=2
+screenshot written after 2.0 s; chrome_rc=0
+demos/56-kube-vip-bgp/output/screenshots/dashboard-silent-node.png: PNG image data, 1200 x 700, 8-bit/color RGB, non-interlaced
+t+51s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T19:55:53Z ready_eps=1 door_eps=1
+t+58s code=200 rc=0 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T19:55:53Z ready_eps=1 door_eps=1
+t+64s code=200 rc=0 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T19:55:53Z ready_eps=1 door_eps=1
+t+69s code=200 rc=0 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T19:55:53Z ready_eps=1 door_eps=1
+B summary: bgp_withdraw_s=8 node_notready_s=51 first_ok_after_s=58 post_notready ok=3 fail=1 recovery_s=10 eg_controller_node=eg-poc1-worker
 ```
+
+![Silent node on leaf1: header `fabric sessions 6/6 · server sessions
+2/4`; the paused worker's sessions on both leaves are red
+(`Established→Idle` in Events); leaf1 RIB keeps `10.98.0.10/32` and
+`10.98.0.11/32` via `172.19.0.2`.](output/screenshots/dashboard-silent-node.png)
 
 ## Checks
 
@@ -285,11 +290,13 @@ B summary: bgp_withdraw_s=13 node_notready_s=51 first_ok_after_s=none post_notre
 demos/56-kube-vip-bgp/check.sh
 ```
 
-`check.sh` at `2026-09-20T06:19:04Z`: 16 PASS, 0 FAIL.
+`check.sh` at `2026-09-20T19:56:30Z`, after the run above: 16 rows, 16 PASS, 0 FAIL.
 
-Recorded (tenth apply):
+Recorded:
 
 ```text
+### 2026-09-20T19:56:30Z
+$ demos/56-kube-vip-bgp/check.sh
 == demo 56 — kube-vip BGP on eg-poc1 (migration from L2)
   STATUS WHAT                                                                   MEASURED                                             RULE
   PASS   kube-vip DS ready with BGP env                                         ready=2/2 bgp_enable=true bgp_as=65021               10b — ready N/N, bgp_enable=true, bgp_as=65021
@@ -307,7 +314,8 @@ Recorded (tenth apply):
   PASS   client0 x-version v2                                                   v2                                                   demo 52 T5 — x-version v2 → version v2 served_by grpcdemo-v2-
   PASS   arping routed door 10.98.0.10 → 0 replies                            replies=0                                            routed door — nobody ARPs for a routed address / L2 door unannounced
   PASS   arping demo 54 L2 door 172.19.255.100 → 0 replies                    replies=0                                            demo 54 L2 door — nobody ARPs for a routed address / L2 door unannounced
-  PASS   SERVERS-IN seq 10 (EG-POC1-VIPS + as-path EG-POC1) invoked > 0         seq10_invoked=90                                     sheet row 4 — EG-POC1-VIPS 10.98.0.0/26 ge 32 le 32 + as-path ^65021$
+  PASS   SERVERS-IN seq 10 (EG-POC1-VIPS + as-path EG-POC1) invoked > 0         seq10_invoked=24                                     sheet row 4 — EG-POC1-VIPS 10.98.0.0/26 ge 32 le 32 + as-path ^65021$
+
 demo 56 check: 0 FAIL
 ```
 
@@ -315,8 +323,8 @@ demo 56 check: 0 FAIL
 
 - No Mac route recorded. apply.sh printed the two lines; the record is
   `Mac route absent — the client0 half is the record`.
-- No dashboard. Phase 1 reads the routers with fabric-status (D17);
-  the Kubernetes dashboard is phase 2.
+- A Kubernetes deploy of the dashboard (demo 46 R7). This apply shot
+  demo 46's compose service at `127.0.0.1:8088`.
 - Demo 54's L2 doors (`.100` / `.101`) stay as objects and stay dark
   until [`cleanup.sh`](cleanup.sh) restores
   [`clusters/eg/kube-vip-ds.yaml`](../../clusters/eg/kube-vip-ds.yaml).
@@ -324,6 +332,9 @@ demo 56 check: 0 FAIL
 - A change to the fabric or to `eg-poc2`.
 
 ## Runs that did not go to plan
+
+The pages were re-recorded when the fabric moved to FRR 10.7.1 and
+gained the dashboard. The last apply is `2026-09-20T19:53:33Z`.
 
 The first apply (`2026-09-20T04:27:40Z`) left ARP on with BGP. The
 DaemonSet rolled out then crashed (`ready=0/2`); kube-vip refuses two
@@ -377,6 +388,15 @@ Available (the old ReplicaSet keeps it True). Recorded:
 The tenth apply's first check (`2026-09-20T06:18:07Z`) failed
 SERVERS-IN (`vtysh/JSON failed`): FRR 10.5 keys the daemon `bgpd`.
 Recorded: `demo 56 check: 1 FAIL`.
+
+FORWARD alone did not isolate the fabric agents. A reviewer's probe
+from `client0` read the edge's whole BGP table on `10.200.200.1`
+(measured 2026-09-20,
+[demo 46 entrypoint](../46-bgp-fabric/fabric/entrypoint.sh),
+[`tests/fabric-agent-mgmt-input.sh`](../../tests/fabric-agent-mgmt-input.sh)).
+The live gate FAILED on that fabric. Demo 46's `2026-09-20T19:29:04Z`
+apply closed it (`client0_rc=28,28,28,28`); this apply ran on those
+images.
 
 ## Clean up
 

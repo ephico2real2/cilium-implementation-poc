@@ -10,7 +10,7 @@ mkdir -p "$T/bin"
 cat >"$T/bin/docker" <<DOCKER
 #!/usr/bin/env bash
 case "\$*" in
-  *'network ls'*|*'network inspect'*)
+  *'network ls'*|*'network inspect'*|*'image inspect'*)
     exit 0 ;;
   *'up -d --wait'*|*'up -d'*)
     exit 0 ;;
@@ -43,6 +43,18 @@ JSON
 esac
 DOCKER
 chmod +x "$T/bin/docker"
+
+cat >"$T/bin/curl" <<'CURL'
+#!/usr/bin/env bash
+case "$*" in
+  *healthz*) echo ok; exit 0 ;;
+  *api/state*)
+    printf '%s\n' '{"reachable":4,"routerCount":4,"established":6,"sessionCount":6,"external":0}'
+    exit 0 ;;
+  *) echo "curl-stub: $*" >&2; exit 1 ;;
+esac
+CURL
+chmod +x "$T/bin/curl"
 
 export PATH="$T/bin:/usr/bin:/bin"
 export FABRIC_TRANSCRIPT="$T/transcript.txt"

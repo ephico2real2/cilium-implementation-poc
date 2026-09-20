@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>bgp-fabric</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="bar">
+    <h1>bgp-fabric — live</h1>
+    <div class="meta">
+      <span id="poll">poll —</span>
+      <span id="reach">routers —</span>
+      <span id="sess">sessions —</span>
+      <span class="ws"><i id="wsdot" class="dot down"></i> <span id="wslabel">connecting</span></span>
+    </div>
+  </header>
+  <main>
+    <section id="graph" aria-label="topology"></section>
+    <aside id="rib-pane">
+      <h2>RIB <i id="rib-dot" class="dot down" aria-hidden="true"></i> <span id="rib-name">spine</span></h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th></th><th>prefix</th><th>nexthop</th><th>path</th><th>from</th></tr>
+          </thead>
+          <tbody id="rib"></tbody>
+        </table>
+      </div>
+    </aside>
+  </main>
+  <section id="events-pane">
+    <h2>Events</h2>
+    <ol id="events" reversed></ol>
+  </section>
+  <script src="vendor/cytoscape.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

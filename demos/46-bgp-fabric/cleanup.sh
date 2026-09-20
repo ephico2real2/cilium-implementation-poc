@@ -4,4 +4,4 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 scripts/fabric-down.sh
-echo "demo 46 removed (KEPT: kind, kind-eg, every cluster)"
+echo "demo 46 removed (KEPT: kind, kind-eg, every cluster; images stay unless fabric-down.sh --rmi)"

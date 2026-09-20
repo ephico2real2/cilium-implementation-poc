@@ -1,0 +1,19 @@
+
+== lab regression 2026-09-18T13:24:55Z — contexts kind-poc1 kind-poc2 — expected Cilium 1.20.2
+  STATUS WHAT                                                                                     MEASURED                                   RULE
+  PASS   Both clusters run the expected Cilium version                                            poc1 1.20.2-remote-workload-1d3a02ab 2/2, poc2 1.20.2-remote-workload-1d3a02ab 2/2 image is ghcr.io/ephico2real2/cilium-dev:1.20.2-remote-workload-1d3a02ab (the lab's build of 1.20.2) and ready==desired on both
+  PASS   Every Cilium agent is healthy                                                            poc1 Cilium=OK Envoy=OK; poc2 Cilium=OK Envoy=OK cilium status --wait exits 0 and reads Cilium: OK, Envoy DaemonSet: OK on both
+  PASS   The two clusters see each other (Cluster Mesh)                                           poc1: ✅ All 2 nodes are connected to all clusters [min:1 / avg:1.0 / max:1]; poc2: ✅ All 2 nodes are connected to all clusters [min:1 / avg:1.0 / max:1] clustermesh status exits 0 and contains All 2 nodes are connected
+  PASS   The Gateway answers on every published address                                           7/7 answered                               every deployed name answers 200 (bank may be 401)
+  PASS   Every Gateway listener is programmed                                                     11 listeners, 11 True                      every listener Programmed=True on kind-poc1
+  PASS   The load-balancer addresses have an owner (L2 leases)                                    6 leases, holders: poc1-control-plane poc1-control-plane poc1-control-plane poc1-control-plane poc1-worker poc1-control-plane every l2announce lease has a holder
+  PASS   Hubble metrics arrive from both clusters                                                 poc1 250.0/s, poc2 82.2/s                  rate > 0 for poc1 and poc2
+  PASS   Network policy is still enforcing (drops exist) and traffic still flows (forwards exist) FORWARDED 243.1/s, DROPPED 2.7/s           FORWARDED > 0 and DROPPED > 0 on poc1
+  PASS   The flow observer is streaming to Loki                                                   ready 1/1, 144 lines in 2 min              ready == desired and log lines in the last 2 min > 0
+  PASS   cf2cnp (the policy generator) answers and is the expected version                        health 200, image 0.9.0                    health 200 and image tag 0.9.0
+  PASS   Grafana has the lab's dashboards                                                         9/9 present                                9/9 uids present
+  PASS   The tutorial dashboards' queries return data                                             30 panels, 0 NO DATA                       0 NO DATA lines (count → lines as panels)
+  PASS   The two Gateway doors of demo 37 still behave                                            2 doors Programmed, 172.18.255.240 / 172.18.255.243 2 Programmed=True doors with addresses
+  PASS   Cilium's own connectivity test, if a result file is present                              ❌ 1/87 tests failed (5/512 actions), 50 tests skipped, 0 scenarios skipped: — only the log scan failed 0 failed, or only check-log-errors (the log scan)
+
+summary: 14 PASS, 0 FAIL, 0 WARN — saved to output/regression/20260918T132455Z.txt

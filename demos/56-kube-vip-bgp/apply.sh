@@ -1208,6 +1208,29 @@ failure_bgp_only() {
 # also counts the probes AFTER the node went not-ready: the ninth run had 2 of 4
 # time out there because the Envoy Gateway controller (one replica) sat on the
 # paused node, so the surviving Envoy never received the pruned shopapi endpoint.
+# The fabric's dashboard (demo 46 phase 2, 127.0.0.1:8088) sees the paused node
+# as a leaf session gone dark: one shot when leaf1 first drops the node path.
+# The shared helper runs in a subshell so it does not shadow this file's
+# browser_shot (the door's /orders page).
+dashboard_shot() { # path router
+  local shot=$1 router=$2
+  if ! curl -fsS --max-time 2 http://127.0.0.1:8088/healthz >/dev/null 2>&1; then
+    echo "dashboard not reachable at 127.0.0.1:8088 — no dashboard screenshot"
+    return 0
+  fi
+  mkdir -p "$(dirname "$shot")"
+  (
+    # the dashboard is reached by IP; HTTP_HOST/HTTP_ADDR would otherwise add
+    # a --host-resolver-rules MAP for the door to an unrelated screenshot
+    unset HTTP_HOST HTTP_ADDR
+    # shellcheck disable=SC1091
+    . demos/shared/browser-shot.sh
+    BROWSER_SHOT_PATH="$PWD/$shot" BROWSER_SHOT_URL="http://127.0.0.1:8088/?router=$router" \
+    BROWSER_SHOT_WIDTH=1200 BROWSER_SHOT_HEIGHT=700 BROWSER_SHOT_VIRTUAL_TIME_MS=4000 \
+    BROWSER_SHOT_FILE_LABEL="$shot" browser_shot
+  )
+}
+
 failure_silent_node() {
   local worker=eg-poc1-worker start now rc code silent=${SILENT_S:-75} tick=${TICK_S:-5}
   local worker_ip pn st ready_line eps deps egnode
@@ -1231,6 +1254,7 @@ failure_silent_node() {
     echo "t+$((now - start))s code=${code:-000} rc=$rc leaf1 node_paths=$pn peer $worker_ip state=$st $ready_line $eps $deps"
     if [ "$pn" = 1 ] && [ -z "$bgp_withdraw" ]; then
       bgp_withdraw=$((now - start))
+      dashboard_shot "$HERE/output/screenshots/dashboard-silent-node.png" leaf1
     fi
     # a frozen kubelet stops reporting, so the condition becomes Unknown, not False
     # (measured: Ready=Unknown at t+43 s, ninth run). Only False/Unknown count —
@@ -1268,15 +1292,15 @@ failure_silent_node() {
 
 export -f node_path_count leaf_node_paths leaf_peer_state servers_est_on_leaf \
   worker_ready_line ready_eps_of shopapi_ready_eps door_ready_eps eg_controller_node \
-  recovery_wait failure_bgp_only failure_silent_node
-export CLIENT HTTP_HOST HTTP_ADDR PROJECT FABRIC CTX
+  recovery_wait failure_bgp_only failure_silent_node dashboard_shot
+export CLIENT HTTP_HOST HTTP_ADDR PROJECT FABRIC CTX CHROME HERE
 rec bash -c failure_bgp_only
 rec bash -c 'recovery_wait 90'
 rec bash -c failure_silent_node
 rec bash -c 'recovery_wait 90'
 unset -f leaf_node_paths leaf_peer_state servers_est_on_leaf \
   worker_ready_line ready_eps_of shopapi_ready_eps door_ready_eps eg_controller_node \
-  recovery_wait failure_bgp_only failure_silent_node node_path_count
+  recovery_wait failure_bgp_only failure_silent_node node_path_count dashboard_shot
 
 # ---- 10. hosts + final table ----
 echo "== 10. hosts-entries.sh + final table"

@@ -10,8 +10,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck disable=SC1091
 . scripts/bootstrap/versions-eg.env
-export FRR_IMAGE="${FRR_IMAGE:-quay.io/frrouting/frr:10.5.3}"
+export FRR_IMAGE="${FRR_IMAGE:-quay.io/frrouting/frr:10.7.1}"
 export NETSHOOT_IMAGE="${NETSHOOT_IMAGE:-nicolaka/netshoot:v0.16}"
+export FABRIC_ROUTER_IMAGE="${FABRIC_ROUTER_IMAGE:-frr-agent:local}"
+export FABRIC_DASHBOARD_IMAGE="${FABRIC_DASHBOARD_IMAGE:-bgp-dashboard:local}"
 
 FABRIC=demos/46-bgp-fabric/fabric
 PROJECT="${FABRIC_PROJECT:-bgp-fabric}"
@@ -71,10 +73,42 @@ while read -r net_id; do
   fi
 done < <(docker network ls -q 2>/dev/null || true)
 
+# The dashboard publishes 127.0.0.1:8088. Another project holding it takes the
+# fabric's dashboard down mid-run: measured 2026-09-20, a second lab on this host
+# published the same port and bgp-fabric-dashboard-1 exited (code 2, one log line)
+# while demo 46 was recording. Name the holder and stop, rather than half-start.
+port_holder=$(docker ps --filter "publish=${FABRIC_DASHBOARD_PORT:-8088}" \
+  --format '{{.Names}}' 2>/dev/null | grep -v "^${PROJECT}-" | head -1 || true)
+if [ -n "$port_holder" ]; then
+  echo "fabric-up: 127.0.0.1:${FABRIC_DASHBOARD_PORT:-8088} is published by container $port_holder (not this project) — stop it, or set FABRIC_DASHBOARD_PORT" >&2
+  exit 1
+fi
+
 rec() { scripts/record.sh "$TRANSCRIPT" "$@"; }
 printf '\n### %s — fabric-up project=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT" >>"$TRANSCRIPT"
 
 say() { echo "== $*"; }
+
+need_image() { # tag — 0 if we should build
+  if [ "${FABRIC_REBUILD:-0}" = 1 ]; then
+    return 0
+  fi
+  ! docker image inspect "$1" >/dev/null 2>&1
+}
+
+say "0. local images ($FABRIC_ROUTER_IMAGE, $FABRIC_DASHBOARD_IMAGE)"
+if need_image "$FABRIC_ROUTER_IMAGE"; then
+  rec docker build -t "$FABRIC_ROUTER_IMAGE" --build-arg FRR_IMAGE="$FRR_IMAGE" \
+    -f demos/46-bgp-fabric/frr-agent/Containerfile demos/46-bgp-fabric/frr-agent
+else
+  rec echo "image $FABRIC_ROUTER_IMAGE present"
+fi
+if need_image "$FABRIC_DASHBOARD_IMAGE"; then
+  rec docker build -t "$FABRIC_DASHBOARD_IMAGE" \
+    -f demos/46-bgp-fabric/dashboard/Containerfile demos/46-bgp-fabric/dashboard
+else
+  rec echo "image $FABRIC_DASHBOARD_IMAGE present"
+fi
 
 say "1. docker compose up -d --wait (project $PROJECT)"
 rec docker compose "${COMPOSE_ARGS[@]}" up -d --wait
@@ -145,5 +179,33 @@ rec docker compose "${COMPOSE_ARGS[@]}" exec -T client0 ping -c 1 -W 2 10.200.25
 
 say "5. client0 path"
 rec docker compose "${COMPOSE_ARGS[@]}" exec -T client0 ip route
+
+say "6. dashboard healthz and 4/4 (deadline 60s)"
+dash_start=$(date +%s)
+dash_ok=0
+dash_line=""
+while :; do
+  if curl -fsS --max-time 2 http://127.0.0.1:8088/healthz >/dev/null 2>&1; then
+    if dash_line=$(curl -fsS --max-time 2 http://127.0.0.1:8088/api/state | python3 scripts/fabric-dashboard-state.py); then
+      dash_ok=1
+      break
+    fi
+  fi
+  now=$(date +%s)
+  if [ $((now - dash_start)) -ge 60 ]; then
+    break
+  fi
+  sleep 1
+done
+dash_elapsed=$(( $(date +%s) - dash_start ))
+if [ "$dash_ok" -ne 1 ]; then
+  echo "fabric-up: dashboard not ready after ${dash_elapsed}s" >&2
+  rec echo "dashboard not ready after ${dash_elapsed} s (${dash_line:-no /api/state})"
+  rec curl -sS --max-time 2 http://127.0.0.1:8088/healthz || true
+  rec curl -sS --max-time 2 http://127.0.0.1:8088/api/state || true
+  exit 1
+fi
+rec echo "dashboard ready after ${dash_elapsed} s ($dash_line)"
+echo "fabric-up: dashboard ready after ${dash_elapsed}s ($dash_line)"
 
 echo "fabric-up: ready (project $PROJECT, ${elapsed}s to Established)"

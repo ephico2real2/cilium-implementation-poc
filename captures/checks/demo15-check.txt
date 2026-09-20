@@ -1,0 +1,55 @@
+
+== 0. readiness and the merged service maps (both clusters must list BOTH payments backends)
+  poc1 not-ready pods: 0
+  poc2 not-ready pods: 0
+  payments backends known: poc1=4 poc2=3 (after ~5s)
+    poc1: 88   10.11.123.216:80/TCP      ClusterIP      1 => 10.10.0.219:8080/TCP (active)    
+    poc1:                                               2 => 10.20.1.184:8080/TCP (active)    
+    poc1: 89   10.11.211.178:80/TCP      ClusterIP      1 => 10.10.0.49:8080/TCP (active)     
+    poc1:                                               2 => 10.10.1.119:8080/TCP (active)    
+
+== 1. the whole path in one response: web's api -> accounts (must be poc2) and -> payments
+{"api":"poc1","accounts":"poc2","accounts_pod":"accounts-77b86d786-d8rsb","balance_cents":207084,"payments":"poc1"}
+
+== 2. a card payment: api(poc1) -> payments(either) -> accounts(poc2) -> postgres; then the SAME key again = idempotent replay, no second debit
+{"balance_after":205834,"payments_cluster":"poc2","debited_by":"poc2","debited_pod":"accounts-77b86d786-d8rsb","replay":null}
+{"replay":true,"payments_cluster":"poc2"}
+{"balance_cents_after_ONE_debit":205834,"answered_by":"poc2"}
+
+== 3. ACTIVE-ACTIVE: 40 payments through the global service — which cluster served each
+       20 poc1
+       20 poc2
+
+== 4. FAILOVER A (default affinity): continuous traffic; at t=15s poc1's payments is scaled to 0 (sudden downtime); at t=40s restored
+  t=0s ok=1 fail=0 poc1=1 poc2=0
+  t=5s ok=22 fail=0 poc1=12 poc2=10
+  t=10s ok=45 fail=0 poc1=20 poc2=25
+  t=15s ok=69 fail=0 poc1=28 poc2=41
+  >>> 00:22:04 scaling poc1 payments to 0
+  t=20s ok=93 fail=0 poc1=30 poc2=63
+  t=25s ok=116 fail=0 poc1=30 poc2=86
+  t=30s ok=140 fail=0 poc1=30 poc2=110
+  t=35s ok=164 fail=0 poc1=30 poc2=134
+  t=40s ok=187 fail=0 poc1=30 poc2=157
+  >>> 00:22:29 restoring poc1 payments to 1
+  t=45s ok=211 fail=0 poc1=40 poc2=171
+  t=50s ok=235 fail=0 poc1=54 poc2=181
+  t=55s ok=258 fail=0 poc1=66 poc2=192
+  TOTAL ok=281 fail=0 poc1=77 poc2=204
+deployment "payments" successfully rolled out
+
+== 5. FAILOVER B (affinity: local): prefer local, use remote only when no local backend is healthy
+  with local healthy, 20 requests:
+         20 poc1
+  local scaled to 0, 20 requests:
+         20 poc2
+deployment "payments" successfully rolled out
+
+== 6. the poc2 side: payments there reaches redis (poc1) and accounts (poc2) — a throwaway curl pod in poc2
+   {'payments_cluster': 'poc1', 'debited_by': 'poc2', 'stored_in_redis_via_mesh': True}
+
+== 7. the page through the Gateway (bank.poc.local on the wildcard cert)
+  https://bank.poc.local -> http 200
+  this page: poc1/web-bd8fb9474-9mm49 → api: poc1/api-6d44c9dd88-768q9 → accounts: poc2/accounts-77b86d786-d8rsb · payments: poc2/payments-77cb6b56cd-6twq8
+
+balance now: 103774 cents on chk-1002 (started at 120000)
