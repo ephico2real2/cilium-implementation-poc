@@ -29,8 +29,8 @@ Used by demos 56 and 57. Overlay:
 |---|---|---|---|
 | 1 | Cluster ASNs | eg-poc1 **65021**, eg-poc2 **65022** | enforced by prefix-list + as-path per cluster (`EG-POC1` `^65021$`, `EG-POC2` `^65022$`) |
 | 2 | Peering addresses | leaf1 `172.19.254.11`, leaf2 `172.19.254.12`; servers from `172.19.0.0/17` | `bgp listen range 172.19.0.0/17 peer-group SERVERS` (one of the two recorded ranges) |
-| 3 | Session security: one password per fabric, TTL | the same `FABRIC_BGP_PASSWORD` (`lab-bgp`); kube-vip takes it **inline** in `bgp_peers` — not a Secret; TTL 1 (gobgp `ttl = 1` for eBGP, no GTSM) | `neighbor SERVERS password ${FABRIC_BGP_PASSWORD}`; no GTSM on SERVERS; demo 56 header on `10a`/`10b` |
-| 4 | Prefixes each cluster may announce | eg-poc1 `10.98.0.0/26`, eg-poc2 `10.98.0.64/26`, reserved `.128/26`, anycast `.192/26`; exact `/32`s | enforced by prefix-list + as-path per cluster: `EG-POC1-VIPS` + `EG-POC1`; `EG-POC2-VIPS` + `EG-POC2`; `EG-ANYCAST-VIPS` from either |
+| 3 | Session security: one password per fabric, TTL | the same `FABRIC_BGP_PASSWORD` (`lab-bgp`); kube-vip on eg-poc1 takes it **inline** in `bgp_peers` (`172.19.254.11:65101:lab-bgp:false,172.19.254.12:65102:lab-bgp:false`) — not a Secret; TTL 1 (gobgp `ttl = 1` for eBGP, no GTSM) | `neighbor SERVERS password ${FABRIC_BGP_PASSWORD}`; no GTSM on SERVERS; demo 56 header on `10a`/`10b` |
+| 4 | Prefixes each cluster may announce | eg-poc1 `10.98.0.0/26` (demo 56 doors `.10` / `.11`), eg-poc2 `10.98.0.64/26`, reserved `.128/26`, anycast `.192/26`; exact `/32`s | enforced by prefix-list + as-path per cluster: `EG-POC1-VIPS` + `EG-POC1`; `EG-POC2-VIPS` + `EG-POC2`; `EG-ANYCAST-VIPS` from either |
 | 8 | Route back to the servers' networks | `kind-eg` `172.19.0.0/16` is connected on both leaves when the overlay is applied | connected routes only |
 | 10 | Hand-off record | this file; password in `fabric/.env` (from `.env.example`) | — |
 

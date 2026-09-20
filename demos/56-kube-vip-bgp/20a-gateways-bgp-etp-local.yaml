@@ -1,0 +1,114 @@
+# The ETP Local experiment. Same two EnvoyProxies and Gateways as
+# 20-gateways-bgp.yaml except envoyService.externalTrafficPolicy: Local
+# (Envoy Gateway's default). apply.sh applies this FIRST (step 3), then
+# with two paths on the spine measures the drop (step 6), then applies
+# 20-gateways-bgp.yaml (Cluster).
+#
+# WHY Local drops: every node advertises the /32; the spine ECMPs flows
+# to both; a node without the Envoy pod has no local endpoint and
+# kube-proxy DROPs the packet.
+#
+#   kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/20a-gateways-bgp-etp-local.yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: bgp-http-gw-proxy
+  namespace: shop
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: LoadBalancer
+        loadBalancerClass: kube-vip.io/kube-vip-class
+        externalTrafficPolicy: Local
+        annotations:
+          kube-vip.io/loadbalancerIPs: "10.98.0.10"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: bgp-http-gw
+  namespace: shop
+spec:
+  gatewayClassName: eg
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: bgp-http-gw-proxy
+  addresses:
+    - type: IPAddress
+      value: "10.98.0.10"
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: api.eg-poc1.poc.local
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: api.eg-poc1.poc.local
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: eg-poc1-tls
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: bgp-grpc-gw-proxy
+  namespace: shop
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: LoadBalancer
+        loadBalancerClass: kube-vip.io/kube-vip-class
+        externalTrafficPolicy: Local
+        annotations:
+          kube-vip.io/loadbalancerIPs: "10.98.0.11"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: bgp-grpc-gw
+  namespace: shop
+spec:
+  gatewayClassName: eg
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: bgp-grpc-gw-proxy
+  addresses:
+    - type: IPAddress
+      value: "10.98.0.11"
+  listeners:
+    - name: h2c
+      protocol: HTTP
+      port: 80
+      hostname: grpc.eg-poc1.poc.local
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https-grpc
+      protocol: HTTPS
+      port: 443
+      hostname: grpc.eg-poc1.poc.local
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: eg-poc1-tls
+      allowedRoutes:
+        namespaces:
+          from: Same
