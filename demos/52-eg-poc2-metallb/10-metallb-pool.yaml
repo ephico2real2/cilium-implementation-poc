@@ -1,0 +1,39 @@
+# MetalLB L2 pools for eg-poc2 (enhancement 007 §3.1). Two pools, one
+# L2Advertisement. Services `.136–.143` auto-assign; doors `.150–.160` do
+# not — only a Service that asks by annotation gets one.
+#
+# MetalLB requires a requested address (metallb.io/loadBalancerIPs or
+# spec.loadBalancerIP) to sit inside a configured pool. That is the
+# difference from kube-vip, which will announce an address even outside
+# the ranges.
+#
+#   kubectl --context kind-eg-poc2 apply -f demos/52-eg-poc2-metallb/10-metallb-pool.yaml
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: eg-poc2-services
+  namespace: metallb-system
+spec:
+  addresses:
+    - 172.19.255.136-172.19.255.143
+  autoAssign: true
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: eg-poc2-doors
+  namespace: metallb-system
+spec:
+  addresses:
+    - 172.19.255.150-172.19.255.160
+  autoAssign: false
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: eg-poc2-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - eg-poc2-services
+    - eg-poc2-doors

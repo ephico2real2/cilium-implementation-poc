@@ -1,0 +1,19 @@
+# Multi-stage: build a static Go binary, ship it on a distroless base.
+# Same two-stage shape as demos/09-routes/app/Containerfile.
+#
+#   docker build -t grpcdemo:local -f demos/52-eg-poc2-metallb/grpcdemo/Containerfile \
+#     demos/52-eg-poc2-metallb/grpcdemo
+#   kind load docker-image grpcdemo:local --name eg-poc2
+#
+# CGO_ENABLED=0 makes the binary fully static so it runs on distroless/static, which has no libc.
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /grpcdemo .
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /grpcdemo /grpcdemo
+USER nonroot:nonroot
+ENTRYPOINT ["/grpcdemo"]
