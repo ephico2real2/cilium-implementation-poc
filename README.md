@@ -1,9 +1,21 @@
 # cilium-implementation-poc
 
 A reproducible proof of concept of what **Cilium 1.20.2** and **Hubble** give you over a stock CNI + kube-proxy
-cluster — **measured, not quoted**. Two kind clusters in a ClusterMesh with no kube-proxy and no other CNI, 47 demos
-from the first Hubble flow to policies generated from observed traffic, every command with its recorded output, and a
-GitHub Action that builds and exercises the whole lab from the same scripts a laptop uses.
+cluster — **measured, not quoted** — and, beside it, the same ground built the other way. **Three labs, 47 demos**,
+every command with its recorded output:
+
+1. **The Cilium lab** (demos 01–41, 53): two kind clusters `poc1`/`poc2` in a ClusterMesh with no kube-proxy and no
+   other CNI — from the first Hubble flow to policies generated from observed traffic, the shop platform behind
+   Gateway API doors, L2 announcements and LB IPAM; a GitHub Action builds and exercises it from the same scripts a
+   laptop uses.
+2. **The vanilla Envoy Gateway lab** (demos 50–52, 54): kind clusters on stock networking — kindnet, kube-proxy
+   `iptables`, no Cilium — with **Envoy Gateway** as the Gateway API implementation and a software load balancer
+   that has to be named on every door: **kube-vip** (`eg-poc1`, and the two-cluster `eg1`/`eg2`) or **MetalLB**
+   (`eg-poc2`); the same sample app (HTTP + a real gRPC service) proved from the MacBook and the browser.
+3. **The BGP fabric** (demo 46, then 56): four FRR routers in docker compose — edge, spine, two leaves, each its own
+   AS — that any cluster lab attaches to by one compose overlay; the network team's sheet filled before the first
+   peer; then `eg-poc1` moves from L2 to BGP with kube-vip (demo 56), MetalLB's FRR-K8s BGP (57) and Cilium's
+   own BGP (47–49) are next.
 
 ![Hubble / Policy Verdicts: the pos client forwarded by the generated policy, the stranger dropped 238 times, audit first](demos/26-cf2cnp-policy-from-flows/output/screenshots/grafana-policy-verdicts.png)
 
@@ -114,6 +126,32 @@ poc1 runs: [SETUP Step 5.4](docs/SETUP.md#step-54--is-the-service-mesh-on--what-
 | cf2cnp (the fork) | 0.8.0 — `ghcr.io/ephico2real2/cf2cnp`, the chart from `https://ephico2real2.github.io/cf2cnp` |
 
 The pins the scripts install are in [`scripts/bootstrap/versions.env`](scripts/bootstrap/versions.env).
+
+### The vanilla Envoy Gateway lab and the BGP fabric
+
+| Cluster / network | Nodes | Pod CIDR | Service CIDR | Its block on the node LAN `kind-eg` `172.19.0.0/16` |
+|---|---|---|---|---|
+| `eg1` / `eg2` (the two-cluster lab, demos 50–51) | 1 + 1 each | `10.50` / `10.60` | `10.51` / `10.61` | `172.19.255.192/26` / `.128/26`, the shared VIP `.0/26` |
+| `eg-poc1` (kube-vip, demos 54 and 56) | 1 + 1 | `10.70.0.0/16` | `10.71.0.0/16` | `172.19.255.64/26` (doors `.100`/`.101`); BGP block `10.98.0.0/26` |
+| `eg-poc2` (MetalLB, demo 52) | 1 + 1 | `10.80.0.0/16` | `10.81.0.0/16` | `172.19.255.128/26` (doors `.150`/`.151`); BGP block `10.98.0.64/26` |
+| the fabric `bgp-fabric` (demo 46) | edge AS 65000, spine 65100, leaf1 65101, leaf2 65102, `client0` | — | — | the leaves at `172.19.254.11`/`.12`; the fabric's own links in `10.200.0.0/16` |
+
+Docker allocates node addresses from the lower `/17` only, so the top `/24` and the network-devices `/24` are the
+lab's to carve (the reservation trick, [NETWORKING_DESIGN.md](NETWORKING_DESIGN.md)). The guide is one script per
+lab: [`scripts/eg-up.sh`](scripts/eg-up.sh) (`eg1 eg2`, `eg-poc1` or `eg-poc2`) and
+[`scripts/fabric-up.sh`](scripts/fabric-up.sh) (`eg` attaches the leaves to `kind-eg`).
+
+| Component | Version |
+|---|---|
+| Gateway API CRDs (standard channel only) | v1.6.2 |
+| Envoy Gateway | v1.9.1 (its CRDs via the vendor's `helm template \| kubectl apply --server-side`) |
+| kube-vip / kube-vip cloud-provider | v1.2.4 / v0.0.12 |
+| MetalLB | 0.16.0 (L2 in demo 52; the FRR-K8s BGP demo is next) |
+| FRR (the fabric's routers) | 10.5.3 — the tag MetalLB's chart pins |
+| cert-manager | v1.21.1, one self-signed root per lab, exported under `.tmp/` |
+
+The pins are in [`scripts/bootstrap/versions-eg.env`](scripts/bootstrap/versions-eg.env); the plan is
+[enhancement 007](enhancements/007-envoy-gateway-lab.md), the fabric's is [enhancement 006 §9](enhancements/006-bgp-tutorial.md).
 
 ## What is tested, and where Cilium documents it
 
