@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check.sh — demo 46 PASS/FAIL rows. Exit = FAIL count. At most 16 rows.
+# check.sh — demo 46 PASS/FAIL/WARN rows (13). Exit = FAIL count. At most 16 rows.
 # A dead docker/vtysh is a FAIL, never a PASS. Session state is an exact
 # JSON field match (Established), never a substring of the blob.
 #   demos/46-bgp-fabric/check.sh
@@ -81,7 +81,7 @@ fi
 ping_lo() { # ip
   local ip=$1 out rc=0
   out=$("${COMPOSE[@]}" exec -T client0 ping -c 1 -W 2 "$ip" 2>&1) || rc=$?
-  if [ "$rc" -ne 0 ]; then
+  if [ "$rc" -ne 0 ] || ! printf '%s\n' "$out" | grep -Eq '1 received|1 packets received'; then
     row fail "client0 ping $ip" "docker/ping rc=$rc" "R1 — loopback reachable from client0"
   else
     row ok "client0 ping $ip" "rc=0" "R1 — loopback reachable from client0"
@@ -107,19 +107,29 @@ else
     "R1 — wan learned via 10.200.1.3"
 fi
 
-# 8. ECMP config on spine
-ecmp_out=$("${COMPOSE[@]}" exec -T spine vtysh -c 'show running-config' 2>&1)
-ecmp_rc=$?
-if [ "$ecmp_rc" -ne 0 ]; then
-  row fail "ECMP maximum-paths on spine" "vtysh failed rc=$ecmp_rc" \
-    "R5 — maximum-paths 8"
-elif printf '%s\n' "$ecmp_out" | grep -Eq '^[[:space:]]*maximum-paths[[:space:]]+8[[:space:]]*$'; then
-  row ok "ECMP maximum-paths on spine" "maximum-paths 8" "R5 — maximum-paths 8"
+# 8. ECMP config on spine and both leaves
+ecmp_ok=1
+ecmp_msg=""
+for svc in spine leaf1 leaf2; do
+  ecmp_out=$("${COMPOSE[@]}" exec -T "$svc" vtysh -c 'show running-config' 2>&1)
+  ecmp_rc=$?
+  if [ "$ecmp_rc" -ne 0 ]; then
+    ecmp_ok=0
+    ecmp_msg="${ecmp_msg}${svc}:vtysh-fail "
+    continue
+  fi
+  if ! printf '%s\n' "$ecmp_out" | grep -Eq '^[[:space:]]*maximum-paths[[:space:]]+8[[:space:]]*$'; then
+    ecmp_ok=0
+    ecmp_msg="${ecmp_msg}${svc}:no-maximum-paths "
+  fi
+done
+if [ "$ecmp_ok" -eq 1 ]; then
+  row ok "ECMP maximum-paths on spine and leaves" "maximum-paths 8" "R5 — maximum-paths 8"
 else
-  row fail "ECMP maximum-paths on spine" "maximum-paths 8 absent" "R5 — maximum-paths 8"
+  row fail "ECMP maximum-paths on spine and leaves" "$ecmp_msg" "R5 — maximum-paths 8"
 fi
 
-# 9. SERVERS listen 172.19.0.0/17 on both leaves
+# 9. SERVERS listen both /17s + policy on both leaves
 listen_ok=1
 listen_msg=""
 for leaf in leaf1 leaf2; do
@@ -130,31 +140,53 @@ for leaf in leaf1 leaf2; do
     listen_msg="${listen_msg}${leaf}:vtysh-fail "
     continue
   fi
-  if ! printf '%s\n' "$lo" | grep -F -q 'bgp listen range 172.19.0.0/17 peer-group SERVERS'; then
+  if ! printf '%s\n' "$lo" | grep -F -q 'bgp listen range 172.19.0.0/17 peer-group SERVERS' \
+     || ! printf '%s\n' "$lo" | grep -F -q 'bgp listen range 172.18.0.0/17 peer-group SERVERS' \
+     || ! printf '%s\n' "$lo" | grep -F -q 'maximum-prefix 64' \
+     || ! printf '%s\n' "$lo" | grep -E -q 'neighbor SERVERS timers 3 9'; then
     listen_ok=0
-    listen_msg="${listen_msg}${leaf}:no-listen "
+    listen_msg="${listen_msg}${leaf}:policy "
   fi
 done
 if [ "$listen_ok" -eq 1 ]; then
-  row ok "SERVERS listen 172.19.0.0/17 on both leaves" "leaf1+leaf2" \
+  row ok "SERVERS listen both /17s on both leaves" "leaf1+leaf2" \
     "D5 / §9.1 — listen range on the peer-group"
 else
-  row fail "SERVERS listen 172.19.0.0/17 on both leaves" "$listen_msg" \
+  row fail "SERVERS listen both /17s on both leaves" "$listen_msg" \
     "D5 / §9.1 — listen range on the peer-group"
 fi
 
-# 10. EG-VIPS prefix-list
-pl_out=$("${COMPOSE[@]}" exec -T leaf1 vtysh -c 'show ip prefix-list EG-VIPS' 2>&1)
+# 10. per-cluster VIP prefix-lists (exact /32s)
+pl_out=$("${COMPOSE[@]}" exec -T leaf1 vtysh -c 'show running-config' 2>&1)
 pl_rc=$?
+pl_ok=1
 if [ "$pl_rc" -ne 0 ]; then
-  row fail "prefix-list EG-VIPS present" "vtysh failed rc=$pl_rc" \
-    "R8 — EG-VIPS permit 10.98.0.0/24 le 32"
-elif printf '%s\n' "$pl_out" | grep -F -q '10.98.0.0/24'; then
-  row ok "prefix-list EG-VIPS present" "10.98.0.0/24" \
-    "R8 — EG-VIPS permit 10.98.0.0/24 le 32"
+  pl_ok=0
 else
-  row fail "prefix-list EG-VIPS present" "10.98.0.0/24 absent" \
-    "R8 — EG-VIPS permit 10.98.0.0/24 le 32"
+  for want in \
+    'ip prefix-list EG-POC1-VIPS seq 10 permit 10.98.0.0/26 ge 32 le 32' \
+    'ip prefix-list EG-POC2-VIPS seq 10 permit 10.98.0.64/26 ge 32 le 32' \
+    'ip prefix-list EG-ANYCAST-VIPS seq 10 permit 10.98.0.192/26 ge 32 le 32' \
+    'ip prefix-list CILIUM-POC1-VIPS seq 10 permit 10.99.0.0/26 ge 32 le 32' \
+    'ip prefix-list CILIUM-POC2-VIPS seq 10 permit 10.99.0.64/26 ge 32 le 32' \
+    'ip prefix-list CILIUM-ANYCAST-VIPS seq 10 permit 10.99.0.192/26 ge 32 le 32' \
+    'ip prefix-list EG-VIPS seq 10 permit 10.98.0.0/24 ge 32 le 32'
+  do
+    if ! printf '%s\n' "$pl_out" | grep -Fxq "$want"; then
+      pl_ok=0
+      break
+    fi
+  done
+fi
+if [ "$pl_rc" -ne 0 ]; then
+  row fail "per-cluster VIP prefix-lists" "vtysh failed rc=$pl_rc" \
+    "R8 — prefix-list + as-path per cluster"
+elif [ "$pl_ok" -eq 1 ]; then
+  row ok "per-cluster VIP prefix-lists" "EG/CILIUM POC1/POC2/ANYCAST ge 32 le 32" \
+    "R8 — prefix-list + as-path per cluster"
+else
+  row fail "per-cluster VIP prefix-lists" "exact permit lines absent or not permit" \
+    "R8 — prefix-list + as-path per cluster"
 fi
 
 # 11. leaves on kind-eg at .11/.12
@@ -179,7 +211,7 @@ else
   fi
 fi
 
-# 12. RFC 8212: no `no bgp ebgp-requires-policy` on any router
+# 12. RFC 8212: traditional profile + a router bgp line; no policy-off
 rfc_ok=1
 rfc_msg=""
 for svc in edge spine leaf1 leaf2; do
@@ -190,18 +222,52 @@ for svc in edge spine leaf1 leaf2; do
     rfc_msg="${rfc_msg}${svc}:vtysh-fail "
     continue
   fi
-  if printf '%s\n' "$cfg" | grep -F -q 'no bgp ebgp-requires-policy'; then
+  if ! printf '%s\n' "$cfg" | grep -Eq '^frr defaults traditional[[:space:]]*$' \
+     || ! printf '%s\n' "$cfg" | grep -Eq '^router bgp [0-9]+[[:space:]]*$' \
+     || printf '%s\n' "$cfg" | grep -F -q 'no bgp ebgp-requires-policy'; then
     rfc_ok=0
-    rfc_msg="${rfc_msg}${svc}:policy-off "
+    rfc_msg="${rfc_msg}${svc}:policy-unverified "
   fi
 done
 if [ "$rfc_ok" -eq 1 ]; then
-  row ok "RFC 8212 in effect" "no ebgp-requires-policy disabled" \
+  row ok "RFC 8212 in effect" "traditional profile, ebgp-requires-policy on" \
     "§8 row 5 — traditional defaults, explicit route-maps"
 else
   row fail "RFC 8212 in effect" "$rfc_msg" \
     "§8 row 5 — traditional defaults, explicit route-maps"
 fi
+
+# 13. TCP MD5 in effect on the leaves. FRR asks the kernel for TCP_MD5SIG per
+# neighbour and per listen range; a kernel without CONFIG_TCP_MD5SIG (Docker
+# Desktop's linuxkit, measured 2026-09-20) answers ENOPROTOOPT, FRR logs
+# "Unable to set TCP MD5 option ... Protocol not available" and the session
+# runs UNSIGNED (tcpdump: options [nop,nop,TS], no md5). WARN there, so the
+# transcript says so; PASS on a kernel that takes the option; FAIL if the
+# logs cannot be read.
+md5_state=ok
+md5_msg=""
+for leaf in leaf1 leaf2; do
+  lg=$("${COMPOSE[@]}" logs --no-log-prefix "$leaf" 2>&1)
+  lr=$?
+  if [ "$lr" -ne 0 ]; then
+    md5_state=fail
+    md5_msg="${md5_msg}${leaf}:logs-fail "
+    continue
+  fi
+  n=$(printf '%s\n' "$lg" | grep -c 'Unable to set TCP MD5 option')
+  if [ "$n" -gt 0 ]; then
+    [ "$md5_state" = fail ] || md5_state=warn
+    md5_msg="${md5_msg}${leaf}:TCP_MD5SIG-refused=${n} "
+  fi
+done
+case "$md5_state" in
+  ok)   row ok   "TCP MD5 in effect on the leaves" "no TCP_MD5SIG refusal logged" \
+          "§8 row 3 — the kernel signs every session" ;;
+  warn) row warn "TCP MD5 in effect on the leaves" "$md5_msg" \
+          "§8 row 3 — no CONFIG_TCP_MD5SIG here: sessions run unsigned" ;;
+  *)    row fail "TCP MD5 in effect on the leaves" "$md5_msg" \
+          "§8 row 3 — the kernel signs every session" ;;
+esac
 
 echo
 echo "demo 46 check: $fails FAIL"

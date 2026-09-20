@@ -19,9 +19,9 @@ the fabric.
 - leaf1 ping `172.19.0.3` on-link (0% loss); leaves at
   `172.19.254.11` / `.12`.
 - SERVERS peer-group: 2 listen ranges (`172.19.0.0/17`,
-  `172.18.0.0/17`), 0 peers; prefix-lists `EG-VIPS` `10.98.0.0/24 le 32`
-  and `CILIUM-VIPS` `10.99.0.0/24 le 32`.
-- `check.sh` at `2026-09-20T03:38:19Z`: 12 PASS, 0 FAIL.
+  `172.18.0.0/17`), 0 peers; no GTSM (the speakers send TTL 1);
+  per-cluster prefix-lists + as-path (exact `/32`s).
+- `check.sh` at `2026-09-20T04:22:27Z`: 12 PASS, 1 WARN, 0 FAIL.
 
 ## Architecture
 
@@ -66,8 +66,8 @@ attachment (no cluster peers in this demo):
 | client0 | `10.200.100.10` | outside world, default via `10.200.100.2` | netshoot v0.16 |
 | edge | lo `10.200.255.1`, wan `10.200.100.2`, link `10.200.1.19` | border, originates `10.200.100.0/24` | FRR AS 65000 |
 | spine | lo `10.200.255.2`, links `10.200.1.3` / `.11` / `.18` | transit, `multipath-relax`, `maximum-paths 8` | FRR AS 65100 |
-| leaf1 | lo `10.200.255.11`, link `10.200.1.2`, kind-eg `172.19.254.11` | ToR, SERVERS listen | FRR AS 65101 |
-| leaf2 | lo `10.200.255.12`, link `10.200.1.10`, kind-eg `172.19.254.12` | ToR, SERVERS listen | FRR AS 65102 |
+| leaf1 | lo `10.200.255.11`, link `10.200.1.2`, kind-eg `172.19.254.11` | ToR, SERVERS listen, `maximum-paths 8` | FRR AS 65101 |
+| leaf2 | lo `10.200.255.12`, link `10.200.1.10`, kind-eg `172.19.254.12` | ToR, SERVERS listen, `maximum-paths 8` | FRR AS 65102 |
 
 Loopbacks are `/32`s on `lo`, programmed by zebra from `interface lo`
 in each `frr.conf`. The leaves' second leg is the overlay
@@ -82,10 +82,12 @@ in each `frr.conf`. The leaves' second leg is the overlay
   `FRR_IMAGE=quay.io/frrouting/frr:10.5.3` (D16: the tag MetalLB's
   chart pins), `NETSHOOT_IMAGE=nicolaka/netshoot:v0.16`.
 - The `kind-eg` network already exists (`172.19.0.0/16`). The fabric
-  does not create it.
-- One password in [`fabric/.env`](fabric/.env):
-  `FABRIC_BGP_PASSWORD=lab-bgp` (the committed `frr.conf` has no
-  secret).
+  does not create it. One fabric per Docker host: the `/29` link
+  subnets overlap with any second copy.
+- One password: copy [`fabric/.env.example`](fabric/.env.example) to
+  `.env` (default `lab-bgp`; the committed `frr.conf` has no secret).
+  MD5 is configured; on this Docker VM the kernel refuses
+  `TCP_MD5SIG` — measured — so the lab's sessions are unauthenticated.
 
 ```bash
 test -f scripts/bootstrap/versions-eg.env
@@ -123,7 +125,7 @@ bgp-fabric-edge-1      quay.io/frrouting/frr:10.5.3   "/sbin/tini -- /usr/…"  
 
 The up script polls `show bgp summary json` on all four routers. Every
 fabric session is Established at the first recorded poll
-(`2026-09-20T03:38:14Z`).
+(`2026-09-20T04:22:22Z`).
 
 ```bash
 docker compose -p bgp-fabric \
@@ -144,9 +146,14 @@ docker compose -p bgp-fabric \
   exec -T leaf2 vtysh -c 'show bgp summary json'
 ```
 
-Result: edge `10.200.1.18` AS 65100; spine `10.200.1.2` / `.10` / `.19`
-(AS 65101 / 65102 / 65000); leaf1 `10.200.1.3`; leaf2 `10.200.1.11`;
-each `"state":"Established"`, `peerUptime` `00:00:03`.
+Result: `converged after 2 s (2 polls)`; edge `10.200.1.18` AS 65100;
+spine `10.200.1.2` / `.10` / `.19` (AS 65101 / 65102 / 65000); leaf1
+`10.200.1.3`; leaf2 `10.200.1.11`; each `"state":"Established"`,
+`peerUptime` `00:00:03`.
+
+```text
+converged after 2 s (2 polls)
+```
 
 ```text
   "routerId":"10.200.255.1",
@@ -274,9 +281,12 @@ docker compose -p bgp-fabric \
 ```
 
 Result: SERVERS remote AS 0, external, 2 IPv4 listen ranges, no
-members; `EG-VIPS` `10.98.0.0/24 le 32`; `CILIUM-VIPS`
-`10.99.0.0/24 le 32`; `COMPANY` `10.200.0.0/16 le 32`; `SERVERS-IN`
-matches the VIP lists; `NOTHING` deny 10.
+members, no `ttl-security`; per-cluster lists (`EG-POC1-VIPS`
+`10.98.0.0/26 ge 32 le 32` + as-path `^65021$`, and the POC2 /
+anycast / Cilium siblings); aggregates `EG-VIPS` / `CILIUM-VIPS`
+`ge 32 le 32` for LEAF-OUT / FABRIC-IN; `COMPANY` `10.200.0.0/16 le
+32`; `SERVERS-IN` matches prefix-list + as-path per cluster;
+`NOTHING` deny 10; leaves `maximum-paths 8`.
 
 ```text
 BGP peer-group SERVERS, remote AS 0
@@ -284,12 +294,21 @@ BGP peer-group SERVERS, remote AS 0
   2 IPv4 listen range(s)
     172.19.0.0/17
     172.18.0.0/17
+BGP: ip prefix-list EG-POC1-VIPS: 1 entries
+   seq 10 permit 10.98.0.0/26 ge 32 le 32
+BGP: ip prefix-list EG-POC2-VIPS: 1 entries
+   seq 10 permit 10.98.0.64/26 ge 32 le 32
+BGP: ip prefix-list EG-ANYCAST-VIPS: 1 entries
+   seq 10 permit 10.98.0.192/26 ge 32 le 32
 BGP: ip prefix-list EG-VIPS: 1 entries
-   seq 10 permit 10.98.0.0/24 le 32
-BGP: ip prefix-list CILIUM-VIPS: 1 entries
-   seq 10 permit 10.99.0.0/24 le 32
+   seq 10 permit 10.98.0.0/24 ge 32 le 32
+BGP: ip prefix-list CILIUM-POC1-VIPS: 1 entries
+   seq 10 permit 10.99.0.0/26 ge 32 le 32
+    as-path EG-POC1
+    as-path EG-POC2
 route-map: SERVERS-IN Invoked: 0 (0 milliseconds total) Optimization: enabled Processed Change: false
 route-map: NOTHING Invoked: 0 (0 milliseconds total) Optimization: enabled Processed Change: false
+  PASS   ECMP maximum-paths on spine and leaves                                 maximum-paths 8                                      R5 — maximum-paths 8
 ```
 
 ## Verify
@@ -314,7 +333,7 @@ Expect hops `10.200.100.2`, `10.200.1.18`, `10.200.255.11`.
 demos/46-bgp-fabric/check.sh
 ```
 
-Recorded `2026-09-20T03:38:19Z`:
+Recorded (second apply) `2026-09-20T04:22:27Z`:
 
 ```text
 == demo 46 — the BGP fabric (four FRR routers, Envoy overlay)
@@ -326,21 +345,25 @@ Recorded `2026-09-20T03:38:19Z`:
   PASS   client0 ping 10.200.255.11                                             rc=0                                                 R1 — loopback reachable from client0
   PASS   client0 ping 10.200.255.12                                             rc=0                                                 R1 — loopback reachable from client0
   PASS   10.200.100.0/24 in leaf1 via spine                                     via 10.200.1.3                                       R1 — wan learned via 10.200.1.3
-  PASS   ECMP maximum-paths on spine                                            maximum-paths 8                                      R5 — maximum-paths 8
-  PASS   SERVERS listen 172.19.0.0/17 on both leaves                            leaf1+leaf2                                          D5 / §9.1 — listen range on the peer-group
-  PASS   prefix-list EG-VIPS present                                            10.98.0.0/24                                         R8 — EG-VIPS permit 10.98.0.0/24 le 32
+  PASS   ECMP maximum-paths on spine and leaves                                 maximum-paths 8                                      R5 — maximum-paths 8
+  PASS   SERVERS listen both /17s on both leaves                                leaf1+leaf2                                          D5 / §9.1 — listen range on the peer-group
+  PASS   per-cluster VIP prefix-lists                                           EG/CILIUM POC1/POC2/ANYCAST ge 32 le 32              R8 — prefix-list + as-path per cluster
   PASS   leaves on kind-eg 172.19.254.11/.12                                    leaf1=172.19.254.11 leaf2=172.19.254.12              §9.1 — 172.19.254.11/.12
-  PASS   RFC 8212 in effect                                                     no ebgp-requires-policy disabled                     §8 row 5 — traditional defaults, explicit route-maps
+  PASS   RFC 8212 in effect                                                     traditional profile, ebgp-requires-policy on         §8 row 5 — traditional defaults, explicit route-maps
+  WARN   TCP MD5 in effect on the leaves                                        leaf1:TCP_MD5SIG-refused=5 leaf2:TCP_MD5SIG-refused=5  §8 row 3 — no CONFIG_TCP_MD5SIG here: sessions run unsigned
 demo 46 check: 0 FAIL
 ```
+
+The WARN means this VM's kernel has no `TCP_MD5SIG`; a real fabric
+signs.
 
 ## Reference
 
 Pins
 ([`scripts/bootstrap/versions-eg.env`](../../scripts/bootstrap/versions-eg.env)):
 `quay.io/frrouting/frr:10.5.3` (D16, the tag MetalLB's chart pins),
-`nicolaka/netshoot:v0.16`. Password: `fabric/.env` →
-`FABRIC_BGP_PASSWORD` (default `lab-bgp`);
+`nicolaka/netshoot:v0.16`. Password: copy `fabric/.env.example` to
+`.env` → `FABRIC_BGP_PASSWORD` (default `lab-bgp`);
 [`fabric/entrypoint.sh`](fabric/entrypoint.sh) replaces
 `${FABRIC_BGP_PASSWORD}` in the mounted `frr.conf.tmpl` and execs
 `/usr/lib/frr/docker-start`.
@@ -355,10 +378,11 @@ Pins
 | ASNs | edge 65000, spine 65100, leaf1 65101, leaf2 65102 |
 | `kind-eg` (this apply) | `172.19.0.0/16`; leaves `172.19.254.11` / `.12`; listen `172.19.0.0/17`; VIP `10.98.0.0/24`; cluster ASNs 65021 / 65022 |
 | `kind` (written, not exercised) | `172.18.0.0/16`; leaves `172.18.254.11` / `.12`; listen `172.18.0.0/17`; VIP `10.99.0.0/24`; cluster ASNs 65001 / 65002 |
-| SERVERS | listen both `/17`s; `maximum-prefix 64`; `timers 3 9`; `ttl-security hops 1`; `listen limit 16` |
+| SERVERS | listen both `/17`s; `maximum-prefix 64`; `timers 3 9`; no GTSM (the speakers send TTL 1); `listen limit 16` |
 | Fabric sessions | `maximum-prefix 256`; `timers 3 9` |
-| EG-VIPS | `10.98.0.0/24 le 32` |
-| CILIUM-VIPS | `10.99.0.0/24 le 32` |
+| EG-VIPS | `10.98.0.0/24 ge 32 le 32` (LEAF-OUT / FABRIC-IN) |
+| CILIUM-VIPS | `10.99.0.0/24 ge 32 le 32` (LEAF-OUT / FABRIC-IN) |
+| SERVERS-IN | prefix-list + as-path per cluster (exact `/32`s) |
 | COMPANY | `10.200.0.0/16 le 32` |
 
 | File | What |
@@ -368,7 +392,7 @@ Pins
 | [`fabric/compose.lan-cilium.yaml`](fabric/compose.lan-cilium.yaml) | leaves on `kind` at `.254.11` / `.12` |
 | [`fabric/frr/<router>/`](fabric/frr/) | `frr.conf`, `daemons`, `vtysh.conf` |
 | [`fabric/entrypoint.sh`](fabric/entrypoint.sh) | renders the password, then `docker-start` |
-| [`fabric/.env`](fabric/.env) | `FABRIC_BGP_PASSWORD=lab-bgp` |
+| [`fabric/.env.example`](fabric/.env.example) | copy to `.env`; default `lab-bgp` |
 | [`../../scripts/fabric-up.sh`](../../scripts/fabric-up.sh) | compose up + convergence |
 | [`../../scripts/fabric-down.sh`](../../scripts/fabric-down.sh) | compose down; never removes `kind` / `kind-eg` |
 | [`../../scripts/fabric-status.sh`](../../scripts/fabric-status.sh) | four summaries + topology (D17 phase 1) |
@@ -378,10 +402,16 @@ Pins
 
 ## Troubleshooting
 
-- A fabric session stuck Active: password mismatch or GTSM
-  (`ttl-security hops 1` on SERVERS). `show bgp neighbors` prints the
-  last reset reason and whether a password / TTL security is
-  configured.
+- A SERVERS peer stuck `OpenConfirm` on the leaf while the node side
+  flaps `Established` → `Hold Timer Expired`: GTSM. kube-vip (gobgp) and
+  FRR-K8s send TTL 1; a `ttl-security` line on SERVERS makes the leaf
+  drop every segment after accept. The peer-group carries no GTSM for
+  that reason (measured 2026-09-20, `tests/fabric-servers-policy.sh`).
+- `Unable to set TCP MD5 option … Protocol not available` in a router's
+  log: this kernel has no `TCP_MD5SIG` (Docker Desktop's linuxkit). Every
+  `password` is refused on both ends and the sessions run **unsigned** —
+  check.sh's `TCP MD5 in effect` row says so (WARN). A kernel built with
+  `CONFIG_TCP_MD5SIG` takes the option (not measured here).
 - compose with the `eg` overlay fails: `kind-eg` is declared
   `external: true` and does not exist — Docker refuses the overlay.
   Create the LAN with the Envoy lab's net script, or bring the fabric

@@ -1,8 +1,10 @@
 # Company fabric: four FRR routers + client0 on their own docker bridges.
 # Loopbacks (10.200.255.{1,2,11,12}/32) are programmed by zebra from
 # `interface lo` in each frr.conf — same file as `network` and `bgp router-id`.
-# Password: fabric/.env → FABRIC_BGP_PASSWORD → entrypoint renders
-# ${FABRIC_BGP_PASSWORD} into /etc/frr/frr.conf (committed files have no secret).
+# Password: copy fabric/.env.example to fabric/.env (fabric-up.sh does
+# this if .env is absent). FABRIC_BGP_PASSWORD (default lab-bgp) is
+# rendered into /etc/frr/frr.conf by the entrypoint; committed files
+# have no secret. env_file .env is optional.
 # Cluster labs attach with compose.lan-eg.yaml / compose.lan-cilium.yaml.
 name: bgp-fabric
 
@@ -16,7 +18,8 @@ x-router: &router
     net.ipv4.ip_forward: "1"
     net.ipv4.fib_multipath_hash_policy: "1"
   env_file:
-    - .env
+    - path: .env
+      required: false
   environment:
     FABRIC_BGP_PASSWORD: ${FABRIC_BGP_PASSWORD:-lab-bgp}
   command: ["/usr/local/bin/fabric-entrypoint"]

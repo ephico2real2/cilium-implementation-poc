@@ -266,7 +266,12 @@ every PR (`docs/REVIEW_ENH-006.md`); the changelog skill per session. Demos 42�
 - **Memory.** Four FRR routers (~50 MB each per the source), one client, one dashboard pod: well under 1 GiB on a VM with ~7 GiB headroom; no build containers while a demo measures (gotcha #118).
 - **Restarting agents** takes the Gateway off the air for 2–3 minutes (gotcha #42); phase 2's helm upgrade is scheduled when nothing else is being recorded, and GR is measured to show the BGP VIP itself does not blink.
 - **Licence.** The source has none; the plan copies no code (D9). If the operator prefers a fork, nothing is built until the author has licensed it.
-- **`listen range` + MD5** needs kernel ≥ 4.14 (FRR docs); the VM kernel is 6.6 — fine; recorded so a different host is not surprised.
+- **`listen range` + MD5 needs a kernel with `CONFIG_TCP_MD5SIG`.** Docker Desktop's VM kernel (7.0.12-linuxkit, *measured
+  2026-09-20*) has none: every `password` is refused (`Unable to set TCP MD5 option … Protocol not available`) on both ends and the
+  sessions run unsigned; check.sh row 13 records it as WARN. The Ubuntu runner's kernel is not measured yet. GTSM (`ttl-security`) is
+  NOT used on SERVERS: kube-vip's gobgp and FRR-K8s send TTL 1 (§8 row 3 keeps it "optional").
+- **One fabric per Docker host.** The `/29` link subnets (`10.200.1.0/29` and siblings) overlap with any second copy; `fabric-up.sh`
+  refuses to start when another compose project already owns `10.200.1.0/29`.
 
 ## 8. What the network team prepares in advance — the sheet
 
@@ -289,6 +294,10 @@ and the platform team only fills in the `CiliumBGP*` objects from it. The lab's 
 
 The reading for a learner: rows 1–3 are *who may talk to whom*, 4–6 are *what they may say*, 7 is *how fast we notice
 when they stop*, 8–9 are *how packets get back*. None of it is Kubernetes; all of it must exist first.
+
+Demo 46 implements the SERVERS half: per-cluster prefix-lists + as-path on both leaves (`EG-POC1-VIPS` /
+`CILIUM-POC1-VIPS` and siblings, `ge 32 le 32`), `maximum-paths 8` on the leaves, no GTSM on SERVERS, MD5 configured
+(not in effect on this Docker VM — §7). Password is `fabric/.env.example` copied to `.env` (not tracked).
 
 ## 9. The fabric as a lab of its own, attachable to any cluster lab (2026-09-20)
 
@@ -338,7 +347,7 @@ flowchart LR
     end
   end
 
-  leaf1 -.eBGP, MD5, TTL 1.- p1a
+  leaf1 -.eBGP, TTL 1 (no GTSM — the speakers send TTL 1).- p1a
   leaf1 -.eBGP.- p1b
   leaf2 -.eBGP.- p1a
   leaf2 -.eBGP.- p1b

@@ -98,3 +98,10 @@ cat <<EOF
                                     spine→leaf2 $s_l2 / leaf2→spine $l2_s
                                     10.200.1.8/29
 EOF
+
+for state in "$e_s" "$s_e" "$s_l1" "$s_l2" "$l1_s" "$l2_s"; do
+  if [ "$state" != Established ]; then
+    exit 1
+  fi
+done
+exit 0

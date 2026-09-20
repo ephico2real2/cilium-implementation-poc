@@ -14,8 +14,12 @@ A network team hands the platform a sheet before any cluster exists:
 ASNs, peering addresses, the prefixes each cluster may announce, MD5,
 timers. This lab is that sheet made real. The leaves listen on a range;
 the nodes dial. RFC 8212 stays on. A cluster announcing outside its
-block is rejected. The fabric does not know Kubernetes. The path a
-packet takes is in the [RECAP Architecture](RECAP.md#architecture).
+block is rejected (prefix-list + as-path per cluster; exact `/32`s).
+MD5 is configured; on this Docker VM the kernel refuses `TCP_MD5SIG`
+— measured — so the lab's sessions are unauthenticated; a real fabric
+enforces it. SERVERS has no GTSM: the speakers send TTL 1. The fabric
+does not know Kubernetes. The path a packet takes is in the
+[RECAP Architecture](RECAP.md#architecture).
 
 ## Files
 
@@ -25,7 +29,7 @@ packet takes is in the [RECAP Architecture](RECAP.md#architecture).
 | [`fabric/compose.lan-eg.yaml`](fabric/compose.lan-eg.yaml) | leaves on `kind-eg` at `172.19.254.11` / `.12` |
 | [`fabric/compose.lan-cilium.yaml`](fabric/compose.lan-cilium.yaml) | leaves on `kind` at `172.18.254.11` / `.12` (written, not exercised) |
 | [`fabric/frr/<router>/frr.conf`](fabric/frr/) | FRR config; password is `${FABRIC_BGP_PASSWORD}` |
-| [`fabric/.env`](fabric/.env) | `FABRIC_BGP_PASSWORD=lab-bgp` |
+| [`fabric/.env.example`](fabric/.env.example) | copy to `.env`; default `lab-bgp` |
 | [`fabric/entrypoint.sh`](fabric/entrypoint.sh) | renders the password, then `docker-start` |
 | [`../../scripts/fabric-up.sh`](../../scripts/fabric-up.sh) | compose up + convergence |
 | [`../../scripts/fabric-down.sh`](../../scripts/fabric-down.sh) | compose down; never removes `kind` / `kind-eg` |
@@ -33,7 +37,7 @@ packet takes is in the [RECAP Architecture](RECAP.md#architecture).
 | [`../../scripts/fabric-vm-route.sh`](../../scripts/fabric-vm-route.sh) | prints the two Mac-path lines; `--apply` is VM only |
 | [`../../scripts/fabric-bgp-summary.py`](../../scripts/fabric-bgp-summary.py) | exact `state` == `Established` |
 | [`apply.sh`](apply.sh) | `fabric-up.sh eg` and the recorded tables |
-| [`check.sh`](check.sh) | 12 PASS/FAIL rows recorded; exit = FAIL count |
+| [`check.sh`](check.sh) | 13 PASS/FAIL/WARN rows; exit = FAIL count (WARN is not counted) |
 | [`cleanup.sh`](cleanup.sh) | `fabric-down.sh` |
 | [`NETWORK-TEAM-SHEET.md`](NETWORK-TEAM-SHEET.md) | §8 filled for both LANs |
 | [`GUIDE.md`](GUIDE.md) | five read-only exercises |
@@ -55,8 +59,8 @@ Every command is recorded through `scripts/record.sh` into
 
 ## What was recorded
 
-The apply (`2026-09-20T03:38:07Z`): fabric-up with the kind-eg overlay,
-then the tables. check.sh at `2026-09-20T03:38:19Z`.
+The apply (`2026-09-20T04:22:15Z`): fabric-up with the kind-eg overlay,
+then the tables. check.sh at `2026-09-20T04:22:27Z`.
 
 ### 1. Bring the fabric up
 
@@ -106,7 +110,7 @@ bgp-fabric-spine-1     quay.io/frrouting/frr:10.5.3   "/sbin/tini -- /usr/…"  
 ### 2. Watch it converge
 
 The four `show bgp summary json` at the first poll
-(`2026-09-20T03:38:14Z`). Every fabric session Established.
+(`2026-09-20T04:22:22Z`). Every fabric session Established.
 
 ```bash
 docker compose -p bgp-fabric \
@@ -125,6 +129,12 @@ docker compose -p bgp-fabric \
   -f demos/46-bgp-fabric/fabric/compose.yaml \
   -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
   exec -T leaf2 vtysh -c 'show bgp summary json'
+```
+
+Recorded (second apply):
+
+```text
+converged after 2 s (2 polls)
 ```
 
 Recorded (edge):
@@ -524,7 +534,7 @@ docker compose -p bgp-fabric \
   exec -T leaf1 vtysh -c 'show route-map'
 ```
 
-Recorded (leaf1 SERVERS):
+Recorded (second apply) (leaf1 SERVERS):
 
 ```text
 BGP peer-group SERVERS, remote AS 0
@@ -535,32 +545,56 @@ BGP peer-group SERVERS, remote AS 0
     172.18.0.0/17
 ```
 
-Recorded (leaf1 prefix-lists):
+Recorded (second apply) (leaf1 prefix-lists):
 
 ```text
+ZEBRA: ip prefix-list CILIUM-ANYCAST-VIPS: 1 entries
+   seq 10 permit 10.99.0.192/26 ge 32 le 32
+ZEBRA: ip prefix-list CILIUM-POC1-VIPS: 1 entries
+   seq 10 permit 10.99.0.0/26 ge 32 le 32
+ZEBRA: ip prefix-list CILIUM-POC2-VIPS: 1 entries
+   seq 10 permit 10.99.0.64/26 ge 32 le 32
 ZEBRA: ip prefix-list CILIUM-VIPS: 1 entries
-   seq 10 permit 10.99.0.0/24 le 32
+   seq 10 permit 10.99.0.0/24 ge 32 le 32
 ZEBRA: ip prefix-list COMPANY: 1 entries
    seq 10 permit 10.200.0.0/16 le 32
+ZEBRA: ip prefix-list EG-ANYCAST-VIPS: 1 entries
+   seq 10 permit 10.98.0.192/26 ge 32 le 32
+ZEBRA: ip prefix-list EG-POC1-VIPS: 1 entries
+   seq 10 permit 10.98.0.0/26 ge 32 le 32
+ZEBRA: ip prefix-list EG-POC2-VIPS: 1 entries
+   seq 10 permit 10.98.0.64/26 ge 32 le 32
 ZEBRA: ip prefix-list EG-VIPS: 1 entries
-   seq 10 permit 10.98.0.0/24 le 32
+   seq 10 permit 10.98.0.0/24 ge 32 le 32
+BGP: ip prefix-list CILIUM-ANYCAST-VIPS: 1 entries
+   seq 10 permit 10.99.0.192/26 ge 32 le 32
+BGP: ip prefix-list CILIUM-POC1-VIPS: 1 entries
+   seq 10 permit 10.99.0.0/26 ge 32 le 32
+BGP: ip prefix-list CILIUM-POC2-VIPS: 1 entries
+   seq 10 permit 10.99.0.64/26 ge 32 le 32
 BGP: ip prefix-list CILIUM-VIPS: 1 entries
-   seq 10 permit 10.99.0.0/24 le 32
+   seq 10 permit 10.99.0.0/24 ge 32 le 32
 BGP: ip prefix-list COMPANY: 1 entries
    seq 10 permit 10.200.0.0/16 le 32
+BGP: ip prefix-list EG-ANYCAST-VIPS: 1 entries
+   seq 10 permit 10.98.0.192/26 ge 32 le 32
+BGP: ip prefix-list EG-POC1-VIPS: 1 entries
+   seq 10 permit 10.98.0.0/26 ge 32 le 32
+BGP: ip prefix-list EG-POC2-VIPS: 1 entries
+   seq 10 permit 10.98.0.64/26 ge 32 le 32
 BGP: ip prefix-list EG-VIPS: 1 entries
-   seq 10 permit 10.98.0.0/24 le 32
+   seq 10 permit 10.98.0.0/24 ge 32 le 32
 ```
 
-Recorded (leaf1 BGP route-maps):
+Recorded (second apply) (leaf1 BGP route-maps):
 
 ```text
-route-map: FABRIC-IN Invoked: 4 (0 milliseconds total) Optimization: enabled Processed Change: false
- permit, sequence 10 Invoked 4 (0 milliseconds total)
+route-map: FABRIC-IN Invoked: 10 (0 milliseconds total) Optimization: enabled Processed Change: false
+ permit, sequence 10 Invoked 10 (0 milliseconds total)
   Match clauses:
     ip address prefix-list COMPANY
-route-map: LEAF-OUT Invoked: 7 (0 milliseconds total) Optimization: enabled Processed Change: false
- permit, sequence 10 Invoked 7 (0 milliseconds total)
+route-map: LEAF-OUT Invoked: 11 (0 milliseconds total) Optimization: enabled Processed Change: false
+ permit, sequence 10 Invoked 11 (0 milliseconds total)
   Match clauses:
     ip address prefix-list COMPANY
 route-map: NOTHING Invoked: 0 (0 milliseconds total) Optimization: enabled Processed Change: false
@@ -568,13 +602,45 @@ route-map: NOTHING Invoked: 0 (0 milliseconds total) Optimization: enabled Proce
 route-map: SERVERS-IN Invoked: 0 (0 milliseconds total) Optimization: enabled Processed Change: false
  permit, sequence 10 Invoked 0 (0 milliseconds total)
   Match clauses:
-    ip address prefix-list EG-VIPS
+    ip address prefix-list EG-POC1-VIPS
+    as-path EG-POC1
  permit, sequence 20 Invoked 0 (0 milliseconds total)
   Match clauses:
-    ip address prefix-list CILIUM-VIPS
+    ip address prefix-list EG-POC2-VIPS
+    as-path EG-POC2
+ permit, sequence 30 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list EG-ANYCAST-VIPS
+    as-path EG-POC1
+ permit, sequence 31 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list EG-ANYCAST-VIPS
+    as-path EG-POC2
+ permit, sequence 40 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list CILIUM-POC1-VIPS
+    as-path CILIUM-POC1
+ permit, sequence 50 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list CILIUM-POC2-VIPS
+    as-path CILIUM-POC2
+ permit, sequence 60 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list CILIUM-ANYCAST-VIPS
+    as-path CILIUM-POC1
+ permit, sequence 61 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list CILIUM-ANYCAST-VIPS
+    as-path CILIUM-POC2
 ```
 
-Recorded (leaf2 SERVERS):
+Recorded (second apply) (leaves `maximum-paths`):
+
+```text
+  PASS   ECMP maximum-paths on spine and leaves                                 maximum-paths 8                                      R5 — maximum-paths 8
+```
+
+Recorded (second apply) (leaf2 SERVERS):
 
 ```text
 BGP peer-group SERVERS, remote AS 0
@@ -591,12 +657,12 @@ BGP peer-group SERVERS, remote AS 0
 demos/46-bgp-fabric/check.sh
 ```
 
-`check.sh` at `2026-09-20T03:38:19Z`: 12 PASS, 0 FAIL.
+`check.sh` at `2026-09-20T04:22:27Z`: 12 PASS, 1 WARN, 0 FAIL.
 
-Recorded:
+Recorded (second apply):
 
 ```text
-### 2026-09-20T03:38:19Z
+### 2026-09-20T04:22:27Z
 $ demos/46-bgp-fabric/check.sh
 == demo 46 — the BGP fabric (four FRR routers, Envoy overlay)
   STATUS WHAT                                                                   MEASURED                                             RULE
@@ -607,11 +673,12 @@ $ demos/46-bgp-fabric/check.sh
   PASS   client0 ping 10.200.255.11                                             rc=0                                                 R1 — loopback reachable from client0
   PASS   client0 ping 10.200.255.12                                             rc=0                                                 R1 — loopback reachable from client0
   PASS   10.200.100.0/24 in leaf1 via spine                                     via 10.200.1.3                                       R1 — wan learned via 10.200.1.3
-  PASS   ECMP maximum-paths on spine                                            maximum-paths 8                                      R5 — maximum-paths 8
-  PASS   SERVERS listen 172.19.0.0/17 on both leaves                            leaf1+leaf2                                          D5 / §9.1 — listen range on the peer-group
-  PASS   prefix-list EG-VIPS present                                            10.98.0.0/24                                         R8 — EG-VIPS permit 10.98.0.0/24 le 32
+  PASS   ECMP maximum-paths on spine and leaves                                 maximum-paths 8                                      R5 — maximum-paths 8
+  PASS   SERVERS listen both /17s on both leaves                                leaf1+leaf2                                          D5 / §9.1 — listen range on the peer-group
+  PASS   per-cluster VIP prefix-lists                                           EG/CILIUM POC1/POC2/ANYCAST ge 32 le 32              R8 — prefix-list + as-path per cluster
   PASS   leaves on kind-eg 172.19.254.11/.12                                    leaf1=172.19.254.11 leaf2=172.19.254.12              §9.1 — 172.19.254.11/.12
-  PASS   RFC 8212 in effect                                                     no ebgp-requires-policy disabled                     §8 row 5 — traditional defaults, explicit route-maps
+  PASS   RFC 8212 in effect                                                     traditional profile, ebgp-requires-policy on         §8 row 5 — traditional defaults, explicit route-maps
+  WARN   TCP MD5 in effect on the leaves                                        leaf1:TCP_MD5SIG-refused=5 leaf2:TCP_MD5SIG-refused=5  §8 row 3 — no CONFIG_TCP_MD5SIG here: sessions run unsigned
 demo 46 check: 0 FAIL
 ```
 
@@ -626,7 +693,10 @@ demo 46 check: 0 FAIL
 - Cilium BGP, kube-vip BGP, MetalLB FRR-K8s — demos 47–49, 56, 57.
 - A cluster. The overlay attaches to `kind-eg`; this demo does not
   create or change `eg-poc1` / `eg-poc2`.
-- `compose.lan-cilium.yaml` is written; poc1/poc2 are paused.
+- `compose.lan-cilium.yaml` is written; the Cilium clusters are paused.
+- One fabric per Docker host: the `/29` link subnets overlap with any
+  second copy. `fabric-up.sh` refuses to start when another compose
+  project already owns `10.200.1.0/29`.
 
 ## Clean up
 

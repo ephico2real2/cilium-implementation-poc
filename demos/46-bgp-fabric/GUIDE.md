@@ -63,7 +63,10 @@ docker compose -p bgp-fabric \
   exec -T leaf1 vtysh -c 'show bgp peer-group SERVERS'
 ```
 
-**Expect:** the recorded group (2 listen ranges, no members).
+**Expect:** the recorded group (2 listen ranges, no members, no
+`ttl-security`).
+
+Recorded (second apply):
 
 ```text
 BGP peer-group SERVERS, remote AS 0
@@ -76,7 +79,8 @@ BGP peer-group SERVERS, remote AS 0
 
 ### 4. Read what a cluster may announce
 
-The prefix-lists are the network team's "what a cluster may say".
+The prefix-lists are the network team's "what a cluster may say":
+per-cluster `/26`s, exact `/32`s, matched with as-path.
 
 ```bash
 docker compose -p bgp-fabric \
@@ -87,13 +91,27 @@ docker compose -p bgp-fabric \
 
 **Expect:** the recorded lists.
 
+Recorded (second apply):
+
 ```text
+BGP: ip prefix-list CILIUM-ANYCAST-VIPS: 1 entries
+   seq 10 permit 10.99.0.192/26 ge 32 le 32
+BGP: ip prefix-list CILIUM-POC1-VIPS: 1 entries
+   seq 10 permit 10.99.0.0/26 ge 32 le 32
+BGP: ip prefix-list CILIUM-POC2-VIPS: 1 entries
+   seq 10 permit 10.99.0.64/26 ge 32 le 32
 BGP: ip prefix-list CILIUM-VIPS: 1 entries
-   seq 10 permit 10.99.0.0/24 le 32
+   seq 10 permit 10.99.0.0/24 ge 32 le 32
 BGP: ip prefix-list COMPANY: 1 entries
    seq 10 permit 10.200.0.0/16 le 32
+BGP: ip prefix-list EG-ANYCAST-VIPS: 1 entries
+   seq 10 permit 10.98.0.192/26 ge 32 le 32
+BGP: ip prefix-list EG-POC1-VIPS: 1 entries
+   seq 10 permit 10.98.0.0/26 ge 32 le 32
+BGP: ip prefix-list EG-POC2-VIPS: 1 entries
+   seq 10 permit 10.98.0.64/26 ge 32 le 32
 BGP: ip prefix-list EG-VIPS: 1 entries
-   seq 10 permit 10.98.0.0/24 le 32
+   seq 10 permit 10.98.0.0/24 ge 32 le 32
 ```
 
 ### 5. Run the check
@@ -102,9 +120,24 @@ BGP: ip prefix-list EG-VIPS: 1 entries
 demos/46-bgp-fabric/check.sh
 ```
 
-**Expect:** the recorded summary line.
+**Expect:** 12 PASS, 1 WARN, `demo 46 check: 0 FAIL`.
+
+Recorded (second apply):
 
 ```text
+  PASS   four routers running                                                   running=4/4                                          R1 — edge spine leaf1 leaf2 running
+  PASS   six fabric sessions Established                                        6/6 Established                                      R1 — leaf1–spine, leaf2–spine, spine–edge, both directions
+  PASS   client0 ping 10.200.255.1                                              rc=0                                                 R1 — loopback reachable from client0
+  PASS   client0 ping 10.200.255.2                                              rc=0                                                 R1 — loopback reachable from client0
+  PASS   client0 ping 10.200.255.11                                             rc=0                                                 R1 — loopback reachable from client0
+  PASS   client0 ping 10.200.255.12                                             rc=0                                                 R1 — loopback reachable from client0
+  PASS   10.200.100.0/24 in leaf1 via spine                                     via 10.200.1.3                                       R1 — wan learned via 10.200.1.3
+  PASS   ECMP maximum-paths on spine and leaves                                 maximum-paths 8                                      R5 — maximum-paths 8
+  PASS   SERVERS listen both /17s on both leaves                                leaf1+leaf2                                          D5 / §9.1 — listen range on the peer-group
+  PASS   per-cluster VIP prefix-lists                                           EG/CILIUM POC1/POC2/ANYCAST ge 32 le 32              R8 — prefix-list + as-path per cluster
+  PASS   leaves on kind-eg 172.19.254.11/.12                                    leaf1=172.19.254.11 leaf2=172.19.254.12              §9.1 — 172.19.254.11/.12
+  PASS   RFC 8212 in effect                                                     traditional profile, ebgp-requires-policy on         §8 row 5 — traditional defaults, explicit route-maps
+  WARN   TCP MD5 in effect on the leaves                                        leaf1:TCP_MD5SIG-refused=5 leaf2:TCP_MD5SIG-refused=5  §8 row 3 — no CONFIG_TCP_MD5SIG here: sessions run unsigned
 demo 46 check: 0 FAIL
 ```
 

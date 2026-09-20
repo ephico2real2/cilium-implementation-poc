@@ -21,6 +21,9 @@ export RECORD_STRICT=1
 mkdir -p "$(dirname "$TRANSCRIPT")"
 
 # shellcheck disable=SC1091
+if [ ! -f "$FABRIC/.env" ] && [ -f "$FABRIC/.env.example" ]; then
+  cp "$FABRIC/.env.example" "$FABRIC/.env"
+fi
 if [ -f "$FABRIC/.env" ]; then
   set -a
   . "$FABRIC/.env"
@@ -56,6 +59,18 @@ if [ "$want_cilium" -eq 1 ]; then
   COMPOSE_ARGS+=(-f "$FABRIC/compose.lan-cilium.yaml")
 fi
 
+# One fabric per Docker host — the /29 link subnets overlap with any second copy.
+while read -r net_id; do
+  [ -n "$net_id" ] || continue
+  subnet=$(docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' "$net_id" 2>/dev/null || true)
+  printf '%s' "$subnet" | grep -qF '10.200.1.0/29' || continue
+  proj=$(docker network inspect -f '{{index .Labels "com.docker.compose.project"}}' "$net_id" 2>/dev/null || true)
+  if [ -n "$proj" ] && [ "$proj" != "$PROJECT" ]; then
+    echo "fabric-up: one fabric per Docker host — the /29 link subnets overlap with any second copy (project $proj already owns 10.200.1.0/29)" >&2
+    exit 1
+  fi
+done < <(docker network ls -q 2>/dev/null || true)
+
 rec() { scripts/record.sh "$TRANSCRIPT" "$@"; }
 printf '\n### %s — fabric-up project=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT" >>"$TRANSCRIPT"
 
@@ -89,7 +104,9 @@ require_sessions() {
 say "2. wait for the six fabric sessions (deadline ${DEADLINE}s)"
 start=$(date +%s)
 ok=0
+polls=0
 while :; do
+  polls=$((polls + 1))
   if require_sessions edge 10.200.1.18 \
      && require_sessions spine 10.200.1.2 10.200.1.10 10.200.1.19 \
      && require_sessions leaf1 10.200.1.3 \
@@ -106,12 +123,14 @@ done
 elapsed=$(( $(date +%s) - start ))
 if [ "$ok" -ne 1 ]; then
   echo "fabric-up: fabric sessions not Established after ${elapsed}s" >&2
+  rec echo "not converged after ${elapsed} s (${polls} polls)"
   rec docker compose "${COMPOSE_ARGS[@]}" exec -T edge vtysh -c 'show bgp summary'
   rec docker compose "${COMPOSE_ARGS[@]}" exec -T spine vtysh -c 'show bgp summary'
   rec docker compose "${COMPOSE_ARGS[@]}" exec -T leaf1 vtysh -c 'show bgp summary'
   rec docker compose "${COMPOSE_ARGS[@]}" exec -T leaf2 vtysh -c 'show bgp summary'
   exit 1
 fi
+rec echo "converged after ${elapsed} s (${polls} polls)"
 echo "fabric-up: sessions Established after ${elapsed}s"
 
 say "3. show bgp summary json on all four (every fabric session Established)"
