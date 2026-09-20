@@ -17,9 +17,14 @@ for f in \
   "$R/scripts/fabric-colima-down.sh" \
   "$R/scripts/fabric-colima-status.sh" \
   "$R/scripts/fabric-colima-lib.sh" \
+  "$R/scripts/colima-registry.sh" \
+  "$R/scripts/eg-colima-up.sh" \
   "$R/demos/46-bgp-fabric-colima/apply.sh" \
   "$R/demos/46-bgp-fabric-colima/check.sh" \
-  "$R/demos/46-bgp-fabric-colima/cleanup.sh"
+  "$R/demos/46-bgp-fabric-colima/cleanup.sh" \
+  "$R/demos/54-eg-poc1-kube-vip-colima/apply.sh" \
+  "$R/demos/54-eg-poc1-kube-vip-colima/check.sh" \
+  "$R/demos/54-eg-poc1-kube-vip-colima/cleanup.sh"
 do
   # command lines only: leading optional assign/rec/if, then `docker`.
   # docker context {show,use,inspect} are client-side (the restore trap).
@@ -86,8 +91,12 @@ chmod +x "$T/bin/colima"
 run() {
   local script=$1 rc=0
   shift
+  local extra=()
+  case "$script" in
+    scripts/colima-registry.sh) extra=(up) ;;
+  esac
   ( cd "$R" && env "$@" PATH="$T/bin:/usr/bin:/bin" DOCKER_LOG="$T/log/docker.log" \
-      bash "$script" 2>"$T/log/err") || rc=$?
+      bash "$script" "${extra[@]}" 2>"$T/log/err") || rc=$?
   printf '%s' "$rc"
 }
 
@@ -97,9 +106,14 @@ for script in \
   scripts/fabric-colima-up.sh \
   scripts/fabric-colima-down.sh \
   scripts/fabric-colima-status.sh \
+  scripts/colima-registry.sh \
+  scripts/eg-colima-up.sh \
   demos/46-bgp-fabric-colima/check.sh \
   demos/46-bgp-fabric-colima/apply.sh \
-  demos/46-bgp-fabric-colima/cleanup.sh
+  demos/46-bgp-fabric-colima/cleanup.sh \
+  demos/54-eg-poc1-kube-vip-colima/check.sh \
+  demos/54-eg-poc1-kube-vip-colima/apply.sh \
+  demos/54-eg-poc1-kube-vip-colima/cleanup.sh
 do
   rc=$(run "$script" CTX=desktop-linux)
   if [ "$rc" -eq 0 ]; then

@@ -1,0 +1,1891 @@
+
+### 2026-09-20T23:36:41Z — demo 54c apply
+### 2026-09-20T23:36:41Z
+$ scripts/eg-colima-up.sh
+
+
+=== eg-colima-up.sh start 2026-09-20T23:36:41Z cluster=eg-poc1-colima ctx=colima-bgp-fabric ===
+=== kindnet + kube-proxy iptables; no Cilium; no Envoy Gateway ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima ===
+=== kubeconfig=/Users/olasumbo/.kube/config-eg-poc1-colima ===
+=== eg-colima-up.sh start 2026-09-20T23:36:41Z cluster=eg-poc1-colima ctx=colima-bgp-fabric ===
+=== kindnet + kube-proxy iptables; no Cilium; no Envoy Gateway ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima ===
+=== kubeconfig=/Users/olasumbo/.kube/config-eg-poc1-colima ===
+
+== 1. the kind-eg-colima network (172.19.0.0/16, ip-range 172.19.0.0/17)  (23:36:41Z)
+39b96040a780e2be4b1b4a2744863c47849227949ef9697f6d271b44bd45d6c9
+39b96040a780e2be4b1b4a2744863c47849227949ef9697f6d271b44bd45d6c9
+created kind-eg-colima: 172.19.0.0/16 
+created kind-eg-colima: 172.19.0.0/16 
+### 2026-09-20T23:36:41Z
+$ docker --context colima-bgp-fabric network inspect kind-eg-colima --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+### 2026-09-20T23:36:41Z
+$ docker --context colima-bgp-fabric network inspect kind-eg-colima --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+subnet=172.19.0.0/16 ip-range=172.19.0.0/17 gateway=172.19.0.1
+
+subnet=172.19.0.0/16 ip-range=172.19.0.0/17 gateway=172.19.0.1
+
+
+
+
+== 2. local registry kind-registry on 127.0.0.1:5001  (23:36:41Z)
+### 2026-09-20T23:36:41Z
+$ scripts/colima-registry.sh up
+### 2026-09-20T23:36:41Z
+$ scripts/colima-registry.sh up
+network kind-eg-colima exists with 172.19.0.0/16, kept
+network kind-eg-colima exists with 172.19.0.0/16, kept
+Unable to find image 'registry:2' locally
+Unable to find image 'registry:2' locally
+2: Pulling from library/registry
+2: Pulling from library/registry
+ddcb6d98388d: Pulling fs layer
+95459497489f: Pulling fs layer
+8bbaad1488a8: Pulling fs layer
+9a6b3f59ebc2: Pulling fs layer
+bd39ca3613a6: Pulling fs layer
+ddcb6d98388d: Pulling fs layer
+95459497489f: Pulling fs layer
+8bbaad1488a8: Pulling fs layer
+9a6b3f59ebc2: Pulling fs layer
+bd39ca3613a6: Pulling fs layer
+8bbaad1488a8: Download complete
+bd39ca3613a6: Download complete
+8bbaad1488a8: Download complete
+bd39ca3613a6: Download complete
+ddcb6d98388d: Download complete
+ddcb6d98388d: Download complete
+95459497489f: Download complete
+95459497489f: Download complete
+9a6b3f59ebc2: Download complete
+9a6b3f59ebc2: Download complete
+94a5ce400b19: Download complete
+94a5ce400b19: Download complete
+8bbaad1488a8: Pull complete
+8bbaad1488a8: Pull complete
+bd39ca3613a6: Pull complete
+bd39ca3613a6: Pull complete
+ddcb6d98388d: Pull complete
+ddcb6d98388d: Pull complete
+95459497489f: Pull complete
+95459497489f: Pull complete
+9a6b3f59ebc2: Pull complete
+9a6b3f59ebc2: Pull complete
+c4472e68032e: Download complete
+Digest: sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+Status: Downloaded newer image for registry:2
+c4472e68032e: Download complete
+Digest: sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+Status: Downloaded newer image for registry:2
+c5ddeb41f49f4bcd6c75ae8b1110772f3f5a8e4b3b649cef6dc0a895554beddc
+c5ddeb41f49f4bcd6c75ae8b1110772f3f5a8e4b3b649cef6dc0a895554beddc
+registry kind-registry created (127.0.0.1:5001)
+registry kind-registry created (127.0.0.1:5001)
+registry kind-registry already on kind-eg-colima
+registry kind-registry already on kind-eg-colima
+{"repositories":["probe"]}
+{"repositories":["probe"]}
+
+colima-registry: up (kind-registry on kind-eg-colima, 127.0.0.1:5001)
+
+colima-registry: up (kind-registry on kind-eg-colima, 127.0.0.1:5001)
+
+
+
+== 3. cluster eg-poc1-colima on kind-eg-colima (kindnet + kube-proxy iptables; no Cilium)  (23:36:43Z)
+### 2026-09-20T23:36:44Z
+$ env KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock kind create cluster --name eg-poc1-colima --kubeconfig /Users/olasumbo/.kube/config-eg-poc1-colima --config clusters/eg-poc1-colima.yaml --image kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+### 2026-09-20T23:36:44Z
+$ env KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock kind create cluster --name eg-poc1-colima --kubeconfig /Users/olasumbo/.kube/config-eg-poc1-colima --config clusters/eg-poc1-colima.yaml --image kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+Creating cluster "eg-poc1-colima" ...
+ • Ensuring node image (kindest/node:v1.36.4) 🖼️  ...
+Creating cluster "eg-poc1-colima" ...
+ • Ensuring node image (kindest/node:v1.36.4) 🖼️  ...
+WARNING: Overriding docker network due to KIND_EXPERIMENTAL_DOCKER_NETWORK
+WARNING: Here be dragons! This is not supported currently.
+WARNING: Overriding docker network due to KIND_EXPERIMENTAL_DOCKER_NETWORK
+WARNING: Here be dragons! This is not supported currently.
+ ✓ Ensuring node image (kindest/node:v1.36.4) 🖼️
+ • Preparing nodes 📦 📦   ...
+ ✓ Ensuring node image (kindest/node:v1.36.4) 🖼️
+ • Preparing nodes 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 
+ ✓ Preparing nodes 📦 📦 
+ • Writing configuration 📜  ...
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-eg-poc1-colima"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-eg-poc1-colima --kubeconfig /Users/olasumbo/.kube/config-eg-poc1-colima
+
+Set kubectl context to "kind-eg-poc1-colima"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-eg-poc1-colima --kubeconfig /Users/olasumbo/.kube/config-eg-poc1-colima
+
+Have a nice day! 👋
+Have a nice day! 👋
+
+
+### 2026-09-20T23:37:16Z
+$ kubectl --context kind-eg-poc1-colima wait --for=condition=Ready nodes --all --timeout=180s
+### 2026-09-20T23:37:16Z
+$ kubectl --context kind-eg-poc1-colima wait --for=condition=Ready nodes --all --timeout=180s
+node/eg-poc1-colima-control-plane condition met
+node/eg-poc1-colima-control-plane condition met
+node/eg-poc1-colima-worker condition met
+node/eg-poc1-colima-worker condition met
+
+
+### 2026-09-20T23:37:28Z
+$ kubectl --context kind-eg-poc1-colima get nodes -o wide
+### 2026-09-20T23:37:28Z
+$ kubectl --context kind-eg-poc1-colima get nodes -o wide
+NAME                           STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+eg-poc1-colima-control-plane   Ready    control-plane   27s   v1.36.4   172.19.0.3    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+eg-poc1-colima-worker          Ready    <none>          13s   v1.36.4   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+NAME                           STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+eg-poc1-colima-control-plane   Ready    control-plane   27s   v1.36.4   172.19.0.3    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+eg-poc1-colima-worker          Ready    <none>          13s   v1.36.4   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+
+
+node IPv4 InternalIPs (must be in 172.19.0.0/17, none in 172.19.254.0/24 or 172.19.255.0/24):
+eg-poc1-colima-control-plane 172.19.0.3
+eg-poc1-colima-worker 172.19.0.2
+node IPv4 InternalIPs (must be in 172.19.0.0/17, none in 172.19.254.0/24 or 172.19.255.0/24):
+eg-poc1-colima-control-plane 172.19.0.3
+eg-poc1-colima-worker 172.19.0.2
+eg-poc1-colima-worker docker kind-eg-colima=172.19.0.2
+eg-poc1-colima-worker docker kind-eg-colima=172.19.0.2
+eg-poc1-colima-control-plane docker kind-eg-colima=172.19.0.3
+eg-poc1-colima-control-plane docker kind-eg-colima=172.19.0.3
+### 2026-09-20T23:37:28Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system get ds kindnet kube-proxy
+### 2026-09-20T23:37:28Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system get ds kindnet kube-proxy
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   24s
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   25s
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   24s
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   25s
+
+
+### 2026-09-20T23:37:28Z
+$ bash -c kubectl --context kind-eg-poc1-colima -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+### 2026-09-20T23:37:28Z
+$ bash -c kubectl --context kind-eg-poc1-colima -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+    mode: iptables
+    mode: iptables
+
+
+
+== 4. containerd hosts.toml for localhost:5001 + local-registry-hosting ConfigMap  (23:37:28Z)
+### 2026-09-20T23:37:28Z
+$ bash -c registry_hosts
+### 2026-09-20T23:37:28Z
+$ bash -c registry_hosts
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-worker
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-worker
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-control-plane
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-control-plane
+
+
+### 2026-09-20T23:37:29Z
+$ bash -c kubectl --context kind-eg-poc1-colima apply -f -
+### 2026-09-20T23:37:29Z
+$ bash -c kubectl --context kind-eg-poc1-colima apply -f -
+configmap/local-registry-hosting created
+configmap/local-registry-hosting created
+
+
+eg-colima-up: done. cluster eg-poc1-colima on kind-eg-colima; kubeconfig /Users/olasumbo/.kube/config-eg-poc1-colima
+eg-colima-up: done. cluster eg-poc1-colima on kind-eg-colima; kubeconfig /Users/olasumbo/.kube/config-eg-poc1-colima
+
+### 2026-09-20T23:37:29Z
+$ bash -c attach_leaves
+before: leaf1=f59f78becf176597674101d55d7584f7d86aad7ae18d606122f0f9ed93f8ddb4 leaf2=a318ec6ce490f70cadbc8878c843caa250da95a7ccd55234cd8fe729eef6a972
+ Container bgp-fabric-colima-spine-1 Running 
+ Container bgp-fabric-colima-leaf1-1 Running 
+ Container bgp-fabric-colima-leaf2-1 Running 
+ Container bgp-fabric-colima-dashboard-1 Running 
+ Container bgp-fabric-colima-client0-1 Running 
+ Container bgp-fabric-colima-edge-1 Running 
+ Container bgp-fabric-colima-leaf1-1 Waiting 
+ Container bgp-fabric-colima-leaf2-1 Waiting 
+ Container bgp-fabric-colima-edge-1 Waiting 
+ Container bgp-fabric-colima-spine-1 Waiting 
+ Container bgp-fabric-colima-leaf2-1 Healthy 
+ Container bgp-fabric-colima-leaf1-1 Healthy 
+ Container bgp-fabric-colima-edge-1 Healthy 
+ Container bgp-fabric-colima-spine-1 Healthy 
+after:  leaf1=f59f78becf176597674101d55d7584f7d86aad7ae18d606122f0f9ed93f8ddb4 leaf2=a318ec6ce490f70cadbc8878c843caa250da95a7ccd55234cd8fe729eef6a972
+leaves not recreated (same container ids)
+leaf1 not at 172.19.254.11 (got absent) — docker network connect
+leaf2 not at 172.19.254.12 (got absent) — docker network connect
+leaf1 kind-eg-colima=172.19.254.11 leaf2 kind-eg-colima=172.19.254.12
+
+### 2026-09-20T23:37:30Z
+$ bash -c push_images
+v1.2.4: Pulling from kube-vip/kube-vip
+d5eb50a0c64d: Pulling fs layer
+d94610fc5f1c: Pulling fs layer
+44136fa355b3: Download complete
+d94610fc5f1c: Download complete
+fe5c76a0eacc: Download complete
+d94610fc5f1c: Pull complete
+d5eb50a0c64d: Download complete
+d5eb50a0c64d: Pull complete
+Digest: sha256:dde4c0669d9058c74c69c0bc2f0122e26900e1e4b913c03577cb6e4e28083079
+Status: Downloaded newer image for ghcr.io/kube-vip/kube-vip:v1.2.4
+ghcr.io/kube-vip/kube-vip:v1.2.4
+The push refers to repository [localhost:5001/kube-vip]
+d94610fc5f1c: Pushed
+d5eb50a0c64d: Pushed
+v1.2.4: digest: sha256:56918a63be76bbe473d479b18bc548d397e84a742d4956d0248af35f691cdbc0 size: 673
+
+ Info -> Not all multiplatform-content is present and only the available single-platform image was pushed
+         sha256:dde4c0669d9058c74c69c0bc2f0122e26900e1e4b913c03577cb6e4e28083079 -> sha256:56918a63be76bbe473d479b18bc548d397e84a742d4956d0248af35f691cdbc0
+v0.0.12: Pulling from kube-vip/kube-vip-cloud-provider
+25354e22811d: Pulling fs layer
+4eff9a62d888: Pulling fs layer
+5664b15f108b: Pulling fs layer
+0bab15eea81d: Pulling fs layer
+a62778643d56: Pulling fs layer
+3214acf345c0: Pulling fs layer
+4aa0ea1413d3: Pulling fs layer
+7c12895b777b: Pulling fs layer
+9aee425378d2: Pulling fs layer
+da7816fa955e: Pulling fs layer
+829b2cab8fc5: Pulling fs layer
+bfb59b82a9b6: Pulling fs layer
+0bab15eea81d: Download complete
+3214acf345c0: Download complete
+4aa0ea1413d3: Download complete
+7c12895b777b: Download complete
+da7816fa955e: Download complete
+5664b15f108b: Download complete
+bfb59b82a9b6: Download complete
+a62778643d56: Download complete
+d934dc397bc6: Download complete
+9aee425378d2: Download complete
+829b2cab8fc5: Download complete
+4eff9a62d888: Download complete
+bfb59b82a9b6: Pull complete
+829b2cab8fc5: Pull complete
+0bab15eea81d: Pull complete
+3214acf345c0: Pull complete
+4aa0ea1413d3: Pull complete
+7c12895b777b: Pull complete
+da7816fa955e: Pull complete
+5664b15f108b: Pull complete
+a62778643d56: Pull complete
+9aee425378d2: Pull complete
+4eff9a62d888: Pull complete
+25354e22811d: Download complete
+25354e22811d: Pull complete
+Digest: sha256:f8f4e3401f7637dd55faefb35571e731a477f65d5c3f062aef73dfd31a8da596
+Status: Downloaded newer image for ghcr.io/kube-vip/kube-vip-cloud-provider:v0.0.12
+ghcr.io/kube-vip/kube-vip-cloud-provider:v0.0.12
+The push refers to repository [localhost:5001/kube-vip-cloud-provider]
+829b2cab8fc5: Pushed
+bfb59b82a9b6: Pushed
+da7816fa955e: Pushed
+9aee425378d2: Pushed
+4eff9a62d888: Pushed
+4aa0ea1413d3: Pushed
+0bab15eea81d: Pushed
+a62778643d56: Pushed
+7c12895b777b: Pushed
+3214acf345c0: Pushed
+5664b15f108b: Pushed
+25354e22811d: Pushed
+v0.0.12: digest: sha256:6686b1f5fc6480b16c15fd84596e620cfd433994f1522d9b4ba29fe00ba08ac0 size: 2559
+
+ Info -> Not all multiplatform-content is present and only the available single-platform image was pushed
+         sha256:f8f4e3401f7637dd55faefb35571e731a477f65d5c3f062aef73dfd31a8da596 -> sha256:6686b1f5fc6480b16c15fd84596e620cfd433994f1522d9b4ba29fe00ba08ac0
+alpine: Pulling from library/nginx
+7b9f6954712c: Pulling fs layer
+218624bde535: Pulling fs layer
+a9986cd6f37d: Pulling fs layer
+4e9ebb12c87e: Pulling fs layer
+18eb23b7676d: Pulling fs layer
+e24c840b9291: Pulling fs layer
+701fee9236d6: Pulling fs layer
+3ef3eba6b71c: Pulling fs layer
+18eb23b7676d: Download complete
+3ef3eba6b71c: Download complete
+218624bde535: Download complete
+e24c840b9291: Download complete
+701fee9236d6: Download complete
+7b9f6954712c: Download complete
+4e9ebb12c87e: Download complete
+a9986cd6f37d: Download complete
+a9986cd6f37d: Pull complete
+a8267eec3388: Download complete
+97c053c30c66: Download complete
+18eb23b7676d: Pull complete
+3ef3eba6b71c: Pull complete
+218624bde535: Pull complete
+e24c840b9291: Pull complete
+701fee9236d6: Pull complete
+4e9ebb12c87e: Pull complete
+7b9f6954712c: Pull complete
+Digest: sha256:62ff2089abf5a9ed33bd232895bef5e22f7bb4b200675cec49a5ebc48e3d4ac8
+Status: Downloaded newer image for nginx:alpine
+docker.io/library/nginx:alpine
+The push refers to repository [localhost:5001/door]
+701fee9236d6: Pushed
+3ef3eba6b71c: Pushed
+218624bde535: Pushed
+e24c840b9291: Pushed
+7b9f6954712c: Pushed
+18eb23b7676d: Pushed
+a9986cd6f37d: Pushed
+4e9ebb12c87e: Pushed
+local: digest: sha256:03cceb152c777cf8f2ec2e7ccac7893ab9e2fb7262e7aa3caabc765bd33ad92c size: 2497
+
+ Info -> Not all multiplatform-content is present and only the available single-platform image was pushed
+         sha256:62ff2089abf5a9ed33bd232895bef5e22f7bb4b200675cec49a5ebc48e3d4ac8 -> sha256:03cceb152c777cf8f2ec2e7ccac7893ab9e2fb7262e7aa3caabc765bd33ad92c
+---- catalog ----
+{"repositories":["probe"]}
+
+
+### 2026-09-20T23:37:37Z
+$ kubectl --context kind-eg-poc1-colima apply -f clusters/eg/kube-vip-rbac.yaml -f clusters/eg/kube-vip-cloud-provider.yaml -f demos/54-eg-poc1-kube-vip-colima/10-kubevip-cm.yaml
+serviceaccount/kube-vip created
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-role created
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-binding created
+serviceaccount/kube-vip-cloud-controller created
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-role created
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-binding created
+Warning: spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[1].preference.matchExpressions[0].key: node-role.kubernetes.io/master is use "node-role.kubernetes.io/control-plane" instead
+deployment.apps/kube-vip-cloud-provider created
+configmap/kubevip created
+
+### 2026-09-20T23:37:37Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system set image deploy/kube-vip-cloud-provider kube-vip-cloud-provider=localhost:5001/kube-vip-cloud-provider:v0.0.12
+Warning: spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[1].preference.matchExpressions[0].key: node-role.kubernetes.io/master is use "node-role.kubernetes.io/control-plane" instead
+deployment.apps/kube-vip-cloud-provider image updated
+
+### 2026-09-20T23:37:37Z
+$ bash -c render_ds
+rendered .tmp/kube-vip-ds-bgp-colima.yaml (password length 7)
+
+### 2026-09-20T23:37:37Z
+$ kubectl --context kind-eg-poc1-colima apply -f .tmp/kube-vip-ds-bgp-colima.yaml
+daemonset.apps/kube-vip-ds created
+
+### 2026-09-20T23:37:37Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system rollout status ds/kube-vip-ds --timeout=180s
+Waiting for daemon set "kube-vip-ds" rollout to finish: 0 of 2 updated pods are available...
+error: timed out waiting for the condition
+[exit code: 1]
+
+
+### 2026-09-20T23:41:17Z — demo 54c apply
+### 2026-09-20T23:41:17Z
+$ scripts/eg-colima-up.sh
+
+
+=== eg-colima-up.sh start 2026-09-20T23:41:17Z cluster=eg-poc1-colima ctx=colima-bgp-fabric ===
+=== kindnet + kube-proxy iptables; no Cilium; no Envoy Gateway ===
+=== eg-colima-up.sh start 2026-09-20T23:41:17Z cluster=eg-poc1-colima ctx=colima-bgp-fabric ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima ===
+=== kindnet + kube-proxy iptables; no Cilium; no Envoy Gateway ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima ===
+=== kubeconfig=/Users/olasumbo/.kube/config-eg-poc1-colima ===
+=== kubeconfig=/Users/olasumbo/.kube/config-eg-poc1-colima ===
+
+== 1. the kind-eg-colima network (172.19.0.0/16, ip-range 172.19.0.0/17)  (23:41:17Z)
+network kind-eg-colima exists with 172.19.0.0/16, kept
+network kind-eg-colima exists with 172.19.0.0/16, kept
+### 2026-09-20T23:41:17Z
+$ docker --context colima-bgp-fabric network inspect kind-eg-colima --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+### 2026-09-20T23:41:17Z
+$ docker --context colima-bgp-fabric network inspect kind-eg-colima --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+subnet=172.19.0.0/16 ip-range=172.19.0.0/17 gateway=172.19.0.1
+
+subnet=172.19.0.0/16 ip-range=172.19.0.0/17 gateway=172.19.0.1
+
+
+
+
+== 2. local registry kind-registry on 127.0.0.1:5001  (23:41:17Z)
+### 2026-09-20T23:41:17Z
+$ scripts/colima-registry.sh up
+### 2026-09-20T23:41:17Z
+$ scripts/colima-registry.sh up
+network kind-eg-colima exists with 172.19.0.0/16, kept
+network kind-eg-colima exists with 172.19.0.0/16, kept
+registry kind-registry present
+registry kind-registry present
+registry kind-registry already on kind-eg-colima at 172.19.0.4
+catalog (in-container): registry kind-registry already on kind-eg-colima at 172.19.0.4
+catalog (in-container): {"repositories":["door","kube-vip","kube-vip-cloud-provider"]}
+{"repositories":["door","kube-vip","kube-vip-cloud-provider"]}
+
+colima-registry: up (kind-registry on kind-eg-colima at 172.19.0.4, published 127.0.0.1:5001)
+
+colima-registry: up (kind-registry on kind-eg-colima at 172.19.0.4, published 127.0.0.1:5001)
+
+
+
+== 3. cluster eg-poc1-colima on kind-eg-colima (kindnet + kube-proxy iptables; no Cilium)  (23:41:17Z)
+kind cluster eg-poc1-colima exists, kept
+### 2026-09-20T23:41:17Z
+$ kubectl --context kind-eg-poc1-colima wait --for=condition=Ready nodes --all --timeout=180s
+### 2026-09-20T23:41:17Z
+$ kubectl --context kind-eg-poc1-colima wait --for=condition=Ready nodes --all --timeout=180s
+node/eg-poc1-colima-control-plane condition met
+node/eg-poc1-colima-control-plane condition met
+node/eg-poc1-colima-worker condition met
+node/eg-poc1-colima-worker condition met
+
+
+### 2026-09-20T23:41:18Z
+$ kubectl --context kind-eg-poc1-colima get nodes -o wide
+### 2026-09-20T23:41:18Z
+$ kubectl --context kind-eg-poc1-colima get nodes -o wide
+NAME                           STATUS   ROLES           AGE     VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+eg-poc1-colima-control-plane   Ready    control-plane   4m17s   v1.36.4   172.19.0.3    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+eg-poc1-colima-worker          Ready    <none>          4m3s    v1.36.4   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+NAME                           STATUS   ROLES           AGE     VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+eg-poc1-colima-control-plane   Ready    control-plane   4m17s   v1.36.4   172.19.0.3    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+eg-poc1-colima-worker          Ready    <none>          4m3s    v1.36.4   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+
+
+node IPv4 InternalIPs (must be in 172.19.0.0/17, none in 172.19.254.0/24 or 172.19.255.0/24):
+eg-poc1-colima-control-plane 172.19.0.3
+eg-poc1-colima-worker 172.19.0.2
+node IPv4 InternalIPs (must be in 172.19.0.0/17, none in 172.19.254.0/24 or 172.19.255.0/24):
+eg-poc1-colima-control-plane 172.19.0.3
+eg-poc1-colima-worker 172.19.0.2
+eg-poc1-colima-worker docker kind-eg-colima=172.19.0.2
+eg-poc1-colima-worker docker kind-eg-colima=172.19.0.2
+eg-poc1-colima-control-plane docker kind-eg-colima=172.19.0.3
+eg-poc1-colima-control-plane docker kind-eg-colima=172.19.0.3
+### 2026-09-20T23:41:18Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system get ds kindnet kube-proxy
+### 2026-09-20T23:41:18Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system get ds kindnet kube-proxy
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   4m14s
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   4m15s
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   4m14s
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   4m15s
+
+
+### 2026-09-20T23:41:18Z
+$ bash -c kubectl --context kind-eg-poc1-colima -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+### 2026-09-20T23:41:18Z
+$ bash -c kubectl --context kind-eg-poc1-colima -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+    mode: iptables
+    mode: iptables
+
+
+
+== 4. containerd hosts.toml for localhost:5001 + local-registry-hosting ConfigMap  (23:41:18Z)
+### 2026-09-20T23:41:18Z
+$ bash -c registry_hosts
+### 2026-09-20T23:41:18Z
+$ bash -c registry_hosts
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-worker
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-worker
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-control-plane
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-control-plane
+
+
+### 2026-09-20T23:41:18Z
+$ bash -c kubectl --context kind-eg-poc1-colima apply -f -
+### 2026-09-20T23:41:18Z
+$ bash -c kubectl --context kind-eg-poc1-colima apply -f -
+configmap/local-registry-hosting unchanged
+configmap/local-registry-hosting unchanged
+
+
+eg-colima-up: done. cluster eg-poc1-colima on kind-eg-colima; kubeconfig /Users/olasumbo/.kube/config-eg-poc1-colima
+eg-colima-up: done. cluster eg-poc1-colima on kind-eg-colima; kubeconfig /Users/olasumbo/.kube/config-eg-poc1-colima
+
+### 2026-09-20T23:41:18Z
+$ bash -c attach_leaves
+before: leaf1=f59f78becf176597674101d55d7584f7d86aad7ae18d606122f0f9ed93f8ddb4 leaf2=a318ec6ce490f70cadbc8878c843caa250da95a7ccd55234cd8fe729eef6a972
+ Container bgp-fabric-colima-leaf2-1 Running 
+ Container bgp-fabric-colima-dashboard-1 Running 
+ Container bgp-fabric-colima-client0-1 Running 
+ Container bgp-fabric-colima-edge-1 Running 
+ Container bgp-fabric-colima-spine-1 Running 
+ Container bgp-fabric-colima-leaf1-1 Running 
+ Container bgp-fabric-colima-edge-1 Waiting 
+ Container bgp-fabric-colima-spine-1 Waiting 
+ Container bgp-fabric-colima-leaf1-1 Waiting 
+ Container bgp-fabric-colima-leaf2-1 Waiting 
+ Container bgp-fabric-colima-leaf2-1 Healthy 
+ Container bgp-fabric-colima-edge-1 Healthy 
+ Container bgp-fabric-colima-leaf1-1 Healthy 
+ Container bgp-fabric-colima-spine-1 Healthy 
+after:  leaf1=f59f78becf176597674101d55d7584f7d86aad7ae18d606122f0f9ed93f8ddb4 leaf2=a318ec6ce490f70cadbc8878c843caa250da95a7ccd55234cd8fe729eef6a972
+leaves not recreated (same container ids)
+leaf1 kind-eg-colima=172.19.254.11 leaf2 kind-eg-colima=172.19.254.12
+
+### 2026-09-20T23:41:19Z
+$ bash -c push_images
+v1.2.4: Pulling from kube-vip/kube-vip
+Digest: sha256:dde4c0669d9058c74c69c0bc2f0122e26900e1e4b913c03577cb6e4e28083079
+Status: Image is up to date for ghcr.io/kube-vip/kube-vip:v1.2.4
+ghcr.io/kube-vip/kube-vip:v1.2.4
+The push refers to repository [localhost:5001/kube-vip]
+d94610fc5f1c: Layer already exists
+d5eb50a0c64d: Layer already exists
+v1.2.4: digest: sha256:56918a63be76bbe473d479b18bc548d397e84a742d4956d0248af35f691cdbc0 size: 673
+
+ Info -> Not all multiplatform-content is present and only the available single-platform image was pushed
+         sha256:dde4c0669d9058c74c69c0bc2f0122e26900e1e4b913c03577cb6e4e28083079 -> sha256:56918a63be76bbe473d479b18bc548d397e84a742d4956d0248af35f691cdbc0
+v0.0.12: Pulling from kube-vip/kube-vip-cloud-provider
+Digest: sha256:f8f4e3401f7637dd55faefb35571e731a477f65d5c3f062aef73dfd31a8da596
+Status: Image is up to date for ghcr.io/kube-vip/kube-vip-cloud-provider:v0.0.12
+ghcr.io/kube-vip/kube-vip-cloud-provider:v0.0.12
+The push refers to repository [localhost:5001/kube-vip-cloud-provider]
+9aee425378d2: Layer already exists
+7c12895b777b: Layer already exists
+5664b15f108b: Layer already exists
+a62778643d56: Layer already exists
+25354e22811d: Layer already exists
+bfb59b82a9b6: Layer already exists
+0bab15eea81d: Layer already exists
+4aa0ea1413d3: Layer already exists
+3214acf345c0: Layer already exists
+829b2cab8fc5: Layer already exists
+4eff9a62d888: Layer already exists
+da7816fa955e: Layer already exists
+v0.0.12: digest: sha256:6686b1f5fc6480b16c15fd84596e620cfd433994f1522d9b4ba29fe00ba08ac0 size: 2559
+
+ Info -> Not all multiplatform-content is present and only the available single-platform image was pushed
+         sha256:f8f4e3401f7637dd55faefb35571e731a477f65d5c3f062aef73dfd31a8da596 -> sha256:6686b1f5fc6480b16c15fd84596e620cfd433994f1522d9b4ba29fe00ba08ac0
+alpine: Pulling from library/nginx
+Digest: sha256:62ff2089abf5a9ed33bd232895bef5e22f7bb4b200675cec49a5ebc48e3d4ac8
+Status: Image is up to date for nginx:alpine
+docker.io/library/nginx:alpine
+The push refers to repository [localhost:5001/door]
+3ef3eba6b71c: Layer already exists
+218624bde535: Layer already exists
+e24c840b9291: Layer already exists
+701fee9236d6: Layer already exists
+7b9f6954712c: Layer already exists
+a9986cd6f37d: Layer already exists
+4e9ebb12c87e: Layer already exists
+18eb23b7676d: Layer already exists
+local: digest: sha256:03cceb152c777cf8f2ec2e7ccac7893ab9e2fb7262e7aa3caabc765bd33ad92c size: 2497
+
+ Info -> Not all multiplatform-content is present and only the available single-platform image was pushed
+         sha256:62ff2089abf5a9ed33bd232895bef5e22f7bb4b200675cec49a5ebc48e3d4ac8 -> sha256:03cceb152c777cf8f2ec2e7ccac7893ab9e2fb7262e7aa3caabc765bd33ad92c
+---- catalog ----
+{"repositories":["probe"]}
+
+
+### 2026-09-20T23:41:22Z
+$ kubectl --context kind-eg-poc1-colima apply -f clusters/eg/kube-vip-rbac.yaml -f clusters/eg/kube-vip-cloud-provider.yaml -f demos/54-eg-poc1-kube-vip-colima/10-kubevip-cm.yaml
+serviceaccount/kube-vip unchanged
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-role unchanged
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-binding unchanged
+serviceaccount/kube-vip-cloud-controller unchanged
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-role unchanged
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-binding unchanged
+Warning: spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[1].preference.matchExpressions[0].key: node-role.kubernetes.io/master is use "node-role.kubernetes.io/control-plane" instead
+deployment.apps/kube-vip-cloud-provider configured
+configmap/kubevip unchanged
+
+### 2026-09-20T23:41:22Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system set image deploy/kube-vip-cloud-provider kube-vip-cloud-provider=localhost:5001/kube-vip-cloud-provider:v0.0.12
+Warning: spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[1].preference.matchExpressions[0].key: node-role.kubernetes.io/master is use "node-role.kubernetes.io/control-plane" instead
+deployment.apps/kube-vip-cloud-provider image updated
+
+### 2026-09-20T23:41:22Z
+$ bash -c render_ds
+rendered .tmp/kube-vip-ds-bgp-colima.yaml (password length 7)
+
+### 2026-09-20T23:41:22Z
+$ kubectl --context kind-eg-poc1-colima apply -f .tmp/kube-vip-ds-bgp-colima.yaml
+daemonset.apps/kube-vip-ds unchanged
+
+### 2026-09-20T23:41:22Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system rollout status ds/kube-vip-ds --timeout=180s
+daemon set "kube-vip-ds" successfully rolled out
+
+### 2026-09-20T23:41:22Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system wait deploy/kube-vip-cloud-provider --for=condition=Available --timeout=180s
+deployment.apps/kube-vip-cloud-provider condition met
+
+rollout-to-wait: 0s md5_on_speaker=1
+### 2026-09-20T23:41:23Z
+$ bash -c session_record
+---- node IPs ----
+eg-poc1-colima-worker
+eg-poc1-colima-control-plane
+eg-poc1-colima-worker 172.19.0.2
+eg-poc1-colima-control-plane 172.19.0.3
+---- leaf show bgp summary ----
+-- leaf1
+
+IPv4 Unicast Summary:
+BGP router identifier 10.200.255.11, local AS number 65101 VRF default vrf-id 0
+BGP table version 21
+RIB entries 5, using 800 bytes of memory
+Peers 3, using 69 KiB of memory
+Peer groups 1, using 72 bytes of memory
+
+Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
+*172.19.0.2     4      65021         5         6       21    0    0 00:00:12            0        0 N/A
+*172.19.0.3     4      65021         5         6       21    0    0 00:00:11            0        0 N/A
+10.200.1.3      4      65100       672       671       21    0    0 00:31:04            4        5 spine
+
+Total number of neighbors 3
+* - dynamic neighbor
+2 dynamic neighbor(s), limit 16
+-- leaf2
+
+IPv4 Unicast Summary:
+BGP router identifier 10.200.255.12, local AS number 65102 VRF default vrf-id 0
+BGP table version 15
+RIB entries 5, using 800 bytes of memory
+Peers 3, using 69 KiB of memory
+Peer groups 1, using 72 bytes of memory
+
+Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
+*172.19.0.2     4      65021         5         6       15    0    0 00:00:12            0        0 N/A
+*172.19.0.3     4      65021         5         6       15    0    0 00:00:12            0        0 N/A
+10.200.1.11     4      65100       668       667       15    0    0 00:31:42            4        5 spine
+
+Total number of neighbors 3
+* - dynamic neighbor
+2 dynamic neighbor(s), limit 16
+---- kube-vip DS logs (BGP / MD5 / sockopt) ----
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.153608971Z 2026/09/20 23:41:10 INFO starting namespace=kube-system Mode=BGP "Control Plane"=false Services=true
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.153648471Z 2026/09/20 23:41:10 INFO starting Kube-vip Manager mode=BGP
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.153649179Z 2026/09/20 23:41:10 INFO Starting the BGP server to advertise VIP routes to BGP peers
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.167938580Z 2026/09/20 23:41:10 INFO [BGP] peer="&{Type:2 Peer:{Conf:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP NeighborInterface: PeerGroup:} State:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP SessionState:BGP_FSM_IDLE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:} Transport:{LocalAddress:invalid IP LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.167969538Z 2026/09/20 23:41:10 INFO Add a peer configuration Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.168100164Z 2026/09/20 23:41:10 INFO [BGP] peer=172.19.254.11 AS=65101 BFD=<nil>
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.168360622Z 2026/09/20 23:41:10 INFO Add a peer configuration Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.168596039Z 2026/09/20 23:41:10 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.168690415Z 2026/09/20 23:41:10 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x27da69f1e360 0x27da69ec6730 0x27da69f1e3c0 0x27da6a46e2d0 0x27da6a46e300 0x27da69b76400] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.168739123Z 2026/09/20 23:41:10 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x27da69b184c0 0x27da6a0ac3c0 0x27da69b184e0 0x27da6ab51980 0x27da6ab519b0 0x27da69f909c0] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.169043624Z 2026/09/20 23:41:10 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.169122999Z 2026/09/20 23:41:10 INFO [BGP] peer=172.19.254.12 AS=65102 BFD=<nil>
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.900201978Z 2026/09/20 23:41:11 INFO Peer Up Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.900283978Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x27da69f1f160 0x27da69ec6fa0 0x27da69f1f1a0 0x27da6a46f200 0x27da6a46f230 0x27da69dd1100] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.900296520Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.12 PeerGroup: RemoteCap:[0x27da69f1f040 0x27da69dd0f40 0x27da69dd0fc0 0x27da69f1ebe0 0x27da6a46e5a0 0x27da69f1eec0 0x27da6a46e540 0x27da69f1ec80 0x27da69dd1140] LocalCap:[0x27da69f1f2c0 0x27da69ec7360 0x27da69f1f2e0 0x27da6a46f500 0x27da6a46f530 0x27da69dd1340] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:41771 RemotePort:179}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.970003062Z 2026/09/20 23:41:11 INFO Peer Up Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.970031645Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x27da69f1f6e0 0x27da69ec74f0 0x27da69f1f700 0x27da6a46fa40 0x27da6a46fa70 0x27da69dd16c0] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.970035437Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x27da6a46f830 0x27da6a46f860 0x27da69f1f520 0x27da69dd1500 0x27da69f1f380 0x27da69f1f440 0x27da69f1f4c0 0x27da69dd1740 0x27da69dd1540] LocalCap:[0x27da69f1f820 0x27da69ec7630 0x27da69f1f840 0x27da6a46fd10 0x27da6a46fd40 0x27da69dd1a80] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:55659 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.903708439Z 2026/09/20 23:41:09 INFO starting namespace=kube-system Mode=BGP "Control Plane"=false Services=true
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.905486692Z 2026/09/20 23:41:09 INFO starting Kube-vip Manager mode=BGP
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.905497776Z 2026/09/20 23:41:09 INFO Starting the BGP server to advertise VIP routes to BGP peers
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.920152635Z 2026/09/20 23:41:09 INFO Add a peer configuration Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921086345Z 2026/09/20 23:41:09 INFO [BGP] peer=172.19.254.11 AS=65101 BFD=<nil>
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921129095Z 2026/09/20 23:41:09 INFO Add a peer configuration Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921368763Z 2026/09/20 23:41:09 INFO [BGP] peer=172.19.254.12 AS=65102 BFD=<nil>
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921538221Z 2026/09/20 23:41:09 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921731388Z 2026/09/20 23:41:09 INFO [BGP] peer="&{Type:2 Peer:{Conf:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP NeighborInterface: PeerGroup:} State:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP SessionState:BGP_FSM_IDLE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:} Transport:{LocalAddress:invalid IP LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921733722Z 2026/09/20 23:41:09 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921736138Z 2026/09/20 23:41:09 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x27280291a160 0x27280270a050 0x27280291a180 0x272802a71d70 0x272802a71da0 0x272802720dc0] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921739597Z 2026/09/20 23:41:09 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x2728026900e0 0x272802492050 0x272802690120 0x2728034801b0 0x2728034801e0 0x27280265e240] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.704881628Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x272802690560 0x272802492140 0x272802690580 0x272803480450 0x272803480480 0x27280265e4c0] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.705277879Z 2026/09/20 23:41:11 INFO Peer Up Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.705443962Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.12 PeerGroup: RemoteCap:[0x27280265e540 0x272802690480 0x27280265e340 0x27280265e380 0x2728026902a0 0x272803480270 0x272802690420 0x272803480240 0x2728026901e0] LocalCap:[0x272802690680 0x272802492280 0x2728026906a0 0x2728034808a0 0x2728034808d0 0x27280265e700] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:56675 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.868062546Z 2026/09/20 23:41:11 INFO Peer Up Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.868087504Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x272802690940 0x2728024924b0 0x272802690960 0x272803480c90 0x272803480cc0 0x27280265eb00] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.868089421Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x27280265eb40 0x272802690860 0x27280265e880 0x27280265e8c0 0x272802690740 0x272802690800 0x272803480a80 0x2728026907a0 0x272803480ab0] LocalCap:[0x272802690a40 0x272802492780 0x272802690a60 0x272803480f60 0x272803480f90 0x27280265ed40] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:33351 RemotePort:179}}}"
+
+### 2026-09-20T23:41:23Z
+$ kubectl --context kind-eg-poc1-colima apply -f demos/54-eg-poc1-kube-vip-colima/00-namespace.yaml -f demos/54-eg-poc1-kube-vip-colima/20-door.yaml
+namespace/door created
+deployment.apps/door created
+service/door created
+
+### 2026-09-20T23:41:23Z
+$ kubectl --context kind-eg-poc1-colima -n door rollout status deploy/door --timeout=180s
+Waiting for deployment "door" rollout to finish: 0 of 1 updated replicas are available...
+deployment "door" successfully rolled out
+
+### 2026-09-20T23:41:24Z
+$ bash -c wait_door
+door Service ingress=10.98.0.10 after 1s
+
+### 2026-09-20T23:41:24Z
+$ bash -c wait_paths
+both leaves have a node path for 10.98.0.10/32 after 1s
+
+### 2026-09-20T23:41:24Z
+$ bash -c rib_record
+---- leaf1 show ip bgp 10.98.0.10/32 ----
+BGP routing table entry for 10.98.0.10/32, version 22
+Paths: (2 available, best #1, table default)
+  Advertised to peers:
+  10.200.1.3
+  65021
+    172.19.0.2 from 172.19.0.2 (172.19.0.2)
+      Origin IGP, valid, external, multipath, best (Router ID)
+      Last update: Sun Sep 20 23:41:24 2026
+  65021
+    172.19.0.3 from 172.19.0.3 (172.19.0.3)
+      Origin IGP, valid, external, multipath
+      Last update: Sun Sep 20 23:41:24 2026
+---- leaf2 show ip bgp 10.98.0.10/32 ----
+BGP routing table entry for 10.98.0.10/32, version 17
+Paths: (3 available, best #1, table default)
+  Advertised to peers:
+  10.200.1.11
+  65021
+    172.19.0.2 from 172.19.0.2 (172.19.0.2)
+      Origin IGP, valid, external, multipath, best (AS Path)
+      Last update: Sun Sep 20 23:41:23 2026
+  65021
+    172.19.0.3 from 172.19.0.3 (172.19.0.3)
+      Origin IGP, valid, external, multipath
+      Last update: Sun Sep 20 23:41:23 2026
+  65100 65101 65021
+    10.200.1.11 from 10.200.1.11 (10.200.255.2)
+      Origin IGP, valid, external
+      Last update: Sun Sep 20 23:41:23 2026
+
+### 2026-09-20T23:41:24Z
+$ bash -c client0_door
+---- client0 ip route get 10.98.0.10 ----
+10.98.0.10 via 10.200.100.2 dev eth0 src 10.200.100.10 uid 0 
+    cache 
+---- client0 curl 10.98.0.10 ----
+client0 http://10.98.0.10/ → 000 curl_rc=28
+
+### 2026-09-20T23:41:30Z
+$ bash -c mac_path
+VM:  docker --context colima-bgp-fabric run --rm --privileged --pid=host --net=host alpine:3.20 nsenter -t 1 -m -n -- ip route replace 10.98.0.0/24 via 172.19.254.11
+Mac: sudo route -n add -net 10.98.0.0/24 192.168.64.3
+VM route installed
+Mac route absent — the operator runs:
+  sudo route -n add -net 10.98.0.0/24 192.168.64.3
+
+### 2026-09-20T23:41:32Z
+$ curl -sS --max-time 5 http://127.0.0.1:8098/api/state
+{"ts":"2026-09-20T23:41:31.401Z","poll":"2s","routers":[{"name":"edge","url":"http://10.200.200.1:8080","asn":65000,"routerId":"10.200.255.1","reachable":true},{"name":"spine","url":"http://10.200.200.2:8080","asn":65100,"routerId":"10.200.255.2","reachable":true},{"name":"leaf1","url":"http://10.200.200.11:8080","asn":65101,"routerId":"10.200.255.11","reachable":true},{"name":"leaf2","url":"http://10.200.200.12:8080","asn":65102,"routerId":"10.200.255.12","reachable":true}],"nodes":[{"id":"edge","kind":"router","label":"edge\nAS 65000","asn":65000},{"id":"leaf1","kind":"router","label":"leaf1\nAS 65101","asn":65101},{"id":"leaf2","kind":"router","label":"leaf2\nAS 65102","asn":65102},{"id":"spine","kind":"router","label":"spine\nAS 65100","asn":65100},{"id":"172.19.0.2","kind":"external","label":"eg-poc1 (kube-vip)\n172.19.0.2","asn":65021,"addr":"172.19.0.2"},{"id":"172.19.0.3","kind":"external","label":"eg-poc1 (kube-vip)\n172.19.0.3","asn":65021,"addr":"172.19.0.3"}],"edges":[{"id":"172.19.0.2|leaf1","source":"172.19.0.2","target":"leaf1","state":"established","aRouter":"leaf1","aPeer":"172.19.0.2","aUptime":"00:00:20","aPfxRcd":1,"bPfxRcd":0,"aPfxSnt":0,"bPfxSnt":0,"aState":"Established"},{"id":"172.19.0.2|leaf2","source":"172.19.0.2","target":"leaf2","state":"established","aRouter":"leaf2","aPeer":"172.19.0.2","aUptime":"00:00:20","aPfxRcd":1,"bPfxRcd":0,"aPfxSnt":0,"bPfxSnt":0,"aState":"Established"},{"id":"172.19.0.3|leaf1","source":"172.19.0.3","target":"leaf1","state":"established","aRouter":"leaf1","aPeer":"172.19.0.3","aUptime":"00:00:19","aPfxRcd":1,"bPfxRcd":0,"aPfxSnt":0,"bPfxSnt":0,"aState":"Established"},{"id":"172.19.0.3|leaf2","source":"172.19.0.3","target":"leaf2","state":"established","aRouter":"leaf2","aPeer":"172.19.0.3","aUptime":"00:00:20","aPfxRcd":1,"bPfxRcd":0,"aPfxSnt":0,"bPfxSnt":0,"aState":"Established"},{"id":"edge|spine","source":"edge","target":"spine","state":"established","aRouter":"edge","bRouter":"spine","aPeer":"10.200.1.18","bPeer":"10.200.1.19","aUptime":"00:31:50","bUptime":"00:31:50","aPfxRcd":4,"bPfxRcd":2,"aPfxSnt":5,"bPfxSnt":6,"aState":"Established","bState":"Established"},{"id":"leaf1|spine","source":"leaf1","target":"spine","state":"established","aRouter":"spine","bRouter":"leaf1","aPeer":"10.200.1.2","bPeer":"10.200.1.3","aUptime":"00:31:12","bUptime":"00:31:12","aPfxRcd":2,"bPfxRcd":4,"aPfxSnt":6,"bPfxSnt":6,"aState":"Established","bState":"Established"},{"id":"leaf2|spine","source":"leaf2","target":"spine","state":"established","aRouter":"spine","bRouter":"leaf2","aPeer":"10.200.1.10","bPeer":"10.200.1.11","aUptime":"00:31:50","bUptime":"00:31:50","aPfxRcd":2,"bPfxRcd":5,"aPfxSnt":6,"bPfxSnt":6,"aState":"Established","bState":"Established"}],"sessions":[{"router":"edge","peer":"10.200.1.18","peerAsn":65100,"state":"Established","uptime":"00:31:50","pfxRcd":4,"pfxSnt":5,"hostname":"spine"},{"router":"spine","peer":"10.200.1.10","peerAsn":65102,"state":"Established","uptime":"00:31:50","pfxRcd":2,"pfxSnt":6,"hostname":"leaf2"},{"router":"spine","peer":"10.200.1.19","peerAsn":65000,"state":"Established","uptime":"00:31:50","pfxRcd":2,"pfxSnt":6,"hostname":"edge"},{"router":"spine","peer":"10.200.1.2","peerAsn":65101,"state":"Established","uptime":"00:31:12","pfxRcd":2,"pfxSnt":6,"hostname":"leaf1"},{"router":"leaf1","peer":"172.19.0.2","peerAsn":65021,"state":"Established","uptime":"00:00:20","pfxRcd":1,"pfxSnt":0,"hostname":"eg-poc1-colima-worker"},{"router":"leaf1","peer":"172.19.0.3","peerAsn":65021,"state":"Established","uptime":"00:00:19","pfxRcd":1,"pfxSnt":0,"hostname":"eg-poc1-colima-control-plane"},{"router":"leaf1","peer":"10.200.1.3","peerAsn":65100,"state":"Established","uptime":"00:31:12","pfxRcd":4,"pfxSnt":6,"hostname":"spine"},{"router":"leaf2","peer":"172.19.0.2","peerAsn":65021,"state":"Established","uptime":"00:00:20","pfxRcd":1,"pfxSnt":0,"hostname":"eg-poc1-colima-worker"},{"router":"leaf2","peer":"172.19.0.3","peerAsn":65021,"state":"Established","uptime":"00:00:20","pfxRcd":1,"pfxSnt":0,"hostname":"eg-poc1-colima-control-plane"},{"router":"leaf2","peer":"10.200.1.11","peerAsn":65100,"state":"Established","uptime":"00:31:50","pfxRcd":5,"pfxSnt":6,"hostname":"spine"}],"routes":[{"router":"edge","prefix":"10.200.100.0/24","valid":true,"bestpath":true,"nexthop":"0.0.0.0","path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"},{"router":"edge","prefix":"10.200.255.1/32","valid":true,"bestpath":true,"nexthop":"0.0.0.0","path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"},{"router":"edge","prefix":"10.200.255.2/32","valid":true,"bestpath":true,"nexthop":"10.200.1.18","path":"65100","origin":"IGP","weight":0,"peerId":"10.200.1.18"},{"router":"edge","prefix":"10.200.255.11/32","valid":true,"bestpath":true,"nexthop":"10.200.1.18","path":"65100 65101","origin":"IGP","weight":0,"peerId":"10.200.1.18"},{"router":"edge","prefix":"10.200.255.12/32","valid":true,"bestpath":true,"nexthop":"10.200.1.18","path":"65100 65102","origin":"IGP","weight":0,"peerId":"10.200.1.18"},{"router":"edge","prefix":"10.98.0.10/32","valid":true,"bestpath":true,"nexthop":"10.200.1.18","path":"65100 65101 65021","origin":"IGP","weight":0,"peerId":"10.200.1.18"},{"router":"spine","prefix":"10.200.255.1/32","valid":true,"bestpath":true,"nexthop":"10.200.1.19","path":"65000","origin":"IGP","weight":0,"peerId":"10.200.1.19"},{"router":"spine","prefix":"10.200.255.2/32","valid":true,"bestpath":true,"nexthop":"0.0.0.0","path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"},{"router":"spine","prefix":"10.200.255.11/32","valid":true,"bestpath":true,"nexthop":"10.200.1.2","path":"65101","origin":"IGP","weight":0,"peerId":"10.200.1.2"},{"router":"spine","prefix":"10.200.255.12/32","valid":true,"bestpath":true,"nexthop":"10.200.1.10","path":"65102","origin":"IGP","weight":0,"peerId":"10.200.1.10"},{"router":"spine","prefix":"10.98.0.10/32","valid":true,"bestpath":true,"nexthop":"10.200.1.2","path":"65101 65021","origin":"IGP","weight":0,"peerId":"10.200.1.2"},{"router":"spine","prefix":"10.98.0.10/32","valid":true,"bestpath":false,"nexthop":"10.200.1.10","path":"65102 65021","origin":"IGP","weight":0,"peerId":"10.200.1.10"},{"router":"spine","prefix":"10.200.100.0/24","valid":true,"bestpath":true,"nexthop":"10.200.1.19","path":"65000","origin":"IGP","weight":0,"peerId":"10.200.1.19"},{"router":"leaf1","prefix":"10.200.255.11/32","valid":true,"bestpath":true,"nexthop":"0.0.0.0","path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"},{"router":"leaf1","prefix":"10.200.255.12/32","valid":true,"bestpath":true,"nexthop":"10.200.1.3","path":"65100 65102","origin":"IGP","weight":0,"peerId":"10.200.1.3"},{"router":"leaf1","prefix":"10.98.0.10/32","valid":true,"bestpath":true,"nexthop":"172.19.0.2","path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.2"},{"router":"leaf1","prefix":"10.98.0.10/32","valid":true,"bestpath":false,"nexthop":"172.19.0.3","path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.3"},{"router":"leaf1","prefix":"10.200.100.0/24","valid":true,"bestpath":true,"nexthop":"10.200.1.3","path":"65100 65000","origin":"IGP","weight":0,"peerId":"10.200.1.3"},{"router":"leaf1","prefix":"10.200.255.1/32","valid":true,"bestpath":true,"nexthop":"10.200.1.3","path":"65100 65000","origin":"IGP","weight":0,"peerId":"10.200.1.3"},{"router":"leaf1","prefix":"10.200.255.2/32","valid":true,"bestpath":true,"nexthop":"10.200.1.3","path":"65100","origin":"IGP","weight":0,"peerId":"10.200.1.3"},{"router":"leaf2","prefix":"10.98.0.10/32","valid":true,"bestpath":true,"nexthop":"172.19.0.2","path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.2"},{"router":"leaf2","prefix":"10.98.0.10/32","valid":true,"bestpath":false,"nexthop":"172.19.0.3","path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.3"},{"router":"leaf2","prefix":"10.98.0.10/32","valid":true,"bestpath":false,"nexthop":"10.200.1.11","path":"65100 65101 65021","origin":"IGP","weight":0,"peerId":"10.200.1.11"},{"router":"leaf2","prefix":"10.200.100.0/24","valid":true,"bestpath":true,"nexthop":"10.200.1.11","path":"65100 65000","origin":"IGP","weight":0,"peerId":"10.200.1.11"},{"router":"leaf2","prefix":"10.200.255.1/32","valid":true,"bestpath":true,"nexthop":"10.200.1.11","path":"65100 65000","origin":"IGP","weight":0,"peerId":"10.200.1.11"},{"router":"leaf2","prefix":"10.200.255.2/32","valid":true,"bestpath":true,"nexthop":"10.200.1.11","path":"65100","origin":"IGP","weight":0,"peerId":"10.200.1.11"},{"router":"leaf2","prefix":"10.200.255.11/32","valid":true,"bestpath":true,"nexthop":"10.200.1.11","path":"65100 65101","origin":"IGP","weight":0,"peerId":"10.200.1.11"},{"router":"leaf2","prefix":"10.200.255.12/32","valid":true,"bestpath":true,"nexthop":"0.0.0.0","path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"}],"reachable":4,"routerCount":4,"established":6,"sessionCount":6,"external":2,"serverSessions":4,"serverEstablished":4}
+
+### 2026-09-20T23:41:32Z
+$ bash -c state_head
+routers 4/4 · fabric sessions 6/6 · server sessions 4/4 · external 2
+external peers:
+  172.19.0.2 asn=65021 addr=172.19.0.2
+  172.19.0.3 asn=65021 addr=172.19.0.3
+
+### 2026-09-20T23:41:32Z
+$ bash -c curl -fsS --max-time 5 'http://127.0.0.1:8098/api/state' | python3 scripts/fabric-dashboard-state.py
+routers=4/4 sessions=6/6 external=2
+
+### 2026-09-20T23:41:32Z
+$ bash -c shot_dash
+/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --disable-gpu --no-first-run --window-size=1200,700 --user-data-dir=<tmp> --virtual-time-budget=4000 --screenshot=/Users/olasumbo/gitRepos/cilium-implementation-poc/demos/54-eg-poc1-kube-vip-colima/output/screenshots/dashboard-cluster.png http://127.0.0.1:8098/?router=leaf1
+screenshot written after 2.0 s; chrome_rc=0
+demos/54-eg-poc1-kube-vip-colima/output/screenshots/dashboard-cluster.png: PNG image data, 1200 x 700, 8-bit/color RGB, non-interlaced
+
+### 2026-09-20T23:41:34Z
+$ bash -c md5_wire
+leaf1 container=f59f78becf176597674101d55d7584f7d86aad7ae18d606122f0f9ed93f8ddb4
+tcpdump: WARNING: any: That device doesn't support promiscuous mode
+(Promiscuous mode not supported on the "any" device)
+tcpdump: listening on any, link-type LINUX_SLL2 (Linux cooked v2), snapshot length 262144 bytes
+23:41:35.868265 eth2  In  IP (tos 0x0, ttl 1, id 19531, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.2.33351 > 172.19.254.11.179: Flags [P.], cksum 0x5676 (incorrect -> 0xf578), seq 2716804443:2716804462, ack 3851738631, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 2f3e7b30913a90f913b7ac857869e6b0], length 19: BGP
+	Keepalive Message (4), length: 19
+23:41:35.868787 eth2  Out IP (tos 0xc0, ttl 1, id 18987, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.2.33351: Flags [P.], cksum 0x5676 (incorrect -> 0xcbf5), seq 1:20, ack 19, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 7faf2a15eded7c7aea64b80f7e8ae03d], length 19: BGP
+	Keepalive Message (4), length: 19
+23:41:35.868805 eth2  In  IP (tos 0x0, ttl 1, id 19532, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.2.33351 > 172.19.254.11.179: Flags [.], cksum 0x5663 (incorrect -> 0x2064), ack 20, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 4edcfe7534c4fc2204cfe589f2da69a9], length 0
+23:41:35.971164 eth2  In  IP (tos 0x0, ttl 1, id 10708, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [P.], cksum 0x5677 (incorrect -> 0x6da0), seq 2629220149:2629220168, ack 4129102653, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - b7a2b2f0c92b7828ad7aea30b1514d68], length 19: BGP
+	Keepalive Message (4), length: 19
+23:41:35.972769 eth2  Out IP (tos 0xc0, ttl 1, id 9282, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.3.55659: Flags [P.], cksum 0x5677 (incorrect -> 0x28a2), seq 1:20, ack 19, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 07e1d7454ea8899fc88589be7d6f0016], length 19: BGP
+	Keepalive Message (4), length: 19
+23:41:35.972808 eth2  In  IP (tos 0x0, ttl 1, id 10709, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [.], cksum 0x5664 (incorrect -> 0x5dca), ack 20, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - b4a8b9e64b4d0ebda17581d9f38c76b5], length 0
+23:41:38.868552 eth2  In  IP (tos 0x0, ttl 1, id 19533, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.2.33351 > 172.19.254.11.179: Flags [P.], cksum 0x5676 (incorrect -> 0xcf4a), seq 19:38, ack 20, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 04013a65378e81576fa991ad12d80687], length 19: BGP
+	Keepalive Message (4), length: 19
+23:41:38.868787 eth2  Out IP (tos 0xc0, ttl 1, id 18988, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.2.33351: Flags [P.], cksum 0x5676 (incorrect -> 0xbba5), seq 20:39, ack 38, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - f4df08e77516b8226a85fded283169ef], length 19: BGP
+	Keepalive Message (4), length: 19
+23:41:38.868807 eth2  In  IP (tos 0x0, ttl 1, id 19534, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.2.33351 > 172.19.254.11.179: Flags [.], cksum 0x5663 (incorrect -> 0x92d3), ack 39, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 33cbd886e6866bd441fa4aea13e95306], length 0
+23:41:38.970781 eth2  In  IP (tos 0x0, ttl 1, id 10710, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [P.], cksum 0x5677 (incorrect -> 0x4ab7), seq 19:38, ack 20, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 09df34e3c6889a8bf20849d03646531a], length 19: BGP
+	Keepalive Message (4), length: 19
+23:41:38.973162 eth2  Out IP (tos 0xc0, ttl 1, id 9283, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.3.55659: Flags [P.], cksum 0x5677 (incorrect -> 0x0b31), seq 20:39, ack 38, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 6d1d27a9233c7009b56d7e15c31b85d8], length 19: BGP
+	Keepalive Message (4), length: 19
+23:41:38.973201 eth2  In  IP (tos 0x0, ttl 1, id 10711, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [.], cksum 0x5664 (incorrect -> 0x7f41), ack 39, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - e7fbbd8a6ab053f58fb1679d54c08452], length 0
+23:41:41.869019 eth2  In  IP (tos 0x0, ttl 1, id 19535, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.2.33351 > 172.19.254.11.179: Flags [P.], cksum 0x5676 (incorrect -> 0x84bc), seq 38:57, ack 39, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 86312c39b8ab800de04ef1692f097084], length 19: BGP
+	Keepalive Message (4), length: 19
+23:41:41.869052 eth2  Out IP (tos 0xc0, ttl 1, id 18989, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.2.33351: Flags [P.], cksum 0x5676 (incorrect -> 0x6554), seq 39:58, ack 57, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 797e83c914d1686b89d5b72dd094efa2], length 19: BGP
+	Keepalive Message (4), length: 19
+23:41:41.869079 eth2  In  IP (tos 0x0, ttl 1, id 19536, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.2.33351 > 172.19.254.11.179: Flags [.], cksum 0x5663 (incorrect -> 0x81e1), ack 58, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 2c480024a493af7f689833a991fdb48e], length 0
+23:41:41.970508 eth2  In  IP (tos 0x0, ttl 1, id 10712, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [P.], cksum 0x5677 (incorrect -> 0x8516), seq 38:57, ack 39, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 8baf75bdb735583e7f981d7c41ca3acb], length 19: BGP
+	Keepalive Message (4), length: 19
+23:41:41.973272 eth2  Out IP (tos 0xc0, ttl 1, id 9284, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.3.55659: Flags [P.], cksum 0x5677 (incorrect -> 0xe93b), seq 39:58, ack 57, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 85dff3a9e07e07a0395f8b5af639a9b6], length 19: BGP
+	Keepalive Message (4), length: 19
+23:41:41.973303 eth2  In  IP (tos 0x0, ttl 1, id 10713, offset 0, flags [DF], proto 20 packets captured
+24 packets received by filter
+0 packets dropped by kernel
+TCP (6), length 60)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [.], cksum 0x5664 (incorrect -> 0x8ada), ack 58, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 526a14eac3ded938399bc4b0767aaf9c], length 0
+23:41:44.868432 eth2  In  IP (tos 0x0, ttl 1, id 19537, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.2.33351 > 172.19.254.11.179: Flags [P.], cksum 0x5676 (incorrect -> 0xf1a6), seq 57:76, ack 58, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - f19cefdb5fccd86313f48a201b021c9a], length 19: BGP
+	Keepalive Message (4), length: 19
+23:41:44.869062 eth2  Out IP (tos 0xc0, ttl 1, id 18990, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.2.33351: Flags [P.], cksum 0x5676 (incorrect -> 0x3fa1), seq 58:77, ack 76, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - a47ee5494fab0b5c71f049933735c9c3], length 19: BGP
+	Keepalive Message (4), length: 19
+
+### 2026-09-20T23:41:45Z
+$ colima ssh --profile bgp-fabric -- sh -c nstat -az 2>/dev/null | grep -E "TcpExtTCPMD5" || awk "/TcpExt/ {print}" /proc/net/netstat
+TcpExtTCPMD5NotFound            0                  0.0
+TcpExtTCPMD5Unexpected          0                  0.0
+TcpExtTCPMD5Failure             0                  0.0
+
+### 2026-09-20T23:44:46Z
+$ docker --context colima-bgp-fabric compose -p bgp-fabric-colima -f demos/46-bgp-fabric-colima/fabric/compose.yaml -f demos/46-bgp-fabric-colima/fabric/compose.lan-eg.yaml exec -T client0 curl -sS -o /dev/null -w client0 http://10.98.0.10/ → %{http_code} curl_rc=%{exitcode}\n --connect-timeout 5 --max-time 10 http://10.98.0.10/
+client0 http://10.98.0.10/ → 200 curl_rc=0
+
+### 2026-09-20T23:44:49Z
+$ bash -c for n in eg-poc1-colima-control-plane eg-poc1-colima-worker; do printf "%s " "$n"; docker --context colima-bgp-fabric exec "$n" ip route show 10.200.0.0/16; done
+eg-poc1-colima-control-plane 10.200.0.0/16 via 172.19.254.11 dev eth0 
+eg-poc1-colima-worker 10.200.0.0/16 via 172.19.254.11 dev eth0 
+
+### 2026-09-20T23:45:35Z
+$ bash demos/54-eg-poc1-kube-vip-colima/check.sh
+
+== demo 54c — kind cluster in Colima, kube-vip BGP to the fabric
+  STATUS WHAT                                                                   MEASURED                                             RULE
+  PASS   two nodes in 172.19.0.0/17 on kind-eg-colima                           172.19.0.2 172.19.0.3                                eg-colima-up — InternalIP in the lower /17
+  PASS   leaves show two SERVERS sessions each (one per node)                   4/4 Established (172.19.0.2 172.19.0.3)              both leaves × both nodes — JSON state == Established
+  PASS   door 10.98.0.10/32 in each leaf with a node next hop                   leaf1:nh=172.19.0.2,172.19.0.3 leaf2:nh=172.19.0.2,172.19.0.3  EG-POC1-VIPS + as-path 65021 — node in 172.19.0.0/17
+  PASS   client0 reaches the door                                               http_code=200                                        client0 → edge → spine → leaf → node → 10.98.0.10
+  Mac: sudo route -n add -net 10.98.0.0/24 192.168.64.3
+  WARN   Mac reaches the door over 192.168.64.3                                 route absent — sudo route -n add -net 10.98.0.0/24 192.168.64.3 operator sudo; script never runs it
+  PASS   dashboard server sessions and external peers                           server=4/4 external=2 nodes=172.19.0.2 172.19.0.3    /api/state — server 4/4 (both nodes × both leaves), external=2
+  FAIL   SERVERS MD5 on the wire (signed)                                       md5-option packets=20; Established→ABSENT; restored speaker password set; negative control restored
+
+demo 54c check: 1 FAIL
+[exit code: 1]
+
+### 2026-09-20T23:46:21Z
+$ bash demos/54-eg-poc1-kube-vip-colima/check.sh
+
+== demo 54c — kind cluster in Colima, kube-vip BGP to the fabric
+  STATUS WHAT                                                                   MEASURED                                             RULE
+  PASS   two nodes in 172.19.0.0/17 on kind-eg-colima                           172.19.0.2 172.19.0.3                                eg-colima-up — InternalIP in the lower /17
+  PASS   leaves show two SERVERS sessions each (one per node)                   4/4 Established (172.19.0.2 172.19.0.3)              both leaves × both nodes — JSON state == Established
+  PASS   door 10.98.0.10/32 in each leaf with a node next hop                   leaf1:nh=172.19.0.3,172.19.0.2 leaf2:nh=172.19.0.2,172.19.0.3  EG-POC1-VIPS + as-path 65021 — node in 172.19.0.0/17
+  PASS   client0 reaches the door                                               http_code=200                                        client0 → edge → spine → leaf → node → 10.98.0.10
+  Mac: sudo route -n add -net 10.98.0.0/24 192.168.64.3
+  WARN   Mac reaches the door over 192.168.64.3                                 route absent — sudo route -n add -net 10.98.0.0/24 192.168.64.3 operator sudo; script never runs it
+  PASS   dashboard server sessions and external peers                           server=4/4 external=2 nodes=172.19.0.2 172.19.0.3    /api/state — server 4/4 (both nodes × both leaves), external=2
+  PASS   SERVERS MD5 on the wire (signed)                                       md5-option packets=20; Established→ABSENT; restored speaker password set; negative control restored
+
+demo 54c check: 0 FAIL
+
+### 2026-09-20T23:47:49Z
+$ bash demos/54-eg-poc1-kube-vip-colima/apply.sh
+
+### 2026-09-20T23:47:49Z — demo 54c apply
+== 0. preflight (fabric up; CTX=colima-bgp-fabric; kubeconfig=/Users/olasumbo/.kube/config-eg-poc1-colima)
+preflight: project bgp-fabric-colima running; password set=yes
+== 1. node LAN + registry + cluster (scripts/eg-colima-up.sh)
+### 2026-09-20T23:47:49Z
+$ scripts/eg-colima-up.sh
+### 2026-09-20T23:47:49Z
+$ scripts/eg-colima-up.sh
+
+
+
+=== eg-colima-up.sh start 2026-09-20T23:47:50Z cluster=eg-poc1-colima ctx=colima-bgp-fabric ===
+=== kindnet + kube-proxy iptables; no Cilium; no Envoy Gateway ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima ===
+=== eg-colima-up.sh start 2026-09-20T23:47:50Z cluster=eg-poc1-colima ctx=colima-bgp-fabric ===
+=== kindnet + kube-proxy iptables; no Cilium; no Envoy Gateway ===
+=== kubeconfig=/Users/olasumbo/.kube/config-eg-poc1-colima ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima ===
+=== kubeconfig=/Users/olasumbo/.kube/config-eg-poc1-colima ===
+=== eg-colima-up.sh start 2026-09-20T23:47:50Z cluster=eg-poc1-colima ctx=colima-bgp-fabric ===
+=== kindnet + kube-proxy iptables; no Cilium; no Envoy Gateway ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima ===
+=== kubeconfig=/Users/olasumbo/.kube/config-eg-poc1-colima ===
+
+== 1. the kind-eg-colima network (172.19.0.0/16, ip-range 172.19.0.0/17)  (23:47:50Z)
+
+== 1. the kind-eg-colima network (172.19.0.0/16, ip-range 172.19.0.0/17)  (23:47:50Z)
+network kind-eg-colima exists with 172.19.0.0/16, kept
+network kind-eg-colima exists with 172.19.0.0/16, kept
+network kind-eg-colima exists with 172.19.0.0/16, kept
+### 2026-09-20T23:47:50Z
+$ docker --context colima-bgp-fabric network inspect kind-eg-colima --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+### 2026-09-20T23:47:50Z
+$ docker --context colima-bgp-fabric network inspect kind-eg-colima --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+### 2026-09-20T23:47:50Z
+$ docker --context colima-bgp-fabric network inspect kind-eg-colima --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+subnet=172.19.0.0/16 ip-range=172.19.0.0/17 gateway=172.19.0.1
+
+subnet=172.19.0.0/16 ip-range=172.19.0.0/17 gateway=172.19.0.1
+
+subnet=172.19.0.0/16 ip-range=172.19.0.0/17 gateway=172.19.0.1
+
+
+
+
+
+== 2. local registry kind-registry on 127.0.0.1:5001  (23:47:50Z)
+
+== 2. local registry kind-registry on 127.0.0.1:5001  (23:47:50Z)
+### 2026-09-20T23:47:50Z
+$ scripts/colima-registry.sh up
+### 2026-09-20T23:47:50Z
+$ scripts/colima-registry.sh up
+### 2026-09-20T23:47:50Z
+$ scripts/colima-registry.sh up
+network kind-eg-colima exists with 172.19.0.0/16, kept
+network kind-eg-colima exists with 172.19.0.0/16, kept
+network kind-eg-colima exists with 172.19.0.0/16, kept
+registry kind-registry present
+registry kind-registry present
+registry kind-registry present
+registry kind-registry already on kind-eg-colima at 172.19.0.4
+catalog (in-container): registry kind-registry already on kind-eg-colima at 172.19.0.4
+catalog (in-container): registry kind-registry already on kind-eg-colima at 172.19.0.4
+catalog (in-container): {"repositories":["door","kube-vip","kube-vip-cloud-provider"]}
+{"repositories":["door","kube-vip","kube-vip-cloud-provider"]}
+{"repositories":["door","kube-vip","kube-vip-cloud-provider"]}
+
+colima-registry: up (kind-registry on kind-eg-colima at 172.19.0.4, published 127.0.0.1:5001)
+
+colima-registry: up (kind-registry on kind-eg-colima at 172.19.0.4, published 127.0.0.1:5001)
+
+colima-registry: up (kind-registry on kind-eg-colima at 172.19.0.4, published 127.0.0.1:5001)
+
+
+
+
+== 3. cluster eg-poc1-colima on kind-eg-colima (kindnet + kube-proxy iptables; no Cilium)  (23:47:50Z)
+
+== 3. cluster eg-poc1-colima on kind-eg-colima (kindnet + kube-proxy iptables; no Cilium)  (23:47:50Z)
+kind cluster eg-poc1-colima exists, kept
+kind cluster eg-poc1-colima exists, kept
+### 2026-09-20T23:47:50Z
+$ kubectl --context kind-eg-poc1-colima wait --for=condition=Ready nodes --all --timeout=180s
+### 2026-09-20T23:47:50Z
+$ kubectl --context kind-eg-poc1-colima wait --for=condition=Ready nodes --all --timeout=180s
+### 2026-09-20T23:47:50Z
+$ kubectl --context kind-eg-poc1-colima wait --for=condition=Ready nodes --all --timeout=180s
+node/eg-poc1-colima-control-plane condition met
+node/eg-poc1-colima-control-plane condition met
+node/eg-poc1-colima-control-plane condition met
+node/eg-poc1-colima-worker condition met
+node/eg-poc1-colima-worker condition met
+node/eg-poc1-colima-worker condition met
+
+
+
+### 2026-09-20T23:47:50Z
+### 2026-09-20T23:47:50Z
+### 2026-09-20T23:47:50Z
+$ kubectl --context kind-eg-poc1-colima get nodes -o wide
+$ kubectl --context kind-eg-poc1-colima get nodes -o wide
+$ kubectl --context kind-eg-poc1-colima get nodes -o wide
+NAME                           STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+eg-poc1-colima-control-plane   Ready    control-plane   10m   v1.36.4   172.19.0.3    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+eg-poc1-colima-worker          Ready    <none>          10m   v1.36.4   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+NAME                           STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+eg-poc1-colima-control-plane   Ready    control-plane   10m   v1.36.4   172.19.0.3    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+eg-poc1-colima-worker          Ready    <none>          10m   v1.36.4   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+NAME                           STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+eg-poc1-colima-control-plane   Ready    control-plane   10m   v1.36.4   172.19.0.3    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+eg-poc1-colima-worker          Ready    <none>          10m   v1.36.4   172.19.0.2    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+
+
+
+node IPv4 InternalIPs (must be in 172.19.0.0/17, none in 172.19.254.0/24 or 172.19.255.0/24):
+eg-poc1-colima-control-plane 172.19.0.3
+eg-poc1-colima-worker 172.19.0.2
+node IPv4 InternalIPs (must be in 172.19.0.0/17, none in 172.19.254.0/24 or 172.19.255.0/24):
+eg-poc1-colima-control-plane 172.19.0.3
+eg-poc1-colima-worker 172.19.0.2
+node IPv4 InternalIPs (must be in 172.19.0.0/17, none in 172.19.254.0/24 or 172.19.255.0/24):
+eg-poc1-colima-control-plane 172.19.0.3
+eg-poc1-colima-worker 172.19.0.2
+eg-poc1-colima-worker docker kind-eg-colima=172.19.0.2
+eg-poc1-colima-worker docker kind-eg-colima=172.19.0.2
+eg-poc1-colima-worker docker kind-eg-colima=172.19.0.2
+eg-poc1-colima-control-plane docker kind-eg-colima=172.19.0.3
+eg-poc1-colima-control-plane docker kind-eg-colima=172.19.0.3
+eg-poc1-colima-control-plane docker kind-eg-colima=172.19.0.3
+### 2026-09-20T23:47:50Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system get ds kindnet kube-proxy
+### 2026-09-20T23:47:50Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system get ds kindnet kube-proxy
+### 2026-09-20T23:47:50Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system get ds kindnet kube-proxy
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   10m
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   10m
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   10m
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   10m
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   10m
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   10m
+
+
+
+### 2026-09-20T23:47:51Z
+$ bash -c kubectl --context kind-eg-poc1-colima -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+### 2026-09-20T23:47:51Z
+$ bash -c kubectl --context kind-eg-poc1-colima -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+### 2026-09-20T23:47:51Z
+$ bash -c kubectl --context kind-eg-poc1-colima -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+    mode: iptables
+    mode: iptables
+    mode: iptables
+
+
+
+
+== 4. containerd hosts.toml for localhost:5001 + local-registry-hosting ConfigMap  (23:47:51Z)
+
+== 4. containerd hosts.toml for localhost:5001 + local-registry-hosting ConfigMap  (23:47:51Z)
+### 2026-09-20T23:47:51Z
+$ bash -c registry_hosts
+### 2026-09-20T23:47:51Z
+$ bash -c registry_hosts
+### 2026-09-20T23:47:51Z
+$ bash -c registry_hosts
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-worker
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-worker
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-worker
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-control-plane
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-control-plane
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-control-plane
+
+
+
+### 2026-09-20T23:47:51Z
+$ bash -c kubectl --context kind-eg-poc1-colima apply -f -
+### 2026-09-20T23:47:51Z
+$ bash -c kubectl --context kind-eg-poc1-colima apply -f -
+### 2026-09-20T23:47:51Z
+$ bash -c kubectl --context kind-eg-poc1-colima apply -f -
+configmap/local-registry-hosting unchanged
+configmap/local-registry-hosting unchanged
+configmap/local-registry-hosting unchanged
+
+
+
+eg-colima-up: done. cluster eg-poc1-colima on kind-eg-colima; kubeconfig /Users/olasumbo/.kube/config-eg-poc1-colima
+eg-colima-up: done. cluster eg-poc1-colima on kind-eg-colima; kubeconfig /Users/olasumbo/.kube/config-eg-poc1-colima
+eg-colima-up: done. cluster eg-poc1-colima on kind-eg-colima; kubeconfig /Users/olasumbo/.kube/config-eg-poc1-colima
+
+
+== 2. attach leaves to kind-eg-colima at 172.19.254.11/.12 (--no-recreate)
+### 2026-09-20T23:47:51Z
+$ bash -c attach_leaves
+### 2026-09-20T23:47:51Z
+$ bash -c attach_leaves
+before: leaf1=f59f78becf176597674101d55d7584f7d86aad7ae18d606122f0f9ed93f8ddb4 leaf2=a318ec6ce490f70cadbc8878c843caa250da95a7ccd55234cd8fe729eef6a972
+before: leaf1=f59f78becf176597674101d55d7584f7d86aad7ae18d606122f0f9ed93f8ddb4 leaf2=a318ec6ce490f70cadbc8878c843caa250da95a7ccd55234cd8fe729eef6a972
+ Container bgp-fabric-colima-spine-1 Running 
+ Container bgp-fabric-colima-leaf1-1 Running 
+ Container bgp-fabric-colima-leaf2-1 Running 
+ Container bgp-fabric-colima-dashboard-1 Running 
+ Container bgp-fabric-colima-client0-1 Running 
+ Container bgp-fabric-colima-edge-1 Running 
+ Container bgp-fabric-colima-spine-1 Running 
+ Container bgp-fabric-colima-leaf1-1 Running 
+ Container bgp-fabric-colima-leaf2-1 Running 
+ Container bgp-fabric-colima-dashboard-1 Running 
+ Container bgp-fabric-colima-client0-1 Running 
+ Container bgp-fabric-colima-edge-1 Running 
+ Container bgp-fabric-colima-spine-1 Waiting 
+ Container bgp-fabric-colima-leaf1-1 Waiting 
+ Container bgp-fabric-colima-leaf2-1 Waiting 
+ Container bgp-fabric-colima-edge-1 Waiting 
+ Container bgp-fabric-colima-spine-1 Waiting 
+ Container bgp-fabric-colima-leaf1-1 Waiting 
+ Container bgp-fabric-colima-leaf2-1 Waiting 
+ Container bgp-fabric-colima-edge-1 Waiting 
+ Container bgp-fabric-colima-leaf1-1 Healthy 
+ Container bgp-fabric-colima-spine-1 Healthy 
+ Container bgp-fabric-colima-leaf1-1 Healthy 
+ Container bgp-fabric-colima-spine-1 Healthy 
+ Container bgp-fabric-colima-edge-1 Healthy 
+ Container bgp-fabric-colima-leaf2-1 Healthy 
+ Container bgp-fabric-colima-edge-1 Healthy 
+ Container bgp-fabric-colima-leaf2-1 Healthy 
+after:  leaf1=f59f78becf176597674101d55d7584f7d86aad7ae18d606122f0f9ed93f8ddb4 leaf2=a318ec6ce490f70cadbc8878c843caa250da95a7ccd55234cd8fe729eef6a972
+leaves not recreated (same container ids)
+after:  leaf1=f59f78becf176597674101d55d7584f7d86aad7ae18d606122f0f9ed93f8ddb4 leaf2=a318ec6ce490f70cadbc8878c843caa250da95a7ccd55234cd8fe729eef6a972
+leaves not recreated (same container ids)
+leaf1 kind-eg-colima=172.19.254.11 leaf2 kind-eg-colima=172.19.254.12
+leaf1 kind-eg-colima=172.19.254.11 leaf2 kind-eg-colima=172.19.254.12
+
+
+== 3. push images to localhost:5001 (no kind load)
+### 2026-09-20T23:47:52Z
+$ bash -c push_images
+### 2026-09-20T23:47:52Z
+$ bash -c push_images
+v1.2.4: Pulling from kube-vip/kube-vip
+v1.2.4: Pulling from kube-vip/kube-vip
+Digest: sha256:dde4c0669d9058c74c69c0bc2f0122e26900e1e4b913c03577cb6e4e28083079
+Status: Image is up to date for ghcr.io/kube-vip/kube-vip:v1.2.4
+Digest: sha256:dde4c0669d9058c74c69c0bc2f0122e26900e1e4b913c03577cb6e4e28083079
+Status: Image is up to date for ghcr.io/kube-vip/kube-vip:v1.2.4
+ghcr.io/kube-vip/kube-vip:v1.2.4
+ghcr.io/kube-vip/kube-vip:v1.2.4
+The push refers to repository [localhost:5001/kube-vip]
+The push refers to repository [localhost:5001/kube-vip]
+d5eb50a0c64d: Layer already exists
+d94610fc5f1c: Layer already exists
+v1.2.4: digest: sha256:56918a63be76bbe473d479b18bc548d397e84a742d4956d0248af35f691cdbc0 size: 673
+d5eb50a0c64d: Layer already exists
+d94610fc5f1c: Layer already exists
+v1.2.4: digest: sha256:56918a63be76bbe473d479b18bc548d397e84a742d4956d0248af35f691cdbc0 size: 673
+
+ Info -> Not all multiplatform-content is present and only the available single-platform image was pushed
+         sha256:dde4c0669d9058c74c69c0bc2f0122e26900e1e4b913c03577cb6e4e28083079 -> sha256:56918a63be76bbe473d479b18bc548d397e84a742d4956d0248af35f691cdbc0
+
+ Info -> Not all multiplatform-content is present and only the available single-platform image was pushed
+         sha256:dde4c0669d9058c74c69c0bc2f0122e26900e1e4b913c03577cb6e4e28083079 -> sha256:56918a63be76bbe473d479b18bc548d397e84a742d4956d0248af35f691cdbc0
+v0.0.12: v0.0.12: Pulling from kube-vip/kube-vip-cloud-provider
+Pulling from kube-vip/kube-vip-cloud-provider
+Digest: sha256:f8f4e3401f7637dd55faefb35571e731a477f65d5c3f062aef73dfd31a8da596
+Status: Image is up to date for ghcr.io/kube-vip/kube-vip-cloud-provider:v0.0.12
+Digest: sha256:f8f4e3401f7637dd55faefb35571e731a477f65d5c3f062aef73dfd31a8da596
+Status: Image is up to date for ghcr.io/kube-vip/kube-vip-cloud-provider:v0.0.12
+ghcr.io/kube-vip/kube-vip-cloud-provider:v0.0.12
+ghcr.io/kube-vip/kube-vip-cloud-provider:v0.0.12
+The push refers to repository [localhost:5001/kube-vip-cloud-provider]
+The push refers to repository [localhost:5001/kube-vip-cloud-provider]
+829b2cab8fc5: Layer already exists
+3214acf345c0: Layer already exists
+5664b15f108b: Layer already exists
+4eff9a62d888: Layer already exists
+a62778643d56: Layer already exists
+4aa0ea1413d3: Layer already exists
+9aee425378d2: Layer already exists
+da7816fa955e: Layer already exists
+25354e22811d: Layer already exists
+7c12895b777b: Layer already exists
+bfb59b82a9b6: Layer already exists
+0bab15eea81d: Layer already exists
+829b2cab8fc5: Layer already exists
+3214acf345c0: Layer already exists
+5664b15f108b: Layer already exists
+4eff9a62d888: Layer already exists
+a62778643d56: Layer already exists
+4aa0ea1413d3: Layer already exists
+9aee425378d2: Layer already exists
+da7816fa955e: Layer already exists
+25354e22811d: Layer already exists
+7c12895b777b: Layer already exists
+bfb59b82a9b6: Layer already exists
+0bab15eea81d: Layer already exists
+v0.0.12: digest: sha256:6686b1f5fc6480b16c15fd84596e620cfd433994f1522d9b4ba29fe00ba08ac0 size: 2559
+v0.0.12: digest: sha256:6686b1f5fc6480b16c15fd84596e620cfd433994f1522d9b4ba29fe00ba08ac0 size: 2559
+
+ Info -> Not all multiplatform-content is present and only the available single-platform image was pushed
+         sha256:f8f4e3401f7637dd55faefb35571e731a477f65d5c3f062aef73dfd31a8da596 -> sha256:6686b1f5fc6480b16c15fd84596e620cfd433994f1522d9b4ba29fe00ba08ac0
+
+ Info -> Not all multiplatform-content is present and only the available single-platform image was pushed
+         sha256:f8f4e3401f7637dd55faefb35571e731a477f65d5c3f062aef73dfd31a8da596 -> sha256:6686b1f5fc6480b16c15fd84596e620cfd433994f1522d9b4ba29fe00ba08ac0
+alpine: Pulling from library/nginx
+alpine: Pulling from library/nginx
+Digest: sha256:62ff2089abf5a9ed33bd232895bef5e22f7bb4b200675cec49a5ebc48e3d4ac8
+Status: Image is up to date for nginx:alpine
+Digest: sha256:62ff2089abf5a9ed33bd232895bef5e22f7bb4b200675cec49a5ebc48e3d4ac8
+Status: Image is up to date for nginx:alpine
+docker.io/library/nginx:alpine
+docker.io/library/nginx:alpine
+The push refers to repository [localhost:5001/door]
+The push refers to repository [localhost:5001/door]
+a9986cd6f37d: Layer already exists
+18eb23b7676d: Layer already exists
+e24c840b9291: Layer already exists
+3ef3eba6b71c: Layer already exists
+218624bde535: Layer already exists
+7b9f6954712c: Layer already exists
+701fee9236d6: Layer already exists
+4e9ebb12c87e: Layer already exists
+local: digest: sha256:03cceb152c777cf8f2ec2e7ccac7893ab9e2fb7262e7aa3caabc765bd33ad92c size: 2497
+a9986cd6f37d: Layer already exists
+18eb23b7676d: Layer already exists
+e24c840b9291: Layer already exists
+3ef3eba6b71c: Layer already exists
+218624bde535: Layer already exists
+7b9f6954712c: Layer already exists
+701fee9236d6: Layer already exists
+4e9ebb12c87e: Layer already exists
+local: digest: sha256:03cceb152c777cf8f2ec2e7ccac7893ab9e2fb7262e7aa3caabc765bd33ad92c size: 2497
+
+ Info -> Not all multiplatform-content is present and only the available single-platform image was pushed
+         sha256:62ff2089abf5a9ed33bd232895bef5e22f7bb4b200675cec49a5ebc48e3d4ac8 -> sha256:03cceb152c777cf8f2ec2e7ccac7893ab9e2fb7262e7aa3caabc765bd33ad92c
+
+ Info -> Not all multiplatform-content is present and only the available single-platform image was pushed
+         sha256:62ff2089abf5a9ed33bd232895bef5e22f7bb4b200675cec49a5ebc48e3d4ac8 -> sha256:03cceb152c777cf8f2ec2e7ccac7893ab9e2fb7262e7aa3caabc765bd33ad92c
+---- catalog (in-container; Mac :5001 may be Desktop's) ----
+---- catalog (in-container; Mac :5001 may be Desktop's) ----
+{"repositories":["door","kube-vip","kube-vip-cloud-provider"]}
+{"repositories":["door","kube-vip","kube-vip-cloud-provider"]}
+
+
+
+
+== 4. kube-vip RBAC + cloud-provider + ConfigMap + BGP DS (password set)
+### 2026-09-20T23:47:55Z
+$ kubectl --context kind-eg-poc1-colima apply -f clusters/eg/kube-vip-rbac.yaml -f clusters/eg/kube-vip-cloud-provider.yaml -f demos/54-eg-poc1-kube-vip-colima/10-kubevip-cm.yaml
+### 2026-09-20T23:47:55Z
+$ kubectl --context kind-eg-poc1-colima apply -f clusters/eg/kube-vip-rbac.yaml -f clusters/eg/kube-vip-cloud-provider.yaml -f demos/54-eg-poc1-kube-vip-colima/10-kubevip-cm.yaml
+serviceaccount/kube-vip unchanged
+serviceaccount/kube-vip unchanged
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-role unchanged
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-role unchanged
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-binding unchanged
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-binding unchanged
+serviceaccount/kube-vip-cloud-controller unchanged
+serviceaccount/kube-vip-cloud-controller unchanged
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-role unchanged
+clusterrole.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-role unchanged
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-binding unchanged
+clusterrolebinding.rbac.authorization.k8s.io/system:kube-vip-cloud-controller-binding unchanged
+Warning: spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[1].preference.matchExpressions[0].key: node-role.kubernetes.io/master is use "node-role.kubernetes.io/control-plane" instead
+Warning: spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[1].preference.matchExpressions[0].key: node-role.kubernetes.io/master is use "node-role.kubernetes.io/control-plane" instead
+deployment.apps/kube-vip-cloud-provider configured
+deployment.apps/kube-vip-cloud-provider configured
+configmap/kubevip unchanged
+configmap/kubevip unchanged
+
+
+### 2026-09-20T23:47:55Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system set image deploy/kube-vip-cloud-provider kube-vip-cloud-provider=localhost:5001/kube-vip-cloud-provider:v0.0.12
+### 2026-09-20T23:47:55Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system set image deploy/kube-vip-cloud-provider kube-vip-cloud-provider=localhost:5001/kube-vip-cloud-provider:v0.0.12
+Warning: spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[1].preference.matchExpressions[0].key: node-role.kubernetes.io/master is use "node-role.kubernetes.io/control-plane" instead
+Warning: spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[1].preference.matchExpressions[0].key: node-role.kubernetes.io/master is use "node-role.kubernetes.io/control-plane" instead
+deployment.apps/kube-vip-cloud-provider image updated
+deployment.apps/kube-vip-cloud-provider image updated
+
+
+### 2026-09-20T23:47:55Z
+$ bash -c render_ds
+### 2026-09-20T23:47:55Z
+$ bash -c render_ds
+rendered .tmp/kube-vip-ds-bgp-colima.yaml (password length 7)
+rendered .tmp/kube-vip-ds-bgp-colima.yaml (password length 7)
+
+
+### 2026-09-20T23:47:55Z
+$ kubectl --context kind-eg-poc1-colima apply -f .tmp/kube-vip-ds-bgp-colima.yaml
+### 2026-09-20T23:47:55Z
+$ kubectl --context kind-eg-poc1-colima apply -f .tmp/kube-vip-ds-bgp-colima.yaml
+daemonset.apps/kube-vip-ds unchanged
+daemonset.apps/kube-vip-ds unchanged
+
+
+### 2026-09-20T23:47:55Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system rollout status ds/kube-vip-ds --timeout=180s
+### 2026-09-20T23:47:55Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system rollout status ds/kube-vip-ds --timeout=180s
+daemon set "kube-vip-ds" successfully rolled out
+daemon set "kube-vip-ds" successfully rolled out
+
+
+### 2026-09-20T23:47:55Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system wait deploy/kube-vip-cloud-provider --for=condition=Available --timeout=180s
+### 2026-09-20T23:47:55Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system wait deploy/kube-vip-cloud-provider --for=condition=Available --timeout=180s
+deployment.apps/kube-vip-cloud-provider condition met
+deployment.apps/kube-vip-cloud-provider condition met
+
+
+== 5. wait for SERVERS sessions (password on); record MD5
+SERVERS Established on both leaves after 1s (2 per leaf)
+sessions Established WITH password on kube-vip
+rollout-to-wait: 0s md5_on_speaker=1
+rollout-to-wait: 0s md5_on_speaker=1
+### 2026-09-20T23:47:56Z
+$ bash -c session_record
+### 2026-09-20T23:47:56Z
+$ bash -c session_record
+---- node IPs ----
+---- node IPs ----
+eg-poc1-colima-worker
+eg-poc1-colima-control-plane
+eg-poc1-colima-worker
+eg-poc1-colima-control-plane
+eg-poc1-colima-worker eg-poc1-colima-worker 172.19.0.2
+172.19.0.2
+eg-poc1-colima-control-plane eg-poc1-colima-control-plane 172.19.0.3
+172.19.0.3
+---- leaf show bgp summary ----
+-- leaf1
+---- leaf show bgp summary ----
+-- leaf1
+
+IPv4 Unicast Summary:
+BGP router identifier 10.200.255.11, local AS number 65101 VRF default vrf-id 0
+BGP table version 25
+RIB entries 6, using 960 bytes of memory
+Peers 3, using 69 KiB of memory
+Peer groups 1, using 72 bytes of memory
+
+Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
+*172.19.0.2     4      65021        28        28       25    0    0 00:01:17            1        0 N/A
+*172.19.0.3     4      65021       137       137       25    0    0 00:06:44            1        0 N/A
+10.200.1.3      4      65100       804       803       25    0    0 00:37:37            4        6 spine
+
+Total number of neighbors 3
+* - dynamic neighbor
+2 dynamic neighbor(s), limit 16
+
+IPv4 Unicast Summary:
+BGP router identifier 10.200.255.11, local AS number 65101 VRF default vrf-id 0
+BGP table version 25
+RIB entries 6, using 960 bytes of memory
+Peers 3, using 69 KiB of memory
+Peer groups 1, using 72 bytes of memory
+
+Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
+*172.19.0.2     4      65021        28        28       25    0    0 00:01:17            1        0 N/A
+*172.19.0.3     4      65021       137       137       25    0    0 00:06:44            1        0 N/A
+10.200.1.3      4      65100       804       803       25    0    0 00:37:37            4        6 spine
+
+Total number of neighbors 3
+* - dynamic neighbor
+2 dynamic neighbor(s), limit 16
+-- leaf2
+-- leaf2
+
+IPv4 Unicast Summary:
+BGP router identifier 10.200.255.12, local AS number 65102 VRF default vrf-id 0
+BGP table version 17
+RIB entries 6, using 960 bytes of memory
+Peers 3, using 69 KiB of memory
+Peer groups 1, using 72 bytes of memory
+
+Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
+*172.19.0.2     4      65021       137       137       17    0    0 00:06:45            1        0 N/A
+*172.19.0.3     4      65021       137       137       17    0    0 00:06:45            1        0 N/A
+10.200.1.11     4      65100       800       799       17    0    0 00:38:15            5        6 spine
+
+Total number of neighbors 3
+* - dynamic neighbor
+2 dynamic neighbor(s), limit 16
+
+IPv4 Unicast Summary:
+BGP router identifier 10.200.255.12, local AS number 65102 VRF default vrf-id 0
+BGP table version 17
+RIB entries 6, using 960 bytes of memory
+Peers 3, using 69 KiB of memory
+Peer groups 1, using 72 bytes of memory
+
+Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
+*172.19.0.2     4      65021       137       137       17    0    0 00:06:45            1        0 N/A
+*172.19.0.3     4      65021       137       137       17    0    0 00:06:45            1        0 N/A
+10.200.1.11     4      65100       800       799       17    0    0 00:38:15            5        6 spine
+
+Total number of neighbors 3
+* - dynamic neighbor
+2 dynamic neighbor(s), limit 16
+---- kube-vip DS logs (BGP / MD5 / sockopt) ----
+---- kube-vip DS logs (BGP / MD5 / sockopt) ----
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.903708439Z 2026/09/20 23:41:09 INFO starting namespace=kube-system Mode=BGP "Control Plane"=false Services=true
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.905486692Z 2026/09/20 23:41:09 INFO starting Kube-vip Manager mode=BGP
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.905497776Z 2026/09/20 23:41:09 INFO Starting the BGP server to advertise VIP routes to BGP peers
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.920152635Z 2026/09/20 23:41:09 INFO Add a peer configuration Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921086345Z 2026/09/20 23:41:09 INFO [BGP] peer=172.19.254.11 AS=65101 BFD=<nil>
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921129095Z 2026/09/20 23:41:09 INFO Add a peer configuration Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921368763Z 2026/09/20 23:41:09 INFO [BGP] peer=172.19.254.12 AS=65102 BFD=<nil>
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921538221Z 2026/09/20 23:41:09 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921731388Z 2026/09/20 23:41:09 INFO [BGP] peer="&{Type:2 Peer:{Conf:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP NeighborInterface: PeerGroup:} State:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP SessionState:BGP_FSM_IDLE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:} Transport:{LocalAddress:invalid IP LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921733722Z 2026/09/20 23:41:09 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921736138Z 2026/09/20 23:41:09 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x27280291a160 0x27280270a050 0x27280291a180 0x272802a71d70 0x272802a71da0 0x272802720dc0] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921739597Z 2026/09/20 23:41:09 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x2728026900e0 0x272802492050 0x272802690120 0x2728034801b0 0x2728034801e0 0x27280265e240] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.704881628Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x272802690560 0x272802492140 0x272802690580 0x272803480450 0x272803480480 0x27280265e4c0] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.705277879Z 2026/09/20 23:41:11 INFO Peer Up Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.705443962Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.12 PeerGroup: RemoteCap:[0x27280265e540 0x272802690480 0x27280265e340 0x27280265e380 0x2728026902a0 0x272803480270 0x272802690420 0x272803480240 0x2728026901e0] LocalCap:[0x272802690680 0x272802492280 0x2728026906a0 0x2728034808a0 0x2728034808d0 0x27280265e700] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:56675 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.868062546Z 2026/09/20 23:41:11 INFO Peer Up Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.868087504Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x272802690940 0x2728024924b0 0x272802690960 0x272803480c90 0x272803480cc0 0x27280265eb00] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.868089421Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x27280265eb40 0x272802690860 0x27280265e880 0x27280265e8c0 0x272802690740 0x272802690800 0x272803480a80 0x2728026907a0 0x272803480ab0] LocalCap:[0x272802690a40 0x272802492780 0x272802690a60 0x272803480f60 0x272803480f90 0x27280265ed40] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:33351 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:24.539806592Z 2026/09/20 23:41:24 INFO added BGP host provider=endpointslices ip=10.98.0.10/32 "service name"=door namespace=door
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:45:45.833493460Z 2026/09/20 23:45:45 INFO received notification Topic=Peer Key=172.19.254.11 Code=6 Subcode=4 Communicated-Reason="" Data=""
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:45:45.833939297Z 2026/09/20 23:45:45 INFO Peer Down Topic=Peer Key=172.19.254.11 State=BGP_FSM_ESTABLISHED Reason="notification-received code 6(cease) subcode 4(administrative reset)"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:45:45.835466893Z 2026/09/20 23:45:45 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_IDLE AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[] LocalCap:[0x27280248c440 0x2728028a00f0 0x27280248c460 0x2728025abd40 0x2728025abd70 0x27280289e180] DisconnectReason:DISCONNECT_REASON_NOTIFICATION_RECEIVED DisconnectMessage:notification-received code 6(cease) subcode 4(administrative reset)} Transport:{LocalAddress:0.0.0.0 LocalPort:33351 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:45:50.835720504Z 2026/09/20 23:45:50 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:45:50.835869005Z 2026/09/20 23:45:50 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[] LocalCap:[0x2728026900e0 0x27280252a190 0x272802690120 0x272802f50210 0x272802f50240 0x272802942e00] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:33351 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:45:52.455313648Z 2026/09/20 23:45:52 INFO Peer Up Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:45:52.455347315Z 2026/09/20 23:45:52 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x272803480a80 0x2728026907a0 0x272803480ab0 0x27280265eb40 0x272802690860 0x27280265e880 0x27280265e8c0 0x272802690740 0x272802690800] LocalCap:[0x27280248c940 0x2728028a0550 0x27280248c960 0x272802a00780 0x272802a007b0 0x27280289ea00] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:33351 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:45:52.455349023Z 2026/09/20 23:45:52 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x272802a00570 0x27280248c7a0 0x27280248c800 0x27280289ea40 0x27280248c860 0x27280289e7c0 0x27280248c740 0x272802a005a0 0x27280289e780] LocalCap:[0x27280248cb60 0x2728028a0730 0x27280248cb80 0x272802a00ae0 0x272802a00b10 0x27280289ec40] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:43487 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:46:32.301600508Z 2026/09/20 23:46:32 INFO received notification Topic=Peer Key=172.19.254.11 Code=6 Subcode=4 Communicated-Reason="" Data=""
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:46:32.301620842Z 2026/09/20 23:46:32 INFO Peer Down Topic=Peer Key=172.19.254.11 State=BGP_FSM_ESTABLISHED Reason="notification-received code 6(cease) subcode 4(administrative reset)"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:46:32.301626800Z 2026/09/20 23:46:32 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_IDLE AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[] LocalCap:[0x27280248cc60 0x2728028a0a00 0x27280248cc80 0x272803450090 0x2728034500c0 0x27280289ee80] DisconnectReason:DISCONNECT_REASON_NOTIFICATION_RECEIVED DisconnectMessage:notification-received code 6(cease) subcode 4(administrative reset)} Transport:{LocalAddress:0.0.0.0 LocalPort:43487 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:46:37.302728009Z 2026/09/20 23:46:37 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:46:37.302768718Z 2026/09/20 23:46:37 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[] LocalCap:[0x272802690600 0x27280252a2d0 0x272802690620 0x272802f50db0 0x272802f50de0 0x272802943100] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:43487 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:46:39.019628404Z 2026/09/20 23:46:39 INFO Peer Up Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:46:39.019652821Z 2026/09/20 23:46:39 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x272802a00570 0x27280248c7a0 0x27280248c800 0x27280289ea40 0x27280248c860 0x27280289e7c0 0x27280248c740 0x272802a005a0 0x27280289e780] LocalCap:[0x27280248cf20 0x2728028a0b40 0x27280248d160 0x2728034506c0 0x2728034506f0 0x27280289f2c0] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:43487 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:46:39.019653946Z 2026/09/20 23:46:39 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x2728034504b0 0x27280248cd20 0x27280289f300 0x27280248ce40 0x27280289f080 0x27280289f0c0 0x27280248cd80 0x2728034504e0 0x27280248cde0] LocalCap:[0x27280248d300 0x2728028a0d20 0x27280248d320 0x272803450a20 0x272803450a50 0x27280289f540] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:49565 RemotePort:179}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.153608971Z 2026/09/20 23:41:10 INFO starting namespace=kube-system Mode=BGP "Control Plane"=false Services=true
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.153648471Z 2026/09/20 23:41:10 INFO starting Kube-vip Manager mode=BGP
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.153649179Z 2026/09/20 23:41:10 INFO Starting the BGP server to advertise VIP routes to BGP peers
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.167938580Z 2026/09/20 23:41:10 INFO [BGP] peer="&{Type:2 Peer:{Conf:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP NeighborInterface: PeerGroup:} State:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP SessionState:BGP_FSM_IDLE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:} Transport:{LocalAddress:invalid IP LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.167969538Z 2026/09/20 23:41:10 INFO Add a peer configuration Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.168100164Z 2026/09/20 23:41:10 INFO [BGP] peer=172.19.254.11 AS=65101 BFD=<nil>
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.168360622Z 2026/09/20 23:41:10 INFO Add a peer configuration Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.168596039Z 2026/09/20 23:41:10 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.168690415Z 2026/09/20 23:41:10 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x27da69f1e360 0x27da69ec6730 0x27da69f1e3c0 0x27da6a46e2d0 0x27da6a46e300 0x27da69b76400] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.168739123Z 2026/09/20 23:41:10 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x27da69b184c0 0x27da6a0ac3c0 0x27da69b184e0 0x27da6ab51980 0x27da6ab519b0 0x27da69f909c0] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.169043624Z 2026/09/20 23:41:10 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.11
+[pod/[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.903708439Z 2026/09/20 23:41:09 INFO starting namespace=kube-system Mode=BGP "Control Plane"=false Services=true
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.905486692Z 2026/09/20 23:41:09 INFO starting Kube-vip Manager mode=BGP
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.905497776Z 2026/09/20 23:41:09 INFO Starting the BGP server to advertise VIP routes to BGP peers
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.920152635Z 2026/09/20 23:41:09 INFO Add a peer configuration Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921086345Z 2026/09/20 23:41:09 INFO [BGP] peer=172.19.254.11 AS=65101 BFD=<nil>
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921129095Z 2026/09/20 23:41:09 INFO Add a peer configuration Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921368763Z 2026/09/20 23:41:09 INFO [BGP] peer=172.19.254.12 AS=65102 BFD=<nil>
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921538221Z 2026/09/20 23:41:09 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921731388Z 2026/09/20 23:41:09 INFO [BGP] peer="&{Type:2 Peer:{Conf:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP NeighborInterface: PeerGroup:} State:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP SessionState:BGP_FSM_IDLE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:} Transport:{LocalAddress:invalid IP LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921733722Z 2026/09/20 23:41:09 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921736138Z 2026/09/20 23:41:09 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x27280291a160 0x27280270a050 0x27280291a180 0x272802a71d70 0x272802a71da0 0x272802720dc0] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:09.921739597Z 2026/09/20 23:41:09 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x2728026900e0 0x272802492050 0x272802690120 0x2728034801b0 0x2728034801e0 0x27280265e240] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.704881628Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x272802690560 0x272802492140 0x272802690580 0x272803480450 0x272803480480 0x27280265e4c0] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.705277879Z 2026/09/20 23:41:11 INFO Peer Up Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.705443962Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.12 PeerGroup: RemoteCap:[0x27280265e540 0x272802690480 0x27280265e340 0x27280265e380 0x2728026902a0 0x272803480270 0x272802690420 0x272803480240 0x2728026901e0] LocalCap:[0x272802690680 0x272802492280 0x2728026906a0 0x2728034808a0 0x2728034808d0 0x27280265e700] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:56675 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.868062546Z 2026/09/20 23:41:11 INFO Peer Up Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.868087504Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x272802690940 0x2728024924b0 0x272802690960 0x272803480c90 0x272803480cc0 0x27280265eb00] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:11.868089421Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x27280265eb40 0x272802690860 0x27280265e880 0x27280265e8c0 0x272802690740 0x272802690800 0x272803480a80 0x2728026907a0 0x272803480ab0] LocalCap:[0x272802690a40 0x272802492780 0x272802690a60 0x272803480f60 0x272803480f90 0x27280265ed40] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:33351 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:41:24.539806592Z 2026/09/20 23:41:24 INFO added BGP host provider=endpointslices ip=10.98.0.10/32 "service name"=door namespace=door
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:45:45.833493460Z 2026/09/20 23:45:45 INFO received notification Topic=Peer Key=172.19.254.11 Code=6 Subcode=4 Communicated-Reason="" Data=""
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:45:45.833939297Z 2026/09/20 23:45:45 INFO Peer Down Topic=Peer Key=172.19.254.11 State=BGP_FSM_ESTABLISHED Reason="notification-received code 6(cease) subcode 4(administrative reset)"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:45:45.835466893Z 2026/09/20 23:45:45 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_IDLE AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[] LocalCap:[0x27280248c440 0x2728028a00f0 0x27280248c460 0x2728025abd40 0x2728025abd70 0x27280289e180] DisconnectReason:DISCONNECT_REASON_NOTIFICATION_RECEIVED DisconnectMessage:notification-received code 6(cease) subcode 4(administrative reset)} Transport:{LocalAddress:0.0.0.0 LocalPort:33351 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:45:50.835720504Z 2026/09/20 23:45:50 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:45:50.835869005Z 2026/09/20 23:45:50 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[] LocalCap:[0x2728026900e0 0x27280252a190 0x272802690120 0x272802f50210 0x272802f50240 0x272802942e00] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:33351 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:45:52.455313648Z 2026/09/20 23:45:52 INFO Peer Up Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:45:52.455347315Z 2026/09/20 23:45:52 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x272803480a80 0x2728026907a0 0x272803480ab0 0x27280265eb40 0x272802690860 0x27280265e880 0x27280265e8c0 0x272802690740 0x272802690800] LocalCap:[0x27280248c940 0x2728028a0550 0x27280248c960 0x272802a00780 0x272802a007b0 0x27280289ea00] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:33351 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:45:52.455349023Z 2026/09/20 23:45:52 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x272802a00570 0x27280248c7a0 0x27280248c800 0x27280289ea40 0x27280248c860 0x27280289e7c0 0x27280248c740 0x272802a005a0 0x27280289e780] LocalCap:[0x27280248cb60 0x2728028a0730 0x27280248cb80 0x272802a00ae0 0x272802a00b10 0x27280289ec40] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:43487 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:46:32.301600508Z 2026/09/20 23:46:32 INFO received notification Topic=Peer Key=172.19.254.11 Code=6 Subcode=4 Communicated-Reason="" Data=""
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:46:32.301620842Z 2026/09/20 23:46:32 INFO Peer Down Topic=Peer Key=172.19.254.11 State=BGP_FSM_ESTABLISHED Reason="notification-received code 6(cease) subcode 4(administrative reset)"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:46:32.301626800Z 2026/09/20 23:46:32 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_IDLE AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[] LocalCap:[0x27280248cc60 0x2728028a0a00 0x27280248cc80 0x272803450090 0x2728034500c0 0x27280289ee80] DisconnectReason:DISCONNECT_REASON_NOTIFICATION_RECEIVED DisconnectMessage:notification-received code 6(cease) subcode 4(administrative reset)} Transport:{LocalAddress:0.0.0.0 LocalPort:43487 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:46:37.302728009Z 2026/09/20 23:46:37 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:46:37.302768718Z 2026/09/20 23:46:37 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[] LocalCap:[0x272802690600 0x27280252a2d0 0x272802690620 0x272802f50db0 0x272802f50de0 0x272802943100] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:43487 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:46:39.019628404Z 2026/09/20 23:46:39 INFO Peer Up Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:46:39.019652821Z 2026/09/20 23:46:39 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x272802a00570 0x27280248c7a0 0x27280248c800 0x27280289ea40 0x27280248c860 0x27280289e7c0 0x27280248c740 0x272802a005a0 0x27280289e780] LocalCap:[0x27280248cf20 0x2728028a0b40 0x27280248d160 0x2728034506c0 0x2728034506f0 0x27280289f2c0] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:43487 RemotePort:179}}}"
+[pod/kube-vip-ds-fr9x2/kube-vip] 2026-09-20T23:46:39.019653946Z 2026/09/20 23:46:39 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x2728034504b0 0x27280248cd20 0x27280289f300 0x27280248ce40 0x27280289f080 0x27280289f0c0 0x27280248cd80 0x2728034504e0 0x27280248cde0] LocalCap:[0x27280248d300 0x2728028a0d20 0x27280248d320 0x272803450a20 0x272803450a50 0x27280289f540] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:49565 RemotePort:179}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.153608971Z 2026/09/20 23:41:10 INFO starting namespace=kube-system Mode=BGP "Control Plane"=false Services=true
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.153648471Z 2026/09/20 23:41:10 INFO starting Kube-vip Manager mode=BGP
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.153649179Z 2026/09/20 23:41:10 INFO Starting the BGP server to advertise VIP routes to BGP peers
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.167938580Z 2026/09/20 23:41:10 INFO [BGP] peer="&{Type:2 Peer:{Conf:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP NeighborInterface: PeerGroup:} State:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP SessionState:BGP_FSM_IDLE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:} Transport:{LocalAddress:invalid IP LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.167969538Z 2026/09/20 23:41:10 INFO Add a peer configuration Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.168100164Z 2026/09/20 23:41:10 INFO [BGP] peer=172.19.254.11 AS=65101 BFD=<nil>
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.168360622Z 2026/09/20 23:41:10 INFO Add a peer configuration Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.168596039Z 2026/09/20 23:41:10 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.168690415Z 2026/09/20 23:41:10 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x27da69f1e360 0x27da69ec6730 0x27da69f1e3c0 0x27da6a46e2d0 0x27da6a46e300 0x27da69b76400] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.168739123Z 2026/09/20 23:41:10 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x27da69b184c0 0x27da6a0ac3c0 0x27da69b184e0 0x27da6ab51980 0x27da6ab519b0 0x27da69f909c0] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.169043624Z 2026/09/20 23:41:10 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.169122999Z 2026/09/20 23:41:10 INFO [BGP] peer=172.19.254.12 AS=65102 BFD=<nil>
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.900201978Z 2026/09/20 23:41:11 INFO Peer Up Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.900283978Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x27da69f1f160 0x27da69ec6fa0 0x27da69f1f1a0 0x27da6a46f200 0x27da6a46f230 0x27da69dd1100] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.900296520Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.12 PeerGroup: RemoteCap:[0x27da69f1f040 0x27da69dd0f40 0x27da69dd0fc0 0x27da69f1ebe0 0x27da6a46e5a0 0x27da69f1eec0 0x27da6a46e540 0x27da69f1ec80 0x27da69dd1140] LocalCap:[0x27da69f1f2c0 0x27da69ec7360 0x27da69f1f2e0 0x27da6a46f500 0x27da6a46f530 0x27da69dd1340] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:41771 RemotePort:179}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.970003062Z 2026/09/20 23:41:11 INFO Peer Up Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.970031645Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x27da69f1f6e0 0x27da69ec74f0 0x27da69f1f700 0x27da6a46fa40 0x27da6a46fa70 0x27da69dd16c0] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.970035437Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x27da6a46f830 0x27da6a46f860 0x27da69f1f520 0x27da69dd1500 0x27da69f1f380 0x27da69f1f440 0x27da69f1f4c0 0x27da69dd1740 0x27da69dd1540] LocalCap:[0x27da69f1f820 0x27da69ec7630 0x27da69f1f840 0x27da6a46fd10 0x27da6a46fd40 0x27da69dd1a80] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:55659 RemotePort:179}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:24.538209381Z 2026/09/20 23:41:24 INFO added BGP host provider=endpointslices ip=10.98.0.10/32 "service name"=door namespace=door
+kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:10.169122999Z 2026/09/20 23:41:10 INFO [BGP] peer=172.19.254.12 AS=65102 BFD=<nil>
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.900201978Z 2026/09/20 23:41:11 INFO Peer Up Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.900283978Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x27da69f1f160 0x27da69ec6fa0 0x27da69f1f1a0 0x27da6a46f200 0x27da6a46f230 0x27da69dd1100] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.900296520Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.12 PeerGroup: RemoteCap:[0x27da69f1f040 0x27da69dd0f40 0x27da69dd0fc0 0x27da69f1ebe0 0x27da6a46e5a0 0x27da69f1eec0 0x27da6a46e540 0x27da69f1ec80 0x27da69dd1140] LocalCap:[0x27da69f1f2c0 0x27da69ec7360 0x27da69f1f2e0 0x27da6a46f500 0x27da6a46f530 0x27da69dd1340] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:41771 RemotePort:179}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.970003062Z 2026/09/20 23:41:11 INFO Peer Up Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.970031645Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x27da69f1f6e0 0x27da69ec74f0 0x27da69f1f700 0x27da6a46fa40 0x27da6a46fa70 0x27da69dd16c0] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:11.970035437Z 2026/09/20 23:41:11 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x27da6a46f830 0x27da6a46f860 0x27da69f1f520 0x27da69dd1500 0x27da69f1f380 0x27da69f1f440 0x27da69f1f4c0 0x27da69dd1740 0x27da69dd1540] LocalCap:[0x27da69f1f820 0x27da69ec7630 0x27da69f1f840 0x27da6a46fd10 0x27da6a46fd40 0x27da69dd1a80] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:55659 RemotePort:179}}}"
+[pod/kube-vip-ds-9xz77/kube-vip] 2026-09-20T23:41:24.538209381Z 2026/09/20 23:41:24 INFO added BGP host provider=endpointslices ip=10.98.0.10/32 "service name"=door namespace=door
+
+
+== 6. door (LoadBalancer on kube-vip class; no Envoy Gateway)
+### 2026-09-20T23:47:56Z
+$ kubectl --context kind-eg-poc1-colima apply -f demos/54-eg-poc1-kube-vip-colima/00-namespace.yaml -f demos/54-eg-poc1-kube-vip-colima/20-door.yaml
+### 2026-09-20T23:47:56Z
+$ kubectl --context kind-eg-poc1-colima apply -f demos/54-eg-poc1-kube-vip-colima/00-namespace.yaml -f demos/54-eg-poc1-kube-vip-colima/20-door.yaml
+namespace/door unchanged
+namespace/door unchanged
+deployment.apps/door unchanged
+deployment.apps/door unchanged
+service/door unchanged
+service/door unchanged
+
+
+### 2026-09-20T23:47:56Z
+$ kubectl --context kind-eg-poc1-colima -n door rollout status deploy/door --timeout=180s
+### 2026-09-20T23:47:56Z
+$ kubectl --context kind-eg-poc1-colima -n door rollout status deploy/door --timeout=180s
+deployment "door" successfully rolled out
+deployment "door" successfully rolled out
+
+
+### 2026-09-20T23:47:56Z
+$ bash -c wait_door
+### 2026-09-20T23:47:56Z
+$ bash -c wait_door
+door Service ingress=10.98.0.10 after 1s
+door Service ingress=10.98.0.10 after 1s
+
+
+== 7. wait for 10.98.0.10/32 in each leaf with a node next hop
+### 2026-09-20T23:47:56Z
+$ bash -c wait_paths
+### 2026-09-20T23:47:56Z
+$ bash -c wait_paths
+both leaves have a node path for 10.98.0.10/32 after 1s
+both leaves have a node path for 10.98.0.10/32 after 1s
+
+
+### 2026-09-20T23:47:56Z
+$ bash -c rib_record
+### 2026-09-20T23:47:56Z
+$ bash -c rib_record
+---- leaf1 show ip bgp 10.98.0.10/32 ----
+---- leaf1 show ip bgp 10.98.0.10/32 ----
+BGP routing table entry for 10.98.0.10/32, version 25
+Paths: (2 available, best #1, table default)
+  Advertised to peers:
+  10.200.1.3
+  65021
+    172.19.0.3 from 172.19.0.3 (172.19.0.3)
+      Origin IGP, valid, external, multipath, best (Older Path)
+      Last update: Sun Sep 20 23:41:24 2026
+  65021
+    172.19.0.2 from 172.19.0.2 (172.19.0.2)
+      Origin IGP, valid, external, multipath
+      Last update: Sun Sep 20 23:46:39 2026
+BGP routing table entry for 10.98.0.10/32, version 25
+Paths: (2 available, best #1, table default)
+  Advertised to peers:
+  10.200.1.3
+  65021
+    172.19.0.3 from 172.19.0.3 (172.19.0.3)
+      Origin IGP, valid, external, multipath, best (Older Path)
+      Last update: Sun Sep 20 23:41:24 2026
+  65021
+    172.19.0.2 from 172.19.0.2 (172.19.0.2)
+      Origin IGP, valid, external, multipath
+      Last update: Sun Sep 20 23:46:39 2026
+---- leaf2 show ip bgp 10.98.0.10/32 ----
+---- leaf2 show ip bgp 10.98.0.10/32 ----
+BGP routing table entry for 10.98.0.10/32, version 17
+Paths: (3 available, best #1, table default)
+  Advertised to peers:
+  10.200.1.11
+  65021
+    172.19.0.2 from 172.19.0.2 (172.19.0.2)
+      Origin IGP, valid, external, multipath, best (AS Path)
+      Last update: Sun Sep 20 23:41:24 2026
+  65021
+    172.19.0.3 from 172.19.0.3 (172.19.0.3)
+      Origin IGP, valid, external, multipath
+      Last update: Sun Sep 20 23:41:24 2026
+  65100 65101 65021
+    10.200.1.11 from 10.200.1.11 (10.200.255.2)
+      Origin IGP, valid, external
+      Last update: Sun Sep 20 23:41:24 2026
+BGP routing table entry for 10.98.0.10/32, version 17
+Paths: (3 available, best #1, table default)
+  Advertised to peers:
+  10.200.1.11
+  65021
+    172.19.0.2 from 172.19.0.2 (172.19.0.2)
+      Origin IGP, valid, external, multipath, best (AS Path)
+      Last update: Sun Sep 20 23:41:24 2026
+  65021
+    172.19.0.3 from 172.19.0.3 (172.19.0.3)
+      Origin IGP, valid, external, multipath
+      Last update: Sun Sep 20 23:41:24 2026
+  65100 65101 65021
+    10.200.1.11 from 10.200.1.11 (10.200.255.2)
+      Origin IGP, valid, external
+      Last update: Sun Sep 20 23:41:24 2026
+
+
+== 7b. node return route 10.200.0.0/16 via leaf1 (Docker isolation)
+### 2026-09-20T23:47:57Z
+$ bash -c node_fabric_route
+### 2026-09-20T23:47:57Z
+$ bash -c node_fabric_route
+eg-poc1-colima-worker eg-poc1-colima-worker 10.200.0.0/16 via 172.19.254.11 dev eth0 
+10.200.0.0/16 via 172.19.254.11 dev eth0 
+eg-poc1-colima-control-plane eg-poc1-colima-control-plane 10.200.0.0/16 via 172.19.254.11 dev eth0 
+10.200.0.0/16 via 172.19.254.11 dev eth0 
+
+
+== 8. client0 reaches the door
+### 2026-09-20T23:47:57Z
+$ bash -c client0_door
+### 2026-09-20T23:47:57Z
+$ bash -c client0_door
+---- client0 ip route get 10.98.0.10 ----
+---- client0 ip route get 10.98.0.10 ----
+10.98.0.10 via 10.200.100.2 dev eth0 src 10.200.100.10 uid 0 
+    cache 
+10.98.0.10 via 10.200.100.2 dev eth0 src 10.200.100.10 uid 0 
+    cache 
+---- client0 curl 10.98.0.10 ----
+---- client0 curl 10.98.0.10 ----
+client0 http://10.98.0.10/ → 200 curl_rc=0
+client0 http://10.98.0.10/ → 200 curl_rc=0
+
+
+== 9. VM route + Mac sudo line (never sudo from a script)
+### 2026-09-20T23:47:57Z
+$ bash -c mac_path
+### 2026-09-20T23:47:57Z
+$ bash -c mac_path
+VM:  docker --context colima-bgp-fabric run --rm --privileged --pid=host --net=host alpine:3.20 nsenter -t 1 -m -n -- ip route replace 10.98.0.0/24 via 172.19.254.11
+Mac: sudo route -n add -net 10.98.0.0/24 192.168.64.3
+VM:  docker --context colima-bgp-fabric run --rm --privileged --pid=host --net=host alpine:3.20 nsenter -t 1 -m -n -- ip route replace 10.98.0.0/24 via 172.19.254.11
+Mac: sudo route -n add -net 10.98.0.0/24 192.168.64.3
+VM route installed
+VM route installed
+Mac route absent — the operator runs:
+  sudo route -n add -net 10.98.0.0/24 192.168.64.3
+Mac route absent — the operator runs:
+  sudo route -n add -net 10.98.0.0/24 192.168.64.3
+
+
+== 10. dashboard /api/state
+### 2026-09-20T23:47:58Z
+$ curl -sS --max-time 5 http://127.0.0.1:8098/api/state
+### 2026-09-20T23:47:58Z
+$ curl -sS --max-time 5 http://127.0.0.1:8098/api/state
+{"ts":"2026-09-20T23:47:57.400Z","poll":"2s","routers":[{"name":"edge","url":"http://10.200.200.1:8080","asn":65000,"routerId":"10.200.255.1","reachable":true},{"name":"spine","url":"http://10.200.200.2:8080","asn":65100,"routerId":"10.200.255.2","reachable":true},{"name":"leaf1","url":"http://10.200.200.11:8080","asn":65101,"routerId":"10.200.255.11","reachable":true},{"name":"leaf2","url":"http://10.200.200.12:8080","asn":65102,"routerId":"10.200.255.12","reachable":true}],"nodes":[{"id":"edge","kind":"router","label":"edge\nAS 65000","asn":65000},{"id":"leaf1","kind":"router","label":"leaf1\nAS 65101","asn":65101},{"id":"leaf2","kind":"router","label":"leaf2\nAS 65102","asn":65102},{"id":"spine","kind":"router","label":"spine\nAS 65100","asn":65100},{"id":"172.19.0.2","kind":"external","label":"eg-poc1 (kube-vip)\n172.19.0.2","asn":65021,"addr":"172.19.0.2"},{"id":"172.19.0.3","kind":"external","label":"eg-poc1 (kube-vip)\n172.19.0.3","asn":65021,"addr":"172.19.0.3"}],"edges":[{"id":"172.19.0.2|leaf1","source":"172.19.0.2","target":"leaf1","state":"established","aRouter":"leaf1","aPeer":"172.19.0.2","aUptime":"00:01:18","aPfxRcd":1,"bPfxRcd":0,"aPfxSnt":0,"bPfxSnt":0,"aState":"Established"},{"id":"172.19.0.2|leaf2","source":"172.19.0.2","target":"leaf2","state":"established","aRouter":"leaf2","aPeer":"172.19.0.2","aUptime":"00:06:46","aPfxRcd":1,"bPfxRcd":0,"aPfxSnt":0,"bPfxSnt":0,"aState":"Established"},{"id":"172.19.0.3|leaf1","source":"172.19.0.3","target":"leaf1","state":"established","aRouter":"leaf1","aPeer":"172.19.0.3","aUptime":"00:06:45","aPfxRcd":1,"bPfxRcd":0,"aPfxSnt":0,"bPfxSnt":0,"aState":"Established"},{"id":"172.19.0.3|leaf2","source":"172.19.0.3","target":"leaf2","state":"established","aRouter":"leaf2","aPeer":"172.19.0.3","aUptime":"00:06:46","aPfxRcd":1,"bPfxRcd":0,"aPfxSnt":0,"bPfxSnt":0,"aState":"Established"},{"id":"edge|spine","source":"edge","target":"spine","state":"established","aRouter":"edge","bRouter":"spine","aPeer":"10.200.1.18","bPeer":"10.200.1.19","aUptime":"00:38:16","bUptime":"00:38:16","aPfxRcd":4,"bPfxRcd":2,"aPfxSnt":5,"bPfxSnt":6,"aState":"Established","bState":"Established"},{"id":"leaf1|spine","source":"leaf1","target":"spine","state":"established","aRouter":"spine","bRouter":"leaf1","aPeer":"10.200.1.2","bPeer":"10.200.1.3","aUptime":"00:37:38","bUptime":"00:37:38","aPfxRcd":2,"bPfxRcd":4,"aPfxSnt":6,"bPfxSnt":6,"aState":"Established","bState":"Established"},{"id":"leaf2|spine","source":"leaf2","target":"spine","state":"established","aRouter":"spine","bRouter":"leaf2","aPeer":"10.200.1.10","bPeer":"10.200.1.11","aUptime":"00:38:16","bUptime":"00:38:16","aPfxRcd":2,"bPfxRcd":5,"aPfxSnt":6,"bPfxSnt":6,"aState":"Established","bState":"Established"}],"sessions":[{"router":"edge","peer":"10.200.1.18","peerAsn":65100,"state":"Established","uptime":"00:38:16","pfxRcd":4,"pfxSnt":5,"hostname":"spine"},{"router":"spine","peer":"10.200.1.2","peerAsn":65101,"state":"Established","uptime":"00:37:38","pfxRcd":2,"pfxSnt":6,"hostname":"leaf1"},{"router":"spine","peer":"10.200.1.10","peerAsn":65102,"state":"Established","uptime":"00:38:16","pfxRcd":2,"pfxSnt":6,"hostname":"leaf2"},{"router":"spine","peer":"10.200.1.19","peerAsn":65000,"state":"Established","uptime":"00:38:16","pfxRcd":2,"pfxSnt":6,"hostname":"edge"},{"router":"leaf1","peer":"172.19.0.3","peerAsn":65021,"state":"Established","uptime":"00:06:45","pfxRcd":1,"pfxSnt":0,"hostname":"eg-poc1-colima-control-plane"},{"router":"leaf1","peer":"10.200.1.3","peerAsn":65100,"state":"Established","uptime":"00:37:38","pfxRcd":4,"pfxSnt":6,"hostname":"spine"},{"router":"leaf1","peer":"172.19.0.2","peerAsn":65021,"state":"Established","uptime":"00:01:18","pfxRcd":1,"pfxSnt":0,"hostname":"eg-poc1-colima-worker"},{"router":"leaf2","peer":"172.19.0.2","peerAsn":65021,"state":"Established","uptime":"00:06:46","pfxRcd":1,"pfxSnt":0,"hostname":"eg-poc1-colima-worker"},{"router":"leaf2","peer":"172.19.0.3","peerAsn":65021,"state":"Established","uptime":"00:06:46","pfxRcd":1,"pfxSnt":0,"hostname":"eg-poc1-colima-control-plane"},{"router":"leaf2","peer":"10.200.1.11","peerAsn":65100,"state":"Established","uptime":"00:38:16","pfxRcd":5,"pfxSnt":6,"hostname":"spine"}],"routes":[{"router":"edge","prefix":"10.98.0.10/32","valid":true,"bestpath":true,"nexthop":"10.200.1.18","path":"65100 65101 65021","origin":"IGP","weight":0,"peerId":"10.200.1.18"},{"router":"edge","prefix":"10.200.100.0/24","valid":true,"bestpath":true,"nexthop":"0.0.0.0","path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"},{"router":"edge","prefix":"10.200.255.1/32","valid":true,"bestpath":true,"nexthop":"0.0.0.0","path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"},{"router":"edge","prefix":"10.200.255.2/32","valid":true,"bestpath":true,"nexthop":"10.200.1.18","path":"65100","origin":"IGP","weight":0,"peerId":"10.200.1.18"},{"router":"edge","prefix":"10.200.255.11/32","valid":true,"bestpath":true,"nexthop":"10.200.1.18","path":"65100 65101","origin":"IGP","weight":0,"peerId":"10.200.1.18"},{"router":"edge","prefix":"10.200.255.12/32","valid":true,"bestpath":true,"nexthop":"10.200.1.18","path":"65100 65102","origin":"IGP","weight":0,"peerId":"10.200.1.18"},{"router":"spine","prefix":"10.200.255.11/32","valid":true,"bestpath":true,"nexthop":"10.200.1.2","path":"65101","origin":"IGP","weight":0,"peerId":"10.200.1.2"},{"router":"spine","prefix":"10.200.255.12/32","valid":true,"bestpath":true,"nexthop":"10.200.1.10","path":"65102","origin":"IGP","weight":0,"peerId":"10.200.1.10"},{"router":"spine","prefix":"10.98.0.10/32","valid":true,"bestpath":true,"nexthop":"10.200.1.2","path":"65101 65021","origin":"IGP","weight":0,"peerId":"10.200.1.2"},{"router":"spine","prefix":"10.98.0.10/32","valid":true,"bestpath":false,"nexthop":"10.200.1.10","path":"65102 65021","origin":"IGP","weight":0,"peerId":"10.200.1.10"},{"router":"spine","prefix":"10.200.100.0/24","valid":true,"bestpath":true,"nexthop":"10.200.1.19","path":"65000","origin":"IGP","weight":0,"peerId":"10.200.1.19"},{"router":"spine","prefix":"10.200.255.1/32","valid":true,"bestpath":true,"nexthop":"10.200.1.19","path":"65000","origin":"IGP","weight":0,"peerId":"10.200.1.19"},{"router":"spine","prefix":"10.200.255.2/32","valid":true,"bestpath":true,"nexthop":"0.0.0.0","path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"},{"router":"leaf1","prefix":"10.200.255.2/32","valid":true,"bestpath":true,"nexthop":"10.200.1.3","path":"65100","origin":"IGP","weight":0,"peerId":"10.200.1.3"},{"router":"leaf1","prefix":"10.200.255.11/32","valid":true,"bestpath":true,"nexthop":"0.0.0.0","path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"},{"router":"leaf1","prefix":"10.200.255.12/32","valid":true,"bestpath":true,"nexthop":"10.200.1.3","path":"65100 65102","origin":"IGP","weight":0,"peerId":"10.200.1.3"},{"router":"leaf1","prefix":"10.98.0.10/32","valid":true,"bestpath":true,"nexthop":"172.19.0.3","path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.3"},{"router":"leaf1","prefix":"10.98.0.10/32","valid":true,"bestpath":false,"nexthop":"172.19.0.2","path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.2"},{"router":"leaf1","prefix":"10.200.100.0/24","valid":true,"bestpath":true,"nexthop":"10.200.1.3","path":"65100 65000","origin":"IGP","weight":0,"peerId":"10.200.1.3"},{"router":"leaf1","prefix":"10.200.255.1/32","valid":true,"bestpath":true,"nexthop":"10.200.1.3","path":"65100 65000","origin":"IGP","weight":0,"peerId":"10.200.1.3"},{"router":"leaf2","prefix":"10.200.255.1/32","valid":true,"bestpath":true,"nexthop":"10.200.1.11","path":"65100 65000","origin":"IGP","weight":0,"peerId":"10.200.1.11"},{"router":"leaf2","prefix":"10.200.255.2/32","valid":true,"bestpath":true,"nexthop":"10.200.1.11","path":"65100","origin":"IGP","weight":0,"peerId":"10.200.1.11"},{"router":"leaf2","prefix":"10.200.255.11/32","valid":true,"bestpath":true,"nexthop":"10.200.1.11","path":"65100 65101","origin":"IGP","weight":0,"peerId":"10.200.1.11"},{"router":"leaf2","prefix":"10.200.255.12/32","valid":true,"bestpath":true,"nexthop":"0.0.0.0","path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"},{"router":"leaf2","prefix":"10.98.0.10/32","valid":true,"bestpath":true,"nexthop":"172.19.0.2","path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.2"},{"router":"leaf2","prefix":"10.98.0.10/32","valid":true,"bestpath":false,"nexthop":"172.19.0.3","path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.3"},{"router":"leaf2","prefix":"10.98.0.10/32","valid":true,"bestpath":false,"nexthop":"10.200.1.11","path":"65100 65101 65021","origin":"IGP","weight":0,"peerId":"10.200.1.11"},{"router":"leaf2","prefix":"10.200.100.0/24","valid":true,"bestpath":true,"nexthop":"10.200.1.11","path":"65100 65000","origin":"IGP","weight":0,"peerId":"10.200.1.11"}],"reachable":4,"routerCount":4,"established":6,"sessionCount":6,"external":2,"serverSessions":4,"serverEstablished":4}
+{"ts":"2026-09-20T23:47:57.400Z","poll":"2s","routers":[{"name":"edge","url":"http://10.200.200.1:8080","asn":65000,"routerId":"10.200.255.1","reachable":true},{"name":"spine","url":"http://10.200.200.2:8080","asn":65100,"routerId":"10.200.255.2","reachable":true},{"name":"leaf1","url":"http://10.200.200.11:8080","asn":65101,"routerId":"10.200.255.11","reachable":true},{"name":"leaf2","url":"http://10.200.200.12:8080","asn":65102,"routerId":"10.200.255.12","reachable":true}],"nodes":[{"id":"edge","kind":"router","label":"edge\nAS 65000","asn":65000},{"id":"leaf1","kind":"router","label":"leaf1\nAS 65101","asn":65101},{"id":"leaf2","kind":"router","label":"leaf2\nAS 65102","asn":65102},{"id":"spine","kind":"router","label":"spine\nAS 65100","asn":65100},{"id":"172.19.0.2","kind":"external","label":"eg-poc1 (kube-vip)\n172.19.0.2","asn":65021,"addr":"172.19.0.2"},{"id":"172.19.0.3","kind":"external","label":"eg-poc1 (kube-vip)\n172.19.0.3","asn":65021,"addr":"172.19.0.3"}],"edges":[{"id":"172.19.0.2|leaf1","source":"172.19.0.2","target":"leaf1","state":"established","aRouter":"leaf1","aPeer":"172.19.0.2","aUptime":"00:01:18","aPfxRcd":1,"bPfxRcd":0,"aPfxSnt":0,"bPfxSnt":0,"aState":"Established"},{"id":"172.19.0.2|leaf2","source":"172.19.0.2","target":"leaf2","state":"established","aRouter":"leaf2","aPeer":"172.19.0.2","aUptime":"00:06:46","aPfxRcd":1,"bPfxRcd":0,"aPfxSnt":0,"bPfxSnt":0,"aState":"Established"},{"id":"172.19.0.3|leaf1","source":"172.19.0.3","target":"leaf1","state":"established","aRouter":"leaf1","aPeer":"172.19.0.3","aUptime":"00:06:45","aPfxRcd":1,"bPfxRcd":0,"aPfxSnt":0,"bPfxSnt":0,"aState":"Established"},{"id":"172.19.0.3|leaf2","source":"172.19.0.3","target":"leaf2","state":"established","aRouter":"leaf2","aPeer":"172.19.0.3","aUptime":"00:06:46","aPfxRcd":1,"bPfxRcd":0,"aPfxSnt":0,"bPfxSnt":0,"aState":"Established"},{"id":"edge|spine","source":"edge","target":"spine","state":"established","aRouter":"edge","bRouter":"spine","aPeer":"10.200.1.18","bPeer":"10.200.1.19","aUptime":"00:38:16","bUptime":"00:38:16","aPfxRcd":4,"bPfxRcd":2,"aPfxSnt":5,"bPfxSnt":6,"aState":"Established","bState":"Established"},{"id":"leaf1|spine","source":"leaf1","target":"spine","state":"established","aRouter":"spine","bRouter":"leaf1","aPeer":"10.200.1.2","bPeer":"10.200.1.3","aUptime":"00:37:38","bUptime":"00:37:38","aPfxRcd":2,"bPfxRcd":4,"aPfxSnt":6,"bPfxSnt":6,"aState":"Established","bState":"Established"},{"id":"leaf2|spine","source":"leaf2","target":"spine","state":"established","aRouter":"spine","bRouter":"leaf2","aPeer":"10.200.1.10","bPeer":"10.200.1.11","aUptime":"00:38:16","bUptime":"00:38:16","aPfxRcd":2,"bPfxRcd":5,"aPfxSnt":6,"bPfxSnt":6,"aState":"Established","bState":"Established"}],"sessions":[{"router":"edge","peer":"10.200.1.18","peerAsn":65100,"state":"Established","uptime":"00:38:16","pfxRcd":4,"pfxSnt":5,"hostname":"spine"},{"router":"spine","peer":"10.200.1.2","peerAsn":65101,"state":"Established","uptime":"00:37:38","pfxRcd":2,"pfxSnt":6,"hostname":"leaf1"},{"router":"spine","peer":"10.200.1.10","peerAsn":65102,"state":"Established","uptime":"00:38:16","pfxRcd":2,"pfxSnt":6,"hostname":"leaf2"},{"router":"spine","peer":"10.200.1.19","peerAsn":65000,"state":"Established","uptime":"00:38:16","pfxRcd":2,"pfxSnt":6,"hostname":"edge"},{"router":"leaf1","peer":"172.19.0.3","peerAsn":65021,"state":"Established","uptime":"00:06:45","pfxRcd":1,"pfxSnt":0,"hostname":"eg-poc1-colima-control-plane"},{"router":"leaf1","peer":"10.200.1.3","peerAsn":65100,"state":"Established","uptime":"00:37:38","pfxRcd":4,"pfxSnt":6,"hostname":"spine"},{"router":"leaf1","peer":"172.19.0.2","peerAsn":65021,"state":"Established","uptime":"00:01:18","pfxRcd":1,"pfxSnt":0,"hostname":"eg-poc1-colima-worker"},{"router":"leaf2","peer":"172.19.0.2","peerAsn":65021,"state":"Established","uptime":"00:06:46","pfxRcd":1,"pfxSnt":0,"hostname":"eg-poc1-colima-worker"},{"router":"leaf2","peer":"172.19.0.3","peerAsn":65021,"state":"Established","uptime":"00:06:46","pfxRcd":1,"pfxSnt":0,"hostname":"eg-poc1-colima-control-plane"},{"router":"leaf2","peer":"10.200.1.11","peerAsn":65100,"state":"Established","uptime":"00:38:16","pfxRcd":5,"pfxSnt":6,"hostname":"spine"}],"routes":[{"router":"edge","prefix":"10.98.0.10/32","valid":true,"bestpath":true,"nexthop":"10.200.1.18","path":"65100 65101 65021","origin":"IGP","weight":0,"peerId":"10.200.1.18"},{"router":"edge","prefix":"10.200.100.0/24","valid":true,"bestpath":true,"nexthop":"0.0.0.0","path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"},{"router":"edge","prefix":"10.200.255.1/32","valid":true,"bestpath":true,"nexthop":"0.0.0.0","path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"},{"router":"edge","prefix":"10.200.255.2/32","valid":true,"bestpath":true,"nexthop":"10.200.1.18","path":"65100","origin":"IGP","weight":0,"peerId":"10.200.1.18"},{"router":"edge","prefix":"10.200.255.11/32","valid":true,"bestpath":true,"nexthop":"10.200.1.18","path":"65100 65101","origin":"IGP","weight":0,"peerId":"10.200.1.18"},{"router":"edge","prefix":"10.200.255.12/32","valid":true,"bestpath":true,"nexthop":"10.200.1.18","path":"65100 65102","origin":"IGP","weight":0,"peerId":"10.200.1.18"},{"router":"spine","prefix":"10.200.255.11/32","valid":true,"bestpath":true,"nexthop":"10.200.1.2","path":"65101","origin":"IGP","weight":0,"peerId":"10.200.1.2"},{"router":"spine","prefix":"10.200.255.12/32","valid":true,"bestpath":true,"nexthop":"10.200.1.10","path":"65102","origin":"IGP","weight":0,"peerId":"10.200.1.10"},{"router":"spine","prefix":"10.98.0.10/32","valid":true,"bestpath":true,"nexthop":"10.200.1.2","path":"65101 65021","origin":"IGP","weight":0,"peerId":"10.200.1.2"},{"router":"spine","prefix":"10.98.0.10/32","valid":true,"bestpath":false,"nexthop":"10.200.1.10","path":"65102 65021","origin":"IGP","weight":0,"peerId":"10.200.1.10"},{"router":"spine","prefix":"10.200.100.0/24","valid":true,"bestpath":true,"nexthop":"10.200.1.19","path":"65000","origin":"IGP","weight":0,"peerId":"10.200.1.19"},{"router":"spine","prefix":"10.200.255.1/32","valid":true,"bestpath":true,"nexthop":"10.200.1.19","path":"65000","origin":"IGP","weight":0,"peerId":"10.200.1.19"},{"router":"spine","prefix":"10.200.255.2/32","valid":true,"bestpath":true,"nexthop":"0.0.0.0","path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"},{"router":"leaf1","prefix":"10.200.255.2/32","valid":true,"bestpath":true,"nexthop":"10.200.1.3","path":"65100","origin":"IGP","weight":0,"peerId":"10.200.1.3"},{"router":"leaf1","prefix":"10.200.255.11/32","valid":true,"bestpath":true,"nexthop":"0.0.0.0","path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"},{"router":"leaf1","prefix":"10.200.255.12/32","valid":true,"bestpath":true,"nexthop":"10.200.1.3","path":"65100 65102","origin":"IGP","weight":0,"peerId":"10.200.1.3"},{"router":"leaf1","prefix":"10.98.0.10/32","valid":true,"bestpath":true,"nexthop":"172.19.0.3","path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.3"},{"router":"leaf1","prefix":"10.98.0.10/32","valid":true,"bestpath":false,"nexthop":"172.19.0.2","path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.2"},{"router":"leaf1","prefix":"10.200.100.0/24","valid":true,"bestpath":true,"nexthop":"10.200.1.3","path":"65100 65000","origin":"IGP","weight":0,"peerId":"10.200.1.3"},{"router":"leaf1","prefix":"10.200.255.1/32","valid":true,"bestpath":true,"nexthop":"10.200.1.3","path":"65100 65000","origin":"IGP","weight":0,"peerId":"10.200.1.3"},{"router":"leaf2","prefix":"10.200.255.1/32","valid":true,"bestpath":true,"nexthop":"10.200.1.11","path":"65100 65000","origin":"IGP","weight":0,"peerId":"10.200.1.11"},{"router":"leaf2","prefix":"10.200.255.2/32","valid":true,"bestpath":true,"nexthop":"10.200.1.11","path":"65100","origin":"IGP","weight":0,"peerId":"10.200.1.11"},{"router":"leaf2","prefix":"10.200.255.11/32","valid":true,"bestpath":true,"nexthop":"10.200.1.11","path":"65100 65101","origin":"IGP","weight":0,"peerId":"10.200.1.11"},{"router":"leaf2","prefix":"10.200.255.12/32","valid":true,"bestpath":true,"nexthop":"0.0.0.0","path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"},{"router":"leaf2","prefix":"10.98.0.10/32","valid":true,"bestpath":true,"nexthop":"172.19.0.2","path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.2"},{"router":"leaf2","prefix":"10.98.0.10/32","valid":true,"bestpath":false,"nexthop":"172.19.0.3","path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.3"},{"router":"leaf2","prefix":"10.98.0.10/32","valid":true,"bestpath":false,"nexthop":"10.200.1.11","path":"65100 65101 65021","origin":"IGP","weight":0,"peerId":"10.200.1.11"},{"router":"leaf2","prefix":"10.200.100.0/24","valid":true,"bestpath":true,"nexthop":"10.200.1.11","path":"65100 65000","origin":"IGP","weight":0,"peerId":"10.200.1.11"}],"reachable":4,"routerCount":4,"established":6,"sessionCount":6,"external":2,"serverSessions":4,"serverEstablished":4}
+
+
+### 2026-09-20T23:47:58Z
+$ bash -c state_head
+### 2026-09-20T23:47:58Z
+$ bash -c state_head
+routers 4/4 · fabric sessions 6/6 · server sessions 4/4 · external 2
+external peers:
+  172.19.0.2 asn=65021 addr=172.19.0.2
+  172.19.0.3 asn=65021 addr=172.19.0.3
+routers 4/4 · fabric sessions 6/6 · server sessions 4/4 · external 2
+external peers:
+  172.19.0.2 asn=65021 addr=172.19.0.2
+  172.19.0.3 asn=65021 addr=172.19.0.3
+
+
+### 2026-09-20T23:47:58Z
+$ bash -c curl -fsS --max-time 5 'http://127.0.0.1:8098/api/state' | python3 scripts/fabric-dashboard-state.py
+### 2026-09-20T23:47:58Z
+$ bash -c curl -fsS --max-time 5 'http://127.0.0.1:8098/api/state' | python3 scripts/fabric-dashboard-state.py
+routers=4/4 sessions=6/6 external=2
+routers=4/4 sessions=6/6 external=2
+
+
+== 11. screenshot, dashboard with the cluster attached
+### 2026-09-20T23:47:58Z
+$ bash -c shot_dash
+### 2026-09-20T23:47:58Z
+$ bash -c shot_dash
+/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --disable-gpu --no-first-run --window-size=1200,700 --user-data-dir=<tmp> --virtual-time-budget=4000 --screenshot=/Users/olasumbo/gitRepos/cilium-implementation-poc/demos/54-eg-poc1-kube-vip-colima/output/screenshots/dashboard-cluster.png http://127.0.0.1:8098/?router=leaf1
+/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless=new --disable-gpu --no-first-run --window-size=1200,700 --user-data-dir=<tmp> --virtual-time-budget=4000 --screenshot=/Users/olasumbo/gitRepos/cilium-implementation-poc/demos/54-eg-poc1-kube-vip-colima/output/screenshots/dashboard-cluster.png http://127.0.0.1:8098/?router=leaf1
+screenshot written after 1.8 s; chrome_rc=0
+screenshot written after 1.8 s; chrome_rc=0
+demos/54-eg-poc1-kube-vip-colima/output/screenshots/dashboard-cluster.png: PNG image data, 1200 x 700, 8-bit/color RGB, non-interlaced
+demos/54-eg-poc1-kube-vip-colima/output/screenshots/dashboard-cluster.png: PNG image data, 1200 x 700, 8-bit/color RGB, non-interlaced
+
+
+== 12. MD5 evidence on the SERVERS sessions
+### 2026-09-20T23:48:00Z
+$ bash -c md5_wire
+### 2026-09-20T23:48:00Z
+$ bash -c md5_wire
+leaf1 container=f59f78becf176597674101d55d7584f7d86aad7ae18d606122f0f9ed93f8ddb4
+leaf1 container=f59f78becf176597674101d55d7584f7d86aad7ae18d606122f0f9ed93f8ddb4
+tcpdump: WARNING: any: That device doesn't support promiscuous mode
+(Promiscuous mode not supported on the "any" device)
+tcpdump: listening on any, link-type LINUX_SLL2 (Linux cooked v2), snapshot length 262144 bytes
+tcpdump: WARNING: any: That device doesn't support promiscuous mode
+(Promiscuous mode not supported on the "any" device)
+tcpdump: listening on any, link-type LINUX_SLL2 (Linux cooked v2), snapshot length 262144 bytes
+23:48:02.970746 eth2  In  IP (tos 0x0, ttl 1, id 10966, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [P.], cksum 0x5677 (incorrect -> 0x3e4b), seq 2629222600:2629222619, ack 4129105104, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - a7e71bb8fb01c8a5a930670dbb1b0bdb], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:02.970777 eth2  Out IP (tos 0xc0, ttl 1, id 9459, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.254.11.179 > 172.19.0.3.55659: Flags [.], cksum 0x5664 (incorrect -> 0x4973), ack 19, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - d72d72d9850cb8187083c31ecc06d099], length 0
+23:48:03.020554 eth2  In  IP (tos 0x0, ttl 1, id 8403, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.2.49565 > 172.19.254.11.179: Flags [P.], cksum 0x5676 (incorrect -> 0x1108), seq 3826168547:3826168566, ack 4290232261, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 84a90dbe89a4d4f64da37f06f2f514e9], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:03.030371 eth2  Out IP (tos 0xc0, ttl 1, id 9460, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.3.55659: Flags [P.], cksum 0x5677 (incorrect -> 0xe787), seq 1:20, ack 19, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 196c285da4affde5f5f6a0c47f6bbaa6], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:03.030414 eth2  In  IP (tos 0x0, ttl 1, id 10967, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [.], cksum 0x5664 (incorrect -> 0x5ba9), ack 20, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 6ac9c13619491fed809c0b0eae23a621], length 0
+23:48:03.030445 eth2  Out IP (tos 0xc0, ttl 1, id 24665, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.2.49565: Flags [P.], cksum 0x5676 (incorrect -> 0x0aca), seq 1:20, ack 19, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 5aead70463cb457b32cf528e136e57b5], length 23:48:02.970746 eth2  In  IP (tos 0x0, ttl 1, id 10966, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [P.], cksum 0x5677 (incorrect -> 0x3e4b), seq 2629222600:2629222619, ack 4129105104, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - a7e71bb8fb01c8a5a930670dbb1b0bdb], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:02.970777 eth2  Out IP (tos 0xc0, ttl 1, id 9459, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.254.11.179 > 172.19.0.3.55659: Flags [.], cksum 0x5664 (incorrect -> 0x4973), ack 19, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - d72d72d9850cb8187083c31ecc06d099], length 0
+23:48:03.020554 eth2  In  IP (tos 0x0, ttl 1, id 8403, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.2.49565 > 172.19.254.11.179: Flags [P.], cksum 0x5676 (incorrect -> 0x1108), seq 3826168547:3826168566, ack 4290232261, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 84a90dbe89a4d4f64da37f06f2f514e9], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:03.030371 eth2  Out IP (tos 0xc0, ttl 1, id 9460, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.3.55659: Flags [P.], cksum 0x5677 (incorrect -> 0xe787), seq 1:20, ack 19, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 196c285da4affde5f5f6a0c47f6bbaa6], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:03.030414 eth2  In  IP (tos 0x0, ttl 1, id 10967, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [.], cksum 0x5664 (incorrect -> 0x5ba9), ack 20, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 6ac9c13619491fed809c0b0eae23a621], length 0
+23:48:03.030445 eth2  Out IP (tos 0xc0, ttl 1, id 24665, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.2.49565: Flags [P.], cksum 0x5676 (incorrect -> 0x0aca), seq 1:20, ack 19, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 5aead70463cb457b32cf528e136e57b5], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:03.030468 eth2  In  IP (tos 0x0, ttl 1, id 8404, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.2.49565 > 172.19.254.11.179: Flags [.], cksum 0x5663 (incorrect -> 0x98fb), ack 20, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 43ddbf0bdc4ee34630c16d6c79bc6737], length 0
+23:48:05.970194 eth2  In  IP (tos 0x0, ttl 1, id 10968, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [P.], cksum 0x5677 (incorrect -> 0xd925), seq 19:38, ack 20, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 7da73251d4fc75e23a325f343c57f2e5], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:05.970219 eth2  Out IP (tos 0xc0, ttl 1, id 9461, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.254.11.179 > 172.19.0.3.55659: Flags [.], cksum 0x5664 (incorrect -> 0x00d1), ack 38, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - b013cc06f6565234acd5b9fbdb7498ff], length 0
+23:48:06.019691 eth2  In  IP (tos 0x0, ttl 1, id 8405, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.2.49565 > 172.19.254.11.179: Flags [P.], cksum 0x5676 (incorrect -> 0x3266), seq 19:38, ack 20, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 8770a390e233b16b82a26a92161fe212], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:06.030605 eth2  Out IP (tos 0xc0, ttl 1, id 9462, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.3.55659: Flags [P.], cksum 0x5677 (incorrect -> 0xfbc8), seq 20:39, ack 38, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 266bb6f3eed048c335fbe67e9854d703], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:06.030649 eth2  In  IP (tos 0x0, ttl 1, id 10969, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [.], cksum 0x5664 (incorrect -> 0x41d5), ack 39, win 502, options [nop,nop19: BGP
+	Keepalive Message (4), length: 19
+23:48:03.030468 eth2  In  IP (tos 0x0, ttl 1, id 8404, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.2.49565 > 172.19.254.11.179: Flags [.], cksum 0x5663 (incorrect -> 0x98fb), ack 20, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 43ddbf0bdc4ee34630c16d6c79bc6737], length 0
+23:48:05.970194 eth2  In  IP (tos 0x0, ttl 1, id 10968, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [P.], cksum 0x5677 (incorrect -> 0xd925), seq 19:38, ack 20, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 7da73251d4fc75e23a325f343c57f2e5], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:05.970219 eth2  Out IP (tos 0xc0, ttl 1, id 9461, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.254.11.179 > 172.19.0.3.55659: Flags [.], cksum 0x5664 (incorrect -> 0x00d1), ack 38, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - b013cc06f6565234acd5b9fbdb7498ff], length 0
+23:48:06.019691 eth2  In  IP (tos 0x0, ttl 1, id 8405, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.2.49565 > 172.19.254.11.179: Flags [P.], cksum 0x5676 (incorrect -> 0x3266), seq 19:38, ack 20, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 8770a390e233b16b82a26a92161fe212], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:06.030605 eth2  Out IP (tos 0xc0, ttl 1, id 9462, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.3.55659: Flags [P.], cksum 0x5677 (incorrect -> 0xfbc8), seq 20:39, ack 38, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 266bb6f3eed048c335fbe67e9854d703], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:06.030649 eth2  In  IP (tos 0x0, ttl 1, id 10969, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [.], cksum 0x5664 (incorrect -> 0x41d5), ack 39, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 04ef314ad74fce27073e4797889dabb0], length 0
+23:48:06.030673 eth2  Out IP (tos 0xc0, ttl 1, id 24666, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.2.49565: Flags [P.], cksum 0x5676 (incorrect -> 0x8982), seq 20:39, ack 38, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 6d0a5e7d7b799667b808b209800a8552], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:06.030689 eth2  In  IP (tos 0x0, ttl 1, id 8406, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.2.49565 > 172.19.254.11.179: Flags [.], cksum 0x5663 (incorrect -> 0x5d98), ack 39, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - ed6cab7a068905ccef0a1c650cf4bf3c], length 0
+23:48:08.970683 eth2  In  IP (tos 0x0, ttl 1, id 10970, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [P.], cksum 0x5677 (incorrect -> 0xc4da), seq 38:57, ack 39, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 2caac446f0b109a93e4c134664bf3603], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:08.970703 eth2  Out IP (tos 0xc0, ttl 1, id 9463, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.254.11.179 > 172.19.0.3.55659: Flags [.], cksum 0x5664 (incorrect -> 0x7b1c), ack 57, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - e597045143a1961d944e40957e2c0ec2], length 0
+23:48:09.020401 eth2  In  IP (tos 0x0, ttl 1, id 8407, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.2.49565 > 172.19.254.11.179: Flags [P.], cksum 0x5676 (incorrect -> 0x8dbb), seq 38:57, ack 39, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 754853f95051e58e39cf76ce91ed06df], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:09.031087 eth2  Out IP (tos 0xc0, ttl 1, id 9464, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.3.55659: Flags [P.], cksum 0x5677 (incorrect -> 0x3cdc), seq 39:58, ack 57, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 74b23b5e3573e05a80608a43d798b770], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:09.031126 eth2  In  IP (tos 0x0, ttl 1, id 10971, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [.], cksum 0x5664 (incorrect -> 0xb350), ack 58, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 92e83bc1f031afa0270f292f98f49583], length 0
+23:48:09.031152 eth2  Out IP (tos 0xc0, ttl 1, id 24667, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.2.49565: Flags [P.], cksum 0x5676 (incorrect -> 0x987e), seq 39:58, ack 57, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 357f473f9774b8ef9dabe7b91037daf6], length 19: BGP
+	Keepalive Message (4), length: 19
+20 packets captured
+21 packets received by filter
+0 packets dropped by kernel
+,md5 shared secret not supplied with -M, can't check - 04ef314ad74fce27073e4797889dabb0], length 0
+23:48:06.030673 eth2  Out IP (tos 0xc0, ttl 1, id 24666, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.2.49565: Flags [P.], cksum 0x5676 (incorrect -> 0x8982), seq 20:39, ack 38, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 6d0a5e7d7b799667b808b209800a8552], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:06.030689 eth2  In  IP (tos 0x0, ttl 1, id 8406, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.2.49565 > 172.19.254.11.179: Flags [.], cksum 0x5663 (incorrect -> 0x5d98), ack 39, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - ed6cab7a068905ccef0a1c650cf4bf3c], length 0
+23:48:08.970683 eth2  In  IP (tos 0x0, ttl 1, id 10970, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [P.], cksum 0x5677 (incorrect -> 0xc4da), seq 38:57, ack 39, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 2caac446f0b109a93e4c134664bf3603], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:08.970703 eth2  Out IP (tos 0xc0, ttl 1, id 9463, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.254.11.179 > 172.19.0.3.55659: Flags [.], cksum 0x5664 (incorrect -> 0x7b1c), ack 57, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - e597045143a1961d944e40957e2c0ec2], length 0
+23:48:09.020401 eth2  In  IP (tos 0x0, ttl 1, id 8407, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.0.2.49565 > 172.19.254.11.179: Flags [P.], cksum 0x5676 (incorrect -> 0x8dbb), seq 38:57, ack 39, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 754853f95051e58e39cf76ce91ed06df], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:09.031087 eth2  Out IP (tos 0xc0, ttl 1, id 9464, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.3.55659: Flags [P.], cksum 0x5677 (incorrect -> 0x3cdc), seq 39:58, ack 57, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 74b23b5e3573e05a80608a43d798b770], length 19: BGP
+	Keepalive Message (4), length: 19
+23:48:09.031126 eth2  In  IP (tos 0x0, ttl 1, id 10971, offset 0, flags [DF], proto TCP (6), length 60)
+    172.19.0.3.55659 > 172.19.254.11.179: Flags [.], cksum 0x5664 (incorrect -> 0xb350), ack 58, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 92e83bc1f031afa0270f292f98f49583], length 0
+23:48:09.031152 eth2  Out IP (tos 0xc0, ttl 1, id 24667, offset 0, flags [DF], proto TCP (6), length 79)
+    172.19.254.11.179 > 172.19.0.2.49565: Flags [P.], cksum 0x5676 (incorrect -> 0x987e), seq 39:58, ack 57, win 502, options [nop,nop,md5 shared secret not supplied with -M, can't check - 357f473f9774b8ef9dabe7b91037daf6], length 19: BGP
+	Keepalive Message (4), length: 19
+20 packets captured
+21 packets received by filter
+0 packets dropped by kernel
+
+
+### 2026-09-20T23:48:09Z
+$ colima ssh --profile bgp-fabric -- sh -c nstat -az 2>/dev/null | grep -E "TcpExtTCPMD5" || awk "/TcpExt/ {print}" /proc/net/netstat
+### 2026-09-20T23:48:09Z
+$ colima ssh --profile bgp-fabric -- sh -c nstat -az 2>/dev/null | grep -E "TcpExtTCPMD5" || awk "/TcpExt/ {print}" /proc/net/netstat
+TcpExtTCPMD5NotFound            0                  0.0
+TcpExtTCPMD5Unexpected          0                  0.0
+TcpExtTCPMD5Failure             0                  0.0
+TcpExtTCPMD5NotFound            0                  0.0
+TcpExtTCPMD5Unexpected          0                  0.0
+TcpExtTCPMD5Failure             0                  0.0
+
+
+dashboard: http://127.0.0.1:8098/ (Mac browser)
+Mac route (operator): sudo route -n add -net 10.98.0.0/24 192.168.64.3
+demo 54c apply: recorded
+
+### 2026-09-20T23:48:16Z
+$ bash demos/54-eg-poc1-kube-vip-colima/check.sh
+
+== demo 54c — kind cluster in Colima, kube-vip BGP to the fabric
+  STATUS WHAT                                                                   MEASURED                                             RULE
+  PASS   two nodes in 172.19.0.0/17 on kind-eg-colima                           172.19.0.2 172.19.0.3                                eg-colima-up — InternalIP in the lower /17
+  PASS   leaves show two SERVERS sessions each (one per node)                   4/4 Established (172.19.0.2 172.19.0.3)              both leaves × both nodes — JSON state == Established
+  PASS   door 10.98.0.10/32 in each leaf with a node next hop                   leaf1:nh=172.19.0.3,172.19.0.2 leaf2:nh=172.19.0.2,172.19.0.3  EG-POC1-VIPS + as-path 65021 — node in 172.19.0.0/17
+  PASS   client0 reaches the door                                               http_code=200                                        client0 → edge → spine → leaf → node → 10.98.0.10
+  Mac: sudo route -n add -net 10.98.0.0/24 192.168.64.3
+  WARN   Mac reaches the door over 192.168.64.3                                 route absent — sudo route -n add -net 10.98.0.0/24 192.168.64.3 operator sudo; script never runs it
+  PASS   dashboard server sessions and external peers                           server=4/4 external=2 nodes=172.19.0.2 172.19.0.3    /api/state — server 4/4 (both nodes × both leaves), external=2
+  PASS   SERVERS MD5 on the wire (signed)                                       md5-option packets=20; Established→ABSENT; restored speaker password set; negative control restored
+
+demo 54c check: 0 FAIL
+

@@ -24,6 +24,15 @@ FABRIC_COLIMA_ROUTER_IMAGE="${FABRIC_ROUTER_IMAGE:-frr-agent:colima}"
 FABRIC_COLIMA_DASHBOARD_IMAGE="${FABRIC_DASHBOARD_IMAGE:-bgp-dashboard:colima}"
 export FABRIC_COLIMA_ROUTER_IMAGE FABRIC_COLIMA_DASHBOARD_IMAGE
 
+# Demo 54c — one kind cluster in this VM. kind talks to Colima via
+# DOCKER_HOST (no `docker context use`). The kubeconfig is a file under
+# $HOME so Desktop's ~/.kube/config is never rewritten.
+KIND_EG_COLIMA_NET="${KIND_EG_COLIMA_NET:-kind-eg-colima}"
+EG_COLIMA_CLUSTER="${EG_COLIMA_CLUSTER:-eg-poc1-colima}"
+EG_COLIMA_KUBECONFIG="${EG_COLIMA_KUBECONFIG:-$HOME/.kube/config-eg-poc1-colima}"
+KIND_REGISTRY_NAME="${KIND_REGISTRY_NAME:-kind-registry}"
+KIND_REGISTRY_PORT="${KIND_REGISTRY_PORT:-5001}"
+
 # Refuse before the first docker daemon call. desktop-linux / default / md5lab
 # never reach `docker --context` — the name check is the whole point.
 fabric_colima_refuse_wrong_ctx() {
@@ -73,6 +82,58 @@ dk() {
 
 fabric_colima_compose() {
   dk compose -p "$FABRIC_COLIMA_PROJECT" -f "$FABRIC_COLIMA_FABRIC/compose.yaml" "$@"
+}
+
+# Same project, plus the kind-eg-colima overlay (leaves at .254.11/.12).
+# Callers that attach the cluster LAN use this; fabric-only scripts stay
+# on fabric_colima_compose so a missing overlay file cannot break them.
+fabric_colima_compose_lan() {
+  dk compose -p "$FABRIC_COLIMA_PROJECT" \
+    -f "$FABRIC_COLIMA_FABRIC/compose.yaml" \
+    -f "$FABRIC_COLIMA_FABRIC/compose.lan-eg.yaml" "$@"
+}
+
+# kind and kubectl for the Colima cluster. DOCKER_HOST is the context's
+# daemon — kind has no --docker-context flag. KUBECONFIG is a dedicated
+# file so Desktop's kind-eg-poc1 context is not rewritten.
+fabric_colima_kind_env() {
+  local host
+  host=$(docker context inspect "$CTX" --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)
+  if [ -z "$host" ]; then
+    echo "fabric-colima: cannot read Docker host for context $CTX" >&2
+    return 1
+  fi
+  export DOCKER_HOST="$host"
+  export KIND_EXPERIMENTAL_DOCKER_NETWORK="${KIND_EXPERIMENTAL_DOCKER_NETWORK:-$KIND_EG_COLIMA_NET}"
+  export KUBECONFIG="${KUBECONFIG:-$EG_COLIMA_KUBECONFIG}"
+}
+
+# Node LAN for the Colima family. Docker IPAM is held to the lower /17
+# so .254/24 (routers) and .255/24 (L2 VIP blocks) are never node addresses.
+fabric_colima_ensure_kind_net() {
+  local name="${KIND_EG_COLIMA_NET}"
+  local subnet="172.19.0.0/16"
+  local ip_range="172.19.0.0/17"
+  local gateway="172.19.0.1"
+  local have mtu
+  if dk network inspect "$name" >/dev/null 2>&1; then
+    have=$(dk network inspect "$name" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' \
+      | tr ' ' '\n' | grep -m1 '\.')
+    if [ "$have" != "$subnet" ]; then
+      echo "fabric-colima: network $name has subnet $have, not $subnet" >&2
+      return 1
+    fi
+    echo "network $name exists with $have, kept"
+    return 0
+  fi
+  mtu=$(dk network inspect bridge --format '{{index .Options "com.docker.network.driver.mtu"}}' 2>/dev/null) || true
+  [ -n "${mtu:-}" ] || mtu=1500
+  dk network create -d bridge \
+    --subnet "$subnet" --ip-range "$ip_range" --gateway "$gateway" \
+    -o com.docker.network.bridge.enable_ip_masquerade=true \
+    -o com.docker.network.driver.mtu="$mtu" \
+    "$name"
+  echo "created $name: $(dk network inspect "$name" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}')"
 }
 
 # colima start --activate (the default) switches the active docker context.

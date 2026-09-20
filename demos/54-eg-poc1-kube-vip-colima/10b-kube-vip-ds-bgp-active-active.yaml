@@ -1,0 +1,108 @@
+# kube-vip v1.2.4 in BGP mode, active-active. Port of
+# demos/56-kube-vip-bgp/10b-kube-vip-ds-bgp-active-active.yaml for the
+# Colima family. Image is localhost:5001/kube-vip:v1.2.4 (pushed to
+# kind-registry; no kind load).
+#
+# configureService then runs on every node
+# (!EnableARP && !EnableRoutingTable — pkg/services/services.go:203-206).
+# kube-vip's docs: "When using BGP without leader election … all nodes
+# announce the VIP and usually an upstream router distributes traffic
+# via ECMP".
+#
+# vip_arp=false, svc_election=false, vip_leaderelection=false — the
+# Desktop demo measured all three; keep them (measured 2026-09-20:
+# with vip_leaderelection on, the spine had no path for 90 s after
+# the switch).
+#
+# bgp_peers format is address:AS:password:multihop. apply.sh substitutes
+# __BGP_PASSWORD__ from fabric/.env (FABRIC_BGP_PASSWORD). The SERVERS
+# peer-group on the leaves carries the same password. On this kernel
+# MD5 is enforceable — the password is set on the speaker too.
+#
+#   kubectl --kubeconfig ~/.kube/config-eg-poc1-colima --context kind-eg-poc1-colima \
+#     apply -f .tmp/kube-vip-ds-bgp-colima.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-vip-ds
+    app.kubernetes.io/version: v1.2.4
+  name: kube-vip-ds
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kube-vip-ds
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kube-vip-ds
+        app.kubernetes.io/version: v1.2.4
+    spec:
+      hostNetwork: true
+      serviceAccountName: kube-vip
+      containers:
+        - name: kube-vip
+          image: localhost:5001/kube-vip:v1.2.4
+          imagePullPolicy: Always
+          args: [manager]
+          env:
+            - name: vip_arp
+              value: "false"
+            - name: port
+              value: "6443"
+            - name: vip_nodename
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: vip_interface
+              value: eth0
+            - name: dns_mode
+              value: first
+            - name: dhcp_mode
+              value: ipv4
+            - name: svc_enable
+              value: "true"
+            - name: svc_leasename
+              value: plndr-svcs-lock
+            - name: svc_election
+              value: "false"
+            - name: lb_class_only
+              value: "true"
+            - name: lb_class_name
+              value: kube-vip.io/kube-vip-class
+            # vip_leaderelection=false too: kube-vip v1.2.4 logs "leader election is enabled, only the
+            # elected leader will advertise service VIPs; unset enable_leader_election to keep
+            # advertising from every node (ECMP)" (measured 2026-09-20 — with it on, the spine had
+            # no path for 90 s after the switch)
+            - name: vip_leaderelection
+              value: "false"
+            - name: vip_leasename
+              value: plndr-cp-lock
+            - name: vip_leaseduration
+              value: "15"
+            - name: vip_renewdeadline
+              value: "10"
+            - name: vip_retryperiod
+              value: "2"
+            - name: prometheus_server
+              value: ":2112"
+            - name: bgp_enable
+              value: "true"
+            - name: bgp_as
+              value: "65021"
+            # Password is set. On Docker Desktop gobgp's sockopt_linux.go refused
+            # TCP_MD5SIG and the session stayed ACTIVE. This kernel has
+            # CONFIG_TCP_MD5SIG=y — apply.sh records whether gobgp can set it.
+            - name: bgp_peers
+              value: "172.19.254.11:65101:__BGP_PASSWORD__:false,172.19.254.12:65102:__BGP_PASSWORD__:false"
+            - name: bgp_routerid
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: bgp_sourceif
+              value: eth0
+          securityContext:
+            capabilities:
+              add: [NET_ADMIN, NET_RAW]
+              drop: [ALL]

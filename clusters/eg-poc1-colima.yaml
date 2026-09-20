@@ -1,0 +1,50 @@
+# eg-poc1-colima — the Colima-family one-cluster lab (enhancement 008,
+# demo 54c): kindnet + kube-proxy iptables, on the `kind-eg-colima`
+# docker network (KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima).
+# Same shape as clusters/eg-poc1.yaml. kindnet and kube-proxy stay ON —
+# this is not the Cilium lab.
+#
+# Create with:
+#   scripts/eg-colima-up.sh
+# which sets DOCKER_HOST to docker context colima-bgp-fabric and
+# KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima.
+#
+# Kept from clusters/eg-poc1.yaml:
+#   - kubeadmConfigPatches v1beta3 + v1beta4 that clear control-plane taints,
+#     so a 1+1 cluster has two schedulable nodes (kind v1.36 silently ignores
+#     a patch whose apiVersion does not match; both are listed).
+#   - the pinned KIND_NODE_IMAGE from scripts/bootstrap/versions-eg.env.
+# Added for enhancement 008 §3.1 rule 5:
+#   - containerdConfigPatches so pods pull from the local registry
+#     (localhost:5001 → kind-registry:5000 on kind-eg-colima).
+# Dropped from the Cilium lab:
+#   - extraMounts hostPath /proc → /procHost (Tetragon).
+#   - disableDefaultCNI / kubeProxyMode: none. Those are the Cilium lab.
+#     Here both stay unset so kind installs kindnet and kube-proxy in its
+#     default iptables mode.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: eg-poc1-colima
+networking:
+  podSubnet: "10.70.0.0/16"
+  serviceSubnet: "10.71.0.0/16"
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry]
+      config_path = "/etc/containerd/certs.d"
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        apiVersion: kubeadm.k8s.io/v1beta3
+        kind: InitConfiguration
+        nodeRegistration:
+          taints: []
+      - |
+        apiVersion: kubeadm.k8s.io/v1beta4
+        kind: InitConfiguration
+        nodeRegistration:
+          taints: []
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  - role: worker
+    image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed

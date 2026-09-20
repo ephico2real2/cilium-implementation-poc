@@ -1,0 +1,13 @@
+# kube-vip cloud-provider ranges for eg-poc1-colima (enhancement 008).
+# The door is pinned by annotation to 10.98.0.10 (EG-POC1-VIPS).
+#
+#   kubectl --kubeconfig ~/.kube/config-eg-poc1-colima --context kind-eg-poc1-colima \
+#     apply -f demos/54-eg-poc1-kube-vip-colima/10-kubevip-cm.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubevip
+  namespace: kube-system
+data:
+  range-default: 10.98.0.0-10.98.0.63
+  range-door: 10.98.0.0-10.98.0.63

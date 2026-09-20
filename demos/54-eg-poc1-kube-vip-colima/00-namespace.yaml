@@ -1,0 +1,7 @@
+# door — the simplest thing that yields an announced /32. Envoy Gateway
+# is not required for this demo: kube-vip speaks BGP to the fabric; a
+# LoadBalancer Service on the kube-vip class is enough.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: door
