@@ -232,7 +232,8 @@ the difference (demo 09); mTLS from the enterprise root for everything that is n
 server, the observer, the CLI). The lab fakes the DNS half with `/etc/hosts` and trusts the root by hand; a real
 network replaces exactly those two things. The plan, the ASCII diagram, the route commands for a Mac and for a Linux
 server, and the checklist for the network team: [NETWORKING_DESIGN.md](NETWORKING_DESIGN.md)
-(`scripts/network-plan.sh` reprints it live).
+(`scripts/network-plan.sh` reprints it live). The vocabulary — layers 1 to 7 in plain English, with where each
+thing in this lab lives: [docs/NETWORK-LAYERS.md](docs/NETWORK-LAYERS.md).
 
 ## Blocked and parked
 
