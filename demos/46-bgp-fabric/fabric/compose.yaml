@@ -1,0 +1,120 @@
+# Company fabric: four FRR routers + client0 on their own docker bridges.
+# Loopbacks (10.200.255.{1,2,11,12}/32) are programmed by zebra from
+# `interface lo` in each frr.conf — same file as `network` and `bgp router-id`.
+# Password: copy fabric/.env.example to fabric/.env (fabric-up.sh does
+# this if .env is absent). FABRIC_BGP_PASSWORD (default lab-bgp) is
+# rendered into /etc/frr/frr.conf by the entrypoint; committed files
+# have no secret. env_file .env is optional.
+# Cluster labs attach with compose.lan-eg.yaml / compose.lan-cilium.yaml.
+name: bgp-fabric
+
+x-router: &router
+  image: ${FRR_IMAGE:-quay.io/frrouting/frr:10.5.3}
+  cap_add:
+    - NET_ADMIN
+    - NET_RAW
+    - SYS_ADMIN
+  sysctls:
+    net.ipv4.ip_forward: "1"
+    net.ipv4.fib_multipath_hash_policy: "1"
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    FABRIC_BGP_PASSWORD: ${FABRIC_BGP_PASSWORD:-lab-bgp}
+  command: ["/usr/local/bin/fabric-entrypoint"]
+  healthcheck:
+    test: ["CMD-SHELL", "vtysh -c 'show daemons' | grep -q bgpd"]
+    interval: 2s
+    timeout: 3s
+    retries: 20
+    start_period: 4s
+
+services:
+  edge:
+    <<: *router
+    hostname: edge
+    volumes:
+      - ./frr/edge/frr.conf:/etc/frr/frr.conf.tmpl:ro
+      - ./frr/edge/daemons:/etc/frr/daemons:ro
+      - ./frr/edge/vtysh.conf:/etc/frr/vtysh.conf:ro
+      - ./entrypoint.sh:/usr/local/bin/fabric-entrypoint:ro
+    networks:
+      wan:
+        ipv4_address: 10.200.100.2
+      link-spine-edge:
+        ipv4_address: 10.200.1.19
+
+  spine:
+    <<: *router
+    hostname: spine
+    volumes:
+      - ./frr/spine/frr.conf:/etc/frr/frr.conf.tmpl:ro
+      - ./frr/spine/daemons:/etc/frr/daemons:ro
+      - ./frr/spine/vtysh.conf:/etc/frr/vtysh.conf:ro
+      - ./entrypoint.sh:/usr/local/bin/fabric-entrypoint:ro
+    networks:
+      link-leaf1-spine:
+        ipv4_address: 10.200.1.3
+      link-leaf2-spine:
+        ipv4_address: 10.200.1.11
+      link-spine-edge:
+        ipv4_address: 10.200.1.18
+
+  leaf1:
+    <<: *router
+    hostname: leaf1
+    volumes:
+      - ./frr/leaf1/frr.conf:/etc/frr/frr.conf.tmpl:ro
+      - ./frr/leaf1/daemons:/etc/frr/daemons:ro
+      - ./frr/leaf1/vtysh.conf:/etc/frr/vtysh.conf:ro
+      - ./entrypoint.sh:/usr/local/bin/fabric-entrypoint:ro
+    networks:
+      link-leaf1-spine:
+        ipv4_address: 10.200.1.2
+
+  leaf2:
+    <<: *router
+    hostname: leaf2
+    volumes:
+      - ./frr/leaf2/frr.conf:/etc/frr/frr.conf.tmpl:ro
+      - ./frr/leaf2/daemons:/etc/frr/daemons:ro
+      - ./frr/leaf2/vtysh.conf:/etc/frr/vtysh.conf:ro
+      - ./entrypoint.sh:/usr/local/bin/fabric-entrypoint:ro
+    networks:
+      link-leaf2-spine:
+        ipv4_address: 10.200.1.10
+
+  client0:
+    image: ${NETSHOOT_IMAGE:-nicolaka/netshoot:v0.16}
+    hostname: client0
+    cap_add:
+      - NET_ADMIN
+    command: ["sh", "-c", "ip route replace default via 10.200.100.2 && exec sleep infinity"]
+    networks:
+      wan:
+        ipv4_address: 10.200.100.10
+    healthcheck:
+      test: ["CMD-SHELL", "ip route | grep -q 'default via 10.200.100.2'"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+      start_period: 2s
+
+networks:
+  link-leaf1-spine:
+    ipam:
+      config:
+        - subnet: 10.200.1.0/29
+  link-leaf2-spine:
+    ipam:
+      config:
+        - subnet: 10.200.1.8/29
+  link-spine-edge:
+    ipam:
+      config:
+        - subnet: 10.200.1.16/29
+  wan:
+    ipam:
+      config:
+        - subnet: 10.200.100.0/24

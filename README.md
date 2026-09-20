@@ -1,7 +1,7 @@
 # cilium-implementation-poc
 
 A reproducible proof of concept of what **Cilium 1.20.2** and **Hubble** give you over a stock CNI + kube-proxy
-cluster — **measured, not quoted**. Two kind clusters in a ClusterMesh with no kube-proxy and no other CNI, 45 demos
+cluster — **measured, not quoted**. Two kind clusters in a ClusterMesh with no kube-proxy and no other CNI, 46 demos
 from the first Hubble flow to policies generated from observed traffic, every command with its recorded output, and a
 GitHub Action that builds and exercises the whole lab from the same scripts a laptop uses.
 
@@ -173,6 +173,8 @@ on the one before.
 | 51 | [Envoy Gateway with kube-vip — alone](demos/51-eg-kube-vip/README.md) | kube-vip class-only on both EG clusters, doors that name their load balancer on the `EnvoyProxy`, the R7 silent-`externalIPs` experiment, the shared VIP moved delete-other-first (gap 10.486 s / 8.976 s), shopapi + gRPC `SERVING` on h2c and TLS; MetalLB is not here | [RECAP.md](demos/51-eg-kube-vip/RECAP.md) (plain English), [`output/transcript.txt`](demos/51-eg-kube-vip/output/transcript.txt), `check.sh` |
 | 52 | [One cluster, MetalLB, two Gateways](demos/52-eg-poc2-metallb/README.md) | one kind cluster `eg-poc2` (kindnet + kube-proxy iptables, no Cilium); MetalLB L2; two doors (`http-gw` `.150`, `grpc-gw` `.151`); the sample app plus a real gRPC service and the gRPC test matrix | [RECAP.md](demos/52-eg-poc2-metallb/RECAP.md) (plain English), [`output/transcript.txt`](demos/52-eg-poc2-metallb/output/transcript.txt), `check.sh` |
 | 54 | [One cluster, kube-vip, two Gateways](demos/54-eg-poc1-kube-vip/README.md) | one kind cluster `eg-poc1` (kindnet + kube-proxy iptables, no Cilium); two doors (`http-gw` `.100`, `grpc-gw` `.101`); kube-vip announces both from `eg-poc1-worker`; the Mac's curl, grpcurl and Chrome; `check.sh` 15 PASS | [RECAP.md](demos/54-eg-poc1-kube-vip/RECAP.md) (plain English), [`output/transcript.txt`](demos/54-eg-poc1-kube-vip/output/transcript.txt), `check.sh` |
+| | **The BGP fabric** — four FRR routers, attachable to any cluster lab | | |
+| 46 | [The company fabric](demos/46-bgp-fabric/README.md) | four FRR routers in compose (edge 65000, spine 65100, leaf1 65101, leaf2 65102), eBGP, RFC 8212 on; leaves attach to `kind-eg` or `kind` by overlay; `client0` reaches every loopback through the fabric | [RECAP.md](demos/46-bgp-fabric/RECAP.md), [`output/transcript.txt`](demos/46-bgp-fabric/output/transcript.txt), `check.sh` |
 | | **Observability** — hub on poc1, poc2 a spoke | | |
 | 10 | [Flow export → OpenTelemetry](demos/10-tracing/README.md) | Hubble's dynamic exporter per node tailed by a Collector into OTLP; every flow persistent and queryable — events, not spans (gotcha #30) | [pods + output](demos/10-tracing/README.md#evidence) |
 | 16 | [Prometheus + Grafana, then Hubble on dashboards](demos/16-monitoring/README.md) | kube-prometheus-stack, then one Cilium Helm change: 6 ServiceMonitors, 6 dashboards, 52/52 targets, exemplars proven with a `traceparent` | [11 captures](demos/16-monitoring/README.md#evidence) |

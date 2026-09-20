@@ -1,0 +1,19 @@
+# Overlay: attach the leaves to kind at the network-devices block
+# (enhancement 006 §3.1). Written, not exercised — poc1/poc2 are paused;
+# the kind network exists and may be empty. `up` with this overlay alone
+# must not fail. The leaf frr.conf already carries
+# `bgp listen range 172.18.0.0/17` and prefix-list CILIUM-VIPS.
+services:
+  leaf1:
+    networks:
+      kind:
+        ipv4_address: 172.18.254.11
+  leaf2:
+    networks:
+      kind:
+        ipv4_address: 172.18.254.12
+
+networks:
+  kind:
+    name: kind
+    external: true
