@@ -1,0 +1,54 @@
+# shopapi HA for the failure test: demo 54's Deployment at replicas: 2
+# with required anti-affinity on app: shopapi / kubernetes.io/hostname.
+# ConfigMap eg-cluster and shop-db are unchanged; /healthz needs no DB.
+# apply.sh applies this in step 3 after the app. cleanup.sh restores
+# demos/54-eg-poc1-kube-vip/40-app.yaml (replicas: 1).
+#
+# strategy maxSurge 0 / maxUnavailable 1 — WHY: the anti-affinity matches
+# demo 54's running pod too. With the default 25%/25% (1 surge, 0
+# unavailable on two replicas) the new pod can never be placed — both
+# nodes already hold an app=shopapi pod and no old pod may be killed —
+# so runs 7–9 served from demo 54's old ReplicaSet with
+# Progressing=False (ProgressDeadlineExceeded) and the anti-affinity
+# never ran. Killing one old pod first frees a node for the new one.
+#
+#   kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/41-shopapi-ha.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shopapi
+  namespace: shop
+  labels: {app.kubernetes.io/name: shopapi, app.kubernetes.io/part-of: shop}
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector: {matchLabels: {app: shopapi}}
+  template:
+    metadata: {labels: {app: shopapi, app.kubernetes.io/name: shopapi, app.kubernetes.io/part-of: shop}}
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app: shopapi
+      containers:
+        - name: shopapi
+          image: shopapi:local
+          imagePullPolicy: Never
+          ports: [{containerPort: 8080}]
+          env:
+            - name: CLUSTER
+              valueFrom:
+                configMapKeyRef: {name: eg-cluster, key: name}
+            # main.go:56 reads DB_URL; the default points at the mesh lab's database
+            - name: DB_URL
+              value: postgres://shop:shop@shop-db.shop.svc.cluster.local:5432/shop?sslmode=disable
+          livenessProbe:  {httpGet: {path: /healthz, port: 8080}, initialDelaySeconds: 3, periodSeconds: 10}
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}, initialDelaySeconds: 2, periodSeconds: 5}
+          resources: {requests: {cpu: 25m, memory: 32Mi}, limits: {memory: 96Mi}}

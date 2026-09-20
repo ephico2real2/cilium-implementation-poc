@@ -1,0 +1,67 @@
+# Two routes, two BGP doors. HTTPRoute shop-api-bgp attaches only to
+# bgp-http-gw (demo 54's shopapi stays deployed). GRPCRoute orders-bgp
+# attaches only to bgp-grpc-gw with demo 52's four rules. Probe
+# descriptors for T8a/T8b are referenced at
+# demos/52-eg-poc2-metallb/probe/ (not copied).
+#
+# GRPCRoute precedence (Gateway API, the CRD's text): "Precedence MUST be
+# given to the rule with the largest number of: … Characters in a matching
+# service. Characters in a matching method. Header matches." So GetOrder
+# beats service+header beats the service default — Envoy Gateway v1.9.1
+# sorts them (Exact /service/method above Prefix /service, then by
+# header count).
+#
+#   kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/50-routes-bgp.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: shop-api-bgp, namespace: shop}
+spec:
+  parentRefs:
+    - {name: bgp-http-gw, sectionName: http}
+    - {name: bgp-http-gw, sectionName: https}
+  hostnames: ["api.eg-poc1.poc.local"]
+  rules:
+    - backendRefs: [{name: shopapi, port: 80}]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata: {name: orders-bgp, namespace: shop}
+spec:
+  parentRefs:
+    - {name: bgp-grpc-gw, sectionName: h2c}
+    - {name: bgp-grpc-gw, sectionName: https-grpc}
+  hostnames: ["grpc.eg-poc1.poc.local"]
+  rules:
+    # (a) routing by METADATA — the gRPC counterpart of a header match
+    - matches:
+        - method:
+            service: shop.v1.Orders
+          headers:
+            - name: x-version
+              type: Exact
+              value: v2
+      backendRefs: [{name: grpc-v2, port: 9090}]
+    # (b) routing by METHOD
+    - matches:
+        - method:
+            service: shop.v1.Orders
+            method: GetOrder
+      backendRefs: [{name: grpc-v2, port: 9090}]
+    # (c) the service default
+    - matches:
+        - method:
+            service: shop.v1.Orders
+      backendRefs: [{name: grpc-v1, port: 9090}]
+    # (d) Health + both reflection services
+    - matches:
+        - method:
+            service: grpc.health.v1.Health
+      backendRefs: [{name: grpc-v1, port: 9090}]
+    - matches:
+        - method:
+            service: grpc.reflection.v1alpha.ServerReflection
+      backendRefs: [{name: grpc-v1, port: 9090}]
+    - matches:
+        - method:
+            service: grpc.reflection.v1.ServerReflection
+      backendRefs: [{name: grpc-v1, port: 9090}]

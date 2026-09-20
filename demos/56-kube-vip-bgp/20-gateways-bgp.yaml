@@ -1,0 +1,150 @@
+# BGP doors on eg-poc1 — the same product as demo 54 (hostnames, the
+# eg-poc1-tls Secret) on routed addresses. HTTP and gRPC stay isolated:
+# no HTTPRoute attaches to bgp-grpc-gw and no GRPCRoute attaches to
+# bgp-http-gw. Each EnvoyProxy is BEFORE its Gateway — the class is
+# immutable on the generated Service (demo 54 / phase 0).
+#
+# D11: every door names its load balancer. kube-vip runs class-only.
+# Addresses are pinned by kube-vip.io/loadbalancerIPs (outside the
+# cloud-provider ranges — measured in 51/54) AND Gateway.spec.addresses
+# (so status is honest).
+#
+# envoyDeployment.replicas: 2 + required anti-affinity on
+# gateway.envoyproxy.io/owning-gateway-name / kubernetes.io/hostname
+# (CRD: spec.provider.kubernetes.envoyDeployment.pod.affinity). WHY:
+# the failure test (step 9) needs a door on the surviving node.
+#
+# envoyService.externalTrafficPolicy: Cluster. WHY: with every node
+# advertising the /32, the spine ECMPs flows to both nodes; under Local
+# a node without the Envoy pod drops them. apply.sh measures Local first
+# (20a, step 6) then applies this file. Kubernetes allows changing
+# Service.spec.externalTrafficPolicy; if Envoy Gateway does not patch
+# the live Service, apply.sh deletes the Gateway and recreates it.
+#
+# Demo 54's L2 doors (.100/.101) stay as objects. They stop answering
+# ARP once 10b is applied (vip_arp=false). cleanup.sh restores L2.
+#
+#   kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/20-gateways-bgp.yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: bgp-http-gw-proxy
+  namespace: shop
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        replicas: 2
+        pod:
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchLabels:
+                      gateway.envoyproxy.io/owning-gateway-name: bgp-http-gw
+      envoyService:
+        type: LoadBalancer
+        loadBalancerClass: kube-vip.io/kube-vip-class
+        externalTrafficPolicy: Cluster
+        annotations:
+          kube-vip.io/loadbalancerIPs: "10.98.0.10"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: bgp-http-gw
+  namespace: shop
+spec:
+  gatewayClassName: eg
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: bgp-http-gw-proxy
+  addresses:
+    - type: IPAddress
+      value: "10.98.0.10"
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: api.eg-poc1.poc.local
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: api.eg-poc1.poc.local
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: eg-poc1-tls
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: bgp-grpc-gw-proxy
+  namespace: shop
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        replicas: 2
+        pod:
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchLabels:
+                      gateway.envoyproxy.io/owning-gateway-name: bgp-grpc-gw
+      envoyService:
+        type: LoadBalancer
+        loadBalancerClass: kube-vip.io/kube-vip-class
+        externalTrafficPolicy: Cluster
+        annotations:
+          kube-vip.io/loadbalancerIPs: "10.98.0.11"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: bgp-grpc-gw
+  namespace: shop
+spec:
+  gatewayClassName: eg
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: bgp-grpc-gw-proxy
+  addresses:
+    - type: IPAddress
+      value: "10.98.0.11"
+  listeners:
+    - name: h2c
+      protocol: HTTP
+      port: 80
+      hostname: grpc.eg-poc1.poc.local
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https-grpc
+      protocol: HTTPS
+      port: 443
+      hostname: grpc.eg-poc1.poc.local
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: eg-poc1-tls
+      allowedRoutes:
+        namespaces:
+          from: Same

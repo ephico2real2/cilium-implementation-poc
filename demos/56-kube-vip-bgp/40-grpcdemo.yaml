@@ -1,0 +1,78 @@
+# grpcdemo — shop.v1.Orders, two versions. From demo 52's
+# 41-grpcdemo.yaml; image grpcdemo:local via kind load (need_kind_load;
+# already built on the VM — no docker build, gotcha #118).
+# TCP probes: the process speaks HTTP/2 (gRPC) on :9090.
+# appProtocol is how the Gateway learns h2c (demo 09; phase 0 R0.6).
+#
+#   kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/40-grpcdemo.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpcdemo-v1
+  namespace: shop
+  labels: {app.kubernetes.io/name: grpcdemo, app.kubernetes.io/version: v1, app.kubernetes.io/part-of: shop}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: grpcdemo, version: v1}}
+  template:
+    metadata: {labels: {app: grpcdemo, version: v1, app.kubernetes.io/name: grpcdemo, app.kubernetes.io/part-of: shop}}
+    spec:
+      containers:
+        - name: app
+          image: grpcdemo:local
+          imagePullPolicy: Never
+          env:
+            - {name: VERSION, value: v1}
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+          ports: [{containerPort: 9090}]
+          livenessProbe:  {tcpSocket: {port: 9090}, initialDelaySeconds: 3, periodSeconds: 10}
+          readinessProbe: {tcpSocket: {port: 9090}, initialDelaySeconds: 2, periodSeconds: 5}
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grpc-v1
+  namespace: shop
+  labels: {app.kubernetes.io/name: grpcdemo, app.kubernetes.io/version: v1, app.kubernetes.io/part-of: shop}
+spec:
+  selector: {app: grpcdemo, version: v1}
+  ports:
+    - {name: grpc, port: 9090, targetPort: 9090, appProtocol: kubernetes.io/h2c}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpcdemo-v2
+  namespace: shop
+  labels: {app.kubernetes.io/name: grpcdemo, app.kubernetes.io/version: v2, app.kubernetes.io/part-of: shop}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: grpcdemo, version: v2}}
+  template:
+    metadata: {labels: {app: grpcdemo, version: v2, app.kubernetes.io/name: grpcdemo, app.kubernetes.io/part-of: shop}}
+    spec:
+      containers:
+        - name: app
+          image: grpcdemo:local
+          imagePullPolicy: Never
+          env:
+            - {name: VERSION, value: v2}
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+          ports: [{containerPort: 9090}]
+          livenessProbe:  {tcpSocket: {port: 9090}, initialDelaySeconds: 3, periodSeconds: 10}
+          readinessProbe: {tcpSocket: {port: 9090}, initialDelaySeconds: 2, periodSeconds: 5}
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 64Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grpc-v2
+  namespace: shop
+  labels: {app.kubernetes.io/name: grpcdemo, app.kubernetes.io/version: v2, app.kubernetes.io/part-of: shop}
+spec:
+  selector: {app: grpcdemo, version: v2}
+  ports:
+    - {name: grpc, port: 9090, targetPort: 9090, appProtocol: kubernetes.io/h2c}
