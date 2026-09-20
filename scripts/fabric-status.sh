@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# fabric-status.sh — phase-1 dashboard (D17): four `show bgp summary`
+# tables, `show ip bgp` on spine, and a text topology with session states.
+# Linux-runner safe. Reads running containers; does not start them.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+FABRIC=demos/46-bgp-fabric/fabric
+PROJECT="${FABRIC_PROJECT:-bgp-fabric}"
+COMPOSE_ARGS=(-p "$PROJECT" -f "$FABRIC/compose.yaml")
+
+compose_exec() {
+  local svc=$1
+  shift
+  docker compose "${COMPOSE_ARGS[@]}" exec -T "$svc" "$@"
+}
+
+peer_state() { # service neighbor-ip → Established|other|ABSENT|FAIL
+  local svc=$1 ip=$2 raw rc=0 st
+  raw=$(compose_exec "$svc" vtysh -c 'show bgp summary json') || rc=$?
+  if [ "$rc" -ne 0 ] || [ -z "$raw" ]; then
+    printf 'FAIL'
+    return
+  fi
+  st=$(printf '%s' "$raw" | python3 -c '
+import json, sys
+ip = sys.argv[1]
+try:
+    data = json.loads(sys.stdin.read())
+except json.JSONDecodeError:
+    print("FAIL")
+    raise SystemExit
+peers = {}
+def walk(o):
+    if isinstance(o, dict):
+        if "peers" in o and isinstance(o["peers"], dict):
+            peers.update(o["peers"])
+        for v in o.values():
+            walk(v)
+walk(data)
+p = peers.get(ip)
+if p is None:
+    print("ABSENT")
+    raise SystemExit
+for k in ("state", "peerState", "bgpState"):
+    v = p.get(k)
+    if isinstance(v, str) and v:
+        print(v)
+        raise SystemExit
+print("ABSENT")
+' "$ip") || st=FAIL
+  printf '%s' "${st:-FAIL}"
+}
+
+echo "== project $PROJECT — show bgp summary"
+echo
+echo "---- edge ----"
+compose_exec edge vtysh -c 'show bgp summary' || echo "vtysh failed on edge"
+echo
+echo "---- spine ----"
+compose_exec spine vtysh -c 'show bgp summary' || echo "vtysh failed on spine"
+echo
+echo "---- leaf1 ----"
+compose_exec leaf1 vtysh -c 'show bgp summary' || echo "vtysh failed on leaf1"
+echo
+echo "---- leaf2 ----"
+compose_exec leaf2 vtysh -c 'show bgp summary' || echo "vtysh failed on leaf2"
+echo
+echo "== spine show ip bgp"
+compose_exec spine vtysh -c 'show ip bgp' || echo "vtysh failed on spine"
+echo
+
+e_s=$(peer_state edge 10.200.1.18)
+s_e=$(peer_state spine 10.200.1.19)
+s_l1=$(peer_state spine 10.200.1.2)
+s_l2=$(peer_state spine 10.200.1.10)
+l1_s=$(peer_state leaf1 10.200.1.3)
+l2_s=$(peer_state leaf2 10.200.1.11)
+
+cat <<EOF
+== topology (session state from show bgp summary json)
+
+  client0 10.200.100.10
+      |
+      | wan 10.200.100.0/24
+      v
+   edge  AS65000  lo 10.200.255.1
+      |  edge→spine $e_s / spine→edge $s_e
+      |  10.200.1.16/29
+      v
+   spine AS65100  lo 10.200.255.2
+     / \\
+    /   \\
+   |     |
+   | spine→leaf1 $s_l1 / leaf1→spine $l1_s
+   | 10.200.1.0/29
+   v
+ leaf1 AS65101  lo 10.200.255.11     leaf2 AS65102  lo 10.200.255.12
+                                    spine→leaf2 $s_l2 / leaf2→spine $l2_s
+                                    10.200.1.8/29
+EOF

@@ -230,6 +230,14 @@ Three things to read off that output, because they are the design:
    | `172.18.255.0/26` | shared VIPs | `.16–.31` (`shared-vip-pool`, selector `owning-gateway In [shop-vip-gw]`) | — | `cilium/lb-ippool-shared.yaml` |
    | `172.18.255.0/26` | node-held reservation | `.40–.47` (never a pool; secondary addresses on gateway nodes, not LB IPAM) | — | — |
 
+   Network-devices blocks (outside `--ip-range`, below the VIP `/24`) — the
+   BGP fabric's leaves (demo 46). Docker never allocates from here:
+
+   | Block | Network | What | Addresses |
+   |---|---|---|---|
+   | `172.18.254.0/24` | `kind` | fabric leaves (Cilium overlay) | leaf1 `.11`, leaf2 `.12` |
+   | `172.19.254.0/24` | `kind-eg` | fabric leaves (Envoy overlay) | leaf1 `.11`, leaf2 `.12` |
+
    The CI lab creates the docker network with `--ip-range 172.18.0.0/17` (`scripts/lab-up.sh`), so
    Docker can never allocate a container address in the top half at all. This is the enterprise
    shape: one VIP VLAN, a block per cluster, DNS pointing into each block.

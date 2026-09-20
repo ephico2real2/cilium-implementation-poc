@@ -1,6 +1,6 @@
 # Enhancement 006 — the BGP tutorial: a four-router company fabric in docker compose, an external router peering with Cilium, and the live dashboard running in Kubernetes
 
-Status: **plan, revision 1 — nothing built** — tracking issue [#52](https://github.com/ephico2real2/cilium-implementation-poc/issues/52) (2026-09-18). Written from the operator's brief, a full read of
+Status: **plan, revision 1 + §9 — demo 46 fabric (phase 1) written** — tracking issue [#52](https://github.com/ephico2real2/cilium-implementation-poc/issues/52) (2026-09-18). Written from the operator's brief, a full read of
 [vadaszgergo/bgp-lab-with-dashboard](https://github.com/vadaszgergo/bgp-lab-with-dashboard) (cloned to
 `~/gitRepos/bgp-lab-with-dashboard`, commit `aaaaac1`) and its blog post
 [Make BGP visible: a live topology dashboard with Containerlab](https://gergovadasz.hu/make-bgp-visible-a-live-topology-dashboard-with-containerlab/),
@@ -289,3 +289,120 @@ and the platform team only fills in the `CiliumBGP*` objects from it. The lab's 
 
 The reading for a learner: rows 1–3 are *who may talk to whom*, 4–6 are *what they may say*, 7 is *how fast we notice
 when they stop*, 8–9 are *how packets get back*. None of it is Kubernetes; all of it must exist first.
+
+## 9. The fabric as a lab of its own, attachable to any cluster lab (2026-09-20)
+
+The operator, 2026-09-20: *"The bgp with metallb and kube-vip will be awesome as separate clusters and envoy in both"*,
+then *"the bgp setup itself as its own lab and we will use it elsewhere in the other labs."* This section is that
+re-cut. Nothing above is withdrawn — the Cilium side (phases 2–4, demos 47–49) stays as planned; what changes is that
+**the fabric is built first as a standalone lab (demo 46) that any cluster lab attaches to**, and the first two labs to
+attach are the Envoy Gateway one-cluster labs: `eg-poc1` with kube-vip in BGP mode (demo 56) and `eg-poc2` with MetalLB
+in FRR-K8s BGP mode (demo 57), Envoy Gateway doors in both.
+
+### 9.0 The picture — the fabric with the two Envoy Gateway clusters attached
+
+```mermaid
+flowchart LR
+  subgraph mac["MacBook (outside everything)"]
+    macclient["curl / grpcurl / browser\nroute 10.98.0.0/24 → 192.168.64.2 (optional, D18)"]
+  end
+
+  subgraph vm["Docker VM 192.168.64.2"]
+    vmroute["VM route 10.98.0.0/24 via leaf1 172.19.254.11\n(fabric-vm-route.sh --apply, nsenter)"]
+
+    subgraph fabric["docker compose: the company fabric (demo 46)"]
+      direction TB
+      client0["client0 — the outside world\nwan 10.200.100.10, default via edge"]
+      edge["edge  AS 65000\nlo 10.200.255.1\noriginates 10.200.100.0/24"]
+      spine["spine  AS 65100\nlo 10.200.255.2\nmultipath-relax, maximum-paths 8 (ECMP)"]
+      leaf1["leaf1  AS 65101 (ToR)\nlo 10.200.255.11\nkind-eg 172.19.254.11\nlisten range 172.19.0.0/17"]
+      leaf2["leaf2  AS 65102 (ToR)\nlo 10.200.255.12\nkind-eg 172.19.254.12\nlisten range 172.19.0.0/17"]
+      client0 ---|"wan 10.200.100.0/24"| edge
+      edge ---|"10.200.1.16/29"| spine
+      spine ---|"10.200.1.0/29"| leaf1
+      spine ---|"10.200.1.8/29"| leaf2
+    end
+
+    subgraph lan["docker network kind-eg 172.19.0.0/16 — the node LAN (unchanged; leaves attached by the overlay)"]
+      direction TB
+      subgraph poc1["eg-poc1 — AS 65021 — kube-vip in BGP mode (demo 56)"]
+        p1a["eg-poc1-control-plane 172.19.0.2"]
+        p1b["eg-poc1-worker 172.19.0.3"]
+        d1["Envoy doors on 10.98.0.0/26\nbgp-http-gw 10.98.0.10 · bgp-grpc-gw 10.98.0.11\n(L2 doors .100/.101 from demo 54 stay)"]
+      end
+      subgraph poc2["eg-poc2 — AS 65022 — MetalLB FRR-K8s BGP (demo 57)"]
+        p2a["eg-poc2-control-plane 172.19.0.4"]
+        p2b["eg-poc2-worker 172.19.0.5"]
+        d2["Envoy doors on 10.98.0.64/26\nbgp-http-gw 10.98.0.74 · bgp-grpc-gw 10.98.0.75\n(L2 doors .150/.151 from demo 52 stay)"]
+      end
+    end
+  end
+
+  leaf1 -.eBGP, MD5, TTL 1.- p1a
+  leaf1 -.eBGP.- p1b
+  leaf2 -.eBGP.- p1a
+  leaf2 -.eBGP.- p1b
+  leaf1 -.eBGP.- p2a
+  leaf1 -.eBGP.- p2b
+  leaf2 -.eBGP.- p2a
+  leaf2 -.eBGP.- p2b
+
+  client0 ==>|"10.98.0.10: edge → spine → leaf1 or leaf2 (ECMP) → a node → Envoy"| d1
+  client0 ==>|"10.98.0.74: the same path, leaf → the node MetalLB advertises from"| d2
+  macclient --> vmroute --> leaf1
+```
+
+Solid lines are docker networks (one bridge per fabric link; the `kind-eg` bridge for the node LAN); dotted lines are
+BGP sessions (every node dials both leaves — the listen range accepts them; nothing per node is configured on the
+routers); the double arrows are the requests the two demos measure. The routed blocks (`10.98.0.0/24`) exist only in
+BGP: no bridge has them, no node interface carries them, which is why the Mac needs the VM route and `client0` does not.
+
+**What each cluster announces, and who answers:** with kube-vip in BGP mode **every** node of `eg-poc1` announces the
+door's `/32` (no leader election), so the spine holds two paths and spreads flows (ECMP) — demo 54's "one node answers
+ARP" becomes "two nodes answer BGP"; with MetalLB the nodes that announce are the ones its `ServiceBGPStatus` names,
+all of them under `externalTrafficPolicy: Cluster`, only the ones with the Envoy pod under `Local`.
+
+### 9.1 What "attachable" means
+
+The fabric (`demos/46-bgp-fabric/fabric/compose.yaml`) is edge, spine, leaf1, leaf2 and `client0` on their own docker
+bridges — it does not know any cluster. A cluster lab attaches by **one compose overlay** that puts the two leaves on
+that lab's node LAN at that LAN's network-devices block and sets the leaves' `bgp listen range` to that LAN's node half:
+
+| Overlay | Node LAN | Leaves | Listen range | Cluster ASNs | Routed VIP block |
+|---|---|---|---|---|---|
+| `compose.lan-eg.yaml` (demos 56, 57) | `kind-eg` `172.19.0.0/16` | `172.19.254.11` / `.12` (the block §3.1 of enhancement 007 reserved for "network devices") | `172.19.0.0/17` | eg-poc1 **65021**, eg-poc2 **65022** | **`10.98.0.0/24`** → eg-poc1 `10.98.0.0/26`, eg-poc2 `10.98.0.64/26`, reserved `.128/26`, anycast `.192/26` |
+| `compose.lan-cilium.yaml` (demos 47–49) | `kind` `172.18.0.0/16` | `172.18.254.11` / `.12` (§3.1 above) | `172.18.0.0/17` | poc1 65001, poc2 65002 | `10.99.0.0/24` (§3.1) |
+
+Both overlays may be applied together (a leaf with two server-facing interfaces — a ToR with two server VLANs). The
+listen range is the whole of the network team's pre-work for *who may dial*: a new cluster on the LAN peers without
+any per-node router configuration, and the prefix-list per cluster ASN is *what it may say*.
+
+### 9.2 What the two Envoy Gateway demos prove
+
+- **Demo 56 — kube-vip in BGP mode on `eg-poc1`.** kube-vip's docs: *"When using BGP without leader election … all
+  nodes announce the VIP and usually an upstream router distributes traffic via ECMP"* — the opposite of its L2 mode's
+  one-announcer-per-address (demo 54). `bgp_enable=true`, `bgp_as=65021`, `bgp_peers=172.19.254.11:65101:<pass>:false,
+  172.19.254.12:65102:<pass>:false`, `vip_arp=false`, still class-only; the cloud-provider unchanged with a new range
+  from `10.98.0.0/26`. Two new doors beside demo 54's L2 doors — `bgp-http-gw` `10.98.0.10`, `bgp-grpc-gw` `10.98.0.11`
+  — so one cluster shows both announcement modes side by side. Measured: both nodes' sessions Established on both
+  leaves, the `/32` with two paths on the spine (ECMP), `client0` reaching the doors through edge → spine → leaf → node,
+  the Mac through the VM route, and one failure: a node paused → the route withdrawn on the leaves, the door still
+  answering through the other node.
+- **Demo 57 — MetalLB in FRR-K8s BGP mode on `eg-poc2`.** `frrk8s.enabled=true` (the chart's default, off in demo 52),
+  `BGPPeer` × 2 (leaf1 65101, leaf2 65102, `myASN 65022`, password from a Secret), an `IPAddressPool` from
+  `10.98.0.64/26` with a `BGPAdvertisement` (aggregation length 32), doors `bgp-http-gw` `10.98.0.74` and `bgp-grpc-gw`
+  `.75`; MetalLB's own `ServiceBGPStatus` naming the advertising nodes; the same measurements as 56, plus the
+  `externalTrafficPolicy` effect (Local: only nodes with the Envoy pod advertise; Cluster: every node) — the BGP-mode
+  counterpart of demo 52's `nodesWithEndpoint`.
+- Both demos keep the gRPC matrix from demo 52 pointed at the BGP door, run from `client0` (the outside world) and from
+  the Mac.
+
+### 9.3 Decisions added
+
+| # | Decision | Status |
+|---|---|---|
+| D15 | The fabric is a standalone lab (demo 46: compose, FRR configs, `fabric-up/down/status.sh`, the network-team sheet filled for both LANs); cluster labs attach by overlay, never by editing the fabric | **Taken** (the operator's instruction) |
+| D16 | FRR image `quay.io/frrouting/frr:10.5.3` — the tag MetalLB 0.16.0's chart pins for its own FRR (measured in `helm show values`); no lab image in phase 1 | **Taken**; the `frr-agent` image (D8) arrives with the dashboard |
+| D17 | The dashboard (D8/D9) is phase 2 of the fabric lab; phase 1 reads the routers with `vtysh` through `docker exec` and records `show bgp summary json` / `show ip bgp` — enough for the two Envoy demos | **Taken** |
+| D18 | The Mac path is optional and two lines: the VM route through a privileged `nsenter` (`fabric-vm-route.sh --apply`, measured: the VM's table is reachable, `172.19.0.0/16 dev br-…`), the Mac route printed for the operator (`sudo`, never run by a script). `client0` is the recorded outside-world client | **Taken** |
+| D19 | Demo numbers: 46 the fabric (as §4), 56/57 the Envoy Gateway attachments, 47–49 stay the Cilium attachment | **Taken** |
