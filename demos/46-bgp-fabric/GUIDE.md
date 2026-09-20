@@ -1,7 +1,8 @@
-# Demo 46 — five things to try
+# Demo 46 — six things to try
 
-Five exercises against the fabric once it is up; nothing here changes
-the routers except reading them.
+Six exercises against the fabric once it is up. Exercises 1–5 only
+read. Exercise 6 clears the spine's sessions; they return on their
+own.
 
 ## Prerequisites
 
@@ -10,10 +11,10 @@ the routers except reading them.
 
 ## Exercises
 
-### 1. Print the phase-1 dashboard
+### 1. Print the status table
 
 The status script is the four summaries plus a text topology with the
-session states (D17).
+session states, then the dashboard one-liner.
 
 ```bash
 scripts/fabric-status.sh
@@ -23,13 +24,19 @@ scripts/fabric-status.sh
 
 ```text
 Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
-10.200.1.18     4      65100         8         9        5    0    0 00:00:03            3        5 spine
+10.200.1.18     4      65100        10         9        7    0    0 00:00:06            5        5 spine
 Total number of neighbors 1
 Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
-10.200.1.2      4      65101         8         8        5    0    0 00:00:04            1        5 leaf1
-10.200.1.10     4      65102         8         8        5    0    0 00:00:04            1        5 leaf2
-10.200.1.19     4      65000         8         8        5    0    0 00:00:04            2        5 edge
+10.200.1.2      4      65101        10        10        9    0    0 00:00:07            3        7 leaf1
+10.200.1.10     4      65102        10        11        9    0    0 00:00:06            3        7 leaf2
+10.200.1.19     4      65000         9        11        9    0    0 00:00:06            2        7 edge
 Total number of neighbors 3
+```
+
+The same apply's dashboard line:
+
+```text
+routers=4/4 sessions=6/6 external=2
 ```
 
 ### 2. Traceroute from the outside world
@@ -47,14 +54,15 @@ docker compose -p bgp-fabric \
 
 ```text
 traceroute to 10.200.255.11 (10.200.255.11), 30 hops max, 46 byte packets
- 1  10.200.100.2  0.007 ms  0.002 ms  0.006 ms
- 2  10.200.1.18  0.002 ms  0.000 ms  0.002 ms
- 3  10.200.255.11  0.002 ms  0.001 ms  0.001 ms
+ 1  10.200.100.2  0.009 ms  0.005 ms  0.003 ms
+ 2  10.200.1.18  0.002 ms  0.004 ms  0.004 ms
+ 3  10.200.255.11  0.001 ms  0.004 ms  0.002 ms
 ```
 
 ### 3. Read the SERVERS peer-group
 
-The listen ranges are who may dial; 0 peers until a cluster attaches.
+The listen ranges are who may dial; this apply already has kube-vip
+members.
 
 ```bash
 docker compose -p bgp-fabric \
@@ -63,10 +71,8 @@ docker compose -p bgp-fabric \
   exec -T leaf1 vtysh -c 'show bgp peer-group SERVERS'
 ```
 
-**Expect:** the recorded group (2 listen ranges, no members, no
-`ttl-security`).
-
-Recorded (second apply):
+**Expect:** the recorded group (2 listen ranges, members Established,
+no `ttl-security`).
 
 ```text
 BGP peer-group SERVERS, remote AS 0
@@ -75,6 +81,9 @@ BGP peer-group SERVERS, remote AS 0
   2 IPv4 listen range(s)
     172.19.0.0/17
     172.18.0.0/17
+  Peer-group members:
+    172.19.0.2 (dynamic) Established
+    172.19.0.3 (dynamic) Established
 ```
 
 ### 4. Read what a cluster may announce
@@ -90,8 +99,6 @@ docker compose -p bgp-fabric \
 ```
 
 **Expect:** the recorded lists.
-
-Recorded (second apply):
 
 ```text
 BGP: ip prefix-list CILIUM-ANYCAST-VIPS: 1 entries
@@ -120,9 +127,8 @@ BGP: ip prefix-list EG-VIPS: 1 entries
 demos/46-bgp-fabric/check.sh
 ```
 
-**Expect:** 12 PASS, 1 WARN, `demo 46 check: 0 FAIL`.
-
-Recorded (second apply):
+**Expect:** 16 rows, 15 PASS, 1 WARN, `demo 46 check: 0 FAIL`. Row 16
+probes all four management addresses (`client0_rc=28,28,28,28`).
 
 ```text
   PASS   four routers running                                                   running=4/4                                          R1 — edge spine leaf1 leaf2 running
@@ -137,8 +143,32 @@ Recorded (second apply):
   PASS   per-cluster VIP prefix-lists                                           EG/CILIUM POC1/POC2/ANYCAST ge 32 le 32              R8 — prefix-list + as-path per cluster
   PASS   leaves on kind-eg 172.19.254.11/.12                                    leaf1=172.19.254.11 leaf2=172.19.254.12              §9.1 — 172.19.254.11/.12
   PASS   RFC 8212 in effect                                                     traditional profile, ebgp-requires-policy on         §8 row 5 — traditional defaults, explicit route-maps
-  WARN   TCP MD5 in effect on the leaves                                        leaf1:TCP_MD5SIG-refused=5 leaf2:TCP_MD5SIG-refused=5  §8 row 3 — no CONFIG_TCP_MD5SIG here: sessions run unsigned
+  WARN   TCP MD5 in effect on the leaves                                        leaf1:TCP_MD5SIG-refused=9 leaf2:TCP_MD5SIG-refused=9  §8 row 3 — no CONFIG_TCP_MD5SIG here: sessions run unsigned
+  PASS   dashboard reachable, 4/4 routers polled                                routers=4/4 sessions=6/6 external=2                  D8 — /api/state from 127.0.0.1:8088
+  PASS   dashboard sessions agree with vtysh                                    6/6 = 6/6                                            D17 — state Established matches fabric-bgp-summary
+  PASS   agent on mgmt only, show-only                                          no ports; ;reboot=404 summary=200; client0_rc=28,28,28,28 D8 — agent on 10.200.200.0/24, show-only
 demo 46 check: 0 FAIL
+```
+
+### 6. Open the dashboard and clear the spine (changes state)
+
+The page is at `http://127.0.0.1:8088/`. Then clear the spine; the
+sessions return on their own.
+
+```bash
+docker compose -p bgp-fabric \
+  -f demos/46-bgp-fabric/fabric/compose.yaml \
+  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  exec -T spine vtysh -c 'clear bgp *'
+```
+
+**Expect:** the dashboard shows the drop, then the sessions come back.
+The 1.49 s is the loop's notice; the event window is 2.002 s.
+
+```text
+dashboard showed the drop after 1.49 s
+dashboard confirmed recovery after 0.67 s (polled after the screenshots)
+spine recovery: first Idle 2026-09-20T19:29:23.904Z last Established 2026-09-20T19:29:25.906Z recovered=yes window=2.002 s
 ```
 
 ## Clean up

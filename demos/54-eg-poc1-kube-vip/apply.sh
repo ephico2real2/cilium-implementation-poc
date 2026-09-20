@@ -369,56 +369,8 @@ unset -f mac_http mac_https mac_orders mac_grpc mac_isolation
 
 # ---- 9. THE BROWSER ----
 echo "== 9. THE BROWSER (headless Chrome, no /etc/hosts)"
-browser_shot() {
-  if [ ! -x "$CHROME" ]; then
-    echo "Chrome is absent at $CHROME — skipping screenshot"
-    return 0
-  fi
-  local shot="$PWD/$HERE/output/browser.png" profile rc=0 pid i waited="" size1 size2
-  # Measured 2026-09-19: Chrome 153 writes the PNG (1.40 s) and then hangs in a
-  # network-service crash loop instead of exiting (gotcha #121). The PNG on disk is
-  # the result, so the wait is FOR THE FILE — polled every 0.2 s, 60 s ceiling — and
-  # Chrome is killed the moment the file exists (rc 143 expected). A throwaway
-  # profile, --no-first-run. Never claim a write that did not happen.
-  profile=$(mktemp -d)
-  rm -f "$shot"
-  echo "$CHROME --headless=new --disable-gpu --no-first-run --window-size=1000,500 --user-data-dir=<tmp> --host-resolver-rules=\"MAP ${HTTP_HOST} ${HTTP_ADDR}\" --screenshot=$shot http://${HTTP_HOST}/orders"
-  "$CHROME" --headless=new --disable-gpu --no-first-run --window-size=1000,500 \
-    --user-data-dir="$profile" \
-    --host-resolver-rules="MAP ${HTTP_HOST} ${HTTP_ADDR}" \
-    --screenshot="$shot" \
-    "http://${HTTP_HOST}/orders" >/dev/null 2>&1 &
-  pid=$!
-  for i in $(seq 1 300); do
-    # a non-empty file is not a finished file: require the size to hold for one
-    # more poll before Chrome is killed, or a half-written PNG would pass `-s`
-    if [ -s "$shot" ]; then
-      size1=$(stat -f %z "$shot" 2>/dev/null || stat -c %s "$shot")
-      sleep 0.2
-      size2=$(stat -f %z "$shot" 2>/dev/null || stat -c %s "$shot")
-      if [ "$size1" = "$size2" ]; then
-        waited=$(awk -v n="$i" 'BEGIN{printf "%.1f", (n+1)*0.2}')
-        break
-      fi
-    fi
-    if ! kill -0 "$pid" 2>/dev/null; then
-      break
-    fi
-    sleep 0.2
-  done
-  if kill -0 "$pid" 2>/dev/null; then
-    kill "$pid" 2>/dev/null || true
-  fi
-  wait "$pid" 2>/dev/null || rc=$?
-  rm -rf "$profile"
-  if [ -s "$shot" ]; then
-    echo "screenshot written after ${waited:-<0.2} s; chrome_rc=$rc"
-    file "$HERE/output/browser.png"
-  else
-    # recorded, not fatal: apply records what happened, check.sh judges it
-    echo "no screenshot written within 60 s"
-  fi
-}
+# shellcheck disable=SC1091
+. demos/shared/browser-shot.sh
 export -f browser_shot
 export CHROME HERE HTTP_HOST HTTP_ADDR
 rec bash -c browser_shot

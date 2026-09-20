@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# fabric-status.sh — phase-1 dashboard (D17): four `show bgp summary`
-# tables, `show ip bgp` on spine, and a text topology with session states.
+# fabric-status.sh — four `show bgp summary` tables, `show ip bgp` on
+# spine, a text topology with session states, and the dashboard one-liner.
 # Linux-runner safe. Reads running containers; does not start them.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -98,6 +98,13 @@ cat <<EOF
                                     spine→leaf2 $s_l2 / leaf2→spine $l2_s
                                     10.200.1.8/29
 EOF
+
+echo
+if dash=$(curl -fsS --max-time 2 http://127.0.0.1:8088/api/state 2>/dev/null | python3 scripts/fabric-dashboard-state.py); then
+  echo "== dashboard $dash"
+else
+  echo "== dashboard ${dash:-unreachable}"
+fi
 
 for state in "$e_s" "$s_e" "$s_l1" "$s_l2" "$l1_s" "$l2_s"; do
   if [ "$state" != Established ]; then

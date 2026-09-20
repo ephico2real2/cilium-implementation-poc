@@ -132,9 +132,10 @@ clusters: the leaves are two more containers on it, with fixed addresses in a bl
 | Item | Value | Why here |
 |---|---|---|
 | Company supernet (everything the fabric owns) | **`10.200.0.0/16`** | one prefix → one static route on every kind node; free (*measured*: no `10.200.` anywhere in the repo; pods `10.10/10.20/10.30/10.40`, services `10.11/10.21/10.31/10.41`) |
-| Router loopbacks / router-ids | edge `10.200.255.1`, spine `.2`, leaf1 `.11`, leaf2 `.12` (`/32` on `lo`) | reachable over the fabric; the dashboard's agent addresses |
+| Router loopbacks / router-ids | edge `10.200.255.1`, spine `.2`, leaf1 `.11`, leaf2 `.12` (`/32` on `lo`) | reachable over the fabric; client0 pings them; they are BGP's, not the agent's |
 | Fabric links (docker bridges, `/29`; Docker keeps `.1/.9/.17`) | leaf1–spine `10.200.1.0/29` (leaf1 `.2`, spine `.3`); leaf2–spine `10.200.1.8/29` (`.10`, `.11`); spine–edge `10.200.1.16/29` (`.18`, `.19`) | the "point-to-point" links |
 | The outside world (behind the edge) | `wan` `10.200.100.0/24`: edge `.2`, `client0` `.10` (default route → `.2`) | the client that is not on the node LAN |
+| Out-of-band management LAN | `mgmt` `10.200.200.0/24`: edge `.1`, spine `.2`, leaf1 `.11`, leaf2 `.12`, dashboard `.100` | not in BGP; the NMS reaches routers on their management interfaces |
 | Node LAN (exists) | `kind` `172.18.0.0/16`, Docker allocates from `172.18.0.0/17` only | `scripts/lab-up.sh`, `NETWORKING_DESIGN.md` §3 |
 | **New: network-devices block on the node LAN** | **`172.18.254.0/24`**: leaf1 `.11`, leaf2 `.12` (static, compose `ipv4_address`) | outside `--ip-range`, below the VIP `/24`; to be added to `NETWORKING_DESIGN.md` §3 and `cilium/lb-ippool-poc1.yaml`'s header table |
 | **Routed VIP block (BGP-advertised, off-LAN)** | **`10.99.0.0/24`** → poc1 `10.99.0.0/26`, poc2 `10.99.0.64/26`, reserved `10.99.0.128/26`, anycast/shared `10.99.0.192/26` | the parked plan's block, subdivided per cluster like the L2 `/24` (gotcha #94's lesson, once more) |
@@ -145,8 +146,8 @@ clusters: the leaves are two more containers on it, with fixed addresses in a bl
 
 ### 3.2 The fabric in docker compose (`demos/46-bgp-fabric/fabric/`)
 
-- `compose.yaml`: networks `kind` (`external: true`), `link-leaf1-spine`, `link-leaf2-spine`, `link-spine-edge`, `wan`
-  (each with `ipam.config.subnet`); services `edge`, `spine`, `leaf1`, `leaf2` from the lab's `frr-agent` image (§3.3),
+- `compose.yaml`: networks `kind` (`external: true`), `link-leaf1-spine`, `link-leaf2-spine`, `link-spine-edge`, `wan`,
+  `mgmt` `10.200.200.0/24` (each with `ipam.config.subnet`); services `edge`, `spine`, `leaf1`, `leaf2` from the lab's `frr-agent` image (§3.3),
   `cap_add: [NET_ADMIN, NET_RAW, SYS_ADMIN]` rather than `privileged` (phase 0 measures which are needed),
   `sysctls: {net.ipv4.ip_forward: 1, net.ipv4.fib_multipath_hash_policy: 1}`, `ipv4_address` per network,
   `interface_name` where the config names an interface, `/etc/frr/frr.conf` + `daemons` bind-mounted read-only from
@@ -170,17 +171,20 @@ clusters: the leaves are two more containers on it, with fixed addresses in a bl
   `ip route add 10.99.0.0/24 via 172.18.254.11` (the parked plan's `nsenter` line), on the Mac
   `sudo route -n add -net 10.99.0.0/24 192.168.64.2`.
 
-### 3.3 The dashboard in Kubernetes (`demos/46-bgp-fabric/dashboard/`)
+### 3.3 The dashboard in the fabric (`demos/46-bgp-fabric/dashboard/`)
+
+Operator, 2026-09-20: the fabric is the network team's gear; a dashboard
+belongs beside the routers, not in a tenant cluster. R7's Kubernetes
+deployment stays optional later.
 
 | Piece | The source did | Here |
 |---|---|---|
-| Router data | `docker exec <router> vtysh -c "show … json"` via the Docker socket (`poller.py:80-105`) | **`frr-agent`**: the pinned FRR image plus a small Go binary that serves `GET /show/<command>` by running `vtysh -c "show <command> json"` — `show` only (allow-listed), JSON only, bound to the router's addresses, **no port published to the host**; started by a wrapper `CMD` that backgrounds the agent and `exec`s `/usr/lib/frr/docker-start` under the image's `tini`. The dashboard calls `http://10.200.255.{1,2,11,12}:8080/…` **over the fabric** (the node route of §3.2 is what makes that reachable). Alternative kept in the decision log: a sidecar sharing the netns and `/var/run/frr` |
-| Cilium data | none (Cilium was not a node) | the Kubernetes API: `ciliumbgpnodeconfigs` (`status.bgpInstances[].peers[]`: `peeringState`, `establishedTime`, `routeCount`, applied timers), `ciliumbgpclusterconfigs`, `nodes` — a ServiceAccount with a read-only ClusterRole (`get/list/watch`). Poll → diff → the same `session` events as for routers |
-| Inventory | the clab YAML + regex on `frr.conf` (`poller.py:28-45`) | a ConfigMap `topology.yaml`: routers (name, ASN, agent URL, role), the local cluster (ASN, context name) — and the leaves' dynamic neighbours discovered from `show bgp summary json` for anything not in the file (poc2's nodes in phase 4) |
-| Graph | Cytoscape 3.30.4 from unpkg; edges keyed by `remoteAs → node` | Cytoscape **vendored** into the image (the lab runs offline-safe; the CDN is a dependency the source's README does not mention); edges keyed by **peer address ↔ node**; roles from the ConfigMap, not a name regex |
-| Transport to the browser | WebSocket `/ws`, snapshot + `state` + `event` messages (`main.py:66-89`) | the same protocol shape; served as `bgp.poc.local` by an `HTTPRoute` on the shared `routes-gw` (demo 37's attachment model; the wildcard certificate and `scripts/hosts-entries.sh` already exist) |
-| Policy | none | a `CiliumNetworkPolicy` generated from its flows (enhancement 001's loop): egress `toCIDR 10.200.255.0/24` port 8080, the API server, DNS; ingress from `reserved:ingress` only |
-| Licence | none (`license: null`) | a **clean-room implementation of the idea** in Go (the lab's language for `shopapi` / `shopctl`), the blog credited in the demo README; an issue on the author's repo asking for a licence goes out **only with the operator's word** (memory: upstream posts gate) — §5 D9 |
+| Router data | `docker exec <router> vtysh -c "show … json"` via the Docker socket (`poller.py:80-105`) | **`frr-agent`**: the pinned FRR image plus a small Go binary that serves `GET /show/{name}` from a fixed allow-list (`show bgp summary json` and siblings) — **nothing from the URL reaches the command line**. Bound to the out-of-band management LAN (`FRR_AGENT_ADDR=10.200.200.{1,2,11,12}:8080`); **no port published on any router**. Started by `fabric-router-start` (agent as uid 100, then the mounted entrypoint). The dashboard calls those URLs on `mgmt`, not through the traffic the routers route. No Docker socket |
+| Placement | a fifth clab node with `/var/run/docker.sock`, port `8088:8080` | a fifth **compose** service `dashboard` on `mgmt` `10.200.200.100` only (no `wan`, no `NET_ADMIN`), published **`127.0.0.1:8088:8080`** for the Mac browser. Image `bgp-dashboard:local`. Measured 2026-09-20 13:32Z: over the data plane the dashboard lost spine and both leaves for 3 s (`13:32:16.7` → `13:32:19.7`) during `clear bgp *` on the spine and recorded only the edge's session |
+| Cluster nodes | none (the source keys one node per ASN) | dynamic neighbours of the leaves (`bgp listen range`) appear as **external** nodes, keyed by **peer address**, never by ASN (kube-vip AS 65021, MetalLB 65022, later Cilium 65001/65002 — many nodes share an AS) |
+| Graph | Cytoscape 3.30.4 from unpkg; edges keyed by `remoteAs → node` | Cytoscape **3.34.3 vendored** (MIT; sha in `static/vendor/VERSIONS`); edges keyed by peer address; two routers that see each other share one edge (worse state wins) |
+| Transport to the browser | WebSocket `/ws`, snapshot + `state` + `event` messages | the same protocol shape, served on `127.0.0.1:8088`; `/api/state`, `/api/events?since=`, `/healthz` (200 once every router has answered) |
+| Licence | none (`license: null`) | a **clean-room implementation of the idea** in Go; the blog credited in `dashboard/README.md` — §5 D9 |
 
 ### 3.4 The learner's story (what demo 46 → 49 show, in order)
 
@@ -227,8 +231,8 @@ every PR (`docs/REVIEW_ENH-006.md`); the changelog skill per session. Demos 42�
 | D5 | **The leaves listen (`bgp listen range 172.18.0.0/17`), the nodes dial**; MD5 on the peer-group; RFC 8212 policy **on** with an explicit `CILIUM-IN` route-map | **Taken.** Node addresses never enter router config (they reshuffle); the agent stays active-mode with no new capability; the policy is the network team's artefact (§8), enforced and measured (demo 49's negative) |
 | D6 | **Static route on every node to `10.200.0.0/16` via both leaves**, applied by a script, default route untouched | **Taken.** Cilium does not import routes (Cilium's own lab writes the same static routes); the default route must stay on the Docker bridge for pulls; a specific route is the honest equivalent of "the ToR is the server's gateway" |
 | D7 | **Leaves on the `kind` network at `172.18.254.11/.12`**, a new "network devices" block outside `--ip-range` | **Taken.** Docker's documented way to guarantee a static address; replaces the `172.18.0.250` habit (inside Docker's dynamic range). Proposed as a new row of `NETWORKING_DESIGN.md` §3 — enhancement 002's external receiver could move to `172.18.254.100` when it is built (**OPEN**, theirs to decide) |
-| D8 | **The dashboard reads routers through a read-only `show`-only HTTP agent baked into the FRR image**, over the fabric, and Cilium through `CiliumBGPNodeConfig.status` | **Taken.** A Kubernetes pod cannot and must not hold the Docker socket (the source's own warning); `status` is the documented monitoring surface. Alternative recorded: FRR's telnet VTY on TCP 2605 (`-A 0.0.0.0`, a `line vty` password) — rejected: a clear-text config channel where a read-only one will do |
-| D9 | **Clean-room re-implementation of the dashboard idea** (Go backend, vendored Cytoscape), the blog credited | **Taken as the default — OPEN for the operator:** the source has **no licence**, so copying or adapting its code is not permitted by default. Options: (a) write ours from the concept (~450 lines in the source; a day), (b) ask the author to add a licence and then fork — the ask itself is an upstream post and waits for the operator's word. (a) is the plan; (b) can run in parallel |
+| D8 | **The dashboard reads routers through a read-only `show`-only HTTP agent baked into the FRR image**, over the **out-of-band management network** `10.200.200.0/24`, measured 2026-09-20: over the data plane the dashboard lost spine and both leaves for 3 s during `clear bgp *` on the spine and recorded only the edge's side, and Cilium through `CiliumBGPNodeConfig.status` | **Taken.** A Kubernetes pod cannot and must not hold the Docker socket (the source's own warning); `status` is the documented monitoring surface. Alternative recorded: FRR's telnet VTY on TCP 2605 (`-A 0.0.0.0`, a `line vty` password) — rejected: a clear-text config channel where a read-only one will do. **Placement (2026-09-20, operator):** the dashboard is a fifth compose service in the fabric, published `127.0.0.1:8088` — the fabric is the network team's gear; a dashboard belongs beside the routers, not in a tenant cluster. The Kubernetes deployment of R7 becomes optional later |
+| D9 | **Clean-room re-implementation of the dashboard idea** (Go backend, vendored Cytoscape), the blog credited | **Taken — clean room, credited.** The source has **no licence**; we took the idea and wrote our own (Go, `github.com/coder/websocket`, Cytoscape 3.34.3 vendored). The blog is credited in `demos/46-bgp-fabric/dashboard/README.md`. Asking the author for a licence remains an upstream post and still waits for the operator's word The source was forked to [ephico2real2/bgp-lab-with-dashboard](https://github.com/ephico2real2/bgp-lab-with-dashboard) on 2026-09-20 (the operator's instruction) and reviewed for enhancement — 18 issues on the fork, the record in [docs/REVIEW_BGP_DASHBOARD_SOURCE.md](../docs/REVIEW_BGP_DASHBOARD_SOURCE.md) |
 | D10 | **Timers 9/3/5 and graceful restart 15 s** on the Cilium side; both GR states and both timer sets measured | **Taken.** The docs recommend them; the tutorial's value is the measured difference, not the setting |
 | D11 | **Fabric runs in CI too** (the Linux runner): `fabric-up.sh` in `lab-up.sh` behind a flag, `client0` as the tester, a regression row | **Taken, phase 4.** Nothing in the design needs the Mac; the Mac route is a documented convenience |
 | D12 | The anycast shop VIP from both clusters (`10.99.0.192`) | **OPEN.** Cheap once phase 4 exists; it changes enhancement 002's DR story (S4 becomes automatic). Do it only if the operator wants the two plans to meet |
@@ -311,6 +315,11 @@ in FRR-K8s BGP mode (demo 57), Envoy Gateway doors in both.
 
 ### 9.0 The picture — the fabric with the two Envoy Gateway clusters attached
 
+The dashboard sits on the out-of-band management network `10.200.200.0/24`,
+not on wan: over the data plane at 13:32:16.7 the dashboard lost spine and
+both leaves for 3 s during `clear bgp *` on the spine (back at 13:32:19.7)
+and recorded only the edge's session.
+
 ```mermaid
 flowchart LR
   subgraph mac["MacBook (outside everything)"]
@@ -323,11 +332,16 @@ flowchart LR
     subgraph fabric["docker compose: the company fabric (demo 46)"]
       direction TB
       client0["client0 — the outside world\nwan 10.200.100.10, default via edge"]
+      dash["dashboard — live topology\nmgmt 10.200.200.100 → 127.0.0.1:8088"]
       edge["edge  AS 65000\nlo 10.200.255.1\noriginates 10.200.100.0/24"]
       spine["spine  AS 65100\nlo 10.200.255.2\nmultipath-relax, maximum-paths 8 (ECMP)"]
       leaf1["leaf1  AS 65101 (ToR)\nlo 10.200.255.11\nkind-eg 172.19.254.11\nlisten range 172.19.0.0/17"]
       leaf2["leaf2  AS 65102 (ToR)\nlo 10.200.255.12\nkind-eg 172.19.254.12\nlisten range 172.19.0.0/17"]
       client0 ---|"wan 10.200.100.0/24"| edge
+      dash ---|"mgmt 10.200.200.0/24 (OOB)"| edge
+      dash --- spine
+      dash --- leaf1
+      dash --- leaf2
       edge ---|"10.200.1.16/29"| spine
       spine ---|"10.200.1.0/29"| leaf1
       spine ---|"10.200.1.8/29"| leaf2
@@ -360,6 +374,7 @@ flowchart LR
   client0 ==>|"10.98.0.10: edge → spine → leaf1 or leaf2 (ECMP) → a node → Envoy"| d1
   client0 ==>|"10.98.0.74: the same path, leaf → the node MetalLB advertises from"| d2
   macclient --> vmroute --> leaf1
+  macclient -->|"browser 127.0.0.1:8088"| dash
 ```
 
 Solid lines are docker networks (one bridge per fabric link; the `kind-eg` bridge for the node LAN); dotted lines are
@@ -418,7 +433,7 @@ any per-node router configuration, and the prefix-list per cluster ASN is *what 
 | # | Decision | Status |
 |---|---|---|
 | D15 | The fabric is a standalone lab (demo 46: compose, FRR configs, `fabric-up/down/status.sh`, the network-team sheet filled for both LANs); cluster labs attach by overlay, never by editing the fabric | **Taken** (the operator's instruction) |
-| D16 | FRR image `quay.io/frrouting/frr:10.5.3` — the tag MetalLB 0.16.0's chart pins for its own FRR (measured in `helm show values`); no lab image in phase 1 | **Taken**; the `frr-agent` image (D8) arrives with the dashboard |
-| D17 | The dashboard (D8/D9) is phase 2 of the fabric lab; phase 1 reads the routers with `vtysh` through `docker exec` and records `show bgp summary json` / `show ip bgp` — enough for the two Envoy demos | **Taken** |
+| D16 | FRR image `quay.io/frrouting/frr:10.7.1` — the newest release tag (2026-08-26, measured on quay.io on 2026-09-20). Superseded reasoning: phase 1 had pinned `10.5.3` because MetalLB 0.16.0's chart pins it for its own FRR; the operator ruled that out — a real fabric is configured as a network to spec and does not care what its consumers run; MetalLB using FRR too is a coincidence. All four `frr.conf` files parse under 10.7.1 (`vtysh -C -f`, exit 0 each; measured) | **Taken** (2026-09-20); the `frr-agent` image (D8) builds on this tag |
+| D17 | The dashboard (D8/D9) is phase 2 of the fabric lab; phase 1 reads the routers with `vtysh` through `docker exec` and records `show bgp summary json` / `show ip bgp` — enough for the two Envoy demos | **Taken** — phase 2 shipped 2026-09-20 in demo 46: `frr-agent`, `dashboard`, compose service, three screenshots |
 | D18 | The Mac path is optional and two lines: the VM route through a privileged `nsenter` (`fabric-vm-route.sh --apply`, measured: the VM's table is reachable, `172.19.0.0/16 dev br-…`), the Mac route printed for the operator (`sudo`, never run by a script). `client0` is the recorded outside-world client | **Taken** |
 | D19 | Demo numbers: 46 the fabric (as §4), 56/57 the Envoy Gateway attachments, 47–49 stay the Cilium attachment | **Taken** |
