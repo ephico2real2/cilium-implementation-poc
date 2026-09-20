@@ -42,8 +42,8 @@ the switch). The path a request takes is in the
 The cloud-provider is unchanged (static addresses by annotation, outside
 its ranges — measured in demos 51/54). The password is omitted in
 `bgp_peers` on this kernel
-([`fabric/.env`](../46-bgp-fabric/fabric/.env) still holds one password
-per fabric).
+([`fabric/.env.example`](../46-bgp-fabric/fabric/.env.example) documents the
+one password per fabric; `.env` is untracked).
 
 ## Run it
 
@@ -62,8 +62,8 @@ Every command is recorded through `scripts/record.sh` into
 
 ## What was recorded
 
-The last apply (`2026-09-20T05:23:02Z`, transcript from line 5456).
-`check.sh` at `2026-09-20T05:25:46Z`: 16 PASS, 0 FAIL.
+The last apply (`2026-09-20T06:15:08Z`, transcript from line 6960).
+`check.sh` at `2026-09-20T06:19:04Z`: 16 PASS, 0 FAIL.
 
 ### 1. Start from demo 54
 
@@ -74,14 +74,14 @@ docker run --rm --network kind-eg --cap-add NET_RAW busybox:1.36 \
   arping -b -c 3 -I eth0 172.19.255.100
 ```
 
-Recorded:
+Recorded (tenth apply):
 
 ```text
 ---- arping -b -c 3 172.19.255.100 ----
 ARPING 172.19.255.100 from 172.19.0.6 eth0
-Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.006ms
-Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.011ms
-Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.012ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.008ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.010ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.025ms
 Sent 3 probe(s) (0 broadcast(s))
 Received 3 response(s) (0 request(s), 0 broadcast(s))
 leaf1 SERVERS_peers=0
@@ -95,7 +95,7 @@ kubectl --context kind-eg-poc1 apply \
   -f demos/56-kube-vip-bgp/10a-kube-vip-ds-bgp-election.yaml
 ```
 
-Recorded:
+Recorded (tenth apply):
 
 ```text
 daemonset.apps/kube-vip-ds configured
@@ -104,7 +104,7 @@ SERVERS Established on both leaves after 3s
 eg-poc1-control-plane 172.19.0.2
 eg-poc1-worker 172.19.0.3
       "state":"Established",
- *> 10.98.0.10/32    172.19.0.2                             0 65021 i
+ *> 10.98.0.10/32    172.19.0.3                             0 65021 i
  *> 10.98.0.11/32    172.19.0.3                             0 65021 i
 ```
 
@@ -120,7 +120,7 @@ kubectl --context kind-eg-poc1 apply \
   -f demos/56-kube-vip-bgp/50-routes-bgp.yaml
 ```
 
-Recorded:
+Recorded (tenth apply):
 
 ```text
 envoyproxy.gateway.envoyproxy.io/bgp-http-gw-proxy created
@@ -131,11 +131,13 @@ gateway.gateway.networking.k8s.io/bgp-http-gw condition met
 gateway.gateway.networking.k8s.io/bgp-grpc-gw condition met
 deployment.apps/envoy-shop-bgp-http-gw-f5c77ba4 condition met
 deployment.apps/envoy-shop-bgp-grpc-gw-c0d4dcca condition met
+Waiting for deployment "shopapi" rollout to finish: 1 out of 2 new replicas have been updated...
+deployment "shopapi" successfully rolled out
 kind-eg-poc1 httproute/shop-api-bgp: all parents Accepted+ResolvedRefs
 kind-eg-poc1 grpcroute/orders-bgp: all parents Accepted+ResolvedRefs
 bgp-http-gw nodes: eg-poc1-worker eg-poc1-control-plane unique=2
 bgp-grpc-gw nodes: eg-poc1-control-plane eg-poc1-worker unique=2
-shopapi nodes:  eg-poc1-control-plane eg-poc1-worker unique=2
+shopapi nodes: eg-poc1-control-plane eg-poc1-worker unique=2
 Received 0 response(s) (0 request(s), 0 broadcast(s))
 ```
 
@@ -148,62 +150,70 @@ node.
 docker exec bgp-fabric-client0-1 \
   curl --resolve api.eg-poc1.poc.local:80:10.98.0.10 \
   http://api.eg-poc1.poc.local/healthz
+docker exec bgp-fabric-client0-1 \
+  tcptraceroute -n -m 8 10.98.0.10 80
 ```
 
-Recorded:
+Recorded (tenth apply):
 
 ```text
 grpcurl v1.9.3
 http://api.eg-poc1.poc.local/healthz @ 10.98.0.10:80 → 200 X-Served-By=eg-poc1 curl_rc=0
 10.98.0.10 via 10.200.100.2 dev eth0 src 10.200.100.10 uid 0
+ 1  10.200.100.2  0.105 ms  0.010 ms  0.064 ms
+ 2  10.200.1.18  0.120 ms  0.097 ms  0.105 ms
+ 3  10.200.1.10  0.288 ms  0.117 ms  0.092 ms
+ 4  10.98.0.10  0.175 ms  0.151 ms  0.133 ms
+ 5  10.98.0.10 [open]  0.120 ms  0.147 ms  0.143 ms
 ```
 
 ### 5. Switch to active-active
 
-`leaf1 node_paths` while ETP is still Local; the spine's two nexthops
-are the two leaves. The third path is the door's own prefix learned
-from the spine (`10.200.1.3`, AS path `65100 65102 65021`); judges
-count node paths only.
+`leaf1 node_paths=2` while ETP is still Local (shopapi is on both
+nodes); the spine's two nexthops are the two leaves. A leaf may hold a
+third path: the door's own prefix bounced back from the spine, on
+whichever leaf the spine did NOT pick as best (recorded on leaf1 as
+`65100 65102 65021`). Judges count node paths only.
 
 ```bash
 kubectl --context kind-eg-poc1 apply \
   -f demos/56-kube-vip-bgp/10b-kube-vip-ds-bgp-active-active.yaml
 ```
 
-Recorded:
+Recorded (tenth apply):
 
 ```text
 daemonset.apps/kube-vip-ds configured
 daemon set "kube-vip-ds" successfully rolled out
-leaf1 node_paths=1 (want >= 1 nodes) after 2s
+leaf1 node_paths=2 (want >= 1 nodes) after 3s
 10.98.0.10 nhid 27 proto bgp metric 20
 ```
 
 ### 6. Measure ETP Local then Cluster
 
-Two 40-curl loops; `x-pod` names both shopapi pods. Cluster brings the
-second node path.
+Two 40-curl loops; `x-pod` names both shopapi pods. Both node paths
+were already up under Local.
 
 ```bash
 kubectl --context kind-eg-poc1 apply \
   -f demos/56-kube-vip-bgp/20-gateways-bgp.yaml
 ```
 
-Recorded:
+Recorded (tenth apply):
 
 ```text
 ---- ETP-Local: 40 curls from client0 ----
-ETP-Local ok=40 fail=0 x-pod=[shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd ]
-eg-poc1-control-plane 22
-eg-poc1-worker 19
-before: uid=1b62bc38-5dfb-4ba2-a496-a6841f0363eb etp=Local
-after apply 20: uid=1b62bc38-5dfb-4ba2-a496-a6841f0363eb etp=Cluster
+ETP-Local ok=40 fail=0 x-pod=[shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 ]
+eg-poc1-control-plane 24
+eg-poc1-worker 23
+before: uid=aa9c6579-003f-431c-99fa-1600a253e5ef etp=Local
+after apply 20: uid=aa9c6579-003f-431c-99fa-1600a253e5ef etp=Cluster
 final ETP=Cluster
 leaf1 node_paths=2 (want >= 2 nodes) after 1s
 ---- ETP-Cluster: 40 curls from client0 ----
-ETP-Cluster ok=40 fail=0 x-pod=[shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-szxg6 shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-g5qsd shopapi-74dcd6ffb4-szxg6 ]
-eg-poc1-control-plane 26
-eg-poc1-worker 14
+ETP-Cluster ok=40 fail=0 x-pod=[shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl ]
+eg-poc1-control-plane 25
+eg-poc1-worker 15
 ```
 
 ### 7. Run the gRPC matrix from client0
@@ -212,7 +222,7 @@ eg-poc1-worker 14
 docker exec bgp-fabric-client0-1 grpcurl --version
 ```
 
-Recorded:
+Recorded (tenth apply):
 
 ```text
 ==== gRPC matrix summary ====
@@ -236,9 +246,15 @@ gRPC matrix: 0 FAIL
 
 ### 8. Break it two ways
 
-(A) delete the worker's kube-vip pod. (B) pause the worker 75 s. BGP
-fixed the path in 13 s, the cluster's endpoints took Kubernetes' node
-grace period, a silent node needs both.
+(A) delete the worker's kube-vip pod (the loop's clock starts once the
+delete has returned, so `withdrawal_s=0` means "already gone by then").
+(B) pause the worker 75 s. BGP withdrew at 13 s; the node went
+`Ready=Unknown` at 51 s (the 50 s default grace period, measured); the
+shopapi endpoint was pruned; and not one of the four probes after that
+succeeded, because the envoy-gateway controller's single replica was
+on the paused node — the surviving Envoy never learned of the pruned
+endpoint; the door came back 7 s after unpause. A silent node needs
+BGP, the grace period AND a live control plane for the door.
 
 ```bash
 kubectl --context kind-eg-poc1 -n kube-system delete pod \
@@ -249,16 +265,18 @@ kubectl --context kind-eg-poc1 -n kube-system delete pod \
 docker pause eg-poc1-worker
 ```
 
-Recorded:
+Recorded (tenth apply):
 
 ```text
----- A: BGP-only — delete kube-vip pod kube-vip-ds-g6r6f on eg-poc1-worker ----
-A summary: withdrawal_s=0 ok=11 fail=0 recovery_s=3
----- B: silent node — pause eg-poc1-worker (172.19.0.3) for 75 s ----
-t+13s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=True lastTransitionTime=2026-09-20T05:21:36Z ready_eps=2
-t+43s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T05:25:00Z ready_eps=1
-t+50s code=200 rc=0 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T05:25:00Z ready_eps=1
-B summary: bgp_withdraw_s=13 node_notready_s=43 first_ok_after_s=50 recovery_s=10
+---- A: BGP-only — delete kube-vip pod kube-vip-ds-fgzpn on eg-poc1-worker ----
+A summary: withdrawal_s=0 ok=12 fail=0 recovery_s=2
+---- B: silent node — pause eg-poc1-worker (172.19.0.3) for 75 s; envoy-gateway controller on: eg-poc1-worker ----
+t+13s code=200 rc=0 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=True lastTransitionTime=2026-09-20T05:25:45Z ready_eps=2 door_eps=2
+t+51s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T06:17:30Z ready_eps=1 door_eps=1
+t+59s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T06:17:30Z ready_eps=1 door_eps=1
+t+66s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T06:17:30Z ready_eps=1 door_eps=1
+t+74s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T06:17:30Z ready_eps=1 door_eps=1
+B summary: bgp_withdraw_s=13 node_notready_s=51 first_ok_after_s=none post_notready ok=0 fail=4 recovery_s=7 eg_controller_node=eg-poc1-worker
 ```
 
 ## Checks
@@ -267,9 +285,9 @@ B summary: bgp_withdraw_s=13 node_notready_s=43 first_ok_after_s=50 recovery_s=1
 demos/56-kube-vip-bgp/check.sh
 ```
 
-`check.sh` at `2026-09-20T05:25:46Z`: 16 PASS, 0 FAIL.
+`check.sh` at `2026-09-20T06:19:04Z`: 16 PASS, 0 FAIL.
 
-Recorded:
+Recorded (tenth apply):
 
 ```text
 == demo 56 — kube-vip BGP on eg-poc1 (migration from L2)
@@ -282,14 +300,14 @@ Recorded:
   PASS   bgp-grpc-gw class + ingress + ETP Cluster                              class=kube-vip.io/kube-vip-class ingress=10.98.0.11 etp=Cluster D11 — class kube-vip, ingress=10.98.0.11, ETP Cluster
   PASS   Envoy replicas spread: one per node                                    bgp-http-gw ready=2 nodes=eg-poc1-control-plane,eg-poc1-worker 2 ready Envoy pods, distinct nodeName
   PASS   Envoy replicas spread: one per node                                    bgp-grpc-gw ready=2 nodes=eg-poc1-control-plane,eg-poc1-worker 2 ready Envoy pods, distinct nodeName
-  PASS   shopapi replicas spread                                                ready=2 nodes=eg-poc1-control-plane,eg-poc1-worker   2 ready shopapi pods, distinct nodeName
+  PASS   shopapi replicas spread + rollout complete                             ready=2 updated=2/2 nodes=eg-poc1-control-plane,eg-poc1-worker 2 ready shopapi pods, distinct nodeName, updated == replicas == spec
   PASS   client0 http://api.eg-poc1.poc.local 200 + X-Served-By                 http_code=200 X-Served-By=eg-poc1                    R8 — 200 and X-Served-By=eg-poc1 from client0
   PASS   client0 ListOrders v1                                                  v1 + three rows                                      demo 52 T2 — 3 orders version v1 served_by grpcdemo-v1-
   PASS   client0 GetOrder v2                                                    v2                                                   demo 52 T4 — GetOrder id=2 version v2 served_by grpcdemo-v2-
   PASS   client0 x-version v2                                                   v2                                                   demo 52 T5 — x-version v2 → version v2 served_by grpcdemo-v2-
   PASS   arping routed door 10.98.0.10 → 0 replies                            replies=0                                            routed door — nobody ARPs for a routed address / L2 door unannounced
   PASS   arping demo 54 L2 door 172.19.255.100 → 0 replies                    replies=0                                            demo 54 L2 door — nobody ARPs for a routed address / L2 door unannounced
-  PASS   SERVERS-IN route-map invoked > 0                                       invoked=200                                          §8 row 4 — EG-VIPS admit 10.98.0.0/24 le 32
+  PASS   SERVERS-IN seq 10 (EG-POC1-VIPS + as-path EG-POC1) invoked > 0         seq10_invoked=90                                     sheet row 4 — EG-POC1-VIPS 10.98.0.0/26 ge 32 le 32 + as-path ^65021$
 demo 56 check: 0 FAIL
 ```
 
@@ -309,7 +327,9 @@ demo 56 check: 0 FAIL
 
 The first apply (`2026-09-20T04:27:40Z`) left ARP on with BGP. The
 DaemonSet rolled out then crashed (`ready=0/2`); kube-vip refuses two
-modes (`multiple kube-vip modes detected`). Recorded:
+modes (`multiple kube-vip modes detected` — kube-vip v1.2.4
+cmd/kube-vip.go:390, not in the record: the log grep kept only BGP
+lines). Recorded:
 `apply.sh: SERVERS not Established on both leaves after 90s`.
 
 The second apply (`2026-09-20T04:31:57Z`) put the fabric MD5 in
@@ -323,7 +343,8 @@ low-memory guard during the active-active wait. No lesson.
 The fourth apply (`2026-09-20T04:45:19Z`) left
 `vip_leaderelection=true` on the active-active DaemonSet. kube-vip
 logs `leader election is enabled, only the elected leader will
-advertise service VIPs`. Recorded:
+advertise service VIPs` (kube-vip v1.2.4 pkg/manager/worker/bgp.go:117;
+not in the record — the log grep kept only BGP lines). Recorded:
 `apply.sh: spine still has paths=0 for 10.98.0.10/32 after 90s`.
 
 The fifth apply (`2026-09-20T04:56:29Z`) judged the spine. Its two
@@ -343,6 +364,19 @@ worker's sessions were back. Recorded: `demo 56 check: 1 FAIL`
 The eighth apply (`2026-09-20T05:18:47Z`) showed the paused node go
 `Ready=Unknown`, not `False`. Recorded:
 `Ready=Unknown lastTransitionTime=2026-09-20T05:20:54Z`.
+
+The ninth apply (`2026-09-20T05:23:02Z`) applied shopapi HA against
+demo 54's still-running pods. The required anti-affinity matches those
+too; the default 25%/25% strategy on two replicas is one surge and
+zero unavailable, so the new pod never scheduled. apply.sh waited for
+Available (the old ReplicaSet keeps it True). Recorded:
+`shopapi-55dd74569b-9qm56   0/1     Pending`. The fix is `maxSurge: 0`
+/ `maxUnavailable: 1` in
+[`41-shopapi-ha.yaml`](41-shopapi-ha.yaml) and `rollout status`.
+
+The tenth apply's first check (`2026-09-20T06:18:07Z`) failed
+SERVERS-IN (`vtysh/JSON failed`): FRR 10.5 keys the daemon `bgpd`.
+Recorded: `demo 56 check: 1 FAIL`.
 
 ## Clean up
 

@@ -6625,3 +6625,1505 @@ $ demos/56-kube-vip-bgp/check.sh
 
 demo 56 check: 0 FAIL
 
+
+### 2026-09-20T06:13:42Z — demo 56 apply
+### 2026-09-20T06:13:42Z
+$ kubectl --context kind-eg-poc1 get --raw /readyz
+ok
+### 2026-09-20T06:13:43Z
+$ bash -c before_state_rec
+---- arping -b -c 3 172.19.255.100 ----
+ARPING 172.19.255.100 from 172.19.0.6 eth0
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.007ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.014ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.024ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+---- Mac curl 172.19.255.100 (if 172.19 route exists) ----
+http://api.eg-poc1.poc.local/healthz @ 172.19.255.100:80 → 200 curl_rc=0
+---- leaves SERVERS peers ----
+-- leaf1
+10.200.1.3	Established	65100
+leaf1 SERVERS_peers=0
+-- leaf2
+10.200.1.11	Established	65100
+leaf2 SERVERS_peers=0
+
+### 2026-09-20T06:13:46Z
+$ kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/10a-kube-vip-ds-bgp-election.yaml
+daemonset.apps/kube-vip-ds configured
+
+### 2026-09-20T06:13:46Z
+$ kubectl --context kind-eg-poc1 -n kube-system rollout status ds/kube-vip-ds --timeout=180s
+Waiting for daemon set "kube-vip-ds" rollout to finish: 0 out of 2 new pods have been updated...
+Waiting for daemon set "kube-vip-ds" rollout to finish: 0 out of 2 new pods have been updated...
+Waiting for daemon set "kube-vip-ds" rollout to finish: 1 out of 2 new pods have been updated...
+Waiting for daemon set "kube-vip-ds" rollout to finish: 1 out of 2 new pods have been updated...
+Waiting for daemon set "kube-vip-ds" rollout to finish: 1 of 2 updated pods are available...
+daemon set "kube-vip-ds" successfully rolled out
+
+### 2026-09-20T06:13:47Z
+$ bash -c wait_established 90
+SERVERS Established on both leaves after 3s
+
+### 2026-09-20T06:13:50Z
+$ bash -c election_record
+---- node IPs ----
+eg-poc1-control-plane
+eg-poc1-worker
+eg-poc1-control-plane 172.19.0.2
+eg-poc1-worker 172.19.0.3
+---- leaf show bgp summary json ----
+-- leaf1
+{
+"ipv4Unicast":{
+  "routerId":"10.200.255.11",
+  "as":65101,
+  "vrfId":0,
+  "vrfName":"default",
+  "tableVersion":93,
+  "ribCount":13,
+  "ribMemory":1664,
+  "peerCount":3,
+  "peerMemory":50712,
+  "peerGroupCount":1,
+  "peerGroupMemory":64,
+  "peers":{
+    "172.19.0.2":{
+      "dynamicPeer":true,
+      "hostname":"eg-poc1-control-plane",
+      "softwareVersion":"n/a",
+      "remoteAs":65021,
+      "localAs":65101,
+      "version":4,
+      "msgRcvd":2,
+      "msgSent":3,
+      "tableVersion":93,
+      "outq":0,
+      "inq":0,
+      "peerUptime":"00:00:01",
+      "peerUptimeMsec":1000,
+      "peerUptimeEstablishedEpoch":1789884829,
+      "pfxRcd":0,
+      "pfxSnt":0,
+      "state":"Established",
+      "peerState":"OK",
+      "connectionsEstablished":1,
+      "connectionsDropped":0,
+      "idType":"ipv4"
+    },
+    "172.19.0.3":{
+      "dynamicPeer":true,
+      "hostname":"eg-poc1-worker",
+      "softwareVersion":"n/a",
+      "remoteAs":65021,
+      "localAs":65101,
+      "version":4,
+      "msgRcvd":3,
+      "msgSent":3,
+      "tableVersion":93,
+      "outq":0,
+      "inq":0,
+      "peerUptime":"00:00:01",
+      "peerUptimeMsec":1000,
+      "peerUptimeEstablishedEpoch":1789884829,
+      "pfxRcd":0,
+      "pfxSnt":0,
+      "state":"Established",
+      "peerState":"OK",
+      "connectionsEstablished":1,
+      "connectionsDropped":0,
+      "idType":"ipv4"
+    },
+    "10.200.1.3":{
+      "hostname":"spine",
+      "softwareVersion":"n/a",
+      "remoteAs":65100,
+      "localAs":65101,
+      "version":4,
+      "msgRcvd":2267,
+      "msgSent":2265,
+      "tableVersion":93,
+      "outq":0,
+      "inq":0,
+      "peerUptime":"01:51:30",
+      "peerUptimeMsec":6690000,
+      "peerUptimeEstablishedEpoch":1789878140,
+      "pfxRcd":4,
+      "pfxSnt":5,
+      "state":"Established",
+      "peerState":"OK",
+      "connectionsEstablished":1,
+      "connectionsDropped":0,
+      "desc":"spine",
+      "idType":"ipv4"
+    }
+  },
+  "failedPeers":0,
+  "displayedPeers":3,
+  "totalPeers":3,
+  "dynamicPeers":2,
+  "bestPath":{
+    "multiPathRelax":"false"
+  }
+}
+}
+-- leaf2
+{
+"ipv4Unicast":{
+  "routerId":"10.200.255.12",
+  "as":65102,
+  "vrfId":0,
+  "vrfName":"default",
+  "tableVersion":115,
+  "ribCount":13,
+  "ribMemory":1664,
+  "peerCount":3,
+  "peerMemory":50712,
+  "peerGroupCount":1,
+  "peerGroupMemory":64,
+  "peers":{
+    "172.19.0.2":{
+      "dynamicPeer":true,
+      "hostname":"eg-poc1-control-plane",
+      "softwareVersion":"n/a",
+      "remoteAs":65021,
+      "localAs":65102,
+      "version":4,
+      "msgRcvd":2,
+      "msgSent":3,
+      "tableVersion":115,
+      "outq":0,
+      "inq":0,
+      "peerUptime":"00:00:01",
+      "peerUptimeMsec":1000,
+      "peerUptimeEstablishedEpoch":1789884829,
+      "pfxRcd":0,
+      "pfxSnt":0,
+      "state":"Established",
+      "peerState":"OK",
+      "connectionsEstablished":1,
+      "connectionsDropped":0,
+      "idType":"ipv4"
+    },
+    "172.19.0.3":{
+      "dynamicPeer":true,
+      "hostname":"eg-poc1-worker",
+      "softwareVersion":"n/a",
+      "remoteAs":65021,
+      "localAs":65102,
+      "version":4,
+      "msgRcvd":3,
+      "msgSent":3,
+      "tableVersion":115,
+      "outq":0,
+      "inq":0,
+      "peerUptime":"00:00:01",
+      "peerUptimeMsec":1000,
+      "peerUptimeEstablishedEpoch":1789884829,
+      "pfxRcd":0,
+      "pfxSnt":0,
+      "state":"Established",
+      "peerState":"OK",
+      "connectionsEstablished":1,
+      "connectionsDropped":0,
+      "idType":"ipv4"
+    },
+    "10.200.1.11":{
+      "hostname":"spine",
+      "softwareVersion":"n/a",
+      "remoteAs":65100,
+      "localAs":65102,
+      "version":4,
+      "msgRcvd":2267,
+      "msgSent":2278,
+      "tableVersion":115,
+      "outq":0,
+      "inq":0,
+      "peerUptime":"01:51:30",
+      "peerUptimeMsec":6690000,
+      "peerUptimeEstablishedEpoch":1789878140,
+      "pfxRcd":4,
+      "pfxSnt":5,
+      "state":"Established",
+      "peerState":"OK",
+      "connectionsEstablished":1,
+      "connectionsDropped":0,
+      "desc":"spine",
+      "idType":"ipv4"
+    }
+  },
+  "failedPeers":0,
+  "displayedPeers":3,
+  "totalPeers":3,
+  "dynamicPeers":2,
+  "bestPath":{
+    "multiPathRelax":"false"
+  }
+}
+}
+---- kube-vip DS logs (BGP lines; whole log, --tail=-1 --prefix) ----
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:47.073084678Z 2026/09/20 06:13:47 INFO starting namespace=kube-system Mode=BGP "Control Plane"=false Services=true
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:47.074540720Z 2026/09/20 06:13:47 INFO starting Kube-vip Manager mode=BGP
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:47.074554220Z 2026/09/20 06:13:47 INFO Starting the BGP server to advertise VIP routes to BGP peers
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:47.085874720Z 2026/09/20 06:13:47 INFO Add a peer configuration Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:47.085959720Z 2026/09/20 06:13:47 INFO [BGP] peer=172.19.254.11 AS=65101 BFD=<nil>
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:47.085974720Z 2026/09/20 06:13:47 INFO [BGP] peer="&{Type:2 Peer:{Conf:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP NeighborInterface: PeerGroup:} State:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP SessionState:BGP_FSM_IDLE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:} Transport:{LocalAddress:invalid IP LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:47.085976220Z 2026/09/20 06:13:47 INFO Add a peer configuration Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:47.086071470Z 2026/09/20 06:13:47 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:47.086095762Z 2026/09/20 06:13:47 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:47.086102053Z 2026/09/20 06:13:47 INFO [BGP] peer=172.19.254.12 AS=65102 BFD=<nil>
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:47.086103678Z 2026/09/20 06:13:47 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x586a49d9afe0 0x586a49d38280 0x586a49d9b000 0x586a4ac75980 0x586a4ac759b0 0x586a49ff3340] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:47.086107553Z 2026/09/20 06:13:47 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x586a49f7a0c0 0x586a4a3220f0 0x586a49f7a100 0x586a4ad002d0 0x586a4ad00300 0x586a4a30c100] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:48.877747679Z 2026/09/20 06:13:48 INFO Peer Up Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:48.877763846Z 2026/09/20 06:13:48 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x586a49f7a960 0x586a4a3224b0 0x586a49f7a980 0x586a4ad00ed0 0x586a4ad00f00 0x586a4ad5e180] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:48.877788721Z 2026/09/20 06:13:48 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x586a4ad00cc0 0x586a49f7a7c0 0x586a4ad5e000 0x586a4ad5e040 0x586a49f7a760 0x586a4ad00cf0 0x586a49f7a820 0x586a4ad5e1c0 0x586a49f7a880] LocalCap:[0x586a49f7aa60 0x586a4a3225f0 0x586a49f7aa80 0x586a4ad011a0 0x586a4ad011d0 0x586a4ad5e380] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:57683 RemotePort:179}}}"
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:49.032164096Z 2026/09/20 06:13:49 INFO Peer Up Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:49.032174263Z 2026/09/20 06:13:49 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x586a49d9bb00 0x586a49d38d20 0x586a49d9bb20 0x586a4ac7b560 0x586a4ac7b590 0x586a4a405400] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-hsncl/kube-vip] 2026-09-20T06:13:49.032178804Z 2026/09/20 06:13:49 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.12 PeerGroup: RemoteCap:[0x586a4ac7b350 0x586a49d9b960 0x586a49d9ba20 0x586a49d9b900 0x586a4ac7b380 0x586a49d9b9c0 0x586a4a405440 0x586a4a405280 0x586a4a4052c0] LocalCap:[0x586a49d9bc00 0x586a49d38eb0 0x586a49d9bc20 0x586a4ac7b830 0x586a4ac7b860 0x586a4a405600] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:40429 RemotePort:179}}}"
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:47.685759929Z 2026/09/20 06:13:47 INFO starting namespace=kube-system Mode=BGP "Control Plane"=false Services=true
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:47.688184720Z 2026/09/20 06:13:47 INFO starting Kube-vip Manager mode=BGP
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:47.688192262Z 2026/09/20 06:13:47 INFO Starting the BGP server to advertise VIP routes to BGP peers
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:47.694889220Z 2026/09/20 06:13:47 INFO Add a peer configuration Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:47.695497845Z 2026/09/20 06:13:47 INFO [BGP] peer=172.19.254.11 AS=65101 BFD=<nil>
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:47.695505679Z 2026/09/20 06:13:47 INFO Add a peer configuration Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:47.695506970Z 2026/09/20 06:13:47 INFO [BGP] peer="&{Type:2 Peer:{Conf:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP NeighborInterface: PeerGroup:} State:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP SessionState:BGP_FSM_IDLE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:} Transport:{LocalAddress:invalid IP LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:47.695508137Z 2026/09/20 06:13:47 INFO [BGP] peer=172.19.254.12 AS=65102 BFD=<nil>
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:47.695510179Z 2026/09/20 06:13:47 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:47.695510637Z 2026/09/20 06:13:47 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:47.695511595Z 2026/09/20 06:13:47 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x71820976e360 0x718209876050 0x71820976e380 0x71820a703da0 0x71820a703dd0 0x7182098484c0] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:47.695513845Z 2026/09/20 06:13:47 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x718209bfe4a0 0x718209c72320 0x718209bfe4e0 0x71820a7bbb30 0x71820a7bbb60 0x7182097ed900] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:47.700416679Z 2026/09/20 06:13:47 INFO new leader election service=envoy-shop-grpc-gw-8c4f0319 namespace=envoy-gateway-system lock_name=kubevip-envoy-shop-grpc-gw-8c4f0319 host_id=eg-poc1-worker
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:47.700423095Z 2026/09/20 06:13:47 INFO new leader election service=envoy-shop-http-gw-fccf2727 namespace=envoy-gateway-system lock_name=kubevip-envoy-shop-http-gw-fccf2727 host_id=eg-poc1-worker
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:49.382387721Z 2026/09/20 06:13:49 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x718209a2cb60 0x718209c158b0 0x718209a2cb80 0x718209ef9dd0 0x718209ef9e00 0x71820a954c40] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:49.382402429Z 2026/09/20 06:13:49 INFO Peer Up Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:49.382640471Z 2026/09/20 06:13:49 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x71820a8fec00 0x718209a2ca80 0x718209ef9bc0 0x718209a2c9c0 0x718209a2ca20 0x71820a954ac0 0x71820a954b00 0x718209a2c960 0x718209ef9bf0] LocalCap:[0x718209819140 0x718209d63630 0x718209819160 0x71820a8fb650 0x71820a8fb680 0x71820a8fedc0] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:35989 RemotePort:179}}}"
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:49.610389429Z 2026/09/20 06:13:49 INFO Peer Up Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:49.610412346Z 2026/09/20 06:13:49 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x718209a2d0a0 0x718209c15ae0 0x718209a2d0c0 0x71820a9744b0 0x71820a9744e0 0x71820a954fc0] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-lq8vs/kube-vip] 2026-09-20T06:13:49.610422596Z 2026/09/20 06:13:49 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.12 PeerGroup: RemoteCap:[0x71820a954e40 0x71820a9742a0 0x71820a9742d0 0x718209a2cf60 0x71820a955000 0x718209a2cfc0 0x71820a954e80 0x718209a2cea0 0x718209a2cf00] LocalCap:[0x718209a2d620 0x718209c15cc0 0x718209a2d640 0x71820a9748a0 0x71820a9748d0 0x71820a9551c0] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:46173 RemotePort:179}}}"
+
+### 2026-09-20T06:13:50Z
+$ kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/20a-gateways-bgp-etp-local.yaml
+envoyproxy.gateway.envoyproxy.io/bgp-http-gw-proxy created
+gateway.gateway.networking.k8s.io/bgp-http-gw created
+envoyproxy.gateway.envoyproxy.io/bgp-grpc-gw-proxy created
+gateway.gateway.networking.k8s.io/bgp-grpc-gw created
+
+### 2026-09-20T06:13:50Z
+$ kubectl --context kind-eg-poc1 -n shop wait --for=condition=Programmed gateway/bgp-http-gw --timeout=180s
+gateway.gateway.networking.k8s.io/bgp-http-gw condition met
+
+### 2026-09-20T06:14:01Z
+$ kubectl --context kind-eg-poc1 -n shop wait --for=condition=Programmed gateway/bgp-grpc-gw --timeout=180s
+gateway.gateway.networking.k8s.io/bgp-grpc-gw condition met
+
+### 2026-09-20T06:14:02Z
+$ bash -c wait_envoy_deploy bgp-http-gw
+deployment.apps/envoy-shop-bgp-http-gw-f5c77ba4 condition met
+
+### 2026-09-20T06:14:02Z
+$ bash -c wait_envoy_deploy bgp-grpc-gw
+deployment.apps/envoy-shop-bgp-grpc-gw-c0d4dcca condition met
+
+### 2026-09-20T06:14:02Z
+$ kubectl --context kind-eg-poc1 -n envoy-gateway-system wait deploy -l gateway.envoyproxy.io/owning-gateway-name=bgp-http-gw --for=jsonpath={.status.readyReplicas}=2 --timeout=180s
+deployment.apps/envoy-shop-bgp-http-gw-f5c77ba4 condition met
+
+### 2026-09-20T06:14:02Z
+$ kubectl --context kind-eg-poc1 -n envoy-gateway-system wait deploy -l gateway.envoyproxy.io/owning-gateway-name=bgp-grpc-gw --for=jsonpath={.status.readyReplicas}=2 --timeout=180s
+deployment.apps/envoy-shop-bgp-grpc-gw-c0d4dcca condition met
+
+### 2026-09-20T06:14:02Z
+$ kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/40-grpcdemo.yaml
+deployment.apps/grpcdemo-v1 unchanged
+service/grpc-v1 unchanged
+deployment.apps/grpcdemo-v2 unchanged
+service/grpc-v2 unchanged
+
+### 2026-09-20T06:14:02Z
+$ kubectl --context kind-eg-poc1 -n shop wait deploy/grpcdemo-v1 --for=condition=Available --timeout=120s
+deployment.apps/grpcdemo-v1 condition met
+
+### 2026-09-20T06:14:03Z
+$ kubectl --context kind-eg-poc1 -n shop wait deploy/grpcdemo-v2 --for=condition=Available --timeout=120s
+deployment.apps/grpcdemo-v2 condition met
+
+### 2026-09-20T06:14:03Z
+$ kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/41-shopapi-ha.yaml
+deployment.apps/shopapi configured
+
+### 2026-09-20T06:14:03Z
+$ kubectl --context kind-eg-poc1 -n shop rollout status deploy/shopapi --timeout=120s
+Waiting for deployment "shopapi" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "shopapi" rollout to finish: 1 out of 2 new replicas have been updated...
+
+### 2026-09-20T06:15:08Z — demo 56 apply
+### 2026-09-20T06:15:08Z
+$ kubectl --context kind-eg-poc1 get --raw /readyz
+ok
+### 2026-09-20T06:15:09Z
+$ bash -c before_state_rec
+---- arping -b -c 3 172.19.255.100 ----
+ARPING 172.19.255.100 from 172.19.0.6 eth0
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.008ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.010ms
+Unicast reply from 172.19.255.100 [fa:1f:d6:0f:1e:ae] 0.025ms
+Sent 3 probe(s) (0 broadcast(s))
+Received 3 response(s) (0 request(s), 0 broadcast(s))
+---- Mac curl 172.19.255.100 (if 172.19 route exists) ----
+http://api.eg-poc1.poc.local/healthz @ 172.19.255.100:80 → 200 curl_rc=0
+---- leaves SERVERS peers ----
+-- leaf1
+10.200.1.3	Established	65100
+leaf1 SERVERS_peers=0
+-- leaf2
+10.200.1.11	Established	65100
+leaf2 SERVERS_peers=0
+
+### 2026-09-20T06:15:12Z
+$ kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/10a-kube-vip-ds-bgp-election.yaml
+daemonset.apps/kube-vip-ds configured
+
+### 2026-09-20T06:15:12Z
+$ kubectl --context kind-eg-poc1 -n kube-system rollout status ds/kube-vip-ds --timeout=180s
+Waiting for daemon set "kube-vip-ds" rollout to finish: 0 out of 2 new pods have been updated...
+Waiting for daemon set "kube-vip-ds" rollout to finish: 1 out of 2 new pods have been updated...
+Waiting for daemon set "kube-vip-ds" rollout to finish: 1 out of 2 new pods have been updated...
+Waiting for daemon set "kube-vip-ds" rollout to finish: 1 of 2 updated pods are available...
+daemon set "kube-vip-ds" successfully rolled out
+
+### 2026-09-20T06:15:13Z
+$ bash -c wait_established 90
+SERVERS Established on both leaves after 3s
+
+### 2026-09-20T06:15:16Z
+$ bash -c election_record
+---- node IPs ----
+eg-poc1-control-plane
+eg-poc1-worker
+eg-poc1-control-plane 172.19.0.2
+eg-poc1-worker 172.19.0.3
+---- leaf show bgp summary json ----
+-- leaf1
+{
+"ipv4Unicast":{
+  "routerId":"10.200.255.11",
+  "as":65101,
+  "vrfId":0,
+  "vrfName":"default",
+  "tableVersion":97,
+  "ribCount":13,
+  "ribMemory":1664,
+  "peerCount":3,
+  "peerMemory":50712,
+  "peerGroupCount":1,
+  "peerGroupMemory":64,
+  "peers":{
+    "172.19.0.2":{
+      "dynamicPeer":true,
+      "hostname":"eg-poc1-control-plane",
+      "softwareVersion":"n/a",
+      "remoteAs":65021,
+      "localAs":65101,
+      "version":4,
+      "msgRcvd":2,
+      "msgSent":3,
+      "tableVersion":97,
+      "outq":0,
+      "inq":0,
+      "peerUptime":"00:00:02",
+      "peerUptimeMsec":2000,
+      "peerUptimeEstablishedEpoch":1789884914,
+      "pfxRcd":0,
+      "pfxSnt":0,
+      "state":"Established",
+      "peerState":"OK",
+      "connectionsEstablished":1,
+      "connectionsDropped":0,
+      "idType":"ipv4"
+    },
+    "172.19.0.3":{
+      "dynamicPeer":true,
+      "hostname":"eg-poc1-worker",
+      "softwareVersion":"n/a",
+      "remoteAs":65021,
+      "localAs":65101,
+      "version":4,
+      "msgRcvd":3,
+      "msgSent":3,
+      "tableVersion":97,
+      "outq":0,
+      "inq":0,
+      "peerUptime":"00:00:02",
+      "peerUptimeMsec":2000,
+      "peerUptimeEstablishedEpoch":1789884914,
+      "pfxRcd":0,
+      "pfxSnt":0,
+      "state":"Established",
+      "peerState":"OK",
+      "connectionsEstablished":1,
+      "connectionsDropped":0,
+      "idType":"ipv4"
+    },
+    "10.200.1.3":{
+      "hostname":"spine",
+      "softwareVersion":"n/a",
+      "remoteAs":65100,
+      "localAs":65101,
+      "version":4,
+      "msgRcvd":2298,
+      "msgSent":2296,
+      "tableVersion":97,
+      "outq":0,
+      "inq":0,
+      "peerUptime":"01:52:57",
+      "peerUptimeMsec":6777000,
+      "peerUptimeEstablishedEpoch":1789878139,
+      "pfxRcd":4,
+      "pfxSnt":5,
+      "state":"Established",
+      "peerState":"OK",
+      "connectionsEstablished":1,
+      "connectionsDropped":0,
+      "desc":"spine",
+      "idType":"ipv4"
+    }
+  },
+  "failedPeers":0,
+  "displayedPeers":3,
+  "totalPeers":3,
+  "dynamicPeers":2,
+  "bestPath":{
+    "multiPathRelax":"false"
+  }
+}
+}
+-- leaf2
+{
+"ipv4Unicast":{
+  "routerId":"10.200.255.12",
+  "as":65102,
+  "vrfId":0,
+  "vrfName":"default",
+  "tableVersion":121,
+  "ribCount":13,
+  "ribMemory":1664,
+  "peerCount":3,
+  "peerMemory":50712,
+  "peerGroupCount":1,
+  "peerGroupMemory":64,
+  "peers":{
+    "172.19.0.2":{
+      "dynamicPeer":true,
+      "hostname":"eg-poc1-control-plane",
+      "softwareVersion":"n/a",
+      "remoteAs":65021,
+      "localAs":65102,
+      "version":4,
+      "msgRcvd":2,
+      "msgSent":3,
+      "tableVersion":121,
+      "outq":0,
+      "inq":0,
+      "peerUptime":"00:00:02",
+      "peerUptimeMsec":2000,
+      "peerUptimeEstablishedEpoch":1789884914,
+      "pfxRcd":0,
+      "pfxSnt":0,
+      "state":"Established",
+      "peerState":"OK",
+      "connectionsEstablished":1,
+      "connectionsDropped":0,
+      "idType":"ipv4"
+    },
+    "172.19.0.3":{
+      "dynamicPeer":true,
+      "hostname":"eg-poc1-worker",
+      "softwareVersion":"n/a",
+      "remoteAs":65021,
+      "localAs":65102,
+      "version":4,
+      "msgRcvd":3,
+      "msgSent":3,
+      "tableVersion":121,
+      "outq":0,
+      "inq":0,
+      "peerUptime":"00:00:02",
+      "peerUptimeMsec":2000,
+      "peerUptimeEstablishedEpoch":1789884914,
+      "pfxRcd":0,
+      "pfxSnt":0,
+      "state":"Established",
+      "peerState":"OK",
+      "connectionsEstablished":1,
+      "connectionsDropped":0,
+      "idType":"ipv4"
+    },
+    "10.200.1.11":{
+      "hostname":"spine",
+      "softwareVersion":"n/a",
+      "remoteAs":65100,
+      "localAs":65102,
+      "version":4,
+      "msgRcvd":2298,
+      "msgSent":2310,
+      "tableVersion":121,
+      "outq":0,
+      "inq":0,
+      "peerUptime":"01:52:57",
+      "peerUptimeMsec":6777000,
+      "peerUptimeEstablishedEpoch":1789878139,
+      "pfxRcd":4,
+      "pfxSnt":5,
+      "state":"Established",
+      "peerState":"OK",
+      "connectionsEstablished":1,
+      "connectionsDropped":0,
+      "desc":"spine",
+      "idType":"ipv4"
+    }
+  },
+  "failedPeers":0,
+  "displayedPeers":3,
+  "totalPeers":3,
+  "dynamicPeers":2,
+  "bestPath":{
+    "multiPathRelax":"false"
+  }
+}
+}
+---- kube-vip DS logs (BGP lines; whole log, --tail=-1 --prefix) ----
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:13.751016385Z 2026/09/20 06:15:13 INFO starting namespace=kube-system Mode=BGP "Control Plane"=false Services=true
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:13.753793468Z 2026/09/20 06:15:13 INFO starting Kube-vip Manager mode=BGP
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:13.753802760Z 2026/09/20 06:15:13 INFO Starting the BGP server to advertise VIP routes to BGP peers
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:13.759877968Z 2026/09/20 06:15:13 INFO Add a peer configuration Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:13.759987052Z 2026/09/20 06:15:13 INFO [BGP] peer=172.19.254.11 AS=65101 BFD=<nil>
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:13.759988635Z 2026/09/20 06:15:13 INFO Add a peer configuration Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:13.759990760Z 2026/09/20 06:15:13 INFO [BGP] peer="&{Type:2 Peer:{Conf:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP NeighborInterface: PeerGroup:} State:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP SessionState:BGP_FSM_IDLE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:} Transport:{LocalAddress:invalid IP LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:13.760050552Z 2026/09/20 06:15:13 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:13.760065843Z 2026/09/20 06:15:13 INFO [BGP] peer=172.19.254.12 AS=65102 BFD=<nil>
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:13.760067802Z 2026/09/20 06:15:13 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:13.760173093Z 2026/09/20 06:15:13 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x6132d9b3ea00 0x6132d9a762d0 0x6132d9b3ea20 0x6132daa31980 0x6132daa319b0 0x6132d9cc2a80] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:13.760182677Z 2026/09/20 06:15:13 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x6132d9d66240 0x6132d9f041e0 0x6132d9d662c0 0x6132dab021b0 0x6132dab021e0 0x6132d9aa07c0] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:15.357668802Z 2026/09/20 06:15:15 INFO Peer Up Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:15.357705719Z 2026/09/20 06:15:15 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x6132d9e00fc0 0x6132d9fb5130 0x6132d9e00fe0 0x6132da27d3b0 0x6132da27d3e0 0x6132d9e32f00] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:15.357711969Z 2026/09/20 06:15:15 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x6132d9e00e80 0x6132d9e32f40 0x6132d9e00ee0 0x6132d9e32dc0 0x6132d9e32d80 0x6132da27d1a0 0x6132d9e00dc0 0x6132d9e00e20 0x6132da27d1d0] LocalCap:[0x6132d9e010c0 0x6132d9fb5270 0x6132d9e010e0 0x6132da27d680 0x6132da27d6b0 0x6132d9e33100] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:33903 RemotePort:179}}}"
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:15.390991636Z 2026/09/20 06:15:15 INFO Peer Up Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:15.391006886Z 2026/09/20 06:15:15 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x6132d9e01380 0x6132d9fb57c0 0x6132d9e013a0 0x6132da27dbc0 0x6132da27dbf0 0x6132d9e33440] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-2c9tk/kube-vip] 2026-09-20T06:15:15.391017136Z 2026/09/20 06:15:15 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.12 PeerGroup: RemoteCap:[0x6132d9e33300 0x6132da27d9b0 0x6132d9e011e0 0x6132d9e01240 0x6132d9e33480 0x6132d9e332c0 0x6132d9e01180 0x6132da27d9e0 0x6132d9e012a0] LocalCap:[0x6132d9e01480 0x6132d9fb5900 0x6132d9e014a0 0x6132da27de90 0x6132da27dec0 0x6132d9e33640] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:49229 RemotePort:179}}}"
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:13.274029510Z 2026/09/20 06:15:13 INFO starting namespace=kube-system Mode=BGP "Control Plane"=false Services=true
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:13.275478051Z 2026/09/20 06:15:13 INFO starting Kube-vip Manager mode=BGP
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:13.275482635Z 2026/09/20 06:15:13 INFO Starting the BGP server to advertise VIP routes to BGP peers
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:13.288723843Z 2026/09/20 06:15:13 INFO Add a peer configuration Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:13.288830676Z 2026/09/20 06:15:13 INFO [BGP] peer=172.19.254.11 AS=65101 BFD=<nil>
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:13.288834135Z 2026/09/20 06:15:13 INFO [BGP] peer="&{Type:2 Peer:{Conf:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP NeighborInterface: PeerGroup:} State:{PeerASN:0 LocalASN:0 NeighborAddress:invalid IP SessionState:BGP_FSM_IDLE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:} Transport:{LocalAddress:invalid IP LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:13.288835343Z 2026/09/20 06:15:13 INFO Add a peer configuration Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:13.288933260Z 2026/09/20 06:15:13 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:13.288935301Z 2026/09/20 06:15:13 INFO [BGP] peer=172.19.254.12 AS=65102 BFD=<nil>
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:13.288936885Z 2026/09/20 06:15:13 INFO starting outgoing connection manager Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:13.288951635Z 2026/09/20 06:15:13 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x378586f32520 0x378586efe3c0 0x378586f32560 0x378587e41980 0x378587e419b0 0x3785870b05c0] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:13.288973093Z 2026/09/20 06:15:13 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ACTIVE AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x378586f32660 0x378586efe4b0 0x378586f326c0 0x378587e41c50 0x378587e41c80 0x3785870b0a40] DisconnectReason:DISCONNECT_REASON_IDLE_TIMER_EXPIRED DisconnectMessage:idle-hold-timer-expired} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:13.295114926Z 2026/09/20 06:15:13 INFO new leader election service=envoy-shop-grpc-gw-8c4f0319 namespace=envoy-gateway-system lock_name=kubevip-envoy-shop-grpc-gw-8c4f0319 host_id=eg-poc1-worker
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:13.295142885Z 2026/09/20 06:15:13 INFO new leader election service=envoy-shop-http-gw-fccf2727 namespace=envoy-gateway-system lock_name=kubevip-envoy-shop-http-gw-fccf2727 host_id=eg-poc1-worker
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:14.900822636Z 2026/09/20 06:15:14 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x378587154540 0x3785871040a0 0x378587154560 0x3785880aa240 0x3785880aa270 0x3785880ac240] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:14.900843511Z 2026/09/20 06:15:14 INFO Peer Up Topic=Peer Key=172.19.254.12
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:14.900993594Z 2026/09/20 06:15:14 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 NeighborInterface: PeerGroup:} State:{PeerASN:65102 LocalASN:65021 NeighborAddress:172.19.254.12 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.12 PeerGroup: RemoteCap:[0x3785880aa060 0x378587f407c0 0x3785880ac0c0 0x3785880ac100 0x3785880aa030 0x3785871541c0 0x378587154240 0x378587154320 0x378587154420] LocalCap:[0x378586f33aa0 0x378586effb30 0x378586f33ac0 0x378587f2f710 0x378587f2f740 0x378587f40980] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:33159 RemotePort:179}}}"
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:15.081574927Z 2026/09/20 06:15:15 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_OPENCONFIRM AdminState:ADMIN_STATE_UP RouterID:invalid IP PeerGroup: RemoteCap:[] LocalCap:[0x378586f33ea0 0x378586effcc0 0x378586f33ec0 0x378587f2fb00 0x378587f2fb30 0x378587f40c80] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-received} Transport:{LocalAddress:0.0.0.0 LocalPort:0 RemotePort:0}}}"
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:15.081758177Z 2026/09/20 06:15:15 INFO Peer Up Topic=Peer Key=172.19.254.11
+[pod/kube-vip-ds-gj6mm/kube-vip] 2026-09-20T06:15:15.081966261Z 2026/09/20 06:15:15 INFO [BGP] peer="&{Type:3 Peer:{Conf:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 NeighborInterface: PeerGroup:} State:{PeerASN:65101 LocalASN:65021 NeighborAddress:172.19.254.11 SessionState:BGP_FSM_ESTABLISHED AdminState:ADMIN_STATE_UP RouterID:10.200.255.11 PeerGroup: RemoteCap:[0x378586f33c20 0x378587f2f920 0x378587f40d00 0x378586f33dc0 0x378587f40b00 0x378587f40b40 0x378587f2f8f0 0x378586f33c80 0x378586f33d40] LocalCap:[0x37858738c360 0x378586effe00 0x37858738c380 0x378587f78150 0x378587f78180 0x378587f40ec0] DisconnectReason:DISCONNECT_REASON_UNSPECIFIED DisconnectMessage:open-msg-negotiated} Transport:{LocalAddress:0.0.0.0 LocalPort:35461 RemotePort:179}}}"
+
+### 2026-09-20T06:15:16Z
+$ kind load docker-image grpcdemo:local --name eg-poc1
+Image: "grpcdemo:local" with ID "sha256:2e22859c1eca53dfb53bd1702d191e8aecd2310de173bb1926437e4d0e151086" not yet present on node "eg-poc1-control-plane", loading...
+Image: "grpcdemo:local" with ID "sha256:2e22859c1eca53dfb53bd1702d191e8aecd2310de173bb1926437e4d0e151086" not yet present on node "eg-poc1-worker", loading...
+
+### 2026-09-20T06:15:17Z
+$ kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/20a-gateways-bgp-etp-local.yaml
+envoyproxy.gateway.envoyproxy.io/bgp-http-gw-proxy created
+gateway.gateway.networking.k8s.io/bgp-http-gw created
+envoyproxy.gateway.envoyproxy.io/bgp-grpc-gw-proxy created
+gateway.gateway.networking.k8s.io/bgp-grpc-gw created
+
+### 2026-09-20T06:15:17Z
+$ kubectl --context kind-eg-poc1 -n shop wait --for=condition=Programmed gateway/bgp-http-gw --timeout=180s
+gateway.gateway.networking.k8s.io/bgp-http-gw condition met
+
+### 2026-09-20T06:15:29Z
+$ kubectl --context kind-eg-poc1 -n shop wait --for=condition=Programmed gateway/bgp-grpc-gw --timeout=180s
+gateway.gateway.networking.k8s.io/bgp-grpc-gw condition met
+
+### 2026-09-20T06:15:29Z
+$ bash -c wait_envoy_deploy bgp-http-gw
+deployment.apps/envoy-shop-bgp-http-gw-f5c77ba4 condition met
+
+### 2026-09-20T06:15:29Z
+$ bash -c wait_envoy_deploy bgp-grpc-gw
+deployment.apps/envoy-shop-bgp-grpc-gw-c0d4dcca condition met
+
+### 2026-09-20T06:15:29Z
+$ kubectl --context kind-eg-poc1 -n envoy-gateway-system wait deploy -l gateway.envoyproxy.io/owning-gateway-name=bgp-http-gw --for=jsonpath={.status.readyReplicas}=2 --timeout=180s
+deployment.apps/envoy-shop-bgp-http-gw-f5c77ba4 condition met
+
+### 2026-09-20T06:15:29Z
+$ kubectl --context kind-eg-poc1 -n envoy-gateway-system wait deploy -l gateway.envoyproxy.io/owning-gateway-name=bgp-grpc-gw --for=jsonpath={.status.readyReplicas}=2 --timeout=180s
+deployment.apps/envoy-shop-bgp-grpc-gw-c0d4dcca condition met
+
+### 2026-09-20T06:15:30Z
+$ kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/40-grpcdemo.yaml
+deployment.apps/grpcdemo-v1 unchanged
+service/grpc-v1 unchanged
+deployment.apps/grpcdemo-v2 unchanged
+service/grpc-v2 unchanged
+
+### 2026-09-20T06:15:30Z
+$ kubectl --context kind-eg-poc1 -n shop wait deploy/grpcdemo-v1 --for=condition=Available --timeout=120s
+deployment.apps/grpcdemo-v1 condition met
+
+### 2026-09-20T06:15:30Z
+$ kubectl --context kind-eg-poc1 -n shop wait deploy/grpcdemo-v2 --for=condition=Available --timeout=120s
+deployment.apps/grpcdemo-v2 condition met
+
+### 2026-09-20T06:15:30Z
+$ kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/41-shopapi-ha.yaml
+deployment.apps/shopapi configured
+
+### 2026-09-20T06:15:30Z
+$ kubectl --context kind-eg-poc1 -n shop rollout status deploy/shopapi --timeout=120s
+Waiting for deployment "shopapi" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "shopapi" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "shopapi" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "shopapi" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "shopapi" rollout to finish: 1 of 2 updated replicas are available...
+Waiting for deployment "shopapi" rollout to finish: 1 of 2 updated replicas are available...
+deployment "shopapi" successfully rolled out
+
+### 2026-09-20T06:15:44Z
+$ kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/50-routes-bgp.yaml
+httproute.gateway.networking.k8s.io/shop-api-bgp configured
+grpcroute.gateway.networking.k8s.io/orders-bgp configured
+
+### 2026-09-20T06:15:44Z
+$ bash -c wait_route httproute shop-api-bgp
+kind-eg-poc1 httproute/shop-api-bgp: all parents Accepted+ResolvedRefs
+
+### 2026-09-20T06:15:44Z
+$ bash -c wait_route grpcroute orders-bgp
+kind-eg-poc1 grpcroute/orders-bgp: all parents Accepted+ResolvedRefs
+
+### 2026-09-20T06:15:44Z
+$ bash -c require_spread
+---- envoy-gateway-system pods ----
+NAME                                               READY   STATUS    RESTARTS   AGE   IP           NODE                    NOMINATED NODE   READINESS GATES
+envoy-gateway-6fbfccc98d-mzl2j                     1/1     Running   0          17h   10.70.1.3    eg-poc1-worker          <none>           <none>
+envoy-shop-bgp-grpc-gw-c0d4dcca-767f89c749-4bklz   2/2     Running   0          26s   10.70.0.29   eg-poc1-control-plane   <none>           <none>
+envoy-shop-bgp-grpc-gw-c0d4dcca-767f89c749-9vdq5   2/2     Running   0          26s   10.70.1.25   eg-poc1-worker          <none>           <none>
+envoy-shop-bgp-http-gw-f5c77ba4-b5995448b-dzgh5    2/2     Running   0          27s   10.70.1.24   eg-poc1-worker          <none>           <none>
+envoy-shop-bgp-http-gw-f5c77ba4-b5995448b-rxs62    2/2     Running   0          27s   10.70.0.28   eg-poc1-control-plane   <none>           <none>
+envoy-shop-grpc-gw-8c4f0319-7dfd76687b-9l6r2       2/2     Running   0          17h   10.70.1.9    eg-poc1-worker          <none>           <none>
+envoy-shop-http-gw-fccf2727-5d49bfc874-qwbgh       2/2     Running   0          17h   10.70.1.8    eg-poc1-worker          <none>           <none>
+---- shopapi pods ----
+NAME                       READY   STATUS    RESTARTS   AGE   IP           NODE                    NOMINATED NODE   READINESS GATES
+shopapi-55dd74569b-fr5zl   1/1     Running   0          14s   10.70.0.30   eg-poc1-control-plane   <none>           <none>
+shopapi-55dd74569b-m6bv4   1/1     Running   0          6s    10.70.1.26   eg-poc1-worker          <none>           <none>
+bgp-http-gw nodes: eg-poc1-worker eg-poc1-control-plane unique=2
+bgp-grpc-gw nodes: eg-poc1-control-plane eg-poc1-worker unique=2
+shopapi nodes: eg-poc1-control-plane eg-poc1-worker unique=2
+
+### 2026-09-20T06:15:44Z
+$ bash -c doors_local
+---- spine show ip bgp 10.98.0.10/32 (expect ONE path — the leader) ----
+BGP routing table entry for 10.98.0.10/32, version 65
+Paths: (2 available, best #1, table default)
+  Advertised to peers:
+  10.200.1.2 10.200.1.10 10.200.1.19
+  65101 65021
+    10.200.1.2 from 10.200.1.2 (10.200.255.11)
+      Origin IGP, valid, external, multipath, best (Router ID)
+      Last update: Sun Sep 20 06:15:28 2026
+  65102 65021
+    10.200.1.10 from 10.200.1.10 (10.200.255.12)
+      Origin IGP, valid, external, multipath
+      Last update: Sun Sep 20 06:15:28 2026
+---- spine show ip bgp 10.98.0.10/32 json path count ----
+paths=2
+path nexthop=[{'ip': '10.200.1.2', 'hostname': 'leaf1', 'afi': 'ipv4', 'metric': 0, 'accessible': True, 'used': True}]
+path nexthop=[{'ip': '10.200.1.10', 'hostname': 'leaf2', 'afi': 'ipv4', 'metric': 0, 'accessible': True, 'used': True}]
+---- leaves received-routes from each node ----
+-- leaf1 neighbors 172.19.0.2 received-routes
+-- leaf2 neighbors 172.19.0.2 received-routes
+-- leaf1 neighbors 172.19.0.3 received-routes
+BGP table version is 99, local router ID is 10.200.255.11, vrf id 0
+Default local pref 100, local AS 65101
+Status codes:  s suppressed, d damped, h history, u unsorted, * valid, > best, = multipath,
+               i internal, r RIB-failure, S Stale, R Removed
+Nexthop codes: @NNN nexthop's vrf id, < announce-nh-self
+Origin codes:  i - IGP, e - EGP, ? - incomplete
+RPKI validation codes: V valid, I invalid, N Not found
+
+     Network          Next Hop            Metric LocPrf Weight Path
+ *> 10.98.0.10/32    172.19.0.3                             0 65021 i
+ *> 10.98.0.11/32    172.19.0.3                             0 65021 i
+ *> 172.19.255.100/32
+                    172.19.0.3                             0 65021 i
+ *> 172.19.255.101/32
+                    172.19.0.3                             0 65021 i
+
+Total number of prefixes 4 (2 filtered)
+-- leaf2 neighbors 172.19.0.3 received-routes
+BGP table version is 123, local router ID is 10.200.255.12, vrf id 0
+Default local pref 100, local AS 65102
+Status codes:  s suppressed, d damped, h history, u unsorted, * valid, > best, = multipath,
+               i internal, r RIB-failure, S Stale, R Removed
+Nexthop codes: @NNN nexthop's vrf id, < announce-nh-self
+Origin codes:  i - IGP, e - EGP, ? - incomplete
+RPKI validation codes: V valid, I invalid, N Not found
+
+     Network          Next Hop            Metric LocPrf Weight Path
+ *> 10.98.0.10/32    172.19.0.3                             0 65021 i
+ *> 10.98.0.11/32    172.19.0.3                             0 65021 i
+ *> 172.19.255.100/32
+                    172.19.0.3                             0 65021 i
+ *> 172.19.255.101/32
+                    172.19.0.3                             0 65021 i
+
+Total number of prefixes 4 (2 filtered)
+---- SERVERS-IN route-map ----
+ZEBRA:
+route-map: SERVERS-IN Invoked: 0 (0 milliseconds total) Optimization: enabled Processed Change: false
+ permit, sequence 10 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list EG-POC1-VIPS
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+ permit, sequence 20 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list EG-POC2-VIPS
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+ permit, sequence 30 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list EG-ANYCAST-VIPS
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+ permit, sequence 31 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list EG-ANYCAST-VIPS
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+ permit, sequence 40 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list CILIUM-POC1-VIPS
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+ permit, sequence 50 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list CILIUM-POC2-VIPS
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+ permit, sequence 60 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list CILIUM-ANYCAST-VIPS
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+ permit, sequence 61 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list CILIUM-ANYCAST-VIPS
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+BGP:
+route-map: SERVERS-IN Invoked: 140 (0 milliseconds total) Optimization: enabled Processed Change: false
+ permit, sequence 10 Invoked 78 (2 milliseconds total)
+  Match clauses:
+    ip address prefix-list EG-POC1-VIPS
+    as-path EG-POC1
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+ permit, sequence 20 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list EG-POC2-VIPS
+    as-path EG-POC2
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+ permit, sequence 30 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list EG-ANYCAST-VIPS
+    as-path EG-POC1
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+ permit, sequence 31 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list EG-ANYCAST-VIPS
+    as-path EG-POC2
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+ permit, sequence 40 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list CILIUM-POC1-VIPS
+    as-path CILIUM-POC1
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+ permit, sequence 50 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list CILIUM-POC2-VIPS
+    as-path CILIUM-POC2
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+ permit, sequence 60 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list CILIUM-ANYCAST-VIPS
+    as-path CILIUM-POC1
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+ permit, sequence 61 Invoked 0 (0 milliseconds total)
+  Match clauses:
+    ip address prefix-list CILIUM-ANYCAST-VIPS
+    as-path CILIUM-POC2
+  Set clauses:
+  Call clause:
+  Action:
+    Exit routemap
+---- arping 10.98.0.10 on kind-eg (expect 0 — nobody ARPs for a routed address) ----
+ARPING 10.98.0.10 from 172.19.0.6 eth0
+Sent 3 probe(s) (0 broadcast(s))
+Received 0 response(s) (0 request(s), 0 broadcast(s))
+
+### 2026-09-20T06:15:48Z
+$ bash -c client0_http
+---- grpcurl --version (netshoot) ----
+grpcurl v1.9.3
+---- curl --resolve api.eg-poc1.poc.local:80:10.98.0.10 /healthz ----
+http://api.eg-poc1.poc.local/healthz @ 10.98.0.10:80 → 200 X-Served-By=eg-poc1 curl_rc=0
+---- ip route get 10.98.0.10 ----
+10.98.0.10 via 10.200.100.2 dev eth0 src 10.200.100.10 uid 0 
+    cache 
+---- tcptraceroute -n -m 8 10.98.0.10 80 (edge → spine → leaf → node; TCP to the door's port — UDP probes to high ports are not kube-proxy's and the node forwards them onward, measured runs 3–4; netshoot's traceroute is BusyBox and has no -T) ----
+Selected device eth0, address 10.200.100.10, port 35829 for outgoing packets
+Tracing the path to 10.98.0.10 on TCP port 80 (http), 8 hops max
+ 1  10.200.100.2  0.105 ms  0.010 ms  0.064 ms
+ 2  10.200.1.18  0.120 ms  0.097 ms  0.105 ms
+ 3  10.200.1.10  0.288 ms  0.117 ms  0.092 ms
+ 4  10.98.0.10  0.175 ms  0.151 ms  0.133 ms
+ 5  10.98.0.10 [open]  0.120 ms  0.147 ms  0.143 ms
+
+### 2026-09-20T06:15:49Z
+$ kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/10b-kube-vip-ds-bgp-active-active.yaml
+daemonset.apps/kube-vip-ds configured
+
+### 2026-09-20T06:15:49Z
+$ kubectl --context kind-eg-poc1 -n kube-system rollout status ds/kube-vip-ds --timeout=180s
+Waiting for daemon set "kube-vip-ds" rollout to finish: 0 out of 2 new pods have been updated...
+Waiting for daemon set "kube-vip-ds" rollout to finish: 0 out of 2 new pods have been updated...
+Waiting for daemon set "kube-vip-ds" rollout to finish: 1 out of 2 new pods have been updated...
+Waiting for daemon set "kube-vip-ds" rollout to finish: 1 out of 2 new pods have been updated...
+Waiting for daemon set "kube-vip-ds" rollout to finish: 1 out of 2 new pods have been updated...
+Waiting for daemon set "kube-vip-ds" rollout to finish: 1 of 2 updated pods are available...
+daemon set "kube-vip-ds" successfully rolled out
+
+### 2026-09-20T06:15:50Z
+$ bash -c aa_wait 1
+leaf1 node_paths=2 (want >= 1 nodes) after 3s
+
+### 2026-09-20T06:15:52Z
+$ bash -c aa_record
+---- spine show ip bgp 10.98.0.10/32 ----
+BGP routing table entry for 10.98.0.10/32, version 70
+Paths: (2 available, best #1, table default)
+  Advertised to peers:
+  10.200.1.2 10.200.1.10 10.200.1.19
+  65102 65021
+    10.200.1.10 from 10.200.1.10 (10.200.255.12)
+      Origin IGP, valid, external, multipath, best (Older Path)
+      Last update: Sun Sep 20 06:15:50 2026
+  65101 65021
+    10.200.1.2 from 10.200.1.2 (10.200.255.11)
+      Origin IGP, valid, external, multipath
+      Last update: Sun Sep 20 06:15:51 2026
+---- leaf1 show ip bgp 10.98.0.10/32 (two node paths + the spine bounce) ----
+BGP routing table entry for 10.98.0.10/32, version 106
+Paths: (3 available, best #1, table default)
+  Advertised to peers:
+  10.200.1.3
+  65021
+    172.19.0.2 from 172.19.0.2 (172.19.0.2)
+      Origin IGP, valid, external, multipath, best (Older Path)
+      Last update: Sun Sep 20 06:15:52 2026
+  65021
+    172.19.0.3 from 172.19.0.3 (172.19.0.3)
+      Origin IGP, valid, external, multipath
+      Last update: Sun Sep 20 06:15:52 2026
+  65100 65102 65021
+    10.200.1.3 from 10.200.1.3 (10.200.255.2)
+      Origin IGP, valid, external
+      Last update: Sun Sep 20 06:15:51 2026
+---- spine ip route show 10.98.0.10 (expect two nexthops) ----
+10.98.0.10 nhid 27 proto bgp metric 20 
+	nexthop via 10.200.1.10 dev eth0 weight 1 
+	nexthop via 10.200.1.2 dev eth2 weight 1 
+---- leaf summaries ----
+-- leaf1
+
+IPv4 Unicast Summary:
+BGP router identifier 10.200.255.11, local AS number 65101 VRF default vrf-id 0
+BGP table version 107
+RIB entries 17, using 2176 bytes of memory
+Peers 3, using 50 KiB of memory
+Peer groups 1, using 64 bytes of memory
+
+Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
+*172.19.0.2     4      65021         3         3      107    0    0 00:00:01            2        0 N/A
+*172.19.0.3     4      65021         3         3      107    0    0 00:00:01            2        0 N/A
+10.200.1.3      4      65100      2313      2312      107    0    0 01:53:33            6        7 spine
+
+Total number of neighbors 3
+* - dynamic neighbor
+2 dynamic neighbor(s), limit 16
+-- leaf2
+
+IPv4 Unicast Summary:
+BGP router identifier 10.200.255.12, local AS number 65102 VRF default vrf-id 0
+BGP table version 131
+RIB entries 17, using 2176 bytes of memory
+Peers 3, using 50 KiB of memory
+Peer groups 1, using 64 bytes of memory
+
+Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
+*172.19.0.2     4      65021         3         3      131    0    0 00:00:02            2        0 N/A
+*172.19.0.3     4      65021         3         2        0    0    0 00:00:01            2        0 N/A
+10.200.1.11     4      65100      2313      2326      131    0    0 01:53:33            4        7 spine
+
+Total number of neighbors 3
+* - dynamic neighbor
+2 dynamic neighbor(s), limit 16
+
+### 2026-09-20T06:15:53Z
+$ bash -c etp_loop ETP-Local
+---- ETP-Local: 40 curls from client0 ----
+---- Envoy pod placement ----
+NAME                                              READY   STATUS    RESTARTS   AGE   IP           NODE                    NOMINATED NODE   READINESS GATES
+envoy-shop-bgp-http-gw-f5c77ba4-b5995448b-dzgh5   2/2     Running   0          36s   10.70.1.24   eg-poc1-worker          <none>           <none>
+envoy-shop-bgp-http-gw-f5c77ba4-b5995448b-rxs62   2/2     Running   0          36s   10.70.0.28   eg-poc1-control-plane   <none>           <none>
+---- iptables 10.98.0.10 counters before ----
+eg-poc1-control-plane 0
+eg-poc1-worker 7
+ETP-Local ok=40 fail=0 x-pod=[shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 ]
+---- iptables 10.98.0.10 counters after ----
+eg-poc1-control-plane 24
+eg-poc1-worker 23
+
+### 2026-09-20T06:15:55Z
+$ bash -c switch_etp_cluster
+before: uid=aa9c6579-003f-431c-99fa-1600a253e5ef etp=Local
+envoyproxy.gateway.envoyproxy.io/bgp-http-gw-proxy configured
+gateway.gateway.networking.k8s.io/bgp-http-gw configured
+envoyproxy.gateway.envoyproxy.io/bgp-grpc-gw-proxy configured
+gateway.gateway.networking.k8s.io/bgp-grpc-gw configured
+after apply 20: uid=aa9c6579-003f-431c-99fa-1600a253e5ef etp=Cluster
+externalTrafficPolicy mutated in place (Service UID unchanged) — it is mutable
+gateway.gateway.networking.k8s.io/bgp-http-gw condition met
+gateway.gateway.networking.k8s.io/bgp-grpc-gw condition met
+deployment.apps/envoy-shop-bgp-http-gw-f5c77ba4 condition met
+deployment.apps/envoy-shop-bgp-grpc-gw-c0d4dcca condition met
+deployment.apps/envoy-shop-bgp-http-gw-f5c77ba4 condition met
+deployment.apps/envoy-shop-bgp-grpc-gw-c0d4dcca condition met
+kind-eg-poc1 httproute/shop-api-bgp: all parents Accepted+ResolvedRefs
+kind-eg-poc1 grpcroute/orders-bgp: all parents Accepted+ResolvedRefs
+final ETP=Cluster
+
+### 2026-09-20T06:15:59Z
+$ bash -c aa_wait 2
+leaf1 node_paths=2 (want >= 2 nodes) after 1s
+
+### 2026-09-20T06:15:59Z
+$ bash -c etp_loop ETP-Cluster
+---- ETP-Cluster: 40 curls from client0 ----
+---- Envoy pod placement ----
+NAME                                              READY   STATUS    RESTARTS   AGE   IP           NODE                    NOMINATED NODE   READINESS GATES
+envoy-shop-bgp-http-gw-f5c77ba4-b5995448b-dzgh5   2/2     Running   0          42s   10.70.1.24   eg-poc1-worker          <none>           <none>
+envoy-shop-bgp-http-gw-f5c77ba4-b5995448b-rxs62   2/2     Running   0          42s   10.70.0.28   eg-poc1-control-plane   <none>           <none>
+---- iptables 10.98.0.10 counters before ----
+eg-poc1-control-plane 0
+eg-poc1-worker 0
+ETP-Cluster ok=40 fail=0 x-pod=[shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-m6bv4 shopapi-55dd74569b-fr5zl shopapi-55dd74569b-fr5zl ]
+---- iptables 10.98.0.10 counters after ----
+eg-poc1-control-plane 25
+eg-poc1-worker 15
+
+### 2026-09-20T06:16:01Z
+$ bash -c matrix_setup
+copied .tmp/eg-poc1-root-ca.crt and demos/52-eg-poc2-metallb/probe into bgp-fabric-client0-1:/tmp
+grpcurl v1.9.3
+
+### 2026-09-20T06:16:01Z
+$ bash -c grpc_matrix
+-- T1 list + describe shop.v1.Orders
+grpc.health.v1.Health
+grpc.reflection.v1.ServerReflection
+grpc.reflection.v1alpha.ServerReflection
+shop.v1.Orders
+T1_list_rc=0
+shop.v1.Orders is a service:
+service Orders {
+  rpc GetOrder ( .shop.v1.GetOrderRequest ) returns ( .shop.v1.Order );
+  rpc ListOrders ( .shop.v1.ListOrdersRequest ) returns ( .shop.v1.ListOrdersResponse );
+  rpc SlowOrder ( .shop.v1.SlowOrderRequest ) returns ( .shop.v1.Order );
+  rpc WatchOrders ( .shop.v1.WatchOrdersRequest ) returns ( stream .shop.v1.OrderEvent );
+}
+T1_describe_rc=0
+T T1 expected=four RPCs via reflection observed=ListOrders GetOrder WatchOrders SlowOrder PASS
+-- T2 ListOrders h2c → v1, three orders, served_by grpcdemo-v1-
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+      "version": "v1"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+      "version": "v1"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+      "version": "v1"
+    }
+  ],
+  "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+  "version": "v1"
+}
+T2_rc=0
+T T2 expected=3 orders version v1 served_by grpcdemo-v1- observed=v1 + three rows PASS
+-- T3 ListOrders TLS :443 --cacert (never -insecure)
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+      "version": "v1"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+      "version": "v1"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+      "version": "v1"
+    }
+  ],
+  "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+  "version": "v1"
+}
+T3_rc=0
+T T3 expected=TLS ListOrders v1 observed=v1 rc=0 PASS
+-- T4 GetOrder id=2 → version v2 (routing by method)
+{
+  "id": "2",
+  "item": "mouse",
+  "amountCents": "1999",
+  "servedBy": "grpcdemo-v2-6b8fdbcd7f-nszdr",
+  "version": "v2"
+}
+T4_rc=0
+T T4 expected=GetOrder id=2 version v2 observed=v2 PASS
+-- T5 ListOrders -H x-version:v2 → v2; without header → v1
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v2-6b8fdbcd7f-nszdr",
+      "version": "v2"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v2-6b8fdbcd7f-nszdr",
+      "version": "v2"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v2-6b8fdbcd7f-nszdr",
+      "version": "v2"
+    }
+  ],
+  "servedBy": "grpcdemo-v2-6b8fdbcd7f-nszdr",
+  "version": "v2"
+}
+T5_v2_rc=0
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+      "version": "v1"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+      "version": "v1"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+      "version": "v1"
+    }
+  ],
+  "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+  "version": "v1"
+}
+T5_v1_rc=0
+T T5 expected=x-version v2 then default v1 observed=v2 then v1 PASS
+-- T6 WatchOrders count=5 interval_ms=200 → five events
+{
+  "order": {
+    "id": "1",
+    "item": "keyboard",
+    "amountCents": "4999",
+    "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+  "version": "v1"
+}
+{
+  "order": {
+    "id": "2",
+    "item": "mouse",
+    "amountCents": "1999",
+    "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+  "version": "v1"
+}
+{
+  "order": {
+    "id": "3",
+    "item": "monitor",
+    "amountCents": "24900",
+    "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+  "version": "v1"
+}
+{
+  "order": {
+    "id": "1",
+    "item": "keyboard",
+    "amountCents": "4999",
+    "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+  "version": "v1"
+}
+{
+  "order": {
+    "id": "2",
+    "item": "mouse",
+    "amountCents": "1999",
+    "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+    "version": "v1"
+  },
+  "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+  "version": "v1"
+}
+T6_rc=0
+T T6 expected=5 streamed events observed=events=5 PASS
+-- T7 GetOrder id=99 → Code: NotFound
+ERROR:
+  Code: NotFound
+  Message: order 99 not found
+T7_rc=69
+T T7 expected=Code: NotFound observed=NotFound PASS
+-- T8a shop.v1.Orders/NoSuchMethod (descriptor) → Code: Unimplemented + unknown method
+ERROR:
+  Code: Unimplemented
+  Message: unknown method NoSuchMethod for service shop.v1.Orders
+T8a_rc=76
+T T8a expected=Code: Unimplemented + unknown method observed=Unimplemented unknown method PASS
+-- T8b shop.v1.Nope/Do (descriptor) → Code: Unimplemented + empty Message
+ERROR:
+  Code: Unimplemented
+  Message: 
+T8b_rc=76
+T T8b expected=Code: Unimplemented + empty Message observed=Unimplemented empty Message PASS
+-- T9 SlowOrder delay_ms=3000 -max-time 1 → Code: DeadlineExceeded
+ERROR:
+  Code: DeadlineExceeded
+  Message: context deadline exceeded
+T9_rc=68
+T T9 expected=Code: DeadlineExceeded observed=DeadlineExceeded PASS
+-- T10 -v ListOrders → x-served-by / x-version metadata
+
+Resolved method descriptor:
+rpc ListOrders ( .shop.v1.ListOrdersRequest ) returns ( .shop.v1.ListOrdersResponse );
+
+Request metadata to send:
+(empty)
+
+Response headers received:
+content-type: application/grpc
+date: Sun, 20 Sep 2026 06:16:04 GMT
+x-served-by: grpcdemo-v1-55c9966f5c-gd5fx
+x-version: v1
+
+Response contents:
+{
+  "orders": [
+    {
+      "id": "1",
+      "item": "keyboard",
+      "amountCents": "4999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+      "version": "v1"
+    },
+    {
+      "id": "2",
+      "item": "mouse",
+      "amountCents": "1999",
+      "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+      "version": "v1"
+    },
+    {
+      "id": "3",
+      "item": "monitor",
+      "amountCents": "24900",
+      "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+      "version": "v1"
+    }
+  ],
+  "servedBy": "grpcdemo-v1-55c9966f5c-gd5fx",
+  "version": "v1"
+}
+
+Response trailers received:
+(empty)
+Sent 0 requests and received 1 response
+T10_rc=0
+T T10 expected=metadata x-served-by + x-version observed=both present PASS
+-- T11 TLS with a bogus CA (not -insecure) → tls: failed to verify certificate
+Failed to dial target host "10.98.0.11:443": tls: failed to verify certificate: x509: certificate signed by unknown authority
+T11_rc=1
+T T11 expected=TLS fails with bogus CA observed=Failed to dial target host "10.98.0.11:443": tls: failed to verify certificate:  rc=1 PASS
+-- T12 isolation: grpc authority at HTTP door 10.98.0.10; api host at gRPC door
+Error invoking method "grpc.health.v1.Health/Check": failed to query for service descriptor "grpc.health.v1.Health": server does not support the reflection API
+isolation_grpcurl_rc=1
+isolation_http_code=404 curl_rc=0
+T T12 expected=grpc@.10 not served; curl@.11 → 404 observed=grpcurl_rc=1 http=404 PASS
+-- T13 Health/Check "" and shop.v1.Orders → SERVING
+{
+  "status": "SERVING"
+}
+T13_empty_rc=0
+{
+  "status": "SERVING"
+}
+T13_svc_rc=0
+T T13 expected={"status": "SERVING"} for "" and shop.v1.Orders observed=SERVING SERVING PASS
+
+==== gRPC matrix summary ====
+TEST EXPECTED                                         OBSERVED                     RESULT
+T1   four RPCs via reflection                         ListOrders GetOrder WatchOrders SlowOrder PASS
+T2   3 orders version v1 served_by grpcdemo-v1-       v1 + three rows              PASS
+T3   TLS ListOrders v1                                v1 rc=0                      PASS
+T4   GetOrder id=2 version v2                         v2                           PASS
+T5   x-version v2 then default v1                     v2 then v1                   PASS
+T6   5 streamed events                                events=5                     PASS
+T7   Code: NotFound                                   NotFound                     PASS
+T8a  Code: Unimplemented + unknown method             Unimplemented unknown method PASS
+T8b  Code: Unimplemented + empty Message              Unimplemented empty Message  PASS
+T9   Code: DeadlineExceeded                           DeadlineExceeded             PASS
+T10  metadata x-served-by + x-version                 both present                 PASS
+T11  TLS fails with bogus CA                          Failed to dial target host "10.98.0.11:443": tls: failed to verify certificate:  rc=1 PASS
+T12  grpc@.10 not served; curl@.11 → 404            grpcurl_rc=1 http=404        PASS
+T13  {"status": "SERVING"} for "" and shop.v1.Orders  SERVING SERVING              PASS
+gRPC matrix: 0 FAIL
+
+### 2026-09-20T06:16:04Z
+$ scripts/fabric-vm-route.sh --apply
+VM:  docker run --rm --privileged --pid=host --net=host alpine:3.20 nsenter -t 1 -m -n -- ip route replace 10.98.0.0/24 via 172.19.254.11
+Mac: sudo route -n add -net 10.98.0.0/24 192.168.64.2
+
+### 2026-09-20T06:16:04Z
+$ bash -c mac_half
+Mac route absent — the client0 half is the record
+  sudo route -n add -net 10.98.0.0/24 192.168.64.2
+
+### 2026-09-20T06:16:04Z
+$ bash -c browser_shot
+Mac route absent — screenshot skipped
+
+### 2026-09-20T06:16:04Z
+$ bash -c failure_bgp_only
+---- A: BGP-only — delete kube-vip pod kube-vip-ds-fgzpn on eg-poc1-worker ----
+pod "kube-vip-ds-fgzpn" deleted from kube-system namespace
+t+0s code=200 rc=0 leaf1 node_paths=1
+t+2s code=200 rc=0 leaf1 node_paths=2
+t+5s code=200 rc=0 leaf1 node_paths=2
+t+8s code=200 rc=0 leaf1 node_paths=2
+t+10s code=200 rc=0 leaf1 node_paths=2
+t+13s code=200 rc=0 leaf1 node_paths=2
+t+16s code=200 rc=0 leaf1 node_paths=2
+t+19s code=200 rc=0 leaf1 node_paths=2
+t+21s code=200 rc=0 leaf1 node_paths=2
+t+24s code=200 rc=0 leaf1 node_paths=2
+t+27s code=200 rc=0 leaf1 node_paths=2
+t+29s code=200 rc=0 leaf1 node_paths=2
+A summary: withdrawal_s=0 ok=12 fail=0 recovery_s=2
+
+### 2026-09-20T06:16:37Z
+$ bash -c recovery_wait 90
+recovery: 4 sessions Established; 2 node paths on both leaves after 1s
+
+### 2026-09-20T06:16:37Z
+$ bash -c failure_silent_node
+---- B: silent node — pause eg-poc1-worker (172.19.0.3) for 75 s; envoy-gateway controller on: eg-poc1-worker ----
+eg-poc1-worker
+t+0s code=200 rc=0 leaf1 node_paths=2 peer 172.19.0.3 state=Established Ready=True lastTransitionTime=2026-09-20T05:25:45Z ready_eps=2 door_eps=2
+t+5s code=000 rc=28 leaf1 node_paths=2 peer 172.19.0.3 state=Established Ready=True lastTransitionTime=2026-09-20T05:25:45Z ready_eps=2 door_eps=2
+t+13s code=200 rc=0 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=True lastTransitionTime=2026-09-20T05:25:45Z ready_eps=2 door_eps=2
+t+18s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=True lastTransitionTime=2026-09-20T05:25:45Z ready_eps=2 door_eps=2
+t+25s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=True lastTransitionTime=2026-09-20T05:25:45Z ready_eps=2 door_eps=2
+t+33s code=200 rc=0 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=True lastTransitionTime=2026-09-20T05:25:45Z ready_eps=2 door_eps=2
+t+38s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=True lastTransitionTime=2026-09-20T05:25:45Z ready_eps=2 door_eps=2
+t+46s code=200 rc=0 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=True lastTransitionTime=2026-09-20T05:25:45Z ready_eps=2 door_eps=2
+t+51s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T06:17:30Z ready_eps=1 door_eps=1
+t+59s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T06:17:30Z ready_eps=1 door_eps=1
+t+66s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T06:17:30Z ready_eps=1 door_eps=1
+t+74s code=000 rc=28 leaf1 node_paths=1 peer 172.19.0.3 state=ABSENT Ready=Unknown lastTransitionTime=2026-09-20T06:17:30Z ready_eps=1 door_eps=1
+---- unpause eg-poc1-worker ----
+eg-poc1-worker
+recovery t+1s Ready=Unknown lastTransitionTime=2026-09-20T06:17:30Z leaf1 node_paths=1
+recovery t+2s Ready=True lastTransitionTime=2026-09-20T06:17:59Z leaf1 node_paths=1
+recovery t+3s Ready=True lastTransitionTime=2026-09-20T06:17:59Z leaf1 node_paths=1
+recovery t+4s Ready=True lastTransitionTime=2026-09-20T06:17:59Z leaf1 node_paths=1
+recovery t+5s Ready=True lastTransitionTime=2026-09-20T06:17:59Z leaf1 node_paths=1
+recovery t+6s Ready=True lastTransitionTime=2026-09-20T06:17:59Z leaf1 node_paths=1
+recovery t+7s Ready=True lastTransitionTime=2026-09-20T06:17:59Z leaf1 node_paths=2
+node Ready and two node paths after 7s
+B summary: bgp_withdraw_s=13 node_notready_s=51 first_ok_after_s=none post_notready ok=0 fail=4 recovery_s=7 eg_controller_node=eg-poc1-worker
+
+### 2026-09-20T06:18:07Z
+$ bash -c recovery_wait 90
+recovery: 4 sessions Established; 2 node paths on both leaves after 1s
+
+### 2026-09-20T06:18:07Z
+$ demos/56-kube-vip-bgp/hosts-entries.sh
+# ---- cilium-kind-poc demo56 (generated 2026-09-20T06:18Z by demos/56-kube-vip-bgp/hosts-entries.sh) ----
+10.98.0.10  api.eg-poc1.poc.local
+10.98.0.11  grpc.eg-poc1.poc.local
+# ---- end cilium-kind-poc demo56 ----
+
+### 2026-09-20T06:18:07Z
+$ bash -c final_table
+DOOR ADDRESS PATHS NODES CLIENT0
+bgp-http-gw 10.98.0.10 paths=2
+bgp-grpc-gw 10.98.0.11 paths=2
+demo 54 L2 doors .100/.101: unannounced (vip_arp=false) — restored by cleanup.sh
+
+### 2026-09-20T06:18:07Z
+$ demos/56-kube-vip-bgp/check.sh
+
+== demo 56 — kube-vip BGP on eg-poc1 (migration from L2)
+  STATUS WHAT                                                                   MEASURED                                             RULE
+  PASS   kube-vip DS ready with BGP env                                         ready=2/2 bgp_enable=true bgp_as=65021               10b — ready N/N, bgp_enable=true, bgp_as=65021
+  PASS   4 SERVERS sessions Established                                         4/4 Established (172.19.0.2 172.19.0.3)              both nodes × both leaves — JSON state == Established
+  PASS   leaf1 2 node paths for 10.98.0.10/32 (both nodes)                      node_paths=2                                         active-active — both nodes advertise to each leaf
+  PASS   leaf1 2 node paths for 10.98.0.11/32 (both nodes)                      node_paths=2                                         active-active — both nodes advertise to each leaf
+  PASS   bgp-http-gw class + ingress + ETP Cluster                              class=kube-vip.io/kube-vip-class ingress=10.98.0.10 etp=Cluster D11 — class kube-vip, ingress=10.98.0.10, ETP Cluster
+  PASS   bgp-grpc-gw class + ingress + ETP Cluster                              class=kube-vip.io/kube-vip-class ingress=10.98.0.11 etp=Cluster D11 — class kube-vip, ingress=10.98.0.11, ETP Cluster
+  PASS   Envoy replicas spread: one per node                                    bgp-http-gw ready=2 nodes=eg-poc1-control-plane,eg-poc1-worker 2 ready Envoy pods, distinct nodeName
+  PASS   Envoy replicas spread: one per node                                    bgp-grpc-gw ready=2 nodes=eg-poc1-control-plane,eg-poc1-worker 2 ready Envoy pods, distinct nodeName
+  PASS   shopapi replicas spread + rollout complete                             ready=2 updated=2/2 nodes=eg-poc1-control-plane,eg-poc1-worker 2 ready shopapi pods, distinct nodeName, updated == replicas == spec
+  PASS   client0 http://api.eg-poc1.poc.local 200 + X-Served-By                 http_code=200 X-Served-By=eg-poc1                    R8 — 200 and X-Served-By=eg-poc1 from client0
+  PASS   client0 ListOrders v1                                                  v1 + three rows                                      demo 52 T2 — 3 orders version v1 served_by grpcdemo-v1-
+  PASS   client0 GetOrder v2                                                    v2                                                   demo 52 T4 — GetOrder id=2 version v2 served_by grpcdemo-v2-
+  PASS   client0 x-version v2                                                   v2                                                   demo 52 T5 — x-version v2 → version v2 served_by grpcdemo-v2-
+  PASS   arping routed door 10.98.0.10 → 0 replies                            replies=0                                            routed door — nobody ARPs for a routed address / L2 door unannounced
+  PASS   arping demo 54 L2 door 172.19.255.100 → 0 replies                    replies=0                                            demo 54 L2 door — nobody ARPs for a routed address / L2 door unannounced
+  FAIL   SERVERS-IN seq 10 (EG-POC1-VIPS + as-path EG-POC1) invoked > 0         vtysh/JSON failed                                    sheet row 4 — EG-POC1-VIPS 10.98.0.0/26 ge 32 le 32 + as-path ^65021$
+
+demo 56 check: 1 FAIL
+[exit code: 1]
+
+### 2026-09-20T06:19:04Z
+$ demos/56-kube-vip-bgp/check.sh
+
+== demo 56 — kube-vip BGP on eg-poc1 (migration from L2)
+  STATUS WHAT                                                                   MEASURED                                             RULE
+  PASS   kube-vip DS ready with BGP env                                         ready=2/2 bgp_enable=true bgp_as=65021               10b — ready N/N, bgp_enable=true, bgp_as=65021
+  PASS   4 SERVERS sessions Established                                         4/4 Established (172.19.0.2 172.19.0.3)              both nodes × both leaves — JSON state == Established
+  PASS   leaf1 2 node paths for 10.98.0.10/32 (both nodes)                      node_paths=2                                         active-active — both nodes advertise to each leaf
+  PASS   leaf1 2 node paths for 10.98.0.11/32 (both nodes)                      node_paths=2                                         active-active — both nodes advertise to each leaf
+  PASS   bgp-http-gw class + ingress + ETP Cluster                              class=kube-vip.io/kube-vip-class ingress=10.98.0.10 etp=Cluster D11 — class kube-vip, ingress=10.98.0.10, ETP Cluster
+  PASS   bgp-grpc-gw class + ingress + ETP Cluster                              class=kube-vip.io/kube-vip-class ingress=10.98.0.11 etp=Cluster D11 — class kube-vip, ingress=10.98.0.11, ETP Cluster
+  PASS   Envoy replicas spread: one per node                                    bgp-http-gw ready=2 nodes=eg-poc1-control-plane,eg-poc1-worker 2 ready Envoy pods, distinct nodeName
+  PASS   Envoy replicas spread: one per node                                    bgp-grpc-gw ready=2 nodes=eg-poc1-control-plane,eg-poc1-worker 2 ready Envoy pods, distinct nodeName
+  PASS   shopapi replicas spread + rollout complete                             ready=2 updated=2/2 nodes=eg-poc1-control-plane,eg-poc1-worker 2 ready shopapi pods, distinct nodeName, updated == replicas == spec
+  PASS   client0 http://api.eg-poc1.poc.local 200 + X-Served-By                 http_code=200 X-Served-By=eg-poc1                    R8 — 200 and X-Served-By=eg-poc1 from client0
+  PASS   client0 ListOrders v1                                                  v1 + three rows                                      demo 52 T2 — 3 orders version v1 served_by grpcdemo-v1-
+  PASS   client0 GetOrder v2                                                    v2                                                   demo 52 T4 — GetOrder id=2 version v2 served_by grpcdemo-v2-
+  PASS   client0 x-version v2                                                   v2                                                   demo 52 T5 — x-version v2 → version v2 served_by grpcdemo-v2-
+  PASS   arping routed door 10.98.0.10 → 0 replies                            replies=0                                            routed door — nobody ARPs for a routed address / L2 door unannounced
+  PASS   arping demo 54 L2 door 172.19.255.100 → 0 replies                    replies=0                                            demo 54 L2 door — nobody ARPs for a routed address / L2 door unannounced
+  PASS   SERVERS-IN seq 10 (EG-POC1-VIPS + as-path EG-POC1) invoked > 0         seq10_invoked=90                                     sheet row 4 — EG-POC1-VIPS 10.98.0.0/26 ge 32 le 32 + as-path ^65021$
+
+demo 56 check: 0 FAIL
+

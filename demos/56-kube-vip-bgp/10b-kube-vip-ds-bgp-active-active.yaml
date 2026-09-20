@@ -11,8 +11,8 @@
 # second announcer beside L2. cleanup.sh restores
 # clusters/eg/kube-vip-ds.yaml so those doors answer ARP again.
 #
-# Password inline in bgp_peers: one password per fabric (sheet row 3;
-# FABRIC_BGP_PASSWORD=lab-bgp in demos/46-bgp-fabric/fabric/.env).
+# No password in bgp_peers on this kernel (sheet row 3; the env comment
+# below); a real kernel carries FABRIC_BGP_PASSWORD from fabric/.env.
 # lb_class_only / lb_class_name unchanged (D11). Cloud-provider unchanged.
 #
 #   kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/10b-kube-vip-ds-bgp-active-active.yaml
@@ -88,8 +88,10 @@ spec:
               value: "65021"
             # bgp_peers carries NO password: gobgp sets TCP_MD5SIG on its connecting socket
             # and this Docker VM's kernel refuses it (Protocol not available) — with a password
-            # the session never leaves ACTIVE (measured 2026-09-20: 90 s, no SYN on the leaf);
-            # without, both nodes are Established in 25 s. The fabric's `neighbor SERVERS
+            # the session never leaves ACTIVE (measured 2026-09-20, run 2: est=0 after 90 s —
+            # gobgp v4.9.0 sockopt_linux.go:191-211 returns the setsockopt error from the
+            # dialer's Control, so no connect is attempted); without, both nodes are
+            # Established after 3 s (runs 3–9). The fabric's `neighbor SERVERS
             # password` stays: FRR fails the same setsockopt and continues unsigned. On a real
             # kernel both sides sign (NETWORK-TEAM-SHEET.md row 3).
             - name: bgp_peers

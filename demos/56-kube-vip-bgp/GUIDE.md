@@ -72,9 +72,10 @@ T T5 expected=x-version v2 then default v1 observed=v2 then v1 PASS
 ### 3. Read the leaf's three paths
 
 Active-active: both nodes advertise the `/32`. The spine's two
-nexthops are the two leaves. leaf1 may also hold the door's own prefix
-learned from the spine (`10.200.1.3`, AS path `65100 65102 65021`);
-judges count node paths (nexthop in `172.19.0.0/17`) only.
+nexthops are the two leaves. One leaf may also hold the door's own
+prefix bounced back from the spine — the leaf the spine did not pick as
+best (recorded on leaf1 as `65100 65102 65021`); judges count node
+paths (nexthop in `172.19.0.0/17`) only.
 
 ```bash
 docker compose -p bgp-fabric exec -T leaf1 vtysh -c 'show ip bgp 10.98.0.10/32'
@@ -102,12 +103,12 @@ kubectl --context kind-eg-poc1 -n kube-system delete pod \
     -o jsonpath='{.items[0].metadata.name}')"
 ```
 
-**Expect:** one node path at t+0, two by t+3, no failed curls.
+**Expect:** one node path at t+0, two by t+2, no failed curls.
 
 ```text
 t+0s code=200 rc=0 leaf1 node_paths=1
-t+3s code=200 rc=0 leaf1 node_paths=2
-A summary: withdrawal_s=0 ok=11 fail=0 recovery_s=3
+t+2s code=200 rc=0 leaf1 node_paths=2
+A summary: withdrawal_s=0 ok=12 fail=0 recovery_s=2
 ```
 
 ### 5. Run the check

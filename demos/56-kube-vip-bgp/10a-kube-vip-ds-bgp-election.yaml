@@ -8,10 +8,10 @@
 # pkg/services/leader.go:146 OnStartedLeading). The spine therefore
 # holds ONE path per /32.
 #
-# bgp_peers format is address:AS:password:multihop. The password is the
-# fabric's one MD5 (FABRIC_BGP_PASSWORD in demos/46-bgp-fabric/fabric/.env,
-# default lab-bgp) — kube-vip takes it inline in this string; the sheet's
-# row 3 is "one password per fabric". 65101 / 65102 are the leaves' ASNs,
+# bgp_peers format is address:AS:password:multihop. The password field is
+# EMPTY on this kernel (see the env comment below and sheet row 3); on a
+# real kernel it carries the fabric's one MD5 (FABRIC_BGP_PASSWORD in
+# demos/46-bgp-fabric/fabric/.env). 65101 / 65102 are the leaves' ASNs,
 # not TCP ports (BGP is 179).
 #
 # bgp_routerid from the downward API (status.hostIP — kube-vip's docs:
@@ -97,8 +97,10 @@ spec:
               value: "65021"
             # bgp_peers carries NO password: gobgp sets TCP_MD5SIG on its connecting socket
             # and this Docker VM's kernel refuses it (Protocol not available) — with a password
-            # the session never leaves ACTIVE (measured 2026-09-20: 90 s, no SYN on the leaf);
-            # without, both nodes are Established in 25 s. The fabric's `neighbor SERVERS
+            # the session never leaves ACTIVE (measured 2026-09-20, run 2: est=0 after 90 s —
+            # gobgp v4.9.0 sockopt_linux.go:191-211 returns the setsockopt error from the
+            # dialer's Control, so no connect is attempted); without, both nodes are
+            # Established after 3 s (runs 3–9). The fabric's `neighbor SERVERS
             # password` stays: FRR fails the same setsockopt and continues unsigned. On a real
             # kernel both sides sign (NETWORK-TEAM-SHEET.md row 3).
             - name: bgp_peers

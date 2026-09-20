@@ -199,7 +199,7 @@ clusters: the leaves are two more containers on it, with fixed addresses in a bl
 | 2 — the cluster joins the fabric | **47** | `bgpControlPlane.enabled: true` in `cilium/values-poc1.yaml` (helm upgrade + `rollout restart ds/cilium`, timed for no other demo — gotcha #42's outage), `CiliumBGPClusterConfig` (both leaves), `CiliumBGPPeerConfig` (MD5, timers, GR), `CiliumBGPAdvertisement` (`LoadBalancerIP`, selector `bgp=fabric`), `bgp-pool 10.99.0.0/26` (selector `bgp=fabric`), `kind-l2-announce` gains `bgp NotIn [fabric]`; the demo 09 web app exposed twice (`web-bgp` in the BGP pool, `web-l2` in the L2 pool); the client's `200` through the fabric, ECMP on leaf and spine, the L2 contrast, Hubble's view | `demos/47-cilium-joins-fabric/{10-bgp.yaml,20-pool.yaml,30-services.yaml,apply.sh,check.sh,client-probe.sh,cleanup.sh}`; edits to `cilium/values-poc1.yaml`, `cilium/lb-ippool-poc1.yaml` (the L2 exclusion + header table row) | R3, R4, R5 |
 | 3 — failures, measured | **48** | The scenario table (§4.1) from the client (`client0`, per-second) and the dashboard (event log screenshots); GR on vs off; timers default vs 9/3; `externalTrafficPolicy` both ways; the `FINDINGS.md` numbers and the gotchas that bit | `demos/48-bgp-failures/{scenario.sh <S1..S6>,watch.sh,README.md}` | R6 |
 | 4 — the second cluster and the hand-off | **49** | poc2 as AS 65002 (`values-poc2.yaml`, its CRs, `bgp-pool 10.99.0.64/26`), the leaves' policy admitting each cluster to its own block only, the negative test (poc2 announcing from poc1's block → rejected, `show bgp neighbors … json` counts it), the filled-in sheet (§8) as `docs/BGP-NETWORK-TEAM-SHEET.md`, `NETWORKING_DESIGN.md` §5.3 option B upgraded from "planned" to "measured" with §7's L3 rows; the regression row (leaf sessions `Established`, the BGP VIP answers from `client0`); optional: the anycast VIP | `demos/49-two-clusters-one-fabric/{10-bgp-poc2.yaml,20-pool-poc2.yaml,apply.sh,check.sh,negative.sh,cleanup.sh}`, `docs/BGP-NETWORK-TEAM-SHEET.md`, a row in `scripts/lab-regression.sh`, `.github/workflows/lab-regression.yaml` paths | R8, R9, R10 |
-| attach — kube-vip BGP on eg-poc1 (§9) | **56** | Migration of eg-poc1 from L2 (demo 54) to BGP: kube-vip AS 65021, peers `172.19.254.11:65101:lab-bgp:false` / `172.19.254.12:65102:lab-bgp:false` (password inline — one per fabric), election then active-active; doors `bgp-http-gw` `10.98.0.10` and `bgp-grpc-gw` `10.98.0.11`; ETP Local measured then Cluster; gRPC matrix from `client0`; demo 54's `.100`/`.101` stop answering (`vip_arp=false`); cleanup restores `clusters/eg/kube-vip-ds.yaml` | `demos/56-kube-vip-bgp/{10a,10b,20,20a,40,50,apply.sh,check.sh,cleanup.sh}` | §9 D15–D19 |
+| attach — kube-vip BGP on eg-poc1 (§9) | **56** | Migration of eg-poc1 from L2 (demo 54) to BGP: kube-vip AS 65021, peers `172.19.254.11:65101::false` / `172.19.254.12:65102::false` (no password on this kernel — sheet row 3; a real kernel carries the fabric's one MD5), election then active-active; doors `bgp-http-gw` `10.98.0.10` and `bgp-grpc-gw` `10.98.0.11`; ETP Local measured then Cluster; gRPC matrix from `client0`; demo 54's `.100`/`.101` stop answering (`vip_arp=false`); cleanup restores `clusters/eg/kube-vip-ds.yaml` | `demos/56-kube-vip-bgp/{10a,10b,20,20a,40,50,apply.sh,check.sh,cleanup.sh}` | §9 D15–D19 |
 
 Every demo keeps the house rules: `scripts/record.sh` into `output/transcript.txt`, `evidence.json`, a README with the
 enterprise case, a GUIDE with exercises, a RECAP in plain English, a cleanup script; the adversarial-review skill on
@@ -393,12 +393,17 @@ any per-node router configuration, and the prefix-list per cluster ASN is *what 
   cannot keep demo 54's doors announced while running active-active BGP (`vip_arp=false` and `svc_election=false`).
   kube-vip's docs: *"When using BGP without leader election … all nodes announce the VIP and usually an upstream
   router distributes traffic via ECMP"*. `bgp_enable=true`, `bgp_as=65021`,
-  `bgp_peers=172.19.254.11:65101:lab-bgp:false,172.19.254.12:65102:lab-bgp:false` (password inline — one per fabric),
+  `bgp_peers=172.19.254.11:65101::false,172.19.254.12:65102::false` (no password: this VM's kernel refuses
+  `TCP_MD5SIG` and gobgp then never connects — sheet row 3; a real kernel carries the fabric's one MD5),
   still class-only; the cloud-provider unchanged (static addresses by annotation). New doors `bgp-http-gw`
   `10.98.0.10`, `bgp-grpc-gw` `10.98.0.11`. Demo 54's `.100`/`.101` stop answering; cleanup restores
   `clusters/eg/kube-vip-ds.yaml`. Measured: election (one path) then active-active (two paths, ECMP),
-  `client0` through edge → spine → leaf → node, ETP Local then Cluster, the gRPC matrix, the Mac through
-  the VM route, a node paused → hold 9 s, one path, then recovery.
+  `client0` through edge → spine → leaf → node, ETP Local then Cluster, the gRPC matrix (the Mac route was
+  absent — the client0 half is the record), a node paused → BGP withdrew at 13 s (hold 9 s + the 5 s tick),
+  the node went `Ready=Unknown` at 43 s and its endpoints were pruned, yet 2 of the 4 probes after that still
+  timed out: the Envoy Gateway controller (one replica) sat on the paused node, so the surviving Envoy kept
+  the dead shopapi endpoint until unpause. A silent node needs BGP, the node grace period AND a live
+  control plane for the door.
 - **Demo 57 — MetalLB in FRR-K8s BGP mode on `eg-poc2`.** `frrk8s.enabled=true` (the chart's default, off in demo 52),
   `BGPPeer` × 2 (leaf1 65101, leaf2 65102, `myASN 65022`, password from a Secret), an `IPAddressPool` from
   `10.98.0.64/26` with a `BGPAdvertisement` (aggregation length 32), doors `bgp-http-gw` `10.98.0.74` and `bgp-grpc-gw`

@@ -127,7 +127,7 @@ else
     fi
     for ip in $node_ips; do
       n_want=$((n_want + 1))
-      if printf '%s' "$raw" | python3 scripts/fabric-bgp-summary.py --require "$ip" 2>/dev/null; then
+      if printf '%s' "$raw" | python3 scripts/fabric-bgp-summary.py --require "$ip" >/dev/null 2>&1; then
         n_est=$((n_est + 1))
       else
         sess_ok=0
@@ -284,26 +284,32 @@ envoy_spread() { # gw
 envoy_spread bgp-http-gw
 envoy_spread bgp-grpc-gw
 
-# shopapi replicas spread (2 ready, distinct nodes)
+# shopapi replicas spread (2 ready, distinct nodes) AND the rollout complete.
+# The ninth run's Deployment had readyReplicas=2 from demo 54's old ReplicaSet
+# while 41-shopapi-ha.yaml's pod sat Pending (anti-affinity deadlock): a PASS
+# here must mean the anti-affinity template is what is running —
+# status.updatedReplicas == status.replicas == spec.replicas.
 shopapi_spread() {
-  local ready_rc=0 nodes_rc=0 ready= nodes= nuniq
-  ready=$(kubectl --context "$CTX" -n shop get deploy shopapi \
-    -o jsonpath='{.status.readyReplicas}' 2>&1) || ready_rc=$?
+  local st_rc=0 nodes_rc=0 st= nodes= nuniq want ready updated total
+  st=$(kubectl --context "$CTX" -n shop get deploy shopapi \
+    -o jsonpath='{.spec.replicas} {.status.readyReplicas} {.status.updatedReplicas} {.status.replicas}' 2>&1) || st_rc=$?
   nodes=$(kubectl --context "$CTX" -n shop get pods -l app=shopapi \
     -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' 2>&1) || nodes_rc=$?
   nuniq=$(printf '%s\n' "$nodes" | awk 'NF && !seen[$0]++ {n++} END{print n+0}')
-  if [ "$ready_rc" -ne 0 ] || [ "$nodes_rc" -ne 0 ]; then
-    row fail "shopapi replicas spread" \
-      "kubectl failed ready_rc=$ready_rc nodes_rc=$nodes_rc" \
-      "2 ready shopapi pods, distinct nodeName"
-  elif [ "${ready:-0}" -ge 2 ] 2>/dev/null && [ "$nuniq" -ge 2 ]; then
-    row ok "shopapi replicas spread" \
-      "ready=$ready nodes=$(printf '%s' "$nodes" | awk 'NF' | sort -u | tr '\n' ',' | sed 's/,$//')" \
-      "2 ready shopapi pods, distinct nodeName"
+  read -r want ready updated total <<<"$st"
+  if [ "$st_rc" -ne 0 ] || [ "$nodes_rc" -ne 0 ]; then
+    row fail "shopapi replicas spread + rollout complete" \
+      "kubectl failed deploy_rc=$st_rc nodes_rc=$nodes_rc" \
+      "2 ready shopapi pods, distinct nodeName, updated == replicas == spec"
+  elif [ "${ready:-0}" -ge 2 ] 2>/dev/null && [ "$nuniq" -ge 2 ] \
+    && [ -n "${want:-}" ] && [ "${updated:-0}" = "$want" ] && [ "${total:-0}" = "$want" ]; then
+    row ok "shopapi replicas spread + rollout complete" \
+      "ready=$ready updated=$updated/$want nodes=$(printf '%s' "$nodes" | awk 'NF' | sort -u | tr '\n' ',' | sed 's/,$//')" \
+      "2 ready shopapi pods, distinct nodeName, updated == replicas == spec"
   else
-    row fail "shopapi replicas spread" \
-      "ready=${ready:-?} unique_nodes=$nuniq" \
-      "2 ready shopapi pods, distinct nodeName"
+    row fail "shopapi replicas spread + rollout complete" \
+      "ready=${ready:-?} updated=${updated:-?}/${want:-?} total=${total:-?} unique_nodes=$nuniq" \
+      "2 ready shopapi pods, distinct nodeName, updated == replicas == spec"
   fi
 }
 shopapi_spread
@@ -388,7 +394,7 @@ arping_none() { # ip label
   if [ "$n" -gt 0 ]; then
     row fail "arping $label $ip → 0 replies" "replies=$n" \
       "$label — nobody ARPs for a routed address / L2 door unannounced"
-  elif printf '%s' "$out" | grep -qiE 'ARPING|Sent |Received |Timeout'; then
+  elif printf '%s' "$out" | grep -qE '^Received 0 response\(s\)'; then
     row ok "arping $label $ip → 0 replies" "replies=0" \
       "$label — nobody ARPs for a routed address / L2 door unannounced"
   else
@@ -401,45 +407,34 @@ arping_none "$HTTP_ADDR" "routed door"
 # 12. demo 54's L2 doors now unannounced (the honest consequence)
 arping_none "$L2_HTTP" "demo 54 L2 door"
 
-# 13. SERVERS-IN invoked > 0
+# 13. SERVERS-IN sequence 10 (EG-POC1-VIPS + as-path EG-POC1) invoked > 0 — the
+# leaf's BGP counters, not the sum of every sequence (eg-poc2's sequence 20 must
+# not carry this row).
 rm_raw=$("${COMPOSE[@]}" exec -T leaf1 vtysh -c 'show route-map SERVERS-IN json' 2>&1) || rm_raw=""
-if [ -z "$rm_raw" ]; then
-  rm_raw=$("${COMPOSE[@]}" exec -T leaf1 vtysh -c 'show route-map SERVERS-IN' 2>&1) || rm_raw=""
-fi
 invoked=$(printf '%s' "$rm_raw" | python3 -c '
-import json, re, sys
-raw = sys.stdin.read()
+import json, sys
 try:
-    data = json.loads(raw)
+    data = json.loads(sys.stdin.read())
 except json.JSONDecodeError:
-    nums = [int(x) for x in re.findall(r"(?i)invoked[:\s]+([0-9]+)", raw)]
-    print(sum(nums) if nums else 0)
-    raise SystemExit
-def walk(o, acc):
-    if isinstance(o, dict):
-        for k, v in o.items():
-            if str(k).lower() in ("invoked", "invokecount", "invokeCount"):
-                try:
-                    acc.append(int(v))
-                except (TypeError, ValueError):
-                    pass
-            walk(v, acc)
-    elif isinstance(o, list):
-        for v in o:
-            walk(v, acc)
-acc = []
-walk(data, acc)
-print(sum(acc) if acc else 0)
-' 2>/dev/null || echo 0)
-if [ -z "$rm_raw" ]; then
-  row fail "SERVERS-IN route-map invoked > 0" "vtysh failed" \
-    "§8 row 4 — EG-VIPS admit 10.98.0.0/24 le 32"
+    print("FAIL"); raise SystemExit
+# FRR 10.5 keys the daemon "bgpd" (measured); the contract stub used "bgp" — accept both
+rules = ((((data.get("bgpd") or data.get("bgp")) or {}).get("SERVERS-IN") or {}).get("rules")) or []
+for r in rules:
+    if r.get("sequenceNumber") == 10:
+        m = " ".join(r.get("matchClauses") or [])
+        if "EG-POC1-VIPS" in m and "as-path EG-POC1" in m:
+            print(int(r.get("invoked") or 0)); raise SystemExit
+print("FAIL")
+' 2>/dev/null || echo FAIL)
+if [ -z "$rm_raw" ] || [ "$invoked" = FAIL ]; then
+  row fail "SERVERS-IN seq 10 (EG-POC1-VIPS + as-path EG-POC1) invoked > 0" "vtysh/JSON failed" \
+    "sheet row 4 — EG-POC1-VIPS 10.98.0.0/26 ge 32 le 32 + as-path ^65021$"
 elif [ "$invoked" -gt 0 ] 2>/dev/null; then
-  row ok "SERVERS-IN route-map invoked > 0" "invoked=$invoked" \
-    "§8 row 4 — EG-VIPS admit 10.98.0.0/24 le 32"
+  row ok "SERVERS-IN seq 10 (EG-POC1-VIPS + as-path EG-POC1) invoked > 0" "seq10_invoked=$invoked" \
+    "sheet row 4 — EG-POC1-VIPS 10.98.0.0/26 ge 32 le 32 + as-path ^65021$"
 else
-  row fail "SERVERS-IN route-map invoked > 0" "invoked=${invoked:-0}" \
-    "§8 row 4 — EG-VIPS admit 10.98.0.0/24 le 32"
+  row fail "SERVERS-IN seq 10 (EG-POC1-VIPS + as-path EG-POC1) invoked > 0" "seq10_invoked=$invoked" \
+    "sheet row 4 — EG-POC1-VIPS 10.98.0.0/26 ge 32 le 32 + as-path ^65021$"
 fi
 
 echo

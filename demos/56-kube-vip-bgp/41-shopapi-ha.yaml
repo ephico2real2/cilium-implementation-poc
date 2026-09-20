@@ -4,6 +4,14 @@
 # apply.sh applies this in step 3 after the app. cleanup.sh restores
 # demos/54-eg-poc1-kube-vip/40-app.yaml (replicas: 1).
 #
+# strategy maxSurge 0 / maxUnavailable 1 — WHY: the anti-affinity matches
+# demo 54's running pod too. With the default 25%/25% (1 surge, 0
+# unavailable on two replicas) the new pod can never be placed — both
+# nodes already hold an app=shopapi pod and no old pod may be killed —
+# so runs 7–9 served from demo 54's old ReplicaSet with
+# Progressing=False (ProgressDeadlineExceeded) and the anti-affinity
+# never ran. Killing one old pod first frees a node for the new one.
+#
 #   kubectl --context kind-eg-poc1 apply -f demos/56-kube-vip-bgp/41-shopapi-ha.yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -13,6 +21,11 @@ metadata:
   labels: {app.kubernetes.io/name: shopapi, app.kubernetes.io/part-of: shop}
 spec:
   replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector: {matchLabels: {app: shopapi}}
   template:
     metadata: {labels: {app: shopapi, app.kubernetes.io/name: shopapi, app.kubernetes.io/part-of: shop}}

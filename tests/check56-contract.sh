@@ -11,7 +11,7 @@ set -uo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
 CHECK=$R/demos/56-kube-vip-bgp/check.sh
 APPLY=$R/demos/56-kube-vip-bgp/apply.sh
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d) || { echo "TEST FAIL: mktemp -d failed"; exit 1; }; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/repo/demos/56-kube-vip-bgp" "$T/repo/demos/46-bgp-fabric/fabric" "$T/repo/scripts"
 cp "$CHECK" "$T/repo/demos/56-kube-vip-bgp/check.sh"
 cp "$APPLY" "$T/repo/demos/56-kube-vip-bgp/apply.sh"
@@ -77,10 +77,10 @@ case "$*" in
     exit 0
     ;;
   *'show route-map'*)
-    printf '%s\n' '{"SERVERS-IN":[{"invoked":4}]}'
+    printf '%s\n' '{"bgp":{"SERVERS-IN":{"invoked":4,"rules":[{"sequenceNumber":10,"invoked":4,"matchClauses":["ip address prefix-list EG-POC1-VIPS","as-path EG-POC1"]}]}}}'
     exit 0
     ;;
-  *arping*) echo "Timeout"; exit 1 ;;
+  *arping*) printf 'ARPING %s from 172.19.0.6 eth0\nSent 3 probe(s) (0 broadcast(s))\nReceived 0 response(s) (0 request(s), 0 broadcast(s))\n' "${@: -1}"; exit 1 ;;
   *curl*)
     printf 'HTTP/1.1 200 OK\r\nX-Served-By: eg-poc1\r\n\r\n'
     exit 0
@@ -127,6 +127,8 @@ case "$*" in
     printf '2' ;;
   *get\ pods*app=shopapi*)
     printf 'eg-poc1-control-plane\neg-poc1-worker\n' ;;
+  *get\ deploy\ shopapi*spec.replicas*)
+    printf '2 2 2 2' ;;
   *get\ deploy\ shopapi*|*deploy\ shopapi*)
     printf '2' ;;
   *owning-gateway-name=bgp-http-gw*)
@@ -156,10 +158,10 @@ case "$*" in
     exit 0
     ;;
   *'show route-map'*)
-    printf '%s\n' '{"SERVERS-IN":[{"invoked":4}]}'
+    printf '%s\n' '{"bgp":{"SERVERS-IN":{"invoked":4,"rules":[{"sequenceNumber":10,"invoked":4,"matchClauses":["ip address prefix-list EG-POC1-VIPS","as-path EG-POC1"]}]}}}'
     exit 0
     ;;
-  *arping*) echo "Timeout"; exit 1 ;;
+  *arping*) printf 'ARPING %s from 172.19.0.6 eth0\nSent 3 probe(s) (0 broadcast(s))\nReceived 0 response(s) (0 request(s), 0 broadcast(s))\n' "${@: -1}"; exit 1 ;;
   *grpcurl*GetOrder*)
     printf '%s\n' '{"id":"2","item":"mouse","servedBy":"grpcdemo-v2-bbbb","version":"v2"}'
     exit 0
@@ -216,7 +218,7 @@ case "$*" in
     exit 0
     ;;
   *'show route-map'*)
-    printf '%s\n' '{"SERVERS-IN":[{"invoked":4}]}'
+    printf '%s\n' '{"bgp":{"SERVERS-IN":{"invoked":4,"rules":[{"sequenceNumber":10,"invoked":4,"matchClauses":["ip address prefix-list EG-POC1-VIPS","as-path EG-POC1"]}]}}}'
     exit 0
     ;;
   *arping*)
@@ -269,6 +271,8 @@ case "$*" in
     printf '2' ;;
   *get\ pods*app=shopapi*)
     printf 'eg-poc1-control-plane\neg-poc1-worker\n' ;;
+  *get\ deploy\ shopapi*spec.replicas*)
+    printf '2 2 2 2' ;;
   *get\ deploy\ shopapi*|*deploy\ shopapi*)
     printf '2' ;;
   *owning-gateway-name=bgp-http-gw*)
@@ -298,10 +302,10 @@ case "$*" in
     exit 0
     ;;
   *'show route-map'*)
-    printf '%s\n' '{"SERVERS-IN":[{"invoked":4}]}'
+    printf '%s\n' '{"bgp":{"SERVERS-IN":{"invoked":4,"rules":[{"sequenceNumber":10,"invoked":4,"matchClauses":["ip address prefix-list EG-POC1-VIPS","as-path EG-POC1"]}]}}}'
     exit 0
     ;;
-  *arping*) echo "Timeout"; exit 1 ;;
+  *arping*) printf 'ARPING %s from 172.19.0.6 eth0\nSent 3 probe(s) (0 broadcast(s))\nReceived 0 response(s) (0 request(s), 0 broadcast(s))\n' "${@: -1}"; exit 1 ;;
   *curl*)
     printf 'HTTP/1.1 200 OK\r\nX-Served-By: eg-poc1\r\n\r\n'
     exit 0

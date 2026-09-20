@@ -237,7 +237,7 @@ election_record() {
   done
   echo "---- kube-vip DS logs (BGP lines; whole log, --tail=-1 --prefix) ----"
   kubectl --context "$CTX" -n kube-system logs -l app.kubernetes.io/name=kube-vip-ds \
-    --tail=-1 --prefix --timestamps 2>/dev/null | grep -iE 'bgp|peer|65021|172\.19\.254' || true
+    --tail=-1 --prefix --timestamps 2>/dev/null | grep -iE 'bgp|peer|65021|172\.19\.254|mode|leader election|md5' || true
 }
 export -f election_record
 export CLUSTER PROJECT FABRIC CTX
@@ -268,7 +268,9 @@ rec kubectl --context "$CTX" apply -f "$HERE/40-grpcdemo.yaml"
 rec kubectl --context "$CTX" -n shop wait deploy/grpcdemo-v1 --for=condition=Available --timeout=120s
 rec kubectl --context "$CTX" -n shop wait deploy/grpcdemo-v2 --for=condition=Available --timeout=120s
 rec kubectl --context "$CTX" apply -f "$HERE/41-shopapi-ha.yaml"
-rec kubectl --context "$CTX" -n shop wait deploy/shopapi --for=condition=Available --timeout=120s
+# rollout status, not condition=Available: demo 54's old ReplicaSet keeps Available=True while
+# 41's anti-affinity pod sits Pending (runs 7–9) — the rollout must finish or the step fails
+rec kubectl --context "$CTX" -n shop rollout status deploy/shopapi --timeout=120s
 rec kubectl --context "$CTX" apply -f "$HERE/50-routes-bgp.yaml"
 rec bash -c 'wait_route httproute shop-api-bgp'
 rec bash -c 'wait_route grpcroute orders-bgp'
@@ -379,8 +381,8 @@ client0_http() {
   echo "http://${HTTP_HOST}/healthz @ ${HTTP_ADDR}:80 → ${code} X-Served-By=${served:--} curl_rc=$rc"
   echo "---- ip route get $HTTP_ADDR ----"
   docker exec "$CLIENT" ip route get "$HTTP_ADDR" || true
-  echo "---- traceroute -T -p 80 -n $HTTP_ADDR (edge → spine → leaf → node; TCP to the door's port — UDP probes to high ports are not kube-proxy's and the node forwards them onward, measured) ----"
-  docker exec "$CLIENT" traceroute -T -p 80 -n -m 8 "$HTTP_ADDR" || true
+  echo "---- tcptraceroute -n -m 8 $HTTP_ADDR 80 (edge → spine → leaf → node; TCP to the door's port — UDP probes to high ports are not kube-proxy's and the node forwards them onward, measured runs 3–4; netshoot's traceroute is BusyBox and has no -T) ----"
+  docker exec "$CLIENT" tcptraceroute -n -m 8 -w 2 "$HTTP_ADDR" 80
 }
 export -f client0_http
 export CLIENT HTTP_HOST HTTP_ADDR
@@ -1077,31 +1079,44 @@ print(n)
 '
 }
 
-worker_ready_line() {
-  kubectl --context "$CTX" get node eg-poc1-worker \
-    -o jsonpath='Ready={.status.conditions[?(@.type=="Ready")].status} lastTransitionTime={.status.conditions[?(@.type=="Ready")].lastTransitionTime}{"\n"}' \
-    2>&1 || echo "Ready=? lastTransitionTime=?"
+worker_ready_line() { # prints "Ready=<True|False|Unknown> lastTransitionTime=…"; on a kubectl failure "Ready=? lastTransitionTime=?"
+  local out rc=0
+  out=$(kubectl --context "$CTX" get node eg-poc1-worker \
+    -o jsonpath='Ready={.status.conditions[?(@.type=="Ready")].status} lastTransitionTime={.status.conditions[?(@.type=="Ready")].lastTransitionTime}' \
+    2>/dev/null) || rc=$?
+  if [ "$rc" -ne 0 ] || ! printf '%s' "$out" | grep -qE '^Ready=(True|False|Unknown) '; then
+    echo "Ready=? lastTransitionTime=?"
+  else
+    echo "$out"
+  fi
 }
 
-shopapi_ready_eps() {
+ready_eps_of() { # namespace label-selector → ready_eps=N|FAIL (EndpointSlice endpoints with conditions.ready == true)
   local json
-  json=$(kubectl --context "$CTX" -n shop get endpointslice \
-    -l kubernetes.io/service-name=shopapi -o json 2>&1) || json=""
+  json=$(kubectl --context "$CTX" -n "$1" get endpointslice -l "$2" -o json 2>&1) || json=""
   printf '%s' "$json" | python3 -c '
 import json, sys
 try:
     data = json.loads(sys.stdin.read())
 except json.JSONDecodeError:
-    print("ready_eps=FAIL"); raise SystemExit
+    print("FAIL"); raise SystemExit
 n = 0
 for item in data.get("items") or []:
     for ep in item.get("endpoints") or []:
-        cond = ep.get("conditions") or {}
-        if cond.get("ready") is True:
+        if (ep.get("conditions") or {}).get("ready") is True:
             n += 1
-print("ready_eps=%d" % n)
-' 2>/dev/null || echo "ready_eps=FAIL"
+print(n)
+' 2>/dev/null || echo FAIL
 }
+
+shopapi_ready_eps() { echo "ready_eps=$(ready_eps_of shop kubernetes.io/service-name=shopapi)"; }
+door_ready_eps()    { echo "door_eps=$(ready_eps_of envoy-gateway-system gateway.envoyproxy.io/owning-gateway-name=bgp-http-gw)"; }
+
+eg_controller_node() { # the Envoy Gateway control plane's node — its xDS is what the surviving Envoy listens to
+  kubectl --context "$CTX" -n envoy-gateway-system get pods -l control-plane=envoy-gateway \
+    -o jsonpath='{range .items[*]}{.spec.nodeName}{" "}{end}' 2>/dev/null | sed 's/ $//' || true
+}
+
 
 # F3: both nodes × both leaves Established AND two node paths on both
 # leaves — the seventh run's check ran during reconnect and read est=2.
@@ -1184,21 +1199,26 @@ failure_bgp_only() {
   echo "A summary: withdrawal_s=${withdrawal:-none} ok=$ok fail=$fail recovery_s=${recovery:-none}"
 }
 
-# (B) silent node: pause the worker 75 s. BGP withdraws at hold 9 s
-# (dynamic peer ABSENT); Kubernetes' node-monitor-grace-period ≈ 40 s
-# before NotReady; endpoints stay until then, so probes keep failing.
-# Per tick (~5 s): probe, leaf1 node paths, peer state, Ready
-# condition + lastTransitionTime, shopapi EndpointSlice ready count.
+# (B) silent node: pause the worker SILENT_S s (75). BGP withdraws at hold 9 s
+# (dynamic peer ABSENT); the node goes Ready=Unknown at the controller-manager's
+# node-monitor-grace-period (v1.36 default 50 s — no flag on this kind cluster),
+# which marks the node's pods NotReady and prunes their endpoints.
+# Per tick (TICK_S s, 5): probe, leaf1 node paths, peer state, Ready condition +
+# lastTransitionTime, shopapi and door EndpointSlice ready counts. The summary
+# also counts the probes AFTER the node went not-ready: the ninth run had 2 of 4
+# time out there because the Envoy Gateway controller (one replica) sat on the
+# paused node, so the surviving Envoy never received the pruned shopapi endpoint.
 failure_silent_node() {
-  local worker=eg-poc1-worker start now rc code
-  local worker_ip pn st ready_line eps
-  local bgp_withdraw="" node_notready="" first_ok_after="" recovery=""
+  local worker=eg-poc1-worker start now rc code silent=${SILENT_S:-75} tick=${TICK_S:-5}
+  local worker_ip pn st ready_line eps deps egnode
+  local bgp_withdraw="" node_notready="" first_ok_after="" recovery="" post_ok=0 post_fail=0
   worker_ip=$(docker inspect -f '{{(index .NetworkSettings.Networks "kind-eg").IPAddress}}' "$worker" 2>/dev/null || echo 172.19.0.3)
+  egnode=$(eg_controller_node)
   trap 'docker unpause eg-poc1-worker 2>/dev/null || true' EXIT
-  echo "---- B: silent node — pause $worker ($worker_ip) for 75 s ----"
+  echo "---- B: silent node — pause $worker ($worker_ip) for ${silent} s; envoy-gateway controller on: ${egnode:-?} ----"
   docker pause "$worker"
   start=$(date +%s)
-  while now=$(date +%s); [ $((now - start)) -lt 75 ]; do
+  while now=$(date +%s); [ $((now - start)) -lt "$silent" ]; do
     rc=0
     code=$(docker exec "$CLIENT" curl -s -o /dev/null -w '%{http_code}' \
       --resolve "${HTTP_HOST}:80:${HTTP_ADDR}" \
@@ -1207,28 +1227,35 @@ failure_silent_node() {
     st=$(leaf_peer_state leaf1 "$worker_ip")
     ready_line=$(worker_ready_line)
     eps=$(shopapi_ready_eps)
-    echo "t+$((now - start))s code=${code:-000} rc=$rc leaf1 node_paths=$pn peer $worker_ip state=$st $ready_line $eps"
+    deps=$(door_ready_eps)
+    echo "t+$((now - start))s code=${code:-000} rc=$rc leaf1 node_paths=$pn peer $worker_ip state=$st $ready_line $eps $deps"
     if [ "$pn" = 1 ] && [ -z "$bgp_withdraw" ]; then
       bgp_withdraw=$((now - start))
     fi
     # a frozen kubelet stops reporting, so the condition becomes Unknown, not False
-    # (measured: Ready=Unknown at t+47 s) — anything but True is "not ready"
-    if printf '%s' "$ready_line" | grep -q 'Ready=' && ! printf '%s' "$ready_line" | grep -q 'Ready=True' && [ -z "$node_notready" ]; then
+    # (measured: Ready=Unknown at t+43 s, ninth run). Only False/Unknown count —
+    # "Ready=?" is a kubectl failure and must not be read as "not ready".
+    if printf '%s' "$ready_line" | grep -qE '^Ready=(False|Unknown) ' && [ -z "$node_notready" ]; then
       node_notready=$((now - start))
     fi
-    if [ -n "$node_notready" ] && [ "$rc" -eq 0 ] && [ "$code" = 200 ] && [ -z "$first_ok_after" ]; then
-      first_ok_after=$((now - start))
+    if [ -n "$node_notready" ]; then
+      if [ "$rc" -eq 0 ] && [ "$code" = 200 ]; then
+        post_ok=$((post_ok + 1))
+        [ -z "$first_ok_after" ] && first_ok_after=$((now - start))
+      else
+        post_fail=$((post_fail + 1))
+      fi
     fi
-    sleep 5
+    sleep "$tick"
   done
   echo "---- unpause $worker ----"
   docker unpause "$worker"
   trap - EXIT
-  for i in $(seq 1 90); do
+  for i in $(seq 1 "${RECOVERY_S:-90}"); do
     ready_line=$(worker_ready_line)
     pn=$(leaf_node_paths leaf1)
     echo "recovery t+${i}s $ready_line leaf1 node_paths=$pn"
-    if printf '%s' "$ready_line" | grep -q 'Ready=True' \
+    if printf '%s' "$ready_line" | grep -q '^Ready=True ' \
        && [ "$pn" != FAIL ] && [ "${pn:-0}" -ge 2 ]; then
       recovery=$i
       echo "node Ready and two node paths after ${i}s"
@@ -1236,18 +1263,20 @@ failure_silent_node() {
     fi
     sleep 1
   done
-  echo "B summary: bgp_withdraw_s=${bgp_withdraw:-none} node_notready_s=${node_notready:-none} first_ok_after_s=${first_ok_after:-none} recovery_s=${recovery:-none}"
+  echo "B summary: bgp_withdraw_s=${bgp_withdraw:-none} node_notready_s=${node_notready:-none} first_ok_after_s=${first_ok_after:-none} post_notready ok=$post_ok fail=$post_fail recovery_s=${recovery:-none} eg_controller_node=${egnode:-?}"
 }
 
 export -f node_path_count leaf_node_paths leaf_peer_state servers_est_on_leaf \
-  worker_ready_line shopapi_ready_eps recovery_wait failure_bgp_only failure_silent_node
+  worker_ready_line ready_eps_of shopapi_ready_eps door_ready_eps eg_controller_node \
+  recovery_wait failure_bgp_only failure_silent_node
 export CLIENT HTTP_HOST HTTP_ADDR PROJECT FABRIC CTX
 rec bash -c failure_bgp_only
 rec bash -c 'recovery_wait 90'
 rec bash -c failure_silent_node
 rec bash -c 'recovery_wait 90'
 unset -f leaf_node_paths leaf_peer_state servers_est_on_leaf \
-  worker_ready_line shopapi_ready_eps recovery_wait failure_bgp_only failure_silent_node node_path_count
+  worker_ready_line ready_eps_of shopapi_ready_eps door_ready_eps eg_controller_node \
+  recovery_wait failure_bgp_only failure_silent_node node_path_count
 
 # ---- 10. hosts + final table ----
 echo "== 10. hosts-entries.sh + final table"
