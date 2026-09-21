@@ -357,3 +357,25 @@ test("a session that is not Established carries its state onto the row", () => {
   assert.equal(row.a.known, false);
   assert.equal(row.b.state, "Established");
 });
+
+test("a state maps to a colour, and 'Idle (Admin)' is down rather than unknown", () => {
+  // Matching the whole string is the trap: an administrative shutdown reads
+  // "Idle (Admin)" and an exact-match table drops it into the unknown colour,
+  // so the one session a human just took down looks like a parsing failure.
+  assert.equal(ui.stateClass("Established"), "state-established");
+  assert.equal(ui.stateClass("Idle"), "state-down");
+  assert.equal(ui.stateClass("Idle (Admin)"), "state-down");
+  assert.equal(ui.stateClass("Active"), "state-down");
+  assert.equal(ui.stateClass("Connect"), "state-transitional");
+  assert.equal(ui.stateClass("OpenConfirm"), "state-transitional");
+  assert.equal(ui.stateClass("OpenSent"), "state-transitional");
+  // case and padding are FRR's business, not the page's
+  assert.equal(ui.stateClass("  established  "), "state-established");
+  // a stale row is last-known whatever the state says
+  assert.equal(ui.stateClass("Established", true), "state-stale");
+  // nothing at all is not a colour
+  assert.equal(ui.stateClass(""), "");
+  assert.equal(ui.stateClass(null), "");
+  // something FRR might add later is marked unknown, not silently coloured
+  assert.equal(ui.stateClass("Weird"), "state-unknown");
+});

@@ -58,6 +58,49 @@ async function page(viewport, q = '') {
   for (const n of m.nodes) note(`      node ${n.id.padEnd(16)} accepting=${n.accepting} signal=${n.signal} known=${n.known}`);
 
   if (m.painted < 6) fail.push(`only ${m.painted} nodes painted`);
+
+  // A table can fit the pane and still be unreadable. Fixed layout shares the
+  // width equally unless told otherwise, and six equal columns left the
+  // neighbours head rendering as "peAS state pfx rpdx suptime" with every
+  // label overlapping the next, and a peer address broken one character per
+  // line. Overflow assertions cannot see either.
+  const tables = await p.evaluate(() => {
+    const out = [];
+    // The neighbours table is ALSO inside a .table-wrap in #rib-pane, so the
+    // RIB has to be named by the tbody it fills.
+    for (const sel of ['.neighbours', '#rib-pane table:has(#rib)']) {
+      const tbl = document.querySelector(sel);
+      if (!tbl) { out.push({ sel, missing: true }); continue; }
+      const ths = [...tbl.querySelectorAll('thead th')].map((th) => th.getBoundingClientRect());
+      let overlap = 0;
+      for (let i = 0; i < ths.length - 1; i++) if (ths[i].right > ths[i + 1].left + 1) overlap++;
+      // Count the cell's OWN rendered lines with a Range: a table cell
+      // stretches to its row's height, so measuring the cell box reports every
+      // cell in a row as wrapped when only one of them is.
+      const cells = [...tbl.querySelectorAll('tbody td')];
+      // Count the rects of the cell's FIRST TEXT NODE only. Selecting the
+      // whole cell also spans any nested element (the neighbours cell carries
+      // the hostname in a div), and a block box contributes rects of its own —
+      // which reported a perfectly legible two-line cell as four.
+      const lines = (td) => {
+        const n = td.firstChild;
+        if (!n || n.nodeType !== 3 || !n.textContent.trim()) return 1;
+        const r = document.createRange();
+        r.selectNodeContents(n);
+        return r.getClientRects().length || 1;
+      };
+      const shattered = cells.filter((td) => td.textContent.trim().length > 3 && lines(td) > 3)
+        .map((td) => td.textContent.trim().slice(0, 18) + ' (' + lines(td) + ' lines)');
+      out.push({ sel, overlap, shattered: shattered.slice(0, 3), cols: ths.length });
+    }
+    return out;
+  });
+  for (const tb of tables) {
+    if (tb.missing) { fail.push(`${tb.sel} is not on the page`); continue; }
+    note(`      ${tb.sel}: ${tb.cols} cols, header overlaps=${tb.overlap}${tb.shattered.length ? ', shattered=' + JSON.stringify(tb.shattered) : ''}`);
+    if (tb.overlap) fail.push(`${tb.sel}: ${tb.overlap} header label(s) overlap the next column`);
+    if (tb.shattered.length) fail.push(`${tb.sel}: a cell wraps over 3 lines — ${tb.shattered.join(', ')}`);
+  }
   if (m.overflow > 0.5) fail.push(`page overflows by ${m.overflow}px at 1200`);
   if (/waiting for the first poll/.test(m.strip)) fail.push('signal strip never filled');
   if (!/accepting traffic/.test(m.strip)) fail.push('leaf1 is not reported as accepting traffic');

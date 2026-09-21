@@ -285,6 +285,21 @@
     return peerId;
   }
 
+  // stateClass maps a BGP state to a colour class. FRR's states are a fixed
+  // set, and the trap is matching on the whole string: "Idle (Admin)" is an
+  // administrative shutdown and must read as down, not as an unknown state
+  // that falls through to grey — the exact-match version of this is a filed
+  // bug in the upstream dashboard this one learned from.
+  function stateClass(state, stale) {
+    if (stale) return "state-stale";
+    const s = String(state || "").trim().toLowerCase();
+    if (!s) return "";
+    if (s.startsWith("established")) return "state-established";
+    if (s.startsWith("idle") || s.startsWith("active") || s.startsWith("clearing")) return "state-down";
+    if (s.startsWith("connect") || s.startsWith("open")) return "state-transitional";
+    return "state-unknown";
+  }
+
   // ---- signal ----------------------------------------------------------
   //
   // Everything below turns what the poller MEASURED into what the page may
@@ -492,6 +507,7 @@
     flowDirection: flowDirection,
     freshness: freshness,
     fromLabel: fromLabel,
+    stateClass: stateClass,
     trafficRows: trafficRows,
     trafficCaption: trafficCaption,
   };

@@ -65,12 +65,22 @@
       <aside id="rib-pane" role="tabpanel" aria-labelledby="tab-rib">
         <h2>RIB of <i id="rib-dot" class="dot down" aria-hidden="true"></i> <span id="rib-name">spine</span></h2>
         <div id="signal-strip" class="signal-strip empty">waiting for the first poll</div>
+        <h3 class="sub">Neighbours <span id="nbr-count" class="sub-count"></span></h3>
+        <div class="table-wrap">
+          <table class="neighbours">
+            <thead>
+              <tr><th>peer</th><th>AS</th><th>state</th><th class="num">pfx rcd</th><th class="num">pfx snt</th><th>uptime</th></tr>
+            </thead>
+            <tbody id="neighbours"></tbody>
+          </table>
+        </div>
+        <h3 class="sub">BGP table</h3>
         <p id="rib-why" class="why"></p>
         <p id="rib-status" class="status"></p>
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th></th><th>prefix</th><th>nexthop</th><th>path</th><th>from</th></tr>
+              <tr><th></th><th>prefix</th><th>nexthop</th><th>path</th><th class="num">LP</th><th class="num">MED</th><th>from</th></tr>
             </thead>
             <tbody id="rib"></tbody>
           </table>

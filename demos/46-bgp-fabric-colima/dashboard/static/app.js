@@ -114,6 +114,50 @@
     return (snap && snap.routers || []).find((x) => x.name === selected) || null;
   }
 
+  // renderNeighbours is the per-router peer list: who this router talks to,
+  // what state each session is in, and how many prefixes each way. The page
+  // carried all of it and showed none of it — the RIB answers "what do I know"
+  // and this answers "who told me", which is the other half of reading a
+  // router.
+  function renderNeighbours() {
+    const tb = $("neighbours");
+    const count = $("nbr-count");
+    if (!tb) return;
+    tb.replaceChildren();
+    if (!snap) { count.textContent = ""; return; }
+    const rows = (snap.sessions || [])
+      .filter((s) => s.router === selected)
+      .sort((a, b) => (a.peer < b.peer ? -1 : a.peer > b.peer ? 1 : 0));
+    count.textContent = rows.length ? "(" + rows.length + ")" : "";
+    if (!rows.length) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 6;
+      td.textContent = selected + " has no sessions in this snapshot";
+      tr.appendChild(td);
+      tb.appendChild(tr);
+      return;
+    }
+    for (const s of rows) {
+      const tr = document.createElement("tr");
+      if (s.stale) tr.className = "stale-row";
+      // The address on its own line and the hostname beneath it, truncated.
+      // FRR reports a cluster node's full name — `eg-poc1-colima-control-plane`
+      // — and on one line in a 32% column that wrapped to 21 lines (measured).
+      const hostname = s.hostname
+        ? "<div class=\"host\" title=\"" + ui.esc(s.hostname) + "\">" + ui.esc(s.hostname) + "</div>"
+        : "";
+      tr.innerHTML =
+        "<td class=\"nexthop\">" + ui.esc(s.peer) + hostname + "</td>" +
+        "<td>" + (s.peerAsn ? "AS" + ui.esc(String(s.peerAsn)) : "") + "</td>" +
+        "<td class=\"" + ui.stateClass(s.state, s.stale) + "\">" + ui.esc(s.state || "") + "</td>" +
+        "<td class=\"num\">" + ui.esc(String(s.pfxRcd == null ? "" : s.pfxRcd)) + "</td>" +
+        "<td class=\"num\">" + ui.esc(String(s.pfxSnt == null ? "" : s.pfxSnt)) + "</td>" +
+        "<td class=\"num\">" + ui.esc(s.uptime || "") + "</td>";
+      tb.appendChild(tr);
+    }
+  }
+
   function ribRows() {
     const tb = $("rib");
     tb.replaceChildren();
@@ -124,8 +168,10 @@
     if (!snap) {
       pane.classList.remove("stale");
       $("rib-status").textContent = "waiting for the first poll";
+      renderNeighbours();
       return;
     }
+    renderNeighbours();
     const router = selectedRouter();
     const node = (snap.nodes || []).find((n) => n.id === selected);
     const unreachable = !!(router && !router.reachable);
@@ -146,7 +192,7 @@
     if (!groups.length) {
       const tr = document.createElement("tr");
       const td = document.createElement("td");
-      td.colSpan = 5;
+      td.colSpan = 7;
       td.textContent = unreachable
         ? "no last-known routes for " + selected
         : selected + " has no routes in this snapshot";
@@ -163,6 +209,11 @@
           "<td class=\"prefix\">" + (i === 0 ? ui.esc(g.prefix) : "") + "</td>" +
           "<td class=\"nexthop\">" + ui.esc(r.nexthop || "") + "</td>" +
           "<td>" + ui.esc(r.path || "") + "</td>" +
+          // locPrf and metric are omitempty in the JSON, so an absent value is
+          // FRR not sending one rather than a zero. Blank says that; "0" would
+          // claim a local preference of nought.
+          "<td class=\"num\">" + (r.locPrf == null ? "" : ui.esc(String(r.locPrf))) + "</td>" +
+          "<td class=\"num\">" + (r.metric == null ? "" : ui.esc(String(r.metric))) + "</td>" +
           "<td>" + ui.esc(ui.fromLabel(r.peerId)) + "</td>";
         tb.appendChild(tr);
       });
@@ -522,7 +573,10 @@
     who.className = "who";
     who.textContent = ev.prefix || ev.peer || "";
     const change = document.createElement("span");
-    change.className = "change";
+    // The dot says what KIND of event this is; the text now says what STATE it
+    // reached. A list where "Established" and "Idle" are the same colour makes
+    // the reader parse every line to find the one that matters.
+    change.className = "change " + ui.stateClass(ev.to || ev.from, false);
     if (ev.from || ev.to) change.textContent = (ev.from || "") + "→" + (ev.to || "");
     li.append(dot, ts, kind, router, who, change);
     return li;
