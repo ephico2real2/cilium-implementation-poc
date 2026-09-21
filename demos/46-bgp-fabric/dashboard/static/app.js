@@ -33,6 +33,9 @@
       focus: css("--focus"),
       picked: css("--picked"),
       hover: css("--hover-fill"),
+      accept: css("--accept"),
+      late: css("--late"),
+      critical: css("--critical"),
     };
   }
 
@@ -159,7 +162,7 @@
           "<td class=\"prefix\">" + (i === 0 ? ui.esc(g.prefix) : "") + "</td>" +
           "<td class=\"nexthop\">" + ui.esc(r.nexthop || "") + "</td>" +
           "<td>" + ui.esc(r.path || "") + "</td>" +
-          "<td>" + ui.esc(r.peerId || "") + "</td>";
+          "<td>" + ui.esc(ui.fromLabel(r.peerId)) + "</td>";
         tb.appendChild(tr);
       });
     }
@@ -212,12 +215,14 @@
   }
 
   function selectRouter(id, why) {
+    // the strip describes the SELECTED router, so it moves with the selection
     selected = id;
     selectedWhy = why;
     const url = new URL(location.href);
     url.searchParams.set("router", id);
     history.replaceState({}, "", url);
     ribRows();
+    renderSignalStrip();
     markPicked();
   }
 
@@ -263,7 +268,10 @@
     const elements = [];
     for (const n of snap.nodes || []) {
       const p = laid.pos[n.id] || { x: m.w / 2, y: m.h / 2 };
-      elements.push({ data: { id: n.id, label: n.label, kind: n.kind }, position: p });
+      elements.push({
+        data: Object.assign({ id: n.id, label: n.label, kind: n.kind }, nodeSignalData(n.id)),
+        position: p,
+      });
     }
     for (const e of snap.edges || []) {
       elements.push({
@@ -298,6 +306,28 @@
       {
         selector: "node[kind = \"external\"]",
         style: { shape: "ellipse", "border-style": "dashed" },
+      },
+      // "Accepting traffic" is a DIFFERENT statement from "Established": a
+      // leaf whose listen range has members is carrying a cluster right now,
+      // one whose range is empty is up and idle. FRR says which, so this is
+      // read and not inferred.
+      {
+        selector: "node[accepting = 1]",
+        style: { "border-color": c.accept, "border-width": 4 },
+      },
+      {
+        selector: "node[signal = \"late\"]",
+        style: { "border-color": c.late, "border-style": "double", "border-width": 5 },
+      },
+      {
+        selector: "node[signal = \"critical\"]",
+        style: { "border-color": c.critical, "border-style": "double", "border-width": 6 },
+      },
+      // A router the page cannot measure says so by fading, rather than
+      // sitting there looking healthy.
+      {
+        selector: "node[known = 0]",
+        style: { "border-style": "dotted", opacity: 0.75 },
       },
       {
         selector: "node.hover",
@@ -513,6 +543,10 @@
       seenEvent[ev.id] = true;
       lastEventId = Math.max(lastEventId, ev.id);
     }
+    // The flow is drawn from the event itself, whether or not the Events pane
+    // is paused: pausing the LIST should not stop the topology showing what
+    // the fabric is doing.
+    if (ev.kind === "route") flow(ev);
     if (eventsPaused) {
       pausedBuffer.push(ev);
       updatePausedLabel();
@@ -533,11 +567,209 @@
     }).catch(() => {});
   }
 
+  // ---- signal -----------------------------------------------------------
+  //
+  // Everything here is driven by a number the poller MEASURED. Nothing below
+  // starts on a timer: no measurement means no motion, and a router we cannot
+  // measure is drawn as unknown rather than left looking healthy.
+
+  function routerByName(name) {
+    return ((snap && snap.routers) || []).find((r) => r.name === name) || null;
+  }
+
+  // nodeSignalData is the per-node data Cytoscape styles on. Cytoscape
+  // selectors compare against numbers and strings, so the booleans are 0/1.
+  function nodeSignalData(id) {
+    const r = routerByName(id);
+    if (!r) return { accepting: 0, signal: "unknown", known: 0 };
+    const sig = ui.routerSignal(r, (snap && snap.sessions) || []);
+    return {
+      accepting: sig.accepting ? 1 : 0,
+      signal: sig.worst,
+      known: sig.known ? 1 : 0,
+    };
+  }
+
+  // beat is the heartbeat. It runs ONLY on a tick where a message was counted
+  // on one of this router's sessions, so a silent fabric is visibly silent.
+  // A timer-driven pulse would animate whether or not anything happened, which
+  // is the thing this dashboard is not allowed to do.
+  function beat(nodeId) {
+    if (!cy || document.hidden) return;
+    const n = cy.getElementById(nodeId);
+    if (!n || n.empty()) return;
+    if (n.scratch("_beating")) return;
+    n.scratch("_beating", true);
+    const c = colours();
+    n.style("overlay-color", c.accept);
+    n.style("overlay-padding", 6);
+    n.animate({ style: { "overlay-opacity": 0.3 }, duration: 160 })
+      .animate({ style: { "overlay-opacity": 0 }, duration: 420, complete: () => n.scratch("_beating", false) });
+  }
+
+  // flow draws an advertisement travelling along an edge, in the direction it
+  // actually travelled, at a speed set by how many prefixes moved. It is fired
+  // by a route EVENT, so there is nothing to draw when nothing was advertised.
+  function flow(ev) {
+    if (!cy || document.hidden || reduceMotion()) return;
+    const dir = ui.flowDirection(ev, (snap && snap.edges) || []);
+    if (!dir) return;
+    const e = cy.getElementById(dir.edge);
+    if (!e || e.empty()) return;
+    const session = ((snap && snap.sessions) || []).find(
+      (s) => s.router === ev.router && s.peer === ev.advertisedBy);
+    const traffic = ui.sessionTraffic(session);
+    // Volume without lying: one prefix is one dash-length of travel. An
+    // unmeasured session still gets a single pass, because the EVENT is the
+    // measurement in that case.
+    const steps = Math.min(6, Math.max(1, traffic.prefixes || 1));
+    // Cytoscape draws an edge from source to target. If the advertisement
+    // travelled the other way the offset runs backwards.
+    const forward = e.data("target") === dir.to;
+    const offset = (forward ? -1 : 1) * 12 * steps;
+    const c = colours();
+    e.style("line-style", "dashed");
+    e.style("line-dash-pattern", [6, 4]);
+    e.style("line-color", traffic.withdrew ? c.late : c.accept);
+    e.animate({
+      style: { "line-dash-offset": offset },
+      duration: 220 * steps,
+      complete: () => {
+        e.removeStyle("line-style");
+        e.removeStyle("line-dash-pattern");
+        e.removeStyle("line-dash-offset");
+        e.removeStyle("line-color");
+      },
+    });
+  }
+
+  function reduceMotion() {
+    return matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  // applySignal merges the cheap per-tick frame into the snapshot the page is
+  // already holding. It deliberately does NOT re-render the graph: a full
+  // state frame costs 11.5 KB and a re-layout, and arrives only when the
+  // topology or the routes change.
+  function applySignal(msg) {
+    if (!snap) return;
+    const byKey = {};
+    for (const s of msg.sessions || []) byKey[s.router + "|" + s.peer] = s;
+    for (const s of snap.sessions || []) {
+      const fresh = byKey[s.router + "|" + s.peer];
+      if (fresh) {
+        Object.assign(s, fresh);
+        continue;
+      }
+      // The frame lists every session the poller saw on this tick, so a
+      // session missing from it was NOT measured on this tick. Leaving the
+      // previous tick's numbers in place would let a vanished peer's last
+      // delta drive the heartbeat for ever — measured 2026-09-21, a node kept
+      // pulsing from a frame that carried no measurement for it at all.
+      s.hasDelta = false;
+      s.dRcvd = 0;
+      s.dSent = 0;
+      s.dPfxRcd = 0;
+      s.dPfxSnt = 0;
+      s.hasTimers = false;
+    }
+    const routers = {};
+    for (const r of msg.routers || []) routers[r.name] = r;
+    for (const r of snap.routers || []) {
+      const fresh = routers[r.name];
+      if (fresh) Object.assign(r, fresh);
+      else { r.hasDelta = false; r.dTableVersion = 0; }
+    }
+    snap.ageMsec = msg.ageMsec;
+    snap.ts = msg.ts || snap.ts;
+    renderFreshness();
+    renderSignalStrip();
+    if (!cy) return;
+    for (const r of snap.routers || []) {
+      const sig = ui.routerSignal(r, snap.sessions || []);
+      const n = cy.getElementById(r.name);
+      if (!n || n.empty()) continue;
+      n.data("accepting", sig.accepting ? 1 : 0);
+      n.data("signal", sig.worst);
+      n.data("known", sig.known ? 1 : 0);
+      if (sig.beat && !reduceMotion()) beat(r.name);
+    }
+  }
+
+  function renderFreshness() {
+    const el = $("age");
+    if (!el) return;
+    const pollMs = snap && snap.poll ? parsePoll(snap.poll) : 2000;
+    const f = ui.freshness(snap ? snap.ageMsec : null, pollMs);
+    el.textContent = "age " + (snap && snap.ageMsec != null ? Math.round(snap.ageMsec / 1000) + "s" : "—") +
+      (f.state === "live" ? "" : " · " + f.label);
+    el.className = f.state === "live" ? "" : f.state;
+    document.body.classList.toggle("stale-data", f.state === "stale");
+  }
+
+  // "2s" / "1.5s" / "500ms" as the server prints a Go duration.
+  function parsePoll(s) {
+    const m = /^([\d.]+)(ms|s)$/.exec(String(s || ""));
+    if (!m) return 2000;
+    const n = parseFloat(m[1]);
+    if (!Number.isFinite(n)) return 2000;
+    return m[2] === "ms" ? n : n * 1000;
+  }
+
+  // renderSignalStrip fills the gutter beside the RIB with the numbers the
+  // page already had and nowhere to put: what the selected router's sessions
+  // are actually doing.
+  function renderSignalStrip() {
+    const el = $("signal-strip");
+    if (!el) return;
+    const r = selectedRouter();
+    const name = r ? r.name : "";
+    if (!snap || !r) {
+      el.className = "signal-strip empty";
+      el.textContent = "waiting for the first poll";
+      return;
+    }
+    const sessions = (snap.sessions || []).filter((s) => s.router === name && !s.stale);
+    const sig = ui.routerSignal(r, snap.sessions || []);
+    const parts = [];
+    const add = (k, v, cls) => parts.push(
+      "<span class=\"k\">" + ui.esc(k) + "</span> <span class=\"v " + (cls || "") + "\">" + ui.esc(v) + "</span>");
+
+    if (!r.reachable) {
+      el.className = "signal-strip";
+      el.innerHTML = "<span class=\"k\">unreachable</span> <span class=\"v critical\">last seen " +
+        ui.esc(ui.relativeTime(r.lastSeen)) + "</span>";
+      return;
+    }
+    add("sessions", String(sessions.length));
+    add("cluster peers", String(sig.dynamicPeers), sig.accepting ? "accept" : "");
+    if (sig.accepting) add("state", "accepting traffic", "accept");
+    else add("state", "up, no cluster peers");
+
+    let worstLabel = "unknown";
+    if (sig.worst === "ok") worstLabel = "keepalives on time";
+    else if (sig.worst === "late") worstLabel = "a keepalive is overdue";
+    else if (sig.worst === "critical") worstLabel = "running out of hold time";
+    add("peers", worstLabel, sig.worst === "unknown" ? "unknown" : sig.worst === "ok" ? "" : sig.worst);
+
+    const quiet = sessions.filter((s) => s.hasTimers).map((s) => s.quietMsec);
+    if (quiet.length) add("quietest", Math.max.apply(null, quiet) + "ms");
+    const flaps = sessions.reduce((a, s) => a + (s.flaps || 0), 0);
+    if (flaps > 0) add("flaps since boot", String(flaps), flaps > 4 ? "late" : "");
+    const queued = sessions.reduce((a, s) => a + (s.inq || 0) + (s.outq || 0), 0);
+    if (queued > 0) add("queued", String(queued), "late");
+    if (r.hasDelta && r.dTableVersion > 0) add("table moved", "+" + r.dTableVersion, "accept");
+    el.className = "signal-strip";
+    el.innerHTML = parts.join(" ");
+  }
+
   function applyState(msg) {
     snap = msg;
     renderHeader();
     renderGraph();
     ribRows();
+    renderFreshness();
+    renderSignalStrip();
     applyReady();
   }
 
@@ -570,6 +802,7 @@
       let msg;
       try { msg = JSON.parse(e.data); } catch (err) { return; }
       if (msg.type === "state") applyState(msg);
+      else if (msg.type === "signal") applySignal(msg);
       else if (msg.type === "event") ingestEvent(msg);
     };
   }
@@ -579,6 +812,115 @@
     document.body.dataset.tab = tab;
     $("tab-rib").setAttribute("aria-selected", tab === "rib" ? "true" : "false");
     $("tab-events").setAttribute("aria-selected", tab === "events" ? "true" : "false");
+  }
+
+  // ---- resizable panes ---------------------------------------------------
+  //
+  // The layout was three fixed percentages, and the operator's point was that
+  // the topology has room the page was not using. Each splitter writes a CSS
+  // custom property, so the grid does the work; Cytoscape is told to re-fit
+  // afterwards because a canvas does not reflow on its own.
+  //
+  // The size is remembered per browser, which is the one thing localStorage is
+  // right for here. It is wrapped because a private window can throw on it.
+  function readSaved(key, fallback) {
+    try {
+      const v = parseFloat(localStorage.getItem(key));
+      return Number.isFinite(v) ? v : fallback;
+    } catch (err) { return fallback; }
+  }
+
+  function saveSplit(key, pct) {
+    try { localStorage.setItem(key, String(pct)); } catch (err) { /* private window */ }
+  }
+
+  function applySplit(which, pct) {
+    const main = document.querySelector("main");
+    if (!main) return;
+    const clamped = Math.min(which === "col" ? 80 : 85, Math.max(which === "col" ? 25 : 20, pct));
+    main.style.setProperty(which === "col" ? "--split-col" : "--split-row", clamped + "%");
+    const btn = $(which === "col" ? "split-col" : "split-row");
+    if (btn) btn.setAttribute("aria-valuenow", String(Math.round(clamped)));
+    saveSplit("bgp.split." + which, clamped);
+    refit();
+    return clamped;
+  }
+
+  // Cytoscape holds a canvas sized at construction. Without resize() the graph
+  // keeps the old pane's dimensions and the nodes sit in the wrong place; the
+  // node-pullback in renderGraph then has stale bounds to work from, so the
+  // graph is re-rendered rather than merely re-fitted.
+  let refitTimer = null;
+  function refit() {
+    if (!cy) return;
+    clearTimeout(refitTimer);
+    refitTimer = setTimeout(() => {
+      cy.resize();
+      renderGraph();
+    }, 60);
+  }
+
+  function wireSplitter(id, which) {
+    const el = $(id);
+    if (!el) return;
+    const main = document.querySelector("main");
+    let dragging = false;
+
+    function pctFromEvent(e) {
+      const box = main.getBoundingClientRect();
+      if (which === "col") return ((e.clientX - box.left) / box.width) * 100;
+      const side = document.querySelector(".side").getBoundingClientRect();
+      return ((e.clientY - side.top) / side.height) * 100;
+    }
+
+    el.addEventListener("pointerdown", (e) => {
+      dragging = true;
+      el.setPointerCapture(e.pointerId);
+      document.body.classList.add("dragging");
+      e.preventDefault();
+    });
+    el.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      applySplit(which, pctFromEvent(e));
+    });
+    function end(e) {
+      if (!dragging) return;
+      dragging = false;
+      try { el.releasePointerCapture(e.pointerId); } catch (err) { /* already gone */ }
+      document.body.classList.remove("dragging");
+    }
+    el.addEventListener("pointerup", end);
+    el.addEventListener("pointercancel", end);
+
+    // Dragging is not available to everyone: the arrow keys move it too.
+    el.addEventListener("keydown", (e) => {
+      const step = e.shiftKey ? 10 : 2;
+      const now = parseFloat(el.getAttribute("aria-valuenow")) || 50;
+      const less = which === "col" ? "ArrowLeft" : "ArrowUp";
+      const more = which === "col" ? "ArrowRight" : "ArrowDown";
+      if (e.key === less) applySplit(which, now - step);
+      else if (e.key === more) applySplit(which, now + step);
+      else if (e.key === "Home") applySplit(which, which === "col" ? 25 : 20);
+      else if (e.key === "End") applySplit(which, which === "col" ? 80 : 85);
+      else return;
+      e.preventDefault();
+    });
+  }
+
+  function wireResize() {
+    wireSplitter("split-col", "col");
+    wireSplitter("split-row", "row");
+    applySplit("col", readSaved("bgp.split.col", 65));
+    applySplit("row", readSaved("bgp.split.row", 58));
+    // The window itself, and anything else that changes the pane, must re-fit
+    // too — this is the half the old layout never did.
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(() => refit());
+      const g = $("graph");
+      if (g) ro.observe(g);
+    } else {
+      addEventListener("resize", refit);
+    }
   }
 
   function boot() {
@@ -613,6 +955,11 @@
     if (shotTab) setTab(shotTab);
     window.__ingestEvent = ingestEvent;
     window.__connect = connect;
+    window.__applySignal = applySignal;
+    window.__applySplit = applySplit;
+    window.__signalOf = nodeSignalData;
+
+    wireResize();
 
     setInterval(() => {
       document.querySelectorAll("[data-ts]").forEach((el) => {

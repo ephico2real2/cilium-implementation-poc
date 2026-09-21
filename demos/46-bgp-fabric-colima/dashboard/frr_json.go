@@ -67,9 +67,20 @@ type frrPeer struct {
 // keys 172.20.0.3, 172.20.0.4, 10.200.1.3).
 //
 // LastReadMsec is why this second call is worth making. It is FRR's own
-// measurement of how long ago the peer last said anything, so it neither
-// aliases with our poll interval nor can disagree with FRR's hold-timer
-// decision. Measured once a second on leaf1 2026-09-21, it is a clean sawtooth
+// measurement of how long ago the peer last sent an UPDATE or a KEEPALIVE —
+// those two message types only, so an OPEN or a NOTIFY does not reset it — and
+// it therefore neither aliases with our poll interval nor can disagree with
+// FRR's hold-timer decision.
+//
+// Two properties make it unsafe to read on its own, and the poller guards
+// both. It is truncated to whole seconds, so a healthy session reads exactly
+// keepaliveMsec on about a third of ticks and "quiet >= keepalive" would false
+// alarm. And it is emitted for a peer in ANY state, where it is the peer's age
+// rather than a heartbeat: measured on FRR 10.7.1 with a neighbour that never
+// came up, bgpState "Active" read 23000 and then 64000 forty-one seconds later
+// against a holdMsec of 9000. It also wraps every 24 h, because bgp_vty.c sums
+// tm_sec+tm_min+tm_hour and drops the day. BGPState is what the poller gates
+// on, which is why it is decoded here. Measured once a second on leaf1 2026-09-21, it is a clean sawtooth
 // 0 -> 1000 -> 2000 -> 3000 -> 0, resetting on each keepalive, each peer on its
 // own phase. Counting msgRcvd deltas across 2s polls could not see this: with
 // keepalive 3s and poll 2s a healthy session reads 0 on about one tick in three.

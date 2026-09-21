@@ -139,3 +139,117 @@ function sixExternals() {
   ];
   return { nodes: nodes, sessions: sessions };
 }
+
+// ---- signal -----------------------------------------------------------
+
+test("sessionHealth treats reaching the keepalive interval as normal", () => {
+  // Measured on the fabric: quietMsec sawtooths 0 -> 1000 -> 2000 -> 3000 -> 0
+  // with keepalive 3000 and hold 9000, so 3000 is the instant before the next
+  // keepalive, not a fault.
+  const base = { hasTimers: true, holdMsec: 9000, keepaliveMsec: 3000 };
+  for (const quiet of [0, 1000, 2000, 3000]) {
+    const h = ui.sessionHealth(Object.assign({ quietMsec: quiet }, base));
+    assert.equal(h.kind, "ok", "quiet=" + quiet + " must be ok");
+  }
+  assert.equal(ui.sessionHealth(Object.assign({ quietMsec: 4000 }, base)).kind, "late");
+  assert.equal(ui.sessionHealth(Object.assign({ quietMsec: 6000 }, base)).kind, "critical");
+  assert.equal(ui.sessionHealth(Object.assign({ quietMsec: 8000 }, base)).kind, "critical");
+});
+
+test("sessionHealth reports unknown rather than a heartbeat of zero", () => {
+  assert.equal(ui.sessionHealth({ hasTimers: false, quietMsec: 0 }).kind, "unknown");
+  assert.equal(ui.sessionHealth({ hasTimers: false }).fraction, null);
+  assert.equal(ui.sessionHealth(null).kind, "unknown");
+  // hasTimers true but no hold time is still no measurement
+  assert.equal(ui.sessionHealth({ hasTimers: true, holdMsec: 0, quietMsec: 5 }).kind, "unknown");
+});
+
+test("sessionTraffic reports nothing on a tick with no measured delta", () => {
+  const t = ui.sessionTraffic({ hasDelta: false, dRcvd: 9, dSent: 9 });
+  assert.equal(t.known, false);
+  assert.equal(t.messages, 0);
+  assert.equal(t.prefixes, 0);
+});
+
+test("a withdrawal is volume, not a negative width", () => {
+  // pfxRcd 2 -> 1 with no session reset: the delta is -1. The page needs the
+  // magnitude to draw and the sign to say which way.
+  const t = ui.sessionTraffic({ hasDelta: true, dRcvd: 2, dSent: 1, dPfxRcd: -1, dPfxSnt: 0 });
+  assert.equal(t.prefixes, 1);
+  assert.equal(t.withdrew, true);
+  assert.equal(t.messages, 3);
+  const add = ui.sessionTraffic({ hasDelta: true, dRcvd: 2, dSent: 1, dPfxRcd: 3, dPfxSnt: 0 });
+  assert.equal(add.withdrew, false);
+  assert.equal(add.prefixes, 3);
+});
+
+test("routerSignal reads accepting from FRR, not from a session count", () => {
+  const leaf = { name: "leaf1", reachable: true, dynamicPeers: 2, hasDelta: true, dTableVersion: 0 };
+  const spine = { name: "spine", reachable: true, dynamicPeers: 0, hasDelta: true, dTableVersion: 0 };
+  const sessions = [
+    { router: "leaf1", hasDelta: true, dRcvd: 1, dSent: 0, hasTimers: true, holdMsec: 9000, keepaliveMsec: 3000, quietMsec: 1000 },
+    { router: "spine", hasDelta: true, dRcvd: 1, dSent: 1, hasTimers: true, holdMsec: 9000, keepaliveMsec: 3000, quietMsec: 0 },
+  ];
+  assert.equal(ui.routerSignal(leaf, sessions).accepting, true);
+  assert.equal(ui.routerSignal(spine, sessions).accepting, false);
+  // a spine with three healthy sessions is still not "accepting": no cluster peers it
+  assert.equal(ui.routerSignal(spine, sessions).beat, true);
+});
+
+test("an unreachable router has no beat and claims nothing", () => {
+  const r = { name: "leaf2", reachable: false, dynamicPeers: 2 };
+  const sig = ui.routerSignal(r, [{ router: "leaf2", hasDelta: true, dRcvd: 5 }]);
+  assert.equal(sig.beat, false);
+  assert.equal(sig.known, false);
+  assert.equal(sig.worst, "unknown");
+});
+
+test("a stale session contributes no beat", () => {
+  const r = { name: "leaf1", reachable: true, dynamicPeers: 0 };
+  const sig = ui.routerSignal(r, [{ router: "leaf1", stale: true, hasDelta: true, dRcvd: 9 }]);
+  assert.equal(sig.beat, false);
+});
+
+test("routerSignal takes the worst session's health", () => {
+  const r = { name: "leaf1", reachable: true, dynamicPeers: 1 };
+  const sessions = [
+    { router: "leaf1", hasTimers: true, holdMsec: 9000, keepaliveMsec: 3000, quietMsec: 0 },
+    { router: "leaf1", hasTimers: true, holdMsec: 9000, keepaliveMsec: 3000, quietMsec: 7000 },
+  ];
+  assert.equal(ui.routerSignal(r, sessions).worst, "critical");
+});
+
+test("flowDirection points at the router that learned the prefix", () => {
+  const edges = [{ id: "e1", source: "leaf1", target: "n-172.20.0.3", aRouter: "leaf1", aPeer: "172.20.0.3", bRouter: "", bPeer: "" }];
+  // leaf1 learned 10.198.0.10/32 from 172.20.0.3 — the arrow runs toward leaf1
+  const ev = { kind: "route", router: "leaf1", prefix: "10.198.0.10/32", advertisedBy: "172.20.0.3" };
+  const f = ui.flowDirection(ev, [{ id: "e1", aRouter: "leaf1", aPeer: "", bRouter: "", bPeer: "172.20.0.3", source: "n", target: "leaf1" }]);
+  assert.ok(f, "expected a direction");
+  assert.equal(f.to, "leaf1");
+  assert.equal(f.prefix, "10.198.0.10/32");
+  void edges;
+});
+
+test("a locally originated route produces no flow", () => {
+  // advertisedBy is empty for the router's own loopback
+  const ev = { kind: "route", router: "leaf2", prefix: "10.200.255.12/32", advertisedBy: "" };
+  assert.equal(ui.flowDirection(ev, [{ id: "e1", aRouter: "leaf2", bPeer: "10.200.1.11" }]), null);
+  // and a session event is not a flow at all
+  assert.equal(ui.flowDirection({ kind: "session", router: "leaf2", advertisedBy: "x" }, []), null);
+});
+
+test("freshness is driven by the server's own age, not the browser clock", () => {
+  assert.equal(ui.freshness(1249, 2000).state, "live");
+  assert.equal(ui.freshness(4000, 2000).state, "live");
+  assert.equal(ui.freshness(6000, 2000).state, "lagging");
+  assert.equal(ui.freshness(30000, 2000).state, "stale");
+  assert.equal(ui.freshness(null, 2000).state, "unknown");
+  assert.equal(ui.freshness(undefined, 2000).state, "unknown");
+});
+
+test("the RIB says 'self' rather than FRR's (unspec) sentinel", () => {
+  assert.equal(ui.fromLabel("(unspec)"), "self");
+  assert.equal(ui.fromLabel(""), "self");
+  assert.equal(ui.fromLabel(null), "self");
+  assert.equal(ui.fromLabel("172.20.0.4"), "172.20.0.4");
+});

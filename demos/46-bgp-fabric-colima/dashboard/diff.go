@@ -92,10 +92,6 @@ func diff(prev, next Snapshot, ts time.Time) []Event {
 		}
 	}
 
-	prevRoutes := map[string][]Route{}
-	for _, r := range prev.Routes {
-		prevRoutes[r.Router] = append(prevRoutes[r.Router], r)
-	}
 	nextByPrefix := map[string]bool{}
 	for _, r := range next.Routes {
 		k := routeKey(r)

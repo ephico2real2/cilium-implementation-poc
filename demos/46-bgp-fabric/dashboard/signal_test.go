@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 // summaryWithCounters builds a one-peer summary carrying the counters the
@@ -119,6 +124,46 @@ func TestCounterResetReportsNoDeltaRatherThanANegativeOne(t *testing.T) {
 	if s.DRcvd != 0 || s.DSent != 0 {
 		t.Fatalf("no delta must mean no numbers: dRcvd=%d dSent=%d", s.DRcvd, s.DSent)
 	}
+
+	// Each half of the guard on its own. Dropping BOTH counters together left
+	// the `|| s.MsgSent < prev.MsgSent` half untested: deleting it kept the
+	// whole suite green (measured).
+	p.tick(t0.Add(4 * time.Second)) // a fresh baseline at 2/2
+	f.set(summaryWithCounters("10.200.1.3", "Established", 9, 1, 0, 0, false, 92), "")
+	snap, _, _ = p.tick(t0.Add(6 * time.Second))
+	if s := snap.Sessions[0]; s.HasDelta {
+		t.Fatalf("msgSent alone went backwards, still a reset: dRcvd=%d dSent=%d", s.DRcvd, s.DSent)
+	}
+	p.tick(t0.Add(8 * time.Second))
+	f.set(summaryWithCounters("10.200.1.3", "Established", 1, 9, 0, 0, false, 93), "")
+	snap, _, _ = p.tick(t0.Add(10 * time.Second))
+	if s := snap.Sessions[0]; s.HasDelta {
+		t.Fatalf("msgRcvd alone went backwards, still a reset: dRcvd=%d dSent=%d", s.DRcvd, s.DSent)
+	}
+}
+
+// The prefix deltas are SIGNED and the message deltas are not. A withdrawal
+// lowers pfxRcd while msgRcvd RISES — the withdrawal is itself an UPDATE — so
+// the reset guard does not fire and dPfxRcd goes to -1. That is the direction
+// of a withdrawal and a real measurement; clamping it to zero would erase the
+// event the page exists to show. Pinned so a later "deltas must be positive"
+// cannot land silently: a renderer reads this as a signed change, not a width.
+func TestPrefixDeltaIsSignedOnAWithdrawal(t *testing.T) {
+	f := newFakeRouter(t)
+	f.set(summaryWithCounters("10.200.1.3", "Established", 100, 100, 2, 1, false, 10), "")
+	p := newPoller([]RouterCfg{{Name: "leaf1", URL: f.srv.URL}}, map[int]string{65100: "spine", 65101: "leaf1"}, 2*time.Second)
+	t0 := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	p.tick(t0)
+
+	f.set(summaryWithCounters("10.200.1.3", "Established", 103, 102, 1, 1, false, 11), "")
+	snap, _, _ := p.tick(t0.Add(2 * time.Second))
+	s := snap.Sessions[0]
+	if !s.HasDelta {
+		t.Fatal("a withdrawal is a measurable interval, not a reset")
+	}
+	if s.DRcvd != 3 || s.DPfxRcd != -1 {
+		t.Fatalf("dRcvd=%d dPfxRcd=%d want 3 and -1 (signed)", s.DRcvd, s.DPfxRcd)
+	}
 }
 
 // When the agent stops answering, the previous sample is replayed as stale.
@@ -150,10 +195,16 @@ func TestDeltaIsNotMeasuredAcrossAStaleReplay(t *testing.T) {
 // FRR prints peerId "(unspec)" for a route the router originated itself. Left
 // unhandled it becomes an advertisement arriving from a peer of that name.
 func TestAdvertisedByIsEmptyForALocallyOriginatedRoute(t *testing.T) {
+	// The ECMP paths are ordered with NON-bestpath rows first, and a row for
+	// the same prefix on another router first of all. The previous fixture put
+	// the bestpath first, so a function that returned the first matching row
+	// passed: deleting `&& r.Bestpath` left the whole suite green (measured).
 	routes := []Route{
+		{Router: "leaf2", Prefix: "10.198.0.10/32", Bestpath: true, PeerID: "10.200.1.11", Nexthop: "10.200.1.11"},
 		{Router: "leaf1", Prefix: "10.200.255.11/32", Bestpath: true, PeerID: unspecPeer, Nexthop: "0.0.0.0"},
-		{Router: "leaf1", Prefix: "10.198.0.10/32", Bestpath: true, PeerID: "172.20.0.4", Nexthop: "172.20.0.4"},
 		{Router: "leaf1", Prefix: "10.198.0.10/32", Bestpath: false, PeerID: "172.20.0.3", Nexthop: "172.20.0.3"},
+		{Router: "leaf1", Prefix: "10.198.0.10/32", Bestpath: false, PeerID: "10.200.1.3", Nexthop: "10.200.1.3"},
+		{Router: "leaf1", Prefix: "10.198.0.10/32", Bestpath: true, PeerID: "172.20.0.4", Nexthop: "172.20.0.4"},
 	}
 	if got := advertisedBy(routes, "leaf1", "10.200.255.11/32"); got != "" {
 		t.Fatalf("own loopback advertisedBy=%q want empty", got)
@@ -205,7 +256,10 @@ func TestNeighborsFailureLeavesTheRouterReachableWithoutTimers(t *testing.T) {
 		t.Fatalf("no timers must mean no numbers: quiet=%d hold=%d", s.QuietMsec, s.HoldMsec)
 	}
 
-	f.setNeighbors(`{"10.200.1.3":{"bgpTimerHoldTimeMsecs":9000,"bgpTimerKeepAliveIntervalMsecs":3000,"bgpTimerLastRead":2000,"peerGroup":"SERVERS"}}`)
+	// bgpState is in the fixture because the poller requires it: FRR emits
+	// these timers for a peer in ANY state, and only an Established peer's
+	// reading is a heartbeat rather than the peer's age.
+	f.setNeighbors(`{"10.200.1.3":{"bgpState":"Established","bgpTimerHoldTimeMsecs":9000,"bgpTimerKeepAliveIntervalMsecs":3000,"bgpTimerLastRead":2000,"peerGroup":"SERVERS"}}`)
 	snap, _, _ = p.tick(time.Now())
 	s = snap.Sessions[0]
 	if !s.HasTimers || s.QuietMsec != 2000 || s.HoldMsec != 9000 || s.KeepaliveMsec != 3000 || s.PeerGroup != "SERVERS" {
@@ -243,5 +297,104 @@ func TestDynamicPeerIsCarriedThrough(t *testing.T) {
 	}
 	if snap.Routers[0].DynamicPeers != 1 {
 		t.Fatalf("router dynamicPeers=%d want 1", snap.Routers[0].DynamicPeers)
+	}
+}
+
+// The heartbeat must keep arriving on a fabric where nothing changes.
+//
+// A full Snapshot is broadcast only when stateSignature changes — the graph or
+// the routes. The signal fields change every tick by design, and carried on
+// the Snapshot alone they would never reach a page watching a steady fabric:
+// the heartbeat would freeze while the fabric was perfectly healthy. This is
+// the regression test for that.
+func TestSignalFrameIsBroadcastOnATickThatChangesNothing(t *testing.T) {
+	f := newFakeRouter(t)
+	f.set(summaryWithCounters("10.200.1.3", "Established", 100, 100, 1, 1, false, 10), "")
+	p := newPoller([]RouterCfg{{Name: "leaf1", URL: f.srv.URL}}, map[int]string{65100: "spine", 65101: "leaf1"}, 2*time.Second)
+	h := newHub(p, 10)
+	h.runTick() // first tick: the graph appears, so this one DOES change state
+
+	c, ctx := wsDial(t, h)
+	defer c.Close(websocket.StatusNormalClosure, "")
+
+	// Counters advance; the graph and the routes do not.
+	f.set(summaryWithCounters("10.200.1.3", "Established", 108, 107, 1, 1, false, 10), "")
+	_, _, stateChanged := p.tick(time.Now())
+	if stateChanged {
+		t.Fatal("counters alone must not change the state signature — that is the whole point of the frame")
+	}
+
+	h.runTick()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		readCtx, cancel := context.WithTimeout(ctx, time.Second)
+		_, data, err := c.Read(readCtx)
+		cancel()
+		if err != nil {
+			break
+		}
+		var probe struct {
+			Type     string `json:"type"`
+			Sessions []struct {
+				Peer      string `json:"peer"`
+				HasDelta  bool   `json:"hasDelta"`
+				DRcvd     int    `json:"dRcvd"`
+				HasTimers bool   `json:"hasTimers"`
+			} `json:"sessions"`
+		}
+		if json.Unmarshal(data, &probe) != nil || probe.Type != "signal" {
+			continue
+		}
+		if len(probe.Sessions) != 1 {
+			t.Fatalf("signal frame carries %d sessions, want 1", len(probe.Sessions))
+		}
+		if !probe.Sessions[0].HasDelta {
+			t.Fatal("signal frame carries no delta on a tick that measured one")
+		}
+		return
+	}
+	t.Fatal("no signal frame arrived on a tick that changed no state")
+}
+
+// The frame carries the signal and leaves the bulk behind: it is the cheap
+// frequent one, so it must not grow into a second copy of the snapshot.
+func TestSignalFrameCarriesSignalAndNotTheSnapshot(t *testing.T) {
+	snap := Snapshot{
+		TS: "2026-09-21T03:00:00.000Z", AgeMsec: 1249,
+		Routers: []Router{{Name: "leaf1", Reachable: true, TableVersion: 84, DTableVersion: 2, DynamicPeers: 2, HasDelta: true}},
+		Sessions: []Session{{
+			Router: "leaf1", Peer: "172.20.0.3", State: "Established",
+			HasDelta: true, DRcvd: 1, DSent: 0, HasTimers: true,
+			QuietMsec: 1000, HoldMsec: 9000, KeepaliveMsec: 3000, Flaps: 0,
+		}},
+		Routes: []Route{{Router: "leaf1", Prefix: "10.198.0.10/32"}},
+		Nodes:  []Node{{ID: "leaf1"}, {ID: "n1"}},
+		Edges:  []Edge{{ID: "e1"}},
+	}
+	f := signalFrame(snap)
+	if f.Type != "signal" || f.AgeMsec != 1249 {
+		t.Fatalf("frame header wrong: %+v", f)
+	}
+	if len(f.Routers) != 1 || f.Routers[0].DynamicPeers != 2 || f.Routers[0].DTableVersion != 2 {
+		t.Fatalf("router signal wrong: %+v", f.Routers)
+	}
+	if len(f.Sessions) != 1 || f.Sessions[0].QuietMsec != 1000 || f.Sessions[0].HoldMsec != 9000 {
+		t.Fatalf("session signal wrong: %+v", f.Sessions)
+	}
+	b, err := json.Marshal(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// It must stay materially smaller than the snapshot, or there is no reason
+	// for it to exist. Measured on the live fabric: 2,373 vs 11,519 bytes.
+	if len(b) >= len(full) {
+		t.Fatalf("signal frame %d bytes is not smaller than the snapshot's %d", len(b), len(full))
+	}
+	if strings.Contains(string(b), "10.198.0.10/32") {
+		t.Fatal("the signal frame is carrying routes; it is meant to be the cheap frame")
 	}
 }
