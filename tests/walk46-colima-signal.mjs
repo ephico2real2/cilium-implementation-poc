@@ -124,6 +124,34 @@ async function page(viewport, q = '') {
   await ctx.close();
 }
 
+// ---- the waiting message stays in its pane --------------------------------
+// `.empty` is the graph overlay: position absolute, inset 0. As a shared class
+// it also caught #signal-strip, whose pane is not positioned, so the strip
+// resolved against the VIEWPORT and painted "waiting for the first poll" across
+// the header and the topology. A router name the fabric does not have holds
+// that state open. Fixing the Events message alone treated the symptom.
+{
+  const { p, ctx } = await page({ width: 1200, height: 800 }, '?router=nosuchrouter');
+  await p.waitForTimeout(3000);
+  const r = await p.evaluate(() => {
+    const el = document.getElementById('signal-strip');
+    const pane = document.getElementById('rib-pane');
+    const e = el.getBoundingClientRect(), q = pane.getBoundingClientRect();
+    return {
+      text: el.textContent.trim(),
+      position: getComputedStyle(el).position,
+      inside: e.left >= q.left - 1 && e.right <= q.right + 1 && e.top >= q.top - 1 && e.bottom <= q.bottom + 1,
+      box: [e.left, e.top, e.right, e.bottom].map(Math.round),
+      pane: [q.left, q.top, q.right, q.bottom].map(Math.round),
+    };
+  });
+  note(`signal strip (?router=nosuchrouter): "${r.text}" position=${r.position}`);
+  note(`      box=[${r.box}] rib-pane=[${r.pane}]`);
+  if (!r.inside) fail.push("the signal strip's waiting message escaped the RIB pane and painted over the page");
+  if (r.position === 'absolute') fail.push("the signal strip is absolutely positioned — it reused the graph overlay's .empty");
+  await ctx.close();
+}
+
 // ---- roles, selection and group move --------------------------------------
 {
   const { p, ctx, errors } = await page({ width: 1400, height: 900 }, '?router=leaf1');
@@ -337,12 +365,25 @@ async function page(viewport, q = '') {
   note(`traffic: ${r.caption.trim()}`);
   for (const row of r.rows) note(`      ${row.link.padEnd(22)} ${row.msgs.padEnd(14)} ${row.heard.padEnd(12)} ${row.meta} [${row.h}px]`);
   note(`      tallest row ${r.tallest}px in a ${r.paneH}px pane`);
-  if (r.rows.length !== 7) fail.push(`traffic shows ${r.rows.length} links, expected 7`);
+  // The counts come from the fabric, not from this file: the invariant is that
+  // the view drops no edge, and an edge is a fabric link exactly when both ends
+  // are polled. A hard 7 would fail on a fifth router for a reason that has
+  // nothing to do with this view. The floor keeps it from passing vacuously.
+  const want = await p.evaluate(async () => {
+    const s = await (await fetch('/api/state')).json();
+    const edges = s.edges || [];
+    return { links: edges.length,
+             fabric: edges.filter((e) => e.bRouter).length,
+             cluster: edges.filter((e) => !e.bRouter).length };
+  });
+  note(`      the fabric reports ${want.links} links (${want.fabric} fabric, ${want.cluster} cluster)`);
+  if (want.fabric < 3 || want.cluster < 1) fail.push(`the lab is not up: ${want.fabric} fabric + ${want.cluster} cluster links in /api/state`);
+  if (r.rows.length !== want.links) fail.push(`traffic shows ${r.rows.length} links, the fabric has ${want.links}`);
   if (r.eventsHidden !== 'none') fail.push('the Events list is still visible in the Traffic view');
   const fabric = r.rows.filter((x) => /fabric link/.test(x.meta));
   const cluster = r.rows.filter((x) => /cluster node/.test(x.meta));
-  if (fabric.length !== 3) fail.push(`expected 3 fabric links, got ${fabric.length}`);
-  if (cluster.length !== 4) fail.push(`expected 4 cluster links, got ${cluster.length}`);
+  if (fabric.length !== want.fabric) fail.push(`expected ${want.fabric} fabric links, got ${fabric.length}`);
+  if (cluster.length !== want.cluster) fail.push(`expected ${want.cluster} cluster links, got ${cluster.length}`);
   if (!cluster.some((x) => /not polled/.test(x.msgs))) fail.push('a cluster link must say its far end is not polled, not 0');
   if (!r.rows.some((x) => /\d/.test(x.msgs))) fail.push('no link reported a measured message');
   // The first layout wrapped the link name over four lines and fitted three
@@ -352,13 +393,79 @@ async function page(viewport, q = '') {
   if (errors.length) fail.push('traffic js errors: ' + errors.join(' | '));
   await p.screenshot({ path: `${OUT}/1200-traffic.png` });
 
-  // it must keep up with the live signal, not freeze at the first render
-  const before = await p.evaluate(() => document.querySelector('#traffic .traffic-caption').textContent);
+  // Colour is the half of this view a textContent assertion cannot see. The
+  // classes shipped with no CSS behind them, so a busy link, a silent link and
+  // a session eating its hold time all rendered in one colour. A healthy lab
+  // never produces an overdue keepalive, so the rows are staged.
+  const paint = await p.evaluate(async () => {
+    const real = window.bgpUI.trafficRows;
+    window.bgpUI.trafficRows = (edges, sessions) => {
+      const rows = real(edges, sessions).slice(0, 3).map((x) => JSON.parse(JSON.stringify(x)));
+      rows[0].a.messages = 7; rows[0].messages = 7;
+      rows[1].a.messages = 0; rows[1].messages = 0;
+      rows[2].a.health = 'critical'; rows[2].a.quietMsec = 8000;
+      return rows;
+    };
+    window.__renderTraffic();
+    await new Promise((r2) => setTimeout(r2, 150));
+    const lis = Array.from(document.querySelectorAll('#traffic .traffic-list li'));
+    const col = (li, sel) => { const s = li && li.querySelector(sel); return s ? getComputedStyle(s).color : ''; };
+    const out = {
+      moving: col(lis[0], '.msgs .moving'),
+      idle: col(lis[1], '.msgs .idle'),
+      heardOk: col(lis[0], '.heard .idle'),
+      heardCritical: col(lis[2], '.heard .critical'),
+    };
+    window.bgpUI.trafficRows = real;
+    window.__renderTraffic();
+    return out;
+  });
+  note(`      paint: moving=${paint.moving} idle=${paint.idle} heard-ok=${paint.heardOk} heard-critical=${paint.heardCritical}`);
+  if (paint.moving === paint.idle) fail.push('a link carrying messages is painted exactly like a silent one');
+  if (paint.heardCritical === paint.heardOk) fail.push('a session eating its hold time is painted like a healthy one');
+
+  // A link that is DOWN must say so. A session the poller could not read and a
+  // session in Idle both arrive with hasDelta false, so "unmeasured" used to be
+  // the answer for both — silence is the wrong answer to "this end is idle".
+  const down = await p.evaluate(async () => {
+    const real = window.bgpUI.trafficRows;
+    window.bgpUI.trafficRows = (edges, sessions) => {
+      const rows = real(edges, sessions).map((x) => JSON.parse(JSON.stringify(x)));
+      rows[0].a.state = 'Idle'; rows[0].a.known = false; rows[0].a.messages = 0;
+      return rows;
+    };
+    window.__renderTraffic();
+    await new Promise((r2) => setTimeout(r2, 150));
+    const li = document.querySelector('#traffic .traffic-list li');
+    const out = { text: li.querySelector('.msgs').textContent.replace(/\s+/g, ' ').trim(),
+                  colour: (() => { const s = li.querySelector('.msgs .down'); return s ? getComputedStyle(s).color : 'MISSING'; })() };
+    window.bgpUI.trafficRows = real;
+    window.__renderTraffic();
+    return out;
+  });
+  note(`      a down end renders: "${down.text}" colour=${down.colour}`);
+  if (/unmeasured/.test(down.text) || !/idle/.test(down.text))
+    fail.push(`a down link renders "${down.text}" — indistinguishable from one we did not measure`);
+  if (down.colour === 'MISSING') fail.push('the down state has no colour of its own');
+
+  // A fabric link's prefix counts are ONE end's. The row must say whose.
+  if (!r.rows.every((x) => new RegExp('\\b' + x.link.split(' ')[0] + ':').test(x.meta)))
+    fail.push('a traffic row does not say which end its prefix counts belong to');
+
+  // It must keep up with the live signal, not freeze at the first render.
+  // "the list is non-empty after 5s" does not test that — measured, it passes
+  // identically with the WebSocket closed. renderTraffic rebuilds the <ul>, so
+  // a tick that rendered leaves a NEW node behind; identity is the assertion.
+  await p.evaluate(() => { window.__trafficUl = document.querySelector('#traffic .traffic-list'); });
   await p.waitForTimeout(5000);
-  const after = await p.evaluate(() => document.querySelector('#traffic .traffic-list').textContent.replace(/\s+/g, ' ').trim());
-  note(`      still live after 5s: ${after.slice(0, 70)}...`);
-  if (!after) fail.push('the traffic table emptied itself');
-  void before;
+  const live = await p.evaluate(() => {
+    const ul = document.querySelector('#traffic .traffic-list');
+    return { rerendered: !!ul && ul !== window.__trafficUl,
+             text: ul ? ul.textContent.replace(/\s+/g, ' ').trim() : '' };
+  });
+  note(`      still live after 5s: ${live.text.slice(0, 70)}...`);
+  if (!live.text) fail.push('the traffic list emptied itself');
+  if (!live.rerendered) fail.push('the traffic list froze at the first render — no tick re-rendered it');
   await ctx.close();
 }
 

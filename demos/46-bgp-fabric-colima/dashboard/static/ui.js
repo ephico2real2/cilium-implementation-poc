@@ -427,6 +427,25 @@
     return rows;
   }
 
+  // trafficCaption is the one line above the list, and it must never turn "we
+  // did not measure this tick" into "nothing moved". A stale router's sessions
+  // and a held-down session both arrive with hasDelta false and their deltas
+  // cleared, so counting those as zero reports a measurement that was never
+  // taken — the same invention the poller refuses when it declines to clamp a
+  // negative delta to zero. `known` exists for exactly this and was unused.
+  function trafficCaption(rows) {
+    const all = rows || [];
+    const measured = all.filter((r) => r.known);
+    const moving = measured.filter((r) => r.messages > 0).length;
+    const n = all.length + (all.length === 1 ? " link" : " links");
+    if (!measured.length) return n + " · nothing measured on the last poll";
+    if (measured.length < all.length) {
+      return n + " · " + moving + " of " + measured.length +
+        " measured carried a message on the last poll";
+    }
+    return n + " · " + moving + " carried a message on the last poll";
+  }
+
   // flowDirection turns a route event into an arrow along an edge. The peer
   // that advertised the prefix is one end; the router that learned it is the
   // other. Returns null when the router originated the route itself, because
@@ -474,6 +493,7 @@
     freshness: freshness,
     fromLabel: fromLabel,
     trafficRows: trafficRows,
+    trafficCaption: trafficCaption,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.bgpUI = api;

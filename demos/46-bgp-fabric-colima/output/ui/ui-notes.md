@@ -165,6 +165,57 @@ legend height: 213px → 368px (45%) → 98px (12%)
 graph got the rest: 714px, cytoscape canvas 714px
 ```
 
+## What the review found that the walk could not
+
+The walk reads `textContent`. It cannot see colour or geometry, and three
+defects lived in exactly that blind spot.
+
+**The escaped message was fixed at the symptom, not the cause.** `.empty` is
+the graph's overlay — `position: absolute; inset: 0` — and giving the Events
+message its own `.pane-empty` left the *other* user of the class, the signal
+strip, still resolving against the viewport. Measured at
+`?router=<a name the fabric does not have>`:
+
+```text
+before  position=absolute  box=[0,0,1200,796]   rib-pane=[787,107,1200,509]
+after   position=static    box=[797,139,1190,165]
+```
+
+The class is now `#graph-empty`, keyed by id so it cannot be reused by
+accident.
+
+**The Traffic view painted nothing.** `.moving`, `.idle`, `.unpolled` and the
+coloured `heard` cell had no CSS at all — the rules were written for the table
+this list replaced and went out with it:
+
+```text
+before  moving=rgb(28,25,22)  idle=rgb(28,25,22)   <- identical
+        heard-ok=rgb(92,86,78) heard-critical=rgb(92,86,78)   <- identical
+after   moving=rgb(28,25,22)  idle=rgb(92,86,78)
+        heard-ok=rgb(92,86,78) heard-critical=rgb(180,35,24)
+```
+
+A session two thirds through its hold time was painted like a healthy one.
+
+**The caption invented a measurement.** It counted `messages > 0` and reported
+`7 links · 0 carried a message on the last poll` while every cell read
+`unmeasured`. `known` was computed for exactly this and never read. It now says
+`nothing measured on the last poll`, or `N of M measured` when only some links
+were read.
+
+Two smaller ones: a fabric link's prefix and flap counts belong to **one** end
+and the row never said whose (`spine: 2 in / 6 out prefixes` now), and a link
+that is **down** rendered as `unmeasured`, indistinguishable from one we simply
+failed to read — it renders `idle` in the critical colour now.
+
+And two of the walk's own assertions did not assert. The liveness check
+captured a value, discarded it with `void before`, and tested only that the
+list was non-empty — which passes identically with the socket closed. It
+compares node identity now, since `renderTraffic` rebuilds the `<ul>`. The
+topology counts were hard-coded to this lab's 7/3/4; they are read from
+`/api/state`, so the assertion tests the invariant that matters — the view
+drops no edge — with a floor so it cannot pass against a lab that is down.
+
 ## Three defects this walk found that review had not
 
 1. **The pulse fired on a frame that measured nothing.** The signal frame is

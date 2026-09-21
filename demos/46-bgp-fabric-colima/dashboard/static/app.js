@@ -596,6 +596,13 @@
     // link is one line of numbers with a muted second line of context.
     function msgs(s) {
       if (!s.polled) return "<span class=\"unpolled\" title=\"a cluster node, not an agent we poll\">not polled</span>";
+      // A session the poller could not read and a session that is DOWN both
+      // arrive with hasDelta false, so "unmeasured" was this view's answer for
+      // both. It is the wrong answer for one of them: "is anything moving" is
+      // answered by "this end is idle", not by silence.
+      if (s.state && s.state !== "Established") {
+        return "<span class=\"down\">" + ui.esc(s.state.toLowerCase()) + "</span>";
+      }
       if (!s.known) return "<span class=\"idle\">unmeasured</span>";
       return "<span class=\"" + (s.messages > 0 ? "moving" : "idle") + "\">" + s.messages + "</span>";
     }
@@ -605,14 +612,18 @@
       return "<span class=\"" + cls + "\">" + (s.quietMsec / 1000).toFixed(1) + "s</span>";
     }
 
-    const moving = rows.filter((r) => r.messages > 0).length;
-    let html = "<p class=\"traffic-caption\">" + rows.length + " links · " + moving +
-      " carried a message on the last poll</p><ul class=\"traffic-list\">";
+    let html = "<p class=\"traffic-caption\">" + ui.esc(ui.trafficCaption(rows)) +
+      "</p><ul class=\"traffic-list\">";
     for (const r of rows) {
-      const far = r.b.polled ? r.b.router : r.a.peer;
-      const pfx = r.a.polled ? (r.a.pfxRcd + " in / " + r.a.pfxSnt + " out") : "";
+      const far = r.b.router || r.a.peer;
+      // Every number below is the FIRST-NAMED end's. FRR counts prefixes, flaps
+      // and queues per session, and the two ends of a fabric link disagree —
+      // spine counts 10 flaps on leaf1 where leaf1 counts its own — so the row
+      // has to say whose they are. Named once, on the first clause: naming it on
+      // every clause wrapped the row to 59px and undid the layout this list
+      // replaced the five-column table to get.
       const bits = [r.kind === "fabric" ? "fabric link" : "cluster node peering in"];
-      if (pfx) bits.push(pfx + " prefixes");
+      if (r.a.polled) bits.push(r.a.router + ": " + r.a.pfxRcd + " in / " + r.a.pfxSnt + " out prefixes");
       if (r.a.polled && r.a.flaps > 0) bits.push(r.a.flaps + " flaps since boot");
       if (r.a.polled && r.a.queued > 0) bits.push(r.a.queued + " queued");
       html += "<li>" +

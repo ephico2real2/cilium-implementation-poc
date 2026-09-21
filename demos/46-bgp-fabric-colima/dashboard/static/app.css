@@ -162,7 +162,16 @@ main {
 }
 #graph { flex: 1 1 auto; min-width: 0; min-height: 0; width: 100%; overflow: hidden; }
 #graph:focus { outline: none; }
-.empty {
+/* The graph's overlay, and ONLY the graph's overlay.
+   `position: absolute; inset: 0` needs a positioned ancestor, and #graph-pane
+   is the only one in the layout. While this was a shared `.empty` class it also
+   caught #signal-strip's waiting state and resolved it against the VIEWPORT:
+   measured 2026-09-21 at ?router=<a name the fabric does not have>, the strip's
+   box was 0,0,1200,796 for a pane at 787,107,1200,509, painting "waiting for
+   the first poll" across the header and the topology. Fixing the Events message
+   by giving it .pane-empty treated the symptom; this is the cause. Keyed by id
+   it cannot be reused by accident, and #signal-strip keeps its own rule below. */
+#graph-empty {
   position: absolute;
   inset: 0;
   display: flex;
@@ -172,7 +181,7 @@ main {
   color: var(--muted);
   pointer-events: none;
 }
-.empty[hidden] { display: none; }
+#graph-empty[hidden] { display: none; }
 .node-keys {
   position: absolute;
   width: 1px;
@@ -465,7 +474,6 @@ body.stale-data #graph { opacity: 0.55; filter: saturate(0.4); }
   max-width: 100%;
 }
 .pane-empty[hidden] { display: none; }
-#events-pane[data-view="traffic"] #events-empty { display: none; }
 
 .traffic-caption { color: var(--muted); margin: 2px 0 6px; }
 .traffic-list { list-style: none; margin: 0; padding: 0; }
@@ -483,6 +491,19 @@ body.stale-data #graph { opacity: 0.55; filter: saturate(0.4); }
 .traffic-list .unit { color: var(--muted); }
 .traffic-list .heard { font-family: var(--mono); white-space: nowrap; color: var(--muted); }
 .traffic-list .meta { flex: 1 0 100%; color: var(--muted); font-size: 11px; }
+/* These have to paint or the view says nothing in colour that it does not
+   already say in words. Measured 2026-09-21: `.moving` and `.idle` both
+   rendered #1c1916, and a session 8.0s into a 9s hold time rendered in the same
+   muted grey as one heard 1.0s ago — the rules were written for the table this
+   list replaced and went out with it. Scoped inside .traffic-list so the
+   cascade does not depend on source order against .dot / .signal-strip. */
+.traffic-list .moving { color: var(--fg); font-weight: 600; }
+.traffic-list .idle { color: var(--muted); }
+.traffic-list .unpolled { color: var(--muted); font-style: italic; }
+.traffic-list .msgs .down { color: var(--critical); font-weight: 600; }
+.traffic-list .heard .late { color: var(--late); }
+.traffic-list .heard .critical { color: var(--critical); font-weight: 600; }
+.traffic-list .heard .unknown { color: var(--muted); font-style: italic; }
 .traffic caption {
   caption-side: top;
   text-align: left;

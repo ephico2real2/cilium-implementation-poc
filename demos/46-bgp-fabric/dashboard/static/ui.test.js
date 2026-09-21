@@ -324,3 +324,36 @@ test("an edge whose session is missing entirely is not polled", () => {
   assert.equal(rows[0].a.polled, false);
   assert.equal(rows[0].known, false);
 });
+
+test("the traffic caption never reports zero for a tick it did not measure", () => {
+  const unmeasured = TRAFFIC_SESSIONS.map((s) => Object.assign({}, s, { hasDelta: false, dRcvd: 0, dSent: 0 }));
+  const none = ui.trafficRows(TRAFFIC_EDGES, unmeasured);
+  assert.match(ui.trafficCaption(none), /nothing measured/);
+  assert.doesNotMatch(ui.trafficCaption(none), /0 carried/);
+
+  const all = ui.trafficRows(TRAFFIC_EDGES, TRAFFIC_SESSIONS);
+  assert.equal(ui.trafficCaption(all), "2 links · 2 carried a message on the last poll");
+
+  // one link measured, one not: the count is out of the MEASURED ones, and the
+  // caption says so rather than implying the other one was silent
+  const half = TRAFFIC_SESSIONS.map((s) =>
+    (s.router === "spine" || s.peer === "10.200.1.3")
+      ? Object.assign({}, s, { hasDelta: false, dRcvd: 0, dSent: 0 })
+      : s);
+  assert.match(ui.trafficCaption(ui.trafficRows(TRAFFIC_EDGES, half)),
+    /1 of 1 measured carried a message/);
+
+  assert.equal(ui.trafficCaption([]), "0 links · nothing measured on the last poll");
+  assert.match(ui.trafficCaption(ui.trafficRows([TRAFFIC_EDGES[0]], TRAFFIC_SESSIONS)), /^1 link ·/);
+});
+
+test("a session that is not Established carries its state onto the row", () => {
+  // The renderer needs this to tell a link that is DOWN from one we simply did
+  // not measure: both arrive with hasDelta false.
+  const idle = TRAFFIC_SESSIONS.map((s) =>
+    s.router === "spine" ? Object.assign({}, s, { state: "Idle", hasDelta: false, dRcvd: 0, dSent: 0 }) : s);
+  const row = ui.trafficRows(TRAFFIC_EDGES, idle).find((r) => r.id === "leaf1|spine");
+  assert.equal(row.a.state, "Idle");
+  assert.equal(row.a.known, false);
+  assert.equal(row.b.state, "Established");
+});
