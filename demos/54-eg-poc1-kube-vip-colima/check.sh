@@ -350,8 +350,21 @@ else
         done
         echo "$n"
       }
+      # The key put back is the one leaf1 is RUNNING with, not fabric/.env's:
+      # the file may have been edited since apply, and a wrong restore leaves
+      # both node sessions down with no way back but a container restart.
+      servers_pw=$(compose_lan exec -T leaf1 vtysh -c 'show running-config' 2>/dev/null \
+        | awk '$1 == "neighbor" && $2 == "SERVERS" && $3 == "password" { print $4; exit }')
       mismatch_ok=1
       hold=10
+      if [ -z "$servers_pw" ]; then
+        # never mutate a key we cannot read back
+        mismatch_ok=0
+        down_samples=0
+        delta="?"
+        back=""
+        mismatch_msg="no 'neighbor SERVERS password' in leaf1's running config — control not run"
+      else
       fail0=$(md5_fail)
       if ! compose_lan exec -T leaf1 vtysh \
           -c 'configure terminal' -c 'router bgp 65101' \
@@ -371,8 +384,11 @@ else
       fail1=$(md5_fail)
       if ! compose_lan exec -T leaf1 vtysh \
           -c 'configure terminal' -c 'router bgp 65101' \
-          -c "neighbor SERVERS password ${GOOD_PW}" >/dev/null 2>&1; then
+          -c "neighbor SERVERS password ${servers_pw}" >/dev/null 2>&1; then
         mismatch_ok=0
+        echo "check.sh: leaf1 still carries wrong-54c-md5 on SERVERS — both node sessions are DOWN." >&2
+        echo "  restore by hand: vtysh -c 'configure terminal' -c 'router bgp 65101' -c 'neighbor SERVERS password ${servers_pw}'" >&2
+      fi
       fi
       back=""
       j=0
