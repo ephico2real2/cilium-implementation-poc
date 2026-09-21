@@ -34,17 +34,19 @@ both.
 
 ## P1 — the cluster does not peer with the fabric — CLOSED
 
-**Closed 2026-09-21T00:03:28Z** (`demos/54-eg-poc1-kube-vip-colima`, transcript apply `2026-09-21T00:02:28Z`):
+**Closed 2026-09-21T00:03:28Z**; re-cited from apply `2026-09-21T00:35:36Z` (check `2026-09-21T00:36:14Z`)
+after the addressing move to `172.20.0.0/16` / `10.198.0.0/24`. The first close used the pre-renumber
+run (`172.19.0.3`/`.4`, door `10.98.0.10`).
 
 - `/api/state`: `routers 4/4 · fabric sessions 6/6 · server sessions 4/4 · external 2`, external nodes
-  `172.19.0.3` and `172.19.0.4`, ASN 65021, hostnames `eg-poc1-colima-control-plane` / `-worker`.
-- leaf1 `show ip bgp 10.98.0.10/32`: paths via `172.19.0.3` (best) and `172.19.0.4`, both `65021`, multipath;
-  leaf2 the same two; the spine holds both leaves' copies.
-- `client0 http://10.98.0.10/ → 200 curl_rc=0` — after the node return route `10.200.0.0/16 via 172.19.254.11`,
+  `172.20.0.3` and `172.20.0.4`, ASN 65021, hostnames `eg-poc1-colima-control-plane` / `-worker`.
+- leaf1 `show ip bgp 10.198.0.10/32`: paths via `172.20.0.3` (best, Router ID) and `172.20.0.4`, both
+  `65021`, multipath; leaf2 the same two plus a third via the spine; the spine holds both leaves' copies.
+- `client0 http://10.198.0.10/ → 200 curl_rc=0` — after the node return route `10.200.0.0/16 via 172.20.254.11`,
   which no Desktop script needed (Docker 29 in the VM isolates bridges; the reply left the node via its default
   gateway and died; `curl_rc=28` until the route).
 - Screenshot `demos/54-eg-poc1-kube-vip-colima/output/screenshots/dashboard-cluster.png` (1200×700,
-  `2026-09-21T00:02:36Z`): both nodes as dashed external peers, `server sessions 4/4`, leaf1's RIB with the door.
+  `2026-09-21T00:35:49Z`): both nodes as dashed external peers, `server sessions 4/4`, leaf1's RIB with the door.
 
 The "done when" said `server sessions 2/2`; two nodes × two leaves is **four** leaf-side sessions, which is what
 the poller counts and what Desktop's `4/4` means too. `2/2` was an arithmetic slip; the row is `4/4` with
@@ -58,10 +60,10 @@ TCP_MD5SIG_EXT, …)` inside the `net.Dialer` `Control` callback and **returns t
 `setsockopt` means no `connect()` is ever attempted, which is Desktop's "ACTIVE forever". On Ubuntu 6.8 the call
 succeeds:
 
-- DS env `bgp_peers=172.19.254.11:65101:lab-bgp:false,172.19.254.12:65102:lab-bgp:false`; both leaves keep
+- DS env `bgp_peers=172.20.254.11:65101:lab-bgp:false,172.20.254.12:65102:lab-bgp:false`; both leaves keep
   `neighbor SERVERS password lab-bgp`. kube-vip logs `Peer Up` for both leaves ~2 s after start; no `sockopt`
-  line.
-- Wire (tcpdump in leaf1's netns, `eth2`): every segment on `172.19.0.x ↔ 172.19.254.11:179` carries
+  line. Re-cited from apply `2026-09-21T00:35:36Z` (check `2026-09-21T00:36:14Z`).
+- Wire (tcpdump in leaf1's netns, `eth2`): every segment on `172.20.0.x ↔ 172.20.254.11:179` carries
   `options [nop,nop,md5 …]` in **both** directions — the node's (gobgp's) and the leaf's (FRR's).
 - Negative control, done on the **peer-group** key: `neighbor SERVERS password wrong-…` on leaf2 alone →
   both node sessions gone within 3 s and still absent at 31 s while leaf1 stayed 2/2; leaf2-netns

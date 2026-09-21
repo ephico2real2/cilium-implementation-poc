@@ -324,11 +324,11 @@ samples, MD5Failure +14; restored in 9s`; `demo 54c check: 0 FAIL`.
   up script; do not switch the active context.
 - Symptom: `client0` times out (`curl_rc=28`) while a leaf can
   reach the door. Cause: the node has no return route to
-  `10.200.0.0/16`. Fix: re-run apply (step 6).
+  `10.200.0.0/16`. Fix: re-run apply (step 7b).
 - Symptom: the Mac's curl times out although its route is in
   place. Cause: the VM's `DOCKER-USER` accept is missing (a VM
   restart clears it) or the route points at another profile's
-  address. Fix: re-run apply (step 8); check `colima list` for
+  address. Fix: re-run apply (step 9); check `colima list` for
   this profile's `ADDRESS`.
 - Symptom: `colima list` shows no `ADDRESS` for `bgp-fabric`.
   Cause: the profile was created without `--network-address`.
