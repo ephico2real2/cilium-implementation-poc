@@ -509,17 +509,25 @@ fi
 # really a race — measured 2026-09-20: a run straight after the MD5 negative
 # control had vtysh 6/6 while /api/state still showed two sessions down, and the
 # two agreed seconds later. Re-sample for up to 12 s, and record how long it took.
+# The re-sample re-reads BOTH sides: this row is an agreement, and a retry that
+# only re-polls /api/state would drop half the comparison and could pass while
+# vtysh is short of 6/6.
 agree_waited=0
 if [ "$agree_ok" -eq 0 ] && [ "$agree_msg" != "no /api/state" ] && [ "$agree_msg" != "vtysh not 6/6" ]; then
   for _ in 1 2 3 4 5 6; do
     sleep 2
     agree_waited=$((agree_waited + 2))
     dash_raw=$(curl -fsS --max-time 3 "${DASH}/api/state" 2>&1) || continue
-    if printf '%s' "$dash_raw" | python3 scripts/fabric-dashboard-agree.py >/dev/null 2>&1; then
+    printf '%s' "$dash_raw" | python3 scripts/fabric-dashboard-agree.py >/dev/null 2>&1 || continue
+    if expect_sessions edge 10.200.1.18 >/dev/null 2>&1 \
+       && expect_sessions spine 10.200.1.2 10.200.1.10 10.200.1.19 >/dev/null 2>&1 \
+       && expect_sessions leaf1 10.200.1.3 >/dev/null 2>&1 \
+       && expect_sessions leaf2 10.200.1.11 >/dev/null 2>&1; then
       agree_ok=1
       agree_msg="6/6 = 6/6 after ${agree_waited}s"
       break
     fi
+    agree_msg="dashboard 6/6 but vtysh not 6/6 after ${agree_waited}s"
   done
 fi
 if [ "$agree_ok" -eq 1 ]; then
