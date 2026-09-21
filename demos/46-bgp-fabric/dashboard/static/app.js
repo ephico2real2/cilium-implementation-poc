@@ -267,7 +267,10 @@
     });
     const elements = [];
     for (const n of snap.nodes || []) {
-      const p = laid.pos[n.id] || { x: m.w / 2, y: m.h / 2 };
+      // A node the reader has moved keeps where they put it. renderGraph runs
+      // again on every state change, so without this the next tick would throw
+      // their arrangement away and snap everything back to the layout.
+      const p = placed[n.id] || laid.pos[n.id] || { x: m.w / 2, y: m.h / 2 };
       elements.push({
         data: Object.assign({ id: n.id, label: n.label, kind: n.kind }, nodeSignalData(n.id)),
         position: p,
@@ -330,6 +333,16 @@
         style: { "border-style": "dotted", opacity: 0.75 },
       },
       {
+        selector: "node:selected",
+        style: {
+          "border-color": c.focus,
+          "border-width": 4,
+          "overlay-opacity": 0.14,
+          "overlay-color": c.focus,
+          "overlay-padding": 5,
+        },
+      },
+      {
         selector: "node.hover",
         style: { "background-color": c.hover, "border-width": 3 },
       },
@@ -380,7 +393,10 @@
         layout: { name: "preset" },
         userZoomingEnabled: false,
         userPanningEnabled: false,
-        boxSelectionEnabled: false,
+        // Dragging the background draws a selection box, and Cytoscape moves
+        // every selected node when one of them is grabbed.
+        boxSelectionEnabled: true,
+        selectionType: "additive",
       });
       window.__cy = cy;
       cy.on("tap", "node", (ev) => selectRouter(ev.target.id(), "click"));
@@ -392,6 +408,12 @@
         ev.target.removeClass("hover");
         $("graph").style.cursor = "";
       });
+      cy.on("dragfree", "node", (ev) => {
+        const sel = cy.$("node:selected");
+        recordPositions(sel.length > 1 && sel.contains(ev.target) ? sel : ev.target);
+        updateSelectionCount();
+      });
+      cy.on("select unselect", "node", () => updateSelectionCount());
       cy.on("mouseover", "edge", (ev) => setHover(ev.target.data()));
       cy.on("mouseout", "edge", () => { if (!shotHover) setHover(null); });
       // Label-sized nodes have no resolved width on the instance's first
@@ -414,6 +436,9 @@
     const paneH = $("graph").clientHeight || m.h;
     const inset = 16;
     cy.nodes().forEach((n) => {
+      // A node the reader placed is left alone: the pull-back exists to rescue
+      // the automatic layout at narrow widths, not to overrule a decision.
+      if (placed[n.id()]) return;
       const bb = n.boundingBox({ includeLabels: true, includeOverlays: false });
       let x = n.position("x");
       let y = n.position("y");
@@ -664,6 +689,87 @@
     }).catch(() => {});
   }
 
+  // ---- arranging the picture ---------------------------------------------
+  //
+  // `placed` holds the nodes the reader has moved, by id. It is consulted when
+  // the elements are rebuilt, which happens on every state change, and it is
+  // remembered per browser so an arrangement survives a reload. A node that is
+  // no longer in the topology is simply never looked up.
+
+  let placed = readPlaced();
+
+  function readPlaced() {
+    try {
+      const raw = localStorage.getItem("bgp.placed");
+      const v = raw ? JSON.parse(raw) : null;
+      return v && typeof v === "object" ? v : {};
+    } catch (err) { return {}; }
+  }
+
+  function savePlaced() {
+    try { localStorage.setItem("bgp.placed", JSON.stringify(placed)); } catch (err) { /* private window */ }
+  }
+
+  // Cytoscape drags every SELECTED node when one of them is grabbed, so the
+  // group move needs no code of its own — only the positions recorded after.
+  function recordPositions(nodes) {
+    nodes.forEach((n) => { placed[n.id()] = { x: n.position("x"), y: n.position("y") }; });
+    savePlaced();
+  }
+
+  function updateSelectionCount() {
+    const el = $("sel-count");
+    if (!el) return;
+    const n = cy ? cy.$("node:selected").length : 0;
+    const moved = Object.keys(placed).length;
+    if (n > 0) {
+      el.textContent = n + (n === 1 ? " node selected" : " nodes selected") + " — drag one to move them together";
+      el.classList.add("active");
+    } else {
+      el.textContent = "drag the background to select · drag a selected node to move them together" +
+        (moved ? " · " + moved + " placed by hand" : "");
+      el.classList.remove("active");
+    }
+    const clear = $("clear-sel");
+    const reset = $("reset-layout");
+    if (clear) clear.disabled = n === 0;
+    if (reset) reset.disabled = moved === 0;
+  }
+
+  function resetLayout() {
+    placed = {};
+    savePlaced();
+    renderGraph();
+    updateSelectionCount();
+  }
+
+  // renderRoles fills the strip under the topology. The text is configuration
+  // (DASHBOARD_ROLES), not something the page infers: a leaf with no cluster
+  // attached right now looks exactly like a spine.
+  function renderRoles() {
+    const el = $("roles");
+    if (!el || !snap) return;
+    const parts = [];
+    for (const r of snap.routers || []) {
+      if (!r.role) continue;
+      const mark = r.dynamicPeers > 0 ? "mark accept" : "mark";
+      parts.push(
+        "<dt><i class=\"" + mark + "\" aria-hidden=\"true\"></i>" + ui.esc(r.name) +
+          (r.asn ? " <span class=\"asn\">AS " + r.asn + "</span>" : "") + "</dt>" +
+        "<dd>" + ui.esc(r.role) + "</dd>");
+    }
+    // The dashed ellipses are not routers and have no agent, so they are
+    // described once rather than per node.
+    const externals = (snap.nodes || []).filter((n) => n.kind === "external").length;
+    if (externals) {
+      parts.push(
+        "<dt><i class=\"mark external\" aria-hidden=\"true\"></i>dynamic neighbour</dt>" +
+        "<dd>" + externals + " peer" + (externals === 1 ? "" : "s") +
+        " that arrived through a leaf's listen range — a cluster node, not a router this page polls</dd>");
+    }
+    el.innerHTML = parts.join("");
+  }
+
   // ---- signal -----------------------------------------------------------
   //
   // Everything here is driven by a number the poller MEASURED. Nothing below
@@ -868,6 +974,8 @@
     ribRows();
     renderFreshness();
     renderSignalStrip();
+    renderRoles();
+    updateSelectionCount();
     if ($("events-pane").dataset.view === "traffic") renderTraffic();
     applyReady();
   }
@@ -1065,6 +1173,31 @@
     window.__signalOf = nodeSignalData;
 
     wireResize();
+
+    $("select-all").addEventListener("click", () => {
+      if (cy) cy.nodes().select();
+      updateSelectionCount();
+    });
+    $("clear-sel").addEventListener("click", () => {
+      if (cy) cy.nodes().unselect();
+      updateSelectionCount();
+    });
+    $("reset-layout").addEventListener("click", resetLayout);
+    // Ctrl/Cmd+A selects every node when the graph has focus, and Escape
+    // clears. Both are scoped to the graph so they do not steal the shortcut
+    // from the rest of the page.
+    $("graph").addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+        if (cy) cy.nodes().select();
+        updateSelectionCount();
+        e.preventDefault();
+      } else if (e.key === "Escape") {
+        if (cy) cy.nodes().unselect();
+        updateSelectionCount();
+      }
+    });
+    window.__placed = () => placed;
+    window.__resetLayout = resetLayout;
 
     setInterval(() => {
       document.querySelectorAll("[data-ts]").forEach((el) => {

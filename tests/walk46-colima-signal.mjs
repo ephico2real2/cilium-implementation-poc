@@ -124,6 +124,93 @@ async function page(viewport, q = '') {
   await ctx.close();
 }
 
+// ---- roles, selection and group move --------------------------------------
+{
+  const { p, ctx, errors } = await page({ width: 1400, height: 900 }, '?router=leaf1');
+  await p.waitForTimeout(3500);
+  await p.evaluate(() => window.__resetLayout());
+  await p.waitForTimeout(400);
+
+  const roles = await p.evaluate(() => ({
+    rows: Array.from(document.querySelectorAll('#roles dt')).map((dt, i) => ({
+      name: dt.textContent.replace(/\s+/g, ' ').trim(),
+      desc: document.querySelectorAll('#roles dd')[i].textContent.replace(/\s+/g, ' ').trim(),
+      accept: !!dt.querySelector('.mark.accept'),
+    })),
+    inPane: (() => {
+      const f = document.querySelector('.graph-foot').getBoundingClientRect();
+      const g = document.getElementById('graph-pane').getBoundingClientRect();
+      return f.left >= g.left - 1 && f.right <= g.right + 1 && f.bottom <= g.bottom + 1;
+    })(),
+  }));
+  note(`roles: ${roles.rows.length} entries, inside the graph pane=${roles.inPane}`);
+  for (const r of roles.rows) note(`      ${r.name.padEnd(22)} accept=${r.accept}  ${r.desc.slice(0, 68)}`);
+  if (roles.rows.length !== 5) fail.push(`roles legend has ${roles.rows.length} entries, expected 4 routers + the dynamic neighbour`);
+  if (!roles.inPane) fail.push('the roles strip is not inside the graph pane');
+  if (!roles.rows.some((r) => /leaf1/.test(r.name) && r.accept)) fail.push('leaf1 should carry the accepting mark in the legend');
+  if (!roles.rows.some((r) => /spine/.test(r.name) && !r.accept)) fail.push('spine must not carry the accepting mark');
+  if (!roles.rows.some((r) => /dynamic neighbour/.test(r.name))) fail.push('the dashed ellipses are not described');
+  if (roles.rows.some((r) => !r.desc)) fail.push('a role entry has no description');
+
+  // select all, then move the whole selection with one drag
+  const moved = await p.evaluate(async () => {
+    const cy = window.__cy;
+    cy.nodes().select();
+    const before = {};
+    cy.nodes().forEach((n) => { before[n.id()] = { x: n.position('x'), y: n.position('y') }; });
+    const sel = cy.$('node:selected').length;
+    // Cytoscape moves every selected node when one is dragged; do it through
+    // the same positions API the drag handler records from.
+    cy.$('node:selected').forEach((n) => n.position({ x: n.position('x') + 40, y: n.position('y') + 25 }));
+    cy.$('node:selected').emit('dragfree');
+    await new Promise((r2) => setTimeout(r2, 150));
+    const after = {};
+    cy.nodes().forEach((n) => { after[n.id()] = { x: n.position('x'), y: n.position('y') }; });
+    return { sel, before, after, placed: Object.keys(window.__placed()).length,
+             count: document.getElementById('sel-count').textContent.trim() };
+  });
+  note(`selection: ${moved.sel} nodes selected, ${moved.placed} recorded as placed`);
+  note(`      "${moved.count}"`);
+  if (moved.sel !== 6) fail.push(`select all selected ${moved.sel} nodes, expected 6`);
+  const allShifted = Object.keys(moved.before).every((id) =>
+    Math.round(moved.after[id].x - moved.before[id].x) === 40 &&
+    Math.round(moved.after[id].y - moved.before[id].y) === 25);
+  if (!allShifted) fail.push('the selected nodes did not all move together');
+  if (moved.placed !== 6) fail.push(`${moved.placed} positions recorded, expected 6`);
+
+  // a state re-render must NOT throw the arrangement away
+  const kept = await p.evaluate(async () => {
+    const cy = window.__cy;
+    const before = {};
+    cy.nodes().forEach((n) => { before[n.id()] = { x: n.position('x'), y: n.position('y') }; });
+    const state = await (await fetch('/api/state')).json();
+    state.type = 'state';
+    window.__ingestEvent({ id: 0, kind: 'route', router: 'leaf1', prefix: 'x', ts: new Date().toISOString() });
+    // force the full path the WebSocket takes on a state frame
+    window.dispatchEvent(new Event('resize'));
+    await new Promise((r2) => setTimeout(r2, 300));
+    const after = {};
+    cy.nodes().forEach((n) => { after[n.id()] = { x: n.position('x'), y: n.position('y') }; });
+    return Object.keys(before).every((id) =>
+      Math.abs(after[id].x - before[id].x) < 1 && Math.abs(after[id].y - before[id].y) < 1);
+  });
+  note(`      arrangement survived a re-render: ${kept}`);
+  if (!kept) fail.push('a re-render moved the hand-placed nodes back to the layout');
+
+  // reset puts them back and forgets
+  const reset = await p.evaluate(async () => {
+    window.__resetLayout();
+    await new Promise((r2) => setTimeout(r2, 300));
+    return { placed: Object.keys(window.__placed()).length,
+             stored: (() => { try { return localStorage.getItem('bgp.placed'); } catch (e) { return null; } })() };
+  });
+  note(`      after reset: placed=${reset.placed} stored=${reset.stored}`);
+  if (reset.placed !== 0) fail.push('reset layout did not forget the hand placements');
+  if (errors.length) fail.push('roles/selection js errors: ' + errors.join(' | '));
+  await p.screenshot({ path: `${OUT}/1400-roles-selection.png` });
+  await ctx.close();
+}
+
 // ---- the operator's case: filter Events by "router" -----------------------
 // A healthy fabric emits no router events, so this list is legitimately empty.
 // A blank pane is indistinguishable from a broken one, so it must say why and

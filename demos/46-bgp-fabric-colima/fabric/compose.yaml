@@ -125,6 +125,22 @@ services:
     environment:
       DASHBOARD_ROUTERS: edge=http://10.200.200.1:8080,spine=http://10.200.200.2:8080,leaf1=http://10.200.200.11:8080,leaf2=http://10.200.200.12:8080
       DASHBOARD_AS_NAMES: 65000=edge,65100=spine,65101=leaf1,65102=leaf2,65021=eg-poc1 (kube-vip),65022=eg-poc2 (MetalLB),65001=poc1 (Cilium),65002=poc2 (Cilium)
+      # What each router is FOR. The dashboard cannot infer this — a leaf with
+      # no cluster attached looks exactly like a spine — so the fabric that
+      # knows says it here. Entries are separated by semicolons because the
+      # descriptions contain commas. Read off the frr.conf files:
+      #   edge   65000: one fabric neighbour, originates 10.200.100.0/24
+      #   spine  65100: three fabric neighbours, no listen range
+      #   leafN  65101/2: one fabric neighbour plus `bgp listen range`
+      DASHBOARD_ROLES: >-
+        edge=the border. It faces the WAN 10.200.100.0/24, which it originates,
+        and client0 sits out there;
+        spine=transit only. Every leaf reaches the edge, and each other,
+        through it — it has no cluster peers of its own;
+        leaf1=where a cluster attaches. `bgp listen range 172.20.0.0/17` lets
+        any node in that range peer without being configured by hand;
+        leaf2=where a cluster attaches. The second one, so a VIP can be
+        reached even if one leaf is lost
     ports:
       # FABRIC_COLIMA_DASHBOARD_PORT — Desktop's fabric keeps 8088.
       - "127.0.0.1:${FABRIC_COLIMA_DASHBOARD_PORT:-8098}:8080"

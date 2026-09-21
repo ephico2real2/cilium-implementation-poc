@@ -36,10 +36,19 @@
   </div>
   <main>
     <section id="graph-pane">
-      <div id="graph" aria-label="topology"></div>
+      <div id="graph" aria-label="topology" tabindex="0"></div>
       <p id="graph-empty" class="empty">waiting for the first poll</p>
       <ul id="node-keys" class="node-keys"></ul>
       <aside id="hover-card" class="hover-card" hidden></aside>
+      <div class="graph-foot">
+        <div class="graph-tools">
+          <button type="button" id="select-all" title="Select every node (Ctrl/Cmd+A with the graph focused)">Select all</button>
+          <button type="button" id="clear-sel" title="Clear the selection (Escape)">Clear</button>
+          <button type="button" id="reset-layout" title="Put every node back where the layout put it">Reset layout</button>
+          <span id="sel-count" class="sel-count">drag the background to select · drag a selected node to move them together</span>
+        </div>
+        <dl id="roles" class="roles"></dl>
+      </div>
     </section>
     <button type="button" class="splitter" id="split-col" aria-orientation="vertical"
             role="separator" aria-label="Resize the topology pane" tabindex="0"

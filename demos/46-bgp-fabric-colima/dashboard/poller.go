@@ -33,6 +33,18 @@ type poller struct {
 	// measuredTV is the tableVersion of the last tick that actually read each
 	// router's table. See the note where it is consumed.
 	measuredTV map[string]int
+	// roles is static description text from DASHBOARD_ROLES, stamped onto each
+	// router so the page can say what the node is for.
+	roles map[string]string
+}
+
+// setRoles is separate from newPoller so the poller's signature, and every
+// test that calls it, stays as it was: the roles are presentation text and
+// change nothing the poller measures.
+func (p *poller) setRoles(roles map[string]string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.roles = roles
 }
 
 type routerView struct {
@@ -168,7 +180,7 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 
 	for _, cfg := range p.routers {
 		res := got[cfg.Name]
-		rt := Router{Name: cfg.Name, URL: cfg.URL, Reachable: res.ok}
+		rt := Router{Name: cfg.Name, URL: cfg.URL, Reachable: res.ok, Role: p.roles[cfg.Name]}
 		if res.ok && res.summary.IPv4Unicast != nil {
 			fam := res.summary.IPv4Unicast
 			rt.ASN = fam.AS

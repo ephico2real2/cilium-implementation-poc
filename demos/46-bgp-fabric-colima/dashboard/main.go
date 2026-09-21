@@ -133,6 +133,28 @@ func parseASNames(s string) map[int]string {
 	return out
 }
 
+// parseRoles reads DASHBOARD_ROLES: `name=description` pairs separated by
+// SEMICOLONS, because a description is a sentence and contains commas.
+func parseRoles(s string) map[string]string {
+	out := map[string]string{}
+	for _, part := range strings.Split(s, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		name := strings.TrimSpace(k)
+		if name == "" {
+			continue
+		}
+		out[name] = strings.TrimSpace(v)
+	}
+	return out
+}
+
 func envOr(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -158,6 +180,7 @@ func main() {
 	}
 	asNames := parseASNames(envOr("DASHBOARD_AS_NAMES", defaultASNames))
 	p := newPoller(routers, asNames, poll)
+	p.setRoles(parseRoles(os.Getenv("DASHBOARD_ROLES")))
 	h := newHub(p, ring)
 
 	go func() {

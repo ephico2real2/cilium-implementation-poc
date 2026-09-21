@@ -84,6 +84,45 @@ leaf1 ⇄ 172.20.0.3     2 ⇄ not polled   heard 1.0s
       cluster node peering in · 1 in / 0 out prefixes
 ```
 
+## What each router is for, and arranging the picture
+
+Two gaps the operator named: the topology said `edge`, `spine`, `leaf1`,
+`leaf2` without saying what those mean, and the nodes could not be moved.
+
+The role text is **configuration**, not inference. A leaf with no cluster
+attached right now looks exactly like a spine, so the fabric says it in
+`DASHBOARD_ROLES` and the dashboard stays generic. Read off the `frr.conf`
+files:
+
+| Router | Config it comes from |
+|---|---|
+| edge | one fabric neighbour; originates `10.200.100.0/24` |
+| spine | three fabric neighbours; no listen range |
+| leaf1 / leaf2 | one fabric neighbour plus `bgp listen range 172.20.0.0/17` |
+
+The legend fills the dead strip under the topology, marks the routers that are
+currently accepting a cluster, and describes the dashed ellipses once rather
+than per node.
+
+Selection is Cytoscape's own: drag the background to box-select, and dragging
+one selected node moves the whole selection. What the page adds is memory —
+`renderGraph` rebuilds the elements on every state change, so without it the
+next tick threw the arrangement away and snapped everything back to the
+layout. Hand-placed nodes are also exempted from the narrow-width pull-back,
+which exists to rescue the automatic layout, not to overrule a decision.
+
+```text
+roles: 5 entries, inside the graph pane=true
+      edge  AS 65000   accept=false  the border. It faces the WAN 10.200.100.0/24 …
+      spine AS 65100   accept=false  transit only. Every leaf reaches the edge …
+      leaf1 AS 65101   accept=true   where a cluster attaches. `bgp listen range …
+      leaf2 AS 65102   accept=true   where a cluster attaches. The second one …
+      dynamic neighbour              2 peers that arrived through a leaf's listen range …
+selection: 6 nodes selected, 6 recorded as placed
+      arrangement survived a re-render: true
+      after reset: placed=0 stored={}
+```
+
 ## Three defects this walk found that review had not
 
 1. **The pulse fired on a frame that measured nothing.** The signal frame is
