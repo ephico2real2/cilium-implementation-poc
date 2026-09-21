@@ -32,6 +32,7 @@
       <li><i class="dot accept"></i> accepting a cluster (listen range has members)</li>
       <li><i class="dot late"></i> a keepalive is overdue</li>
       <li><i class="dot critical"></i> running out of hold time</li>
+      <li><i class="legend-outline" aria-hidden="true"></i> selected — drag one to move them together</li>
     </ul>
   </div>
   <main>
@@ -40,6 +41,9 @@
       <p id="graph-empty" class="empty">waiting for the first poll</p>
       <ul id="node-keys" class="node-keys"></ul>
       <aside id="hover-card" class="hover-card" hidden></aside>
+      <button type="button" class="splitter" id="split-foot" aria-orientation="horizontal"
+              role="separator" aria-label="Resize the legend" tabindex="0"
+              aria-valuemin="8" aria-valuemax="60" aria-valuenow="26"></button>
       <div class="graph-foot">
         <div class="graph-tools">
           <button type="button" id="select-all" title="Select every node (Ctrl/Cmd+A with the graph focused)">Select all</button>

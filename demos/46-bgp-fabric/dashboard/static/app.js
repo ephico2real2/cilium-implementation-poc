@@ -36,6 +36,7 @@
       accept: css("--accept"),
       late: css("--late"),
       critical: css("--critical"),
+      select: css("--select"),
     };
   }
 
@@ -333,16 +334,6 @@
         style: { "border-style": "dotted", opacity: 0.75 },
       },
       {
-        selector: "node:selected",
-        style: {
-          "border-color": c.focus,
-          "border-width": 4,
-          "overlay-opacity": 0.14,
-          "overlay-color": c.focus,
-          "overlay-padding": 5,
-        },
-      },
-      {
         selector: "node.hover",
         style: { "background-color": c.hover, "border-width": 3 },
       },
@@ -378,6 +369,25 @@
           label: "",
           "font-size": 10,
           color: c.muted,
+        },
+      },
+      // LAST among the node rules on purpose: Cytoscape takes the last matching
+      // declaration, and node.picked came after this and erased it, so the
+      // router you were reading never looked selected.
+      //
+      // Selection uses the OUTLINE, drawn outside the node. The border already
+      // carries three other meanings (session state, accepting a cluster, the
+      // picked router) and the overlay carries hover, so a fourth on either was
+      // unreadable. An outline also follows the node's own shape and size,
+      // which is why the small dashed ellipses looked obviously selected while
+      // the wide routers did not: overlay-padding is an absolute number.
+      {
+        selector: "node:selected",
+        style: {
+          "outline-color": c.select,
+          "outline-width": 4,
+          "outline-opacity": 1,
+          "outline-offset": 3,
         },
       },
       { selector: "edge[state = \"established\"]", style: { "line-color": c.est } },
@@ -803,11 +813,14 @@
     if (!n || n.empty()) return;
     if (n.scratch("_beating")) return;
     n.scratch("_beating", true);
+    // The pulse uses the UNDERLAY, drawn beneath the node. The overlay belongs
+    // to hover and to the picked router, and animating it to 0 left a picked
+    // node without its highlight after the first beat.
     const c = colours();
-    n.style("overlay-color", c.accept);
-    n.style("overlay-padding", 6);
-    n.animate({ style: { "overlay-opacity": 0.3 }, duration: 160 })
-      .animate({ style: { "overlay-opacity": 0 }, duration: 420, complete: () => n.scratch("_beating", false) });
+    n.style("underlay-color", c.accept);
+    n.style("underlay-padding", 8);
+    n.animate({ style: { "underlay-opacity": 0.45 }, duration: 160 })
+      .animate({ style: { "underlay-opacity": 0 }, duration: 420, complete: () => n.scratch("_beating", false) });
   }
 
   // flow draws an advertisement travelling along an edge, in the direction it
@@ -1041,12 +1054,21 @@
     try { localStorage.setItem(key, String(pct)); } catch (err) { /* private window */ }
   }
 
+  // Each splitter is one entry here: the CSS property it drives, the button
+  // that reports its value, and the range it may take.
+  const SPLITS = {
+    col: { prop: "--split-col", button: "split-col", min: 25, max: 80 },
+    row: { prop: "--split-row", button: "split-row", min: 20, max: 85 },
+    foot: { prop: "--split-foot", button: "split-foot", min: 8, max: 60 },
+  };
+
   function applySplit(which, pct) {
     const main = document.querySelector("main");
-    if (!main) return;
-    const clamped = Math.min(which === "col" ? 80 : 85, Math.max(which === "col" ? 25 : 20, pct));
-    main.style.setProperty(which === "col" ? "--split-col" : "--split-row", clamped + "%");
-    const btn = $(which === "col" ? "split-col" : "split-row");
+    const spec = SPLITS[which];
+    if (!main || !spec) return;
+    const clamped = Math.min(spec.max, Math.max(spec.min, pct));
+    main.style.setProperty(spec.prop, clamped + "%");
+    const btn = $(spec.button);
     if (btn) btn.setAttribute("aria-valuenow", String(Math.round(clamped)));
     saveSplit("bgp.split." + which, clamped);
     refit();
@@ -1076,6 +1098,12 @@
     function pctFromEvent(e) {
       const box = main.getBoundingClientRect();
       if (which === "col") return ((e.clientX - box.left) / box.width) * 100;
+      if (which === "foot") {
+        // the legend is the BOTTOM track, so the percentage grows as the
+        // pointer rises
+        const pane = document.getElementById("graph-pane").getBoundingClientRect();
+        return ((pane.bottom - e.clientY) / pane.height) * 100;
+      }
       const side = document.querySelector(".side").getBoundingClientRect();
       return ((e.clientY - side.top) / side.height) * 100;
     }
@@ -1103,12 +1131,14 @@
     el.addEventListener("keydown", (e) => {
       const step = e.shiftKey ? 10 : 2;
       const now = parseFloat(el.getAttribute("aria-valuenow")) || 50;
-      const less = which === "col" ? "ArrowLeft" : "ArrowUp";
-      const more = which === "col" ? "ArrowRight" : "ArrowDown";
-      if (e.key === less) applySplit(which, now - step);
-      else if (e.key === more) applySplit(which, now + step);
-      else if (e.key === "Home") applySplit(which, which === "col" ? 25 : 20);
-      else if (e.key === "End") applySplit(which, which === "col" ? 80 : 85);
+      const spec = SPLITS[which];
+      // The legend grows upwards, so Up must make it bigger, not smaller.
+      const grow = which === "col" ? "ArrowRight" : which === "foot" ? "ArrowUp" : "ArrowDown";
+      const shrink = which === "col" ? "ArrowLeft" : which === "foot" ? "ArrowDown" : "ArrowUp";
+      if (e.key === shrink) applySplit(which, now - step);
+      else if (e.key === grow) applySplit(which, now + step);
+      else if (e.key === "Home") applySplit(which, spec.min);
+      else if (e.key === "End") applySplit(which, spec.max);
       else return;
       e.preventDefault();
     });
@@ -1117,8 +1147,10 @@
   function wireResize() {
     wireSplitter("split-col", "col");
     wireSplitter("split-row", "row");
+    wireSplitter("split-foot", "foot");
     applySplit("col", readSaved("bgp.split.col", 65));
     applySplit("row", readSaved("bgp.split.row", 58));
+    applySplit("foot", readSaved("bgp.split.foot", 26));
     // The window itself, and anything else that changes the pane, must re-fit
     // too — this is the half the old layout never did.
     if (typeof ResizeObserver !== "undefined") {

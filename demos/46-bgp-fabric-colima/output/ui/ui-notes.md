@@ -123,6 +123,48 @@ selection: 6 nodes selected, 6 recorded as placed
       after reset: placed=0 stored={}
 ```
 
+## One meaning per channel
+
+Selection was invisible on the routers while the dashed ellipses showed it
+clearly. Two causes, both measured:
+
+- `node.picked` came **after** `node:selected` in the style array, and
+  Cytoscape takes the last matching declaration, so the router being read never
+  looked selected at all.
+- `overlay-padding` is an absolute number. The same 5 px halo is a thin rim on
+  a 90 px router and a broad ring on a small ellipse.
+
+The fix was to stop overloading two channels. The node border already carried
+three meanings and the overlay carried two:
+
+| Channel | Meaning |
+|---|---|
+| edge colour | session state — Established, transitional, down, stale |
+| node border | accepting a cluster (teal), keepalive late/critical, the picked router (blue) |
+| node **outline** | selected — violet, `node:selected` placed last so nothing overrides it |
+| node **underlay** | the heartbeat pulse |
+| node overlay | hover, and the picked router's wash |
+
+An outline follows the node's own shape and size, so it reads the same on a
+wide router and a small ellipse. The heartbeat moved to the underlay because
+animating `overlay-opacity` to 0 left the picked router without its wash after
+the first beat.
+
+```text
+selection outline: edge=4px leaf1=4px (picked) leaf2=4px spine=4px
+                   172.20.0.3=4px 172.20.0.4=4px
+unselected:        edge=0px leaf1=0px leaf2=0px spine=0px
+                   172.20.0.3=0px 172.20.0.4=0px
+```
+
+The legend resizes like the other panes — a third splitter, the same
+persistence, and Cytoscape re-fits into whatever is left:
+
+```text
+legend height: 213px → 368px (45%) → 98px (12%)
+graph got the rest: 714px, cytoscape canvas 714px
+```
+
 ## Three defects this walk found that review had not
 
 1. **The pulse fired on a frame that measured nothing.** The signal frame is

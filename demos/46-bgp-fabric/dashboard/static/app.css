@@ -20,6 +20,9 @@
   --accept: #0e7490;
   --late: #a35f00;
   --critical: #b42318;
+  /* selection is a manipulation state, not a health state, so it gets its own
+     hue away from green/amber/red/teal/blue. */
+  --select: #6d28d9;
   --card: #fffdf8;
   --wash-stale: #6b65701f;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -46,6 +49,7 @@
     --accept: #22d3ee;
     --late: #fbbf24;
     --critical: #f87171;
+    --select: #c4b5fd;
     --card: #1f1b16;
     --wash-stale: #a8a29e26;
   }
@@ -92,6 +96,15 @@ h2 { font-size: 13px; margin: 0 0 6px; font-weight: 650; color: var(--muted); }
 .dot.router { background: var(--router); }
 .dot.route { background: var(--route); }
 .dot.accept { background: var(--accept); }
+/* Selection is drawn as an outline on the node, so the legend shows a ring
+   rather than a filled dot: the fill channel already means something else. */
+.legend-outline {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border: 2px solid var(--select);
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
 .dot.late { background: var(--late); }
 .dot.critical { background: var(--critical); }
 
@@ -333,10 +346,21 @@ h2 .dot { margin-right: 4px; vertical-align: middle; }
 main {
   --split-col: 65%;
   --split-row: 58%;
+  --split-foot: 26%;
 }
 @media (min-width: 701px) {
   main { display: grid; grid-template-columns: var(--split-col) 6px 1fr; }
-  #graph-pane { flex: none; min-width: 0; grid-column: 1; }
+  /* The graph pane is a grid too, so the legend can be resized like the other
+     panes. Tracks are assigned by NAME for the same reason as the side pane:
+     the absolutely-positioned children are out of flow, and auto-placement
+     would slide the splitter into the graph's track. */
+  #graph-pane {
+    flex: none; min-width: 0; grid-column: 1;
+    display: grid; grid-template-rows: 1fr 6px var(--split-foot);
+  }
+  #graph { grid-row: 1; }
+  #split-foot { grid-row: 2; }
+  .graph-foot { grid-row: 3; overflow: auto; }
   #split-col { grid-column: 2; }
   .side { flex: none; min-width: 0; display: grid; grid-template-rows: var(--split-row) 6px 1fr; grid-column: 3; }
   /* Every track is assigned by NAME, not by source order. `.tabs` is
@@ -472,6 +496,7 @@ body.stale-data #graph { opacity: 0.55; filter: saturate(0.4); }
    and the controls for arranging the picture. */
 .graph-foot {
   flex: 0 0 auto;
+  /* the grid gives it a row at wide widths; this is the narrow fallback */
   border-top: 1px solid var(--line);
   padding: 6px 0 2px;
   display: flex;

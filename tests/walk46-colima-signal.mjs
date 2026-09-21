@@ -152,6 +152,44 @@ async function page(viewport, q = '') {
   if (!roles.rows.some((r) => /dynamic neighbour/.test(r.name))) fail.push('the dashed ellipses are not described');
   if (roles.rows.some((r) => !r.desc)) fail.push('a role entry has no description');
 
+  // selection must be VISIBLE, and equally visible on a wide router and a
+  // small ellipse. It was not: node.picked came after node:selected and erased
+  // it, and overlay-padding is an absolute number, so the halo was a thin rim
+  // on a 90px router and a broad ring on a small ellipse.
+  const look = await p.evaluate(async () => {
+    const cy = window.__cy;
+    cy.nodes().unselect();
+    await new Promise((r2) => setTimeout(r2, 60));
+    const off = {};
+    cy.nodes().forEach((n) => { off[n.id()] = n.renderedStyle('outline-width'); });
+    cy.nodes().select();
+    await new Promise((r2) => setTimeout(r2, 60));
+    const on = {};
+    cy.nodes().forEach((n) => {
+      on[n.id()] = {
+        outline: n.renderedStyle('outline-width'),
+        colour: n.renderedStyle('outline-color'),
+        kind: n.data('kind'),
+        picked: n.hasClass('picked'),
+      };
+    });
+    return { off, on };
+  });
+  const outlines = Object.entries(look.on).map(([id, v]) =>
+    `${id}=${v.outline}${v.picked ? ' (picked)' : ''}`);
+  note(`selection outline: ${outlines.join(' ')}`);
+  note(`      unselected: ${Object.entries(look.off).map(([k, v]) => k + '=' + v).join(' ')}`);
+  for (const [id, v] of Object.entries(look.on)) {
+    const w = parseFloat(v.outline);
+    if (!(w > 0)) fail.push(`${id} shows no selection outline${v.picked ? ' (the picked router overrides it)' : ''}`);
+  }
+  for (const [id, v] of Object.entries(look.off)) {
+    if (parseFloat(v) > 0) fail.push(`${id} has a selection outline while unselected`);
+  }
+  // the SAME width on a router and an ellipse — that is the asymmetry that was reported
+  const widths = new Set(Object.values(look.on).map((v) => parseFloat(v.outline)));
+  if (widths.size !== 1) fail.push(`selection reads differently by node shape: widths ${[...widths].join(',')}`);
+
   // select all, then move the whole selection with one drag
   const moved = await p.evaluate(async () => {
     const cy = window.__cy;
@@ -196,6 +234,27 @@ async function page(viewport, q = '') {
   });
   note(`      arrangement survived a re-render: ${kept}`);
   if (!kept) fail.push('a re-render moved the hand-placed nodes back to the layout');
+
+  // the legend is resizable like the other panes
+  const foot = await p.evaluate(async () => {
+    const h = () => Math.round(document.querySelector('.graph-foot').getBoundingClientRect().height);
+    const before = h();
+    window.__applySplit('foot', 45);
+    await new Promise((r2) => setTimeout(r2, 350));
+    const bigger = h();
+    window.__applySplit('foot', 12);
+    await new Promise((r2) => setTimeout(r2, 350));
+    const smaller = h();
+    const graphH = Math.round(document.getElementById('graph').getBoundingClientRect().height);
+    const canvas = window.__cy.height();
+    window.__applySplit('foot', 26);
+    await new Promise((r2) => setTimeout(r2, 350));
+    return { before, bigger, smaller, graphH, canvas };
+  });
+  note(`legend height: ${foot.before}px → ${foot.bigger}px (45%) → ${foot.smaller}px (12%)`);
+  note(`      graph got the rest: ${foot.graphH}px, cytoscape canvas ${foot.canvas}px`);
+  if (!(foot.bigger > foot.before && foot.smaller < foot.before)) fail.push('the legend splitter did not resize the legend');
+  if (Math.abs(foot.canvas - foot.graphH) > 4) fail.push(`cytoscape did not re-fit: canvas ${foot.canvas} vs pane ${foot.graphH}`);
 
   // reset puts them back and forgets
   const reset = await p.evaluate(async () => {
