@@ -40,9 +40,12 @@ if [ -f "$FABRIC_COLIMA_FABRIC/.env" ]; then
 fi
 GOOD_PW="${FABRIC_BGP_PASSWORD:-lab-bgp}"
 
-DOOR_ADDR=10.98.0.10
+DOOR_ADDR="${EG_COLIMA_DOOR}"
+export KIND_EG_COLIMA_IP_RANGE
 DASH="http://127.0.0.1:${FABRIC_COLIMA_DASHBOARD_PORT}"
-MAC_GW=192.168.64.3
+# The VM's vzNAT address, or empty when the profile has none (then no Mac
+# route can reach it — 192.168.64.3 is another profile's, measured 2026-09-20).
+MAC_GW=$(fabric_colima_vm_address)
 
 compose_lan() {
   docker --context "$CTX" compose -p "$FABRIC_COLIMA_PROJECT" \
@@ -53,7 +56,7 @@ compose_lan() {
 printf '\n== demo 54c — kind cluster in Colima, kube-vip BGP to the fabric\n'
 printf '  %-6s %-70s %-52s %s\n' STATUS WHAT MEASURED RULE
 
-# 1. two nodes in 172.19.0.0/17 on kind-eg-colima
+# 1. two nodes in the Colima node-LAN /17 on kind-eg-colima
 nodes_ok=1
 nodes_msg=""
 node_ips=""
@@ -71,9 +74,9 @@ else
       nodes_msg="${nodes_msg}${n}:not-on-${KIND_EG_COLIMA_NET} "
       continue
     fi
-    in_low=$(python3 -c 'import ipaddress,sys
+    in_low=$(KIND_EG_COLIMA_IP_RANGE="$KIND_EG_COLIMA_IP_RANGE" python3 -c 'import ipaddress,os,sys
 ip=ipaddress.ip_address(sys.argv[1])
-print("1" if ip in ipaddress.ip_network("172.19.0.0/17") else "0")
+print("1" if ip in ipaddress.ip_network(os.environ["KIND_EG_COLIMA_IP_RANGE"]) else "0")
 ' "$ip" 2>/dev/null || echo 0)
     if [ "$in_low" != 1 ]; then
       nodes_ok=0
@@ -89,10 +92,10 @@ print("1" if ip in ipaddress.ip_network("172.19.0.0/17") else "0")
   fi
 fi
 if [ "$nodes_ok" -eq 1 ]; then
-  row ok "two nodes in 172.19.0.0/17 on $KIND_EG_COLIMA_NET" "$node_ips" \
+  row ok "two nodes in $KIND_EG_COLIMA_IP_RANGE on $KIND_EG_COLIMA_NET" "$node_ips" \
     "eg-colima-up — InternalIP in the lower /17"
 else
-  row fail "two nodes in 172.19.0.0/17 on $KIND_EG_COLIMA_NET" \
+  row fail "two nodes in $KIND_EG_COLIMA_IP_RANGE on $KIND_EG_COLIMA_NET" \
     "${nodes_msg:-fail}" \
     "eg-colima-up — InternalIP in the lower /17"
 fi
@@ -135,8 +138,8 @@ fi
 # 3. door /32 in each leaf with a node next hop
 node_path_count() {
   python3 -c '
-import ipaddress, json, sys
-NET = ipaddress.ip_network("172.19.0.0/17")
+import ipaddress, json, os, sys
+NET = ipaddress.ip_network(os.environ["KIND_EG_COLIMA_IP_RANGE"])
 try:
     data = json.loads(sys.stdin.read())
 except json.JSONDecodeError:
@@ -206,11 +209,11 @@ done
 if [ "$rib_ok" -eq 1 ]; then
   row ok "door ${DOOR_ADDR}/32 in each leaf with a node next hop" \
     "$rib_msg" \
-    "EG-POC1-VIPS + as-path 65021 — node in 172.19.0.0/17"
+    "EG-POC1-VIPS + as-path 65021 — node in $KIND_EG_COLIMA_IP_RANGE"
 else
   row fail "door ${DOOR_ADDR}/32 in each leaf with a node next hop" \
     "$rib_msg" \
-    "EG-POC1-VIPS + as-path 65021 — node in 172.19.0.0/17"
+    "EG-POC1-VIPS + as-path 65021 — node in $KIND_EG_COLIMA_IP_RANGE"
 fi
 
 # 4. client0 reaches the door
@@ -227,31 +230,40 @@ else
     "client0 → edge → spine → leaf → node → ${DOOR_ADDR}"
 fi
 
-# 5. Mac route via 192.168.64.3 — print the sudo line; never run sudo
-echo "  Mac: sudo route -n add -net 10.98.0.0/24 ${MAC_GW}"
-mac_line=$(netstat -rn | grep -E '^10\.98' || true)
+# 5. Mac route via the VM's address — print the sudo line; never run sudo
+# Destination is 10.198/24 on Darwin (not 10.98 — that prefix also matches 10.198).
+mac_line=$(netstat -rn -f inet | grep -E '^10\.198' || true)
 mac_via=$(printf '%s\n' "$mac_line" | awk '{print $2}' | head -1)
-if [ -n "$mac_line" ] && [ "$mac_via" = "$MAC_GW" ]; then
-  mac_rc=0
-  mac_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 \
-    "http://${DOOR_ADDR}/" 2>/dev/null) || mac_rc=$?
-  if [ "$mac_rc" -eq 0 ] && [ "$mac_code" = 200 ]; then
-    row ok "Mac reaches the door over ${MAC_GW}" \
-      "route in place http_code=$mac_code" \
-      "operator sudo; script never runs it"
-  else
-    row fail "Mac reaches the door over ${MAC_GW}" \
-      "route in place http_code=${mac_code:-?} curl_rc=$mac_rc" \
-      "operator sudo; script never runs it"
-  fi
-elif [ -n "$mac_line" ]; then
-  row fail "Mac reaches the door over ${MAC_GW}" \
-    "route present via ${mac_via:-?} (want $MAC_GW)" \
+if [ -z "$MAC_GW" ]; then
+  echo "  Mac: (no route possible) colima stop --profile ${FABRIC_COLIMA_PROFILE} && colima start --profile ${FABRIC_COLIMA_PROFILE} --network-address --activate=false"
+  row warn "Mac reaches the door over the VM's address" \
+    "profile ${FABRIC_COLIMA_PROFILE} has no reachable address (network.address: false)" \
     "operator sudo; script never runs it"
 else
-  row warn "Mac reaches the door over ${MAC_GW}" \
-    "route absent — sudo route -n add -net 10.98.0.0/24 ${MAC_GW}" \
-    "operator sudo; script never runs it"
+  echo "  Mac: sudo route -n add -net ${EG_COLIMA_VIP_BLOCK} ${MAC_GW}"
+  echo "  Mac: sudo route -n delete -net 10.98.0.0/24"
+  if [ -n "$mac_line" ] && [ "$mac_via" = "$MAC_GW" ]; then
+    mac_rc=0
+    mac_code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 \
+      "http://${DOOR_ADDR}/" 2>/dev/null) || mac_rc=$?
+    if [ "$mac_rc" -eq 0 ] && [ "$mac_code" = 200 ]; then
+      row ok "Mac reaches the door over ${MAC_GW}" \
+        "route in place http_code=$mac_code" \
+        "operator sudo; script never runs it"
+    else
+      row fail "Mac reaches the door over ${MAC_GW}" \
+        "route in place http_code=${mac_code:-?} curl_rc=$mac_rc" \
+        "operator sudo; script never runs it"
+    fi
+  elif [ -n "$mac_line" ]; then
+    row fail "Mac reaches the door over ${MAC_GW}" \
+      "route present via ${mac_via:-?} (want $MAC_GW)" \
+      "operator sudo; script never runs it"
+  else
+    row warn "Mac reaches the door over ${MAC_GW}" \
+      "route absent — sudo route -n add -net ${EG_COLIMA_VIP_BLOCK} ${MAC_GW}" \
+      "operator sudo; script never runs it"
+  fi
 fi
 
 # 6. dashboard server sessions + nodes as external peers
@@ -308,7 +320,7 @@ else
     --cap-add NET_ADMIN --cap-add NET_RAW \
     "$NETSHOOT_IMAGE" \
     timeout 15 tcpdump -nn -v -c 20 -i any \
-    'tcp port 179 and (host 172.19.254.11)' 2>&1) || cap_rc=$?
+    "tcp port 179 and (host ${KIND_EG_COLIMA_LEAF1})" 2>&1) || cap_rc=$?
   if [ "$cap_rc" -ne 0 ] && [ "$cap_rc" -ne 124 ]; then
     row fail "SERVERS MD5 on the wire" "tcpdump/docker rc=$cap_rc" \
       "signed or unsigned, measured; negative control if signed"
@@ -316,78 +328,79 @@ else
     md5_n=$(printf '%s\n' "$cap" | grep -ciE 'md5valid|tcp-md5|md5')
     speaker=$(cat .tmp/demo54c-md5-on-speaker 2>/dev/null || echo "?")
     if [ "$md5_n" -gt 0 ]; then
-      # negative control: wrong password on one node session
-      first_ip=${node_ips%% *}
+      # Negative control on the PEER-GROUP key. FRR refuses per-neighbour config
+      # on a listen-range peer ("% Operation not allowed on a dynamic neighbor",
+      # measured 2026-09-20), and a `clear` alone drops and re-establishes in
+      # 6 s — that proves nothing about MD5. A wrong SERVERS key on leaf1 must
+      # take BOTH node sessions down and keep them down for the whole hold
+      # window (gobgp retries every ~5–10 s: its signed SYNs are dropped by the
+      # leaf's kernel and only the leaf's own TcpExtTCPMD5Failure climbs);
+      # restoring the key must bring both back. leaf2 is untouched throughout.
+      md5_fail() {
+        docker --context "$CTX" run --rm --net "container:${cid}" "$NETSHOOT_IMAGE" \
+          sh -c 'nstat -az 2>/dev/null | awk "/TcpExtTCPMD5Failure/ {print \$2}"' 2>/dev/null || echo "?"
+      }
+      est_count() { # node sessions Established on leaf1
+        local raw n=0 ip
+        raw=$(compose_lan exec -T leaf1 vtysh -c 'show bgp summary json' 2>/dev/null) || raw=""
+        for ip in $node_ips; do
+          if printf '%s' "$raw" | python3 scripts/fabric-bgp-summary.py --require "$ip" >/dev/null 2>&1; then
+            n=$((n + 1))
+          fi
+        done
+        echo "$n"
+      }
       mismatch_ok=1
-      mismatch_msg=""
-      if [ -z "$first_ip" ]; then
+      hold=10
+      fail0=$(md5_fail)
+      if ! compose_lan exec -T leaf1 vtysh \
+          -c 'configure terminal' -c 'router bgp 65101' \
+          -c 'neighbor SERVERS password wrong-54c-md5' >/dev/null 2>&1; then
         mismatch_ok=0
-        mismatch_msg="no node ip"
-      else
-        compose_lan exec -T leaf1 vtysh \
-          -c 'configure terminal' -c 'router bgp 65101' \
-          -c "neighbor ${first_ip} password wrong-54c-md5" >/dev/null 2>&1 || true
-        compose_lan exec -T leaf1 vtysh -c "clear ip bgp ${first_ip}" >/dev/null 2>&1 || true
-        dropped=""
-        i=0
-        while [ "$i" -lt 20 ]; do
-          raw=$(compose_lan exec -T leaf1 vtysh -c 'show bgp summary json' 2>&1) || raw=""
-          st=$(printf '%s' "$raw" | python3 -c '
-import json, sys
-ip = sys.argv[1]
-try:
-    data = json.loads(sys.stdin.read())
-except json.JSONDecodeError:
-    print("FAIL"); raise SystemExit
-peers = {}
-def walk(o):
-    if isinstance(o, dict):
-        if isinstance(o.get("peers"), dict):
-            peers.update(o["peers"])
-        for v in o.values():
-            walk(v)
-walk(data)
-p = peers.get(ip) or {}
-print(p.get("state") or p.get("peerState") or p.get("bgpState") or "ABSENT")
-' "$first_ip" 2>/dev/null || echo FAIL)
-          if [ "$st" != Established ] && [ "$st" != FAIL ]; then
-            dropped=$st
-            break
-          fi
-          i=$((i + 1))
-          sleep 1
-        done
-        compose_lan exec -T leaf1 vtysh \
-          -c 'configure terminal' -c 'router bgp 65101' \
-          -c "neighbor ${first_ip} password ${GOOD_PW}" >/dev/null 2>&1 || true
-        compose_lan exec -T leaf1 vtysh -c "clear ip bgp ${first_ip}" >/dev/null 2>&1 || true
-        j=0
-        back=""
-        while [ "$j" -lt 30 ]; do
-          raw=$(compose_lan exec -T leaf1 vtysh -c 'show bgp summary json' 2>&1) || raw=""
-          st=$(printf '%s' "$raw" | python3 scripts/fabric-bgp-summary.py --require "$first_ip" >/dev/null 2>&1 && echo Established || echo down)
-          if [ "$st" = Established ]; then
-            back=1
-            break
-          fi
-          j=$((j + 1))
-          sleep 1
-        done
-        if [ -n "$dropped" ] && [ -n "$back" ]; then
-          mismatch_msg="Established→${dropped}; restored"
-        else
-          mismatch_ok=0
-          mismatch_msg="drop=${dropped:-none} restored=${back:-no}"
-        fi
       fi
+      sleep 3
+      down_samples=0
+      i=0
+      while [ "$i" -lt "$hold" ]; do
+        if [ "$(est_count)" = 0 ]; then
+          down_samples=$((down_samples + 1))
+        fi
+        i=$((i + 1))
+        sleep 1
+      done
+      fail1=$(md5_fail)
+      if ! compose_lan exec -T leaf1 vtysh \
+          -c 'configure terminal' -c 'router bgp 65101' \
+          -c "neighbor SERVERS password ${GOOD_PW}" >/dev/null 2>&1; then
+        mismatch_ok=0
+      fi
+      back=""
+      j=0
+      while [ "$j" -lt 30 ]; do
+        if [ "$(est_count)" = 2 ]; then
+          back=$j
+          break
+        fi
+        j=$((j + 1))
+        sleep 1
+      done
+      delta="?"
+      case "$fail0$fail1" in
+        *[!0-9]*) ;;
+        *) delta=$((fail1 - fail0)) ;;
+      esac
+      if [ "$down_samples" -ne "$hold" ] || [ -z "$back" ] || [ "$delta" = "?" ] || [ "$delta" -le 0 ]; then
+        mismatch_ok=0
+      fi
+      mismatch_msg="wrong key on leaf1: 0/2 up in ${down_samples}/${hold} samples, MD5Failure +${delta}; restored in ${back:-never}s"
       if [ "$mismatch_ok" -eq 1 ]; then
-        row ok "SERVERS MD5 on the wire (signed)" \
+        row ok "SERVERS MD5 on the wire (signed) + negative control" \
           "md5-option packets=$md5_n; $mismatch_msg" \
-          "speaker password set; negative control restored"
+          "peer-group key wrong → both node sessions stay down, leaf's TCPMD5Failure climbs; key back → both up"
       else
-        row fail "SERVERS MD5 on the wire (signed)" \
+        row fail "SERVERS MD5 on the wire (signed) + negative control" \
           "md5-option packets=$md5_n; $mismatch_msg" \
-          "speaker password set; negative control restored"
+          "peer-group key wrong → both node sessions stay down, leaf's TCPMD5Failure climbs; key back → both up"
       fi
     else
       row fail "SERVERS MD5 on the wire (unsigned)" \

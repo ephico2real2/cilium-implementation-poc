@@ -77,7 +77,7 @@ func TestDecodeEstablishedHandEdited(t *testing.T) {
 	if p.State != "Established" || p.Hostname != "spine" || p.PfxRcd != 4 {
 		t.Fatalf("spine peer = %+v", p)
 	}
-	ext := s.IPv4Unicast.Peers["172.19.0.3"]
+	ext := s.IPv4Unicast.Peers["172.20.0.3"]
 	if ext.RemoteAS != 65021 || ext.State != "Established" {
 		t.Fatalf("external peer = %+v", ext)
 	}
@@ -90,11 +90,11 @@ func TestDecodeEstablishedHandEdited(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vip := v.Routes["10.98.0.10/32"][0]
-	if !vip.Valid || !vip.Bestpath.Set || vip.PeerID != "172.19.0.3" || vip.Path != "65021" {
+	vip := v.Routes["10.198.0.10/32"][0]
+	if !vip.Valid || !vip.Bestpath.Set || vip.PeerID != "172.20.0.3" || vip.Path != "65021" {
 		t.Fatalf("vip path = %+v", vip)
 	}
-	if vip.Nexthops[0].IP != "172.19.0.3" || vip.LocPrf != 100 {
+	if vip.Nexthops[0].IP != "172.20.0.3" || vip.LocPrf != 100 {
 		t.Fatalf("vip nh/locPrf = %+v", vip)
 	}
 }

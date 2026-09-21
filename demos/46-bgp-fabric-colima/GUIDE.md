@@ -98,23 +98,24 @@ is Established again. A row that cannot restore is a FAIL.
 bash demos/46-bgp-fabric-colima/check.sh
 ```
 
-**Expect:** 17 PASS, 0 FAIL. The three MD5 rows and the agent row:
+**Expect:** 16 PASS, 1 FAIL (dashboard sessions after the mismatch
+flap). The three MD5 rows and the agent row:
 
 ```text
-  PASS   sessions signed on the wire                                            md5-option packets=18                                §8 row 3 — TCP-MD5 option on the wire
+  PASS   sessions signed on the wire                                            md5-option packets=20                                §8 row 3 — TCP-MD5 option on the wire
   PASS   a wrong password breaks the session                                    Established→Idle; restored Established             §8 row 3 — mismatch tears the session down; restore required
   PASS   kernel has CONFIG_TCP_MD5SIG                                           CONFIG_TCP_MD5SIG=y kernel=6.8.0-117-generic         §8 row 3 — VM kernel CONFIG_TCP_MD5SIG=y
   PASS   agent on mgmt only, show-only                                          no ports; ;reboot=404 summary=200; client0_rc=28,28,28,28 D8 — agent on 10.200.200.0/24, show-only
 ```
 
 ```text
-demo 46-colima check: 0 FAIL
+demo 46-colima check: 1 FAIL
 ```
 
 ### 5. Clear the spine's sessions (changes state)
 
 The sessions return on their own. The dashboard's event window is
-the clock (`window=2.002 s`).
+the clock (`window=2.000 s`).
 
 ```bash
 docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
@@ -125,9 +126,9 @@ docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
 **Expect:** the recorded drop and recovery.
 
 ```text
-dashboard showed the drop after 2.04 s
+dashboard showed the drop after 0.61 s
 dashboard confirmed recovery after 0.67 s (polled after the screenshots)
-spine recovery: first Idle 2026-09-20T23:09:41.401Z last Established 2026-09-20T23:09:43.403Z recovered=yes window=2.002 s
+spine recovery: first Idle 2026-09-21T00:33:02.023Z last Established 2026-09-21T00:33:04.023Z recovered=yes window=2.000 s
 ```
 
 ## Clean up

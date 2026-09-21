@@ -14,10 +14,17 @@ export FABRIC_ROUTER_IMAGE="${FABRIC_ROUTER_IMAGE:-frr-agent:colima}"
 export FABRIC_DASHBOARD_IMAGE="${FABRIC_DASHBOARD_IMAGE:-bgp-dashboard:colima}"
 export FABRIC_COLIMA_DASHBOARD_PORT="${FABRIC_COLIMA_DASHBOARD_PORT:-8098}"
 
-[ ! -f "$FABRIC/compose.lan-eg.yaml" ] \
-  || { echo "FAIL: compose.lan-eg.yaml present — Colima demo is fabric-alone this phase"; exit 1; }
+# Overlay pins this family's node LAN; compose.yaml still parses alone.
+[ -f "$FABRIC/compose.lan-eg.yaml" ] \
+  || { echo "FAIL: compose.lan-eg.yaml missing"; exit 1; }
+grep -qF 'ipv4_address: 172.20.254.11' "$FABRIC/compose.lan-eg.yaml" \
+  || { echo "FAIL: compose.lan-eg.yaml leaf1 is not 172.20.254.11"; exit 1; }
+grep -qF 'ipv4_address: 172.20.254.12' "$FABRIC/compose.lan-eg.yaml" \
+  || { echo "FAIL: compose.lan-eg.yaml leaf2 is not 172.20.254.12"; exit 1; }
+grep -qF '172.19.254.' "$FABRIC/compose.lan-eg.yaml" \
+  && { echo "FAIL: compose.lan-eg.yaml still uses the Desktop node-LAN .254"; exit 1; }
 [ ! -f "$FABRIC/compose.lan-cilium.yaml" ] \
-  || { echo "FAIL: compose.lan-cilium.yaml present — Colima demo is fabric-alone this phase"; exit 1; }
+  || { echo "FAIL: compose.lan-cilium.yaml present — no Cilium lab on Colima"; exit 1; }
 
 cd "$FABRIC"
 # client-side render; does not start a container. --context is omitted on
@@ -75,5 +82,5 @@ print("compose dashboard + bind ok")
 grep -q 'name: bgp-fabric-colima' "$FABRIC/compose.yaml" \
   || { echo "FAIL: compose.yaml name is not bgp-fabric-colima"; exit 1; }
 
-echo "TEST PASS: colima compose parses (no overlays); frr.conf has no literal password; .env ignored; dashboard 127.0.0.1:8098; frr-agent:colima"
+echo "TEST PASS: colima compose parses; overlay pins 172.20.254.11/.12; frr.conf has no literal password; .env ignored; dashboard 127.0.0.1:8098; frr-agent:colima"
 exit 0

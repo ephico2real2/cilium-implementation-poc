@@ -1,6 +1,6 @@
 # eg-poc1-colima — the Colima-family one-cluster lab (enhancement 008,
 # demo 54c): kindnet + kube-proxy iptables, on the `kind-eg-colima`
-# docker network (KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima).
+# docker network (172.20.0.0/16, KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima).
 # Same shape as clusters/eg-poc1.yaml. kindnet and kube-proxy stay ON —
 # this is not the Cilium lab.
 #

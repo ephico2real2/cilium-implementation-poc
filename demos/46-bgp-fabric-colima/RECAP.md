@@ -12,7 +12,7 @@ next phase).
 
 ## What you get
 
-- Apply `2026-09-20T23:09:15Z`. Four FRR routers in project
+- Apply `2026-09-21T00:32:26Z`. Four FRR routers in project
   `bgp-fabric-colima` running `frr-agent:colima` (built on
   `quay.io/frrouting/frr:10.7.1`): edge AS 65000, spine AS 65100,
   leaf1 AS 65101, leaf2 AS 65102.
@@ -23,7 +23,7 @@ next phase).
   10.200.1.18 → 10.200.255.11`.
 - Kernel `6.8.0-117-generic`, `CONFIG_TCP_MD5SIG=y`. Apply captured
   20 packets on leaf1, each carrying a TCP-MD5 option; check counted
-  `md5-option packets=18`. Wrong password on leaf1→spine:
+  `md5-option packets=20`. Wrong password on leaf1→spine:
   `Established→Idle; restored Established`. While healthy,
   `TcpExtTCPMD5{NotFound,Unexpected,Failure}` all 0. An unsigned
   session also shows zero failures — the proof is the wire count
@@ -34,19 +34,20 @@ next phase).
   in BGP.
 - Dashboard `dashboard ready after 0 s (routers=4/4 sessions=6/6
   external=0)` on `127.0.0.1:8098`; `dashboard showed the drop after
-  2.04 s`; `dashboard confirmed recovery after 0.67 s (polled after
+  0.61 s`; `dashboard confirmed recovery after 0.67 s (polled after
   the screenshots)`; `spine recovery: first Idle
-  2026-09-20T23:09:41.401Z last Established 2026-09-20T23:09:43.403Z
-  recovered=yes window=2.002 s`.
-- `check.sh` at `2026-09-20T23:09:58Z`: 17 rows, 17 PASS, 0 FAIL, 0
-  WARN. Row 17: `client0_rc=28,28,28,28`.
+  2026-09-21T00:33:02.023Z last Established 2026-09-21T00:33:04.023Z
+  recovered=yes window=2.000 s`.
+- `check.sh` at `2026-09-21T00:34:06Z`: 17 rows, 16 PASS, 1 FAIL
+  (dashboard sessions after the mismatch flap). Row 17:
+  `client0_rc=28,28,28,28`.
 
 Same fabric, two kernels:
 
 | | Demo 46 (Docker Desktop linuxkit) | This run (Colima Ubuntu) |
 |---|---|---|
 | kernel | no `CONFIG_TCP_MD5SIG` | `6.8.0-117-generic`, `CONFIG_TCP_MD5SIG=y` |
-| MD5 check | one standing WARN: sessions run unsigned | three PASS: wire 18 packets, mismatch `Established→Idle` then restored, kernel `=y` |
+| MD5 check | one standing WARN: sessions run unsigned | three PASS: wire 20 packets, mismatch `Established→Idle` then restored, kernel `=y` |
 | dashboard | `127.0.0.1:8088`, kind overlay | `127.0.0.1:8098`, `external=0` |
 | compose | project `bgp-fabric` | project `bgp-fabric-colima` |
 
@@ -77,7 +78,7 @@ context, so `external=0`:
         |   v     v
         | leaf1 AS 65101                leaf2 AS 65102
         | lo 10.200.255.11  mgmt .11    lo 10.200.255.12  mgmt .12
-        | SERVERS listen 172.19.0.0/17 + 172.18.0.0/17 (no members)
+        | SERVERS listen 172.20.0.0/17 only (no members)
         |
         |   mgmt 10.200.200.0/24 (not in BGP)
         |   dashboard .100  →  127.0.0.1:8098
@@ -147,7 +148,7 @@ Result: `image frr-agent:colima present`;
 ### 2. Watch it converge
 
 Every fabric session is Established at the first poll
-(`2026-09-20T23:09:18Z`).
+(`2026-09-21T00:32:39Z`).
 
 ```bash
 docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
@@ -193,13 +194,14 @@ docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
 ```
 
 Result: hops `10.200.100.2`, `10.200.1.18`, `10.200.255.11`;
-`3 packets transmitted, 3 received, 0% packet loss, time 2034ms`;
+`3 packets transmitted, 3 received, 0% packet loss, time 2073ms`;
 `ttl=62`.
 
 ### 5. Read the servers' policy
 
-The leaves listen for both lab `/17`s. No speaker has dialled; the
-prefix-lists are already there for the next phase.
+The leaves listen for the Colima node LAN `/17` only (the Desktop
+Cilium lab's `172.18.0.0/17` is not here). No speaker has dialled;
+the prefix-lists are already there for the next phase.
 
 ```bash
 docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
@@ -207,8 +209,8 @@ docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
   exec -T leaf1 vtysh -c 'show bgp peer-group SERVERS'
 ```
 
-Result: `2 IPv4 listen range(s)` — `172.19.0.0/17` and
-`172.18.0.0/17`; no members; no `ttl-security`.
+Result: `1 IPv4 listen range(s)` — `172.20.0.0/17` only; no
+members; no `ttl-security`.
 
 ### 6. Prove TCP MD5 is on the wire
 
@@ -239,7 +241,7 @@ curl -fsS --max-time 5 'http://127.0.0.1:8098/api/state' \
 ```
 
 Result: `routers=4/4 sessions=6/6 external=0`. Screenshots:
-`dashboard-steady.png` after 2.0 s.
+`dashboard-steady.png` after 1.8 s.
 
 ### 8. Clear the spine's sessions and watch them come back
 
@@ -253,10 +255,10 @@ docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
 ```
 
 Result: `event mark before clear: id=26`; `dashboard showed the drop
-after 2.04 s`; `dashboard confirmed recovery after 0.67 s (polled
+after 0.61 s`; `dashboard confirmed recovery after 0.67 s (polled
 after the screenshots)`; `spine recovery: first Idle
-2026-09-20T23:09:41.401Z last Established 2026-09-20T23:09:43.403Z
-recovered=yes window=2.002 s`.
+2026-09-21T00:33:02.023Z last Established 2026-09-21T00:33:04.023Z
+recovered=yes window=2.000 s`.
 
 ## Verify
 
@@ -272,13 +274,13 @@ colima ssh --profile bgp-fabric -- \
 bash demos/46-bgp-fabric-colima/check.sh
 ```
 
-Result: `CONFIG_TCP_MD5SIG=y`; 17 rows, 17 PASS, 0 FAIL;
-`sessions signed on the wire` `md5-option packets=18`;
+Result: `CONFIG_TCP_MD5SIG=y`; 17 rows, 16 PASS, 1 FAIL;
+`sessions signed on the wire` `md5-option packets=20`;
 `a wrong password breaks the session`
 `Established→Idle; restored Established`;
 `kernel has CONFIG_TCP_MD5SIG`
 `CONFIG_TCP_MD5SIG=y kernel=6.8.0-117-generic`;
-`demo 46-colima check: 0 FAIL`.
+`demo 46-colima check: 1 FAIL`.
 
 ## Reference
 
@@ -290,8 +292,8 @@ Result: `CONFIG_TCP_MD5SIG=y`; 17 rows, 17 PASS, 0 FAIL;
 | images | `frr-agent:colima`, `bgp-dashboard:colima` |
 | dashboard | `127.0.0.1:8098` (`FABRIC_COLIMA_DASHBOARD_PORT`) |
 | password | `FABRIC_BGP_PASSWORD` in `fabric/.env` (default `lab-bgp`) |
-| last apply | `2026-09-20T23:09:15Z` |
-| last check | `2026-09-20T23:09:58Z` |
+| last apply | `2026-09-21T00:32:26Z` |
+| last check | `2026-09-21T00:34:06Z` |
 | files | [README.md](README.md), [GUIDE.md](GUIDE.md), [NETWORK-TEAM-SHEET.md](NETWORK-TEAM-SHEET.md) |
 
 ## Troubleshooting

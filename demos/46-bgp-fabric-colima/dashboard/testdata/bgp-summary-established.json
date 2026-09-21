@@ -31,7 +31,7 @@
         "connectionsDropped": 0,
         "idType": "ipv4"
       },
-      "172.19.0.3": {
+      "172.20.0.3": {
         "hostname": "eg-poc1-worker",
         "softwareVersion": "n/a",
         "remoteAs": 65021,

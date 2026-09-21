@@ -38,7 +38,7 @@ HERE=demos/54-eg-poc1-kube-vip-colima
 TRANSCRIPT=$HERE/output/transcript.txt
 DASH="http://127.0.0.1:${FABRIC_COLIMA_DASHBOARD_PORT}"
 KCTX="kind-$EG_COLIMA_CLUSTER"
-DOOR_ADDR=10.98.0.10
+DOOR_ADDR="${EG_COLIMA_DOOR}"
 CHROME="${CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
 mkdir -p "$(dirname "$TRANSCRIPT")" .tmp
 printf '\n### %s — demo 54c apply\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$TRANSCRIPT"
@@ -70,7 +70,7 @@ echo "preflight: project $FABRIC_COLIMA_PROJECT running; password set=${FABRIC_B
 echo "== 1. node LAN + registry + cluster (scripts/eg-colima-up.sh)"
 rec scripts/eg-colima-up.sh
 
-echo "== 2. attach leaves to $KIND_EG_COLIMA_NET at 172.19.254.11/.12 (--no-recreate)"
+echo "== 2. attach leaves to $KIND_EG_COLIMA_NET at ${KIND_EG_COLIMA_LEAF1}/.12 (--no-recreate)"
 # shellcheck disable=SC2329
 attach_leaves() {
   set -euo pipefail
@@ -96,30 +96,30 @@ attach_leaves() {
   ip12=$(docker --context "$CTX" inspect -f \
     "{{(index .NetworkSettings.Networks \"$KIND_EG_COLIMA_NET\").IPAddress}}" \
     "${FABRIC_COLIMA_PROJECT}-leaf2-1" 2>/dev/null || true)
-  if [ "$ip11" != 172.19.254.11 ]; then
-    echo "leaf1 not at 172.19.254.11 (got ${ip11:-absent}) — docker network connect"
-    docker --context "$CTX" network connect --ip 172.19.254.11 \
+  if [ "$ip11" != "$KIND_EG_COLIMA_LEAF1" ]; then
+    echo "leaf1 not at $KIND_EG_COLIMA_LEAF1 (got ${ip11:-absent}) — docker network connect"
+    docker --context "$CTX" network connect --ip "$KIND_EG_COLIMA_LEAF1" \
       "$KIND_EG_COLIMA_NET" "${FABRIC_COLIMA_PROJECT}-leaf1-1" 2>/dev/null || true
     ip11=$(docker --context "$CTX" inspect -f \
       "{{(index .NetworkSettings.Networks \"$KIND_EG_COLIMA_NET\").IPAddress}}" \
       "${FABRIC_COLIMA_PROJECT}-leaf1-1")
   fi
-  if [ "$ip12" != 172.19.254.12 ]; then
-    echo "leaf2 not at 172.19.254.12 (got ${ip12:-absent}) — docker network connect"
-    docker --context "$CTX" network connect --ip 172.19.254.12 \
+  if [ "$ip12" != "$KIND_EG_COLIMA_LEAF2" ]; then
+    echo "leaf2 not at $KIND_EG_COLIMA_LEAF2 (got ${ip12:-absent}) — docker network connect"
+    docker --context "$CTX" network connect --ip "$KIND_EG_COLIMA_LEAF2" \
       "$KIND_EG_COLIMA_NET" "${FABRIC_COLIMA_PROJECT}-leaf2-1" 2>/dev/null || true
     ip12=$(docker --context "$CTX" inspect -f \
       "{{(index .NetworkSettings.Networks \"$KIND_EG_COLIMA_NET\").IPAddress}}" \
       "${FABRIC_COLIMA_PROJECT}-leaf2-1")
   fi
   echo "leaf1 $KIND_EG_COLIMA_NET=$ip11 leaf2 $KIND_EG_COLIMA_NET=$ip12"
-  if [ "$ip11" != 172.19.254.11 ] || [ "$ip12" != 172.19.254.12 ]; then
-    echo "apply.sh: leaves not at 172.19.254.11/.12" >&2
+  if [ "$ip11" != "$KIND_EG_COLIMA_LEAF1" ] || [ "$ip12" != "$KIND_EG_COLIMA_LEAF2" ]; then
+    echo "apply.sh: leaves not at ${KIND_EG_COLIMA_LEAF1}/.12" >&2
     return 1
   fi
 }
 export -f attach_leaves
-export CTX FABRIC_COLIMA_PROJECT FABRIC_COLIMA_FABRIC KIND_EG_COLIMA_NET
+export CTX FABRIC_COLIMA_PROJECT FABRIC_COLIMA_FABRIC KIND_EG_COLIMA_NET KIND_EG_COLIMA_LEAF1 KIND_EG_COLIMA_LEAF2
 rec bash -c attach_leaves
 unset -f attach_leaves
 
@@ -250,10 +250,10 @@ session_record() {
   echo "---- kube-vip DS logs (BGP / MD5 / sockopt) ----"
   kubectl --context "$KCTX" -n kube-system logs -l app.kubernetes.io/name=kube-vip-ds \
     --tail=-1 --prefix --timestamps 2>/dev/null \
-    | grep -iE 'bgp|peer|65021|172\.19\.254|md5|sockopt|protocol not available|setsockopt|tcp_md5' || true
+    | grep -iE "bgp|peer|65021|${KIND_EG_COLIMA_LEAF1}|${KIND_EG_COLIMA_LEAF2}|md5|sockopt|protocol not available|setsockopt|tcp_md5" || true
 }
 export -f compose_lan node_ips servers_est wait_servers session_record
-export CTX EG_COLIMA_CLUSTER KIND_EG_COLIMA_NET KCTX FABRIC_COLIMA_PROJECT FABRIC_COLIMA_FABRIC
+export CTX EG_COLIMA_CLUSTER KIND_EG_COLIMA_NET KIND_EG_COLIMA_LEAF1 KIND_EG_COLIMA_LEAF2 KCTX FABRIC_COLIMA_PROJECT FABRIC_COLIMA_FABRIC
 # wait_servers uses COMPOSE_LAN array — run in this shell, record the echo
 t0=$(date +%s)
 if wait_servers 45; then
@@ -320,8 +320,8 @@ echo "== 7. wait for ${DOOR_ADDR}/32 in each leaf with a node next hop"
 # shellcheck disable=SC2329
 node_path_count() {
   python3 -c '
-import ipaddress, json, sys
-NET = ipaddress.ip_network("172.19.0.0/17")
+import ipaddress, json, os, sys
+NET = ipaddress.ip_network(os.environ["KIND_EG_COLIMA_IP_RANGE"])
 try:
     data = json.loads(sys.stdin.read())
 except json.JSONDecodeError:
@@ -389,7 +389,7 @@ wait_paths() {
   return 1
 }
 export -f compose_lan node_path_count wait_paths
-export DOOR_ADDR CTX FABRIC_COLIMA_PROJECT FABRIC_COLIMA_FABRIC
+export DOOR_ADDR CTX FABRIC_COLIMA_PROJECT FABRIC_COLIMA_FABRIC KIND_EG_COLIMA_IP_RANGE
 rec bash -c wait_paths
 # shellcheck disable=SC2329
 rib_record() {
@@ -405,21 +405,21 @@ rec bash -c rib_record
 unset -f wait_paths rib_record
 
 echo "== 7b. node return route 10.200.0.0/16 via leaf1 (Docker isolation)"
-# The node's default gateway is the docker bridge (172.19.0.1). Return
-# traffic for the company fabric must go back through a leaf; otherwise
-# Docker's inter-bridge isolation drops it (measured: client0 curl_rc=28
-# until this route; leaf1 wget to the door already worked).
+# The node's default gateway is the docker bridge (KIND_EG_COLIMA_GATEWAY).
+# Return traffic for the company fabric must go back through a leaf;
+# otherwise Docker's inter-bridge isolation drops it (measured: client0
+# curl_rc=28 until this route; leaf1 wget to the door already worked).
 # shellcheck disable=SC2329
 node_fabric_route() {
   local n
   for n in $(kind get nodes --name "$EG_COLIMA_CLUSTER"); do
-    docker --context "$CTX" exec "$n" ip route replace 10.200.0.0/16 via 172.19.254.11
+    docker --context "$CTX" exec "$n" ip route replace 10.200.0.0/16 via "$KIND_EG_COLIMA_LEAF1"
     printf '%s ' "$n"
     docker --context "$CTX" exec "$n" ip route show 10.200.0.0/16
   done
 }
 export -f node_fabric_route
-export CTX EG_COLIMA_CLUSTER
+export CTX EG_COLIMA_CLUSTER KIND_EG_COLIMA_LEAF1
 rec bash -c node_fabric_route
 unset -f node_fabric_route
 
@@ -439,31 +439,49 @@ export DOOR_ADDR CTX FABRIC_COLIMA_PROJECT FABRIC_COLIMA_FABRIC
 rec bash -c client0_door
 unset -f client0_door
 
-echo "== 9. VM route + Mac sudo line (never sudo from a script)"
+echo "== 9. VM route + DOCKER-USER accept + the Mac's sudo line (never sudo from a script)"
+# Two VM-side pieces, measured 2026-09-20 with a throwaway netns in the VM
+# standing in for the Mac: the route alone gives curl_rc=28 — Docker 29's
+# FORWARD policy is DROP and DOCKER-FORWARD only accepts traffic that ENTERS
+# from a docker bridge — and a DOCKER-USER accept toward the node-LAN bridge
+# turns the same curl into 200. The Mac's own route is the operator's.
 # shellcheck disable=SC2329
 mac_path() {
-  echo "VM:  docker --context $CTX run --rm --privileged --pid=host --net=host alpine:3.20 nsenter -t 1 -m -n -- ip route replace 10.98.0.0/24 via 172.19.254.11"
-  echo "Mac: sudo route -n add -net 10.98.0.0/24 192.168.64.3"
-  docker --context "$CTX" pull alpine:3.20 >/dev/null
-  docker --context "$CTX" run --rm --privileged --pid=host --net=host alpine:3.20 \
-    nsenter -t 1 -m -n -- ip route replace 10.98.0.0/24 via 172.19.254.11
-  echo "VM route installed"
-  local line
-  line=$(netstat -rn | grep -E '^10\.98' || true)
-  if [ -n "$line" ]; then
-    echo "Mac route in place:"
-    printf '%s\n' "$line"
-    local rc=0 code
-    code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 \
-      "http://${DOOR_ADDR}/") || rc=$?
-    echo "mac http://${DOOR_ADDR}/ → ${code} curl_rc=$rc"
-  else
-    echo "Mac route absent — the operator runs:"
-    echo "  sudo route -n add -net 10.98.0.0/24 192.168.64.3"
+  set -euo pipefail
+  local br addr line rc=0 code
+  br=$(fabric_colima_kind_bridge)
+  echo "VM:  ip route replace $EG_COLIMA_VIP_BLOCK via $KIND_EG_COLIMA_LEAF1"
+  echo "VM:  iptables -I DOCKER-USER -d $EG_COLIMA_VIP_BLOCK -o $br -j ACCEPT"
+  colima ssh --profile "$FABRIC_COLIMA_PROFILE" -- sudo sh -c "
+    ip route replace $EG_COLIMA_VIP_BLOCK via $KIND_EG_COLIMA_LEAF1 \
+    && { iptables -C DOCKER-USER -d $EG_COLIMA_VIP_BLOCK -o $br -j ACCEPT 2>/dev/null \
+         || iptables -I DOCKER-USER -d $EG_COLIMA_VIP_BLOCK -o $br -j ACCEPT; } \
+    && ip route show $EG_COLIMA_VIP_BLOCK && iptables -S DOCKER-USER"
+  echo "VM route + DOCKER-USER accept installed"
+  addr=$(fabric_colima_vm_address)
+  if [ -z "$addr" ]; then
+    echo "Mac: profile $FABRIC_COLIMA_PROFILE has no reachable address (network.address: false) — no Mac route can reach this VM yet."
+    echo "Mac: enable it, then re-run this apply:"
+    echo "  colima stop --profile $FABRIC_COLIMA_PROFILE && colima start --profile $FABRIC_COLIMA_PROFILE --network-address --activate=false"
+    return 0
   fi
+  echo "Mac: sudo route -n add -net $EG_COLIMA_VIP_BLOCK $addr"
+  echo "Mac: sudo route -n delete -net 10.98.0.0/24   # old shared block; Desktop keeps it"
+  line=$(netstat -rn -f inet | grep -E '^10\.198' || true)
+  if [ -z "$line" ]; then
+    echo "Mac route absent — the operator runs:"
+    echo "  sudo route -n add -net $EG_COLIMA_VIP_BLOCK $addr"
+    echo "  sudo route -n delete -net 10.98.0.0/24"
+    return 0
+  fi
+  echo "Mac route in place:"
+  printf '%s\n' "$line"
+  code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 \
+    "http://${DOOR_ADDR}/") || rc=$?
+  echo "mac http://${DOOR_ADDR}/ → ${code} curl_rc=$rc"
 }
-export -f mac_path
-export CTX DOOR_ADDR
+export -f mac_path fabric_colima_vm_address fabric_colima_kind_bridge dk
+export CTX DOOR_ADDR FABRIC_COLIMA_PROFILE KIND_EG_COLIMA_NET EG_COLIMA_VIP_BLOCK KIND_EG_COLIMA_LEAF1
 rec bash -c mac_path
 unset -f mac_path
 
@@ -521,15 +539,24 @@ md5_wire() {
   docker --context "$CTX" run --rm --net "container:${cid}" \
     --cap-add NET_ADMIN --cap-add NET_RAW \
     "$NETSHOOT_IMAGE" \
-    timeout 15 tcpdump -nn -v -c 20 -i any 'tcp port 179 and (host 172.19.254.11)' || true
+    timeout 15 tcpdump -nn -v -c 20 -i any "tcp port 179 and (host ${KIND_EG_COLIMA_LEAF1})" || true
+  # The MD5 counters are per network namespace: the leaf's sessions live in the
+  # leaf's netns, so they are read there — the VM's root netns says nothing
+  # about them (both were 0 on 2026-09-20; only the leaf's climbs on a bad key).
+  echo "---- leaf1 netns TcpExtTCPMD5 counters ----"
+  docker --context "$CTX" run --rm --net "container:${cid}" "$NETSHOOT_IMAGE" \
+    sh -c 'nstat -az 2>/dev/null | grep -E "TcpExtTCPMD5"'
 }
 export -f md5_wire
-export CTX FABRIC_COLIMA_PROJECT FABRIC_COLIMA_FABRIC NETSHOOT_IMAGE
+export CTX FABRIC_COLIMA_PROJECT FABRIC_COLIMA_FABRIC NETSHOOT_IMAGE KIND_EG_COLIMA_LEAF1
 rec bash -c md5_wire
 unset -f md5_wire
-rec colima ssh --profile "$FABRIC_COLIMA_PROFILE" -- \
-  sh -c 'nstat -az 2>/dev/null | grep -E "TcpExtTCPMD5" || awk "/TcpExt/ {print}" /proc/net/netstat'
 
 echo "dashboard: ${DASH}/ (Mac browser)"
-echo "Mac route (operator): sudo route -n add -net 10.98.0.0/24 192.168.64.3"
+if addr=$(fabric_colima_vm_address) && [ -n "$addr" ]; then
+  echo "Mac route (operator): sudo route -n add -net $EG_COLIMA_VIP_BLOCK $addr"
+  echo "Mac route (operator): sudo route -n delete -net 10.98.0.0/24"
+else
+  echo "Mac route: none possible until the profile has a reachable address (see step 9)"
+fi
 echo "demo 54c apply: recorded"

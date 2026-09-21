@@ -2,7 +2,7 @@
 # test: demo 46-colima check.sh must not PASS on a look-alike (PATH-stub).
 #   (d) frr defaults datacenter → RFC 8212 FAIL
 #   (e) seq 10 deny → prefix-list FAIL
-#   listen stub: only 172.19.0.0/17 → listen FAIL
+#   listen stub: only 172.19.0.0/17 (Desktop LAN) → listen FAIL
 #   MD5: zero wire packets FAIL; missing CONFIG_TCP_MD5SIG FAIL;
 #        mismatch that stays Established FAIL; restore-fail FAIL
 #   dashboard / agent look-alikes as in check46-false-pass.sh
@@ -72,17 +72,19 @@ case "$*" in
     printf ' maximum-paths 8\n'
     printf ' neighbor SERVERS maximum-prefix 64\n'
     printf ' neighbor SERVERS timers 3 9\n'
-    printf ' bgp listen range 172.19.0.0/17 peer-group SERVERS\n'
-    if [ "${STUB_LISTEN:-both}" != one ]; then
+    if [ "${STUB_LISTEN:-colima}" = old ]; then
+      printf ' bgp listen range 172.19.0.0/17 peer-group SERVERS\n'
       printf ' bgp listen range 172.18.0.0/17 peer-group SERVERS\n'
+    else
+      printf ' bgp listen range 172.20.0.0/17 peer-group SERVERS\n'
     fi
-    printf 'ip prefix-list EG-VIPS seq 10 %s 10.98.0.0/24 ge 32 le 32\n' "$pl"
-    printf 'ip prefix-list EG-POC1-VIPS seq 10 %s 10.98.0.0/26 ge 32 le 32\n' "$pl"
-    printf 'ip prefix-list EG-POC2-VIPS seq 10 %s 10.98.0.64/26 ge 32 le 32\n' "$pl"
-    printf 'ip prefix-list EG-ANYCAST-VIPS seq 10 %s 10.98.0.192/26 ge 32 le 32\n' "$pl"
-    printf 'ip prefix-list CILIUM-POC1-VIPS seq 10 %s 10.99.0.0/26 ge 32 le 32\n' "$pl"
-    printf 'ip prefix-list CILIUM-POC2-VIPS seq 10 %s 10.99.0.64/26 ge 32 le 32\n' "$pl"
-    printf 'ip prefix-list CILIUM-ANYCAST-VIPS seq 10 %s 10.99.0.192/26 ge 32 le 32\n' "$pl"
+    printf 'ip prefix-list EG-VIPS seq 10 %s 10.198.0.0/24 ge 32 le 32\n' "$pl"
+    printf 'ip prefix-list EG-POC1-VIPS seq 10 %s 10.198.0.0/26 ge 32 le 32\n' "$pl"
+    printf 'ip prefix-list EG-POC2-VIPS seq 10 %s 10.198.0.64/26 ge 32 le 32\n' "$pl"
+    printf 'ip prefix-list EG-ANYCAST-VIPS seq 10 %s 10.198.0.192/26 ge 32 le 32\n' "$pl"
+    printf 'ip prefix-list CILIUM-POC1-VIPS seq 10 %s 10.199.0.0/26 ge 32 le 32\n' "$pl"
+    printf 'ip prefix-list CILIUM-POC2-VIPS seq 10 %s 10.199.0.64/26 ge 32 le 32\n' "$pl"
+    printf 'ip prefix-list CILIUM-ANYCAST-VIPS seq 10 %s 10.199.0.192/26 ge 32 le 32\n' "$pl"
     exit 0 ;;
   *'configure terminal'*password*)
     case "$*" in
@@ -214,9 +216,9 @@ out=$(STUB_PL_ACTION=deny run)
 printf '%s\n' "$out" | grep -Eq '^  FAIL +per-cluster VIP prefix-lists' \
   || { echo "TEST FAIL: a deny entry passed as prefix-lists present"; exit 1; }
 
-out=$(STUB_LISTEN=one run)
+out=$(STUB_LISTEN=old run)
 printf '%s\n' "$out" | grep -Eq '^  FAIL +SERVERS listen' \
-  || { echo "TEST FAIL: a single listen range passed"; exit 1; }
+  || { echo "TEST FAIL: the Desktop listen ranges passed as Colima's"; exit 1; }
 
 out=$(STUB_TCPDUMP=unsigned run)
 printf '%s\n' "$out" | grep -Eq '^  FAIL +sessions signed on the wire' \
@@ -286,5 +288,5 @@ done <<EOF2
 $out
 EOF2
 
-echo "TEST PASS: datacenter/deny/one-listen FAIL; unsigned/dead tcpdump FAIL; kernel absent FAIL; stay-Established and restore-fail FAIL; dashboard/agent look-alikes FAIL; stdout is rows only"
+echo "TEST PASS: datacenter/deny/old-listen FAIL; unsigned/dead tcpdump FAIL; kernel absent FAIL; stay-Established and restore-fail FAIL; dashboard/agent look-alikes FAIL; stdout is rows only"
 exit 0

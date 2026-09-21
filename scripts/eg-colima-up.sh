@@ -45,7 +45,7 @@ die() { echo "eg-colima-up: $1" >&2; exit 1; }
 } | tee -a "$TRANSCRIPT"
 
 # ---------------------------------------------------------------- (1) the node LAN
-say "1. the $KIND_EG_COLIMA_NET network (172.19.0.0/16, ip-range 172.19.0.0/17)"
+say "1. the $KIND_EG_COLIMA_NET network ($KIND_EG_COLIMA_SUBNET, ip-range $KIND_EG_COLIMA_IP_RANGE)"
 fabric_colima_ensure_kind_net | tee -a "$TRANSCRIPT"
 rec docker --context "$CTX" network inspect "$KIND_EG_COLIMA_NET" \
   --format '{{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}'
@@ -56,12 +56,16 @@ rec scripts/colima-registry.sh up
 
 # ---------------------------------------------------------------- (3) the cluster
 assert_node_ips() {
-  # every IPv4 InternalIP must sit in 172.19.0.0/17; none in .254/24 or .255/24
+  # every IPv4 InternalIP must sit in the lower /17; none in .254/24 or .255/24
+  export KIND_EG_COLIMA_IP_RANGE KIND_EG_COLIMA_SUBNET
   kubectl --context "kind-$EG_COLIMA_CLUSTER" get nodes -o json | python3 -c '
-import ipaddress, json, sys
-low = ipaddress.ip_network("172.19.0.0/17")
-routers = ipaddress.ip_network("172.19.254.0/24")
-vips = ipaddress.ip_network("172.19.255.0/24")
+import ipaddress, json, os, sys
+low = ipaddress.ip_network(os.environ["KIND_EG_COLIMA_IP_RANGE"])
+net = ipaddress.ip_network(os.environ["KIND_EG_COLIMA_SUBNET"])
+# .254/24 (leaves) and .255/24 (reserved L2 VIP) of this /16
+prefix = int(net.network_address) & 0xFFFF0000
+routers = ipaddress.ip_network("%s/24" % ipaddress.ip_address(prefix + (254 << 8)))
+vips = ipaddress.ip_network("%s/24" % ipaddress.ip_address(prefix + (255 << 8)))
 doc = json.load(sys.stdin)
 bad = []
 n_v4 = 0
@@ -76,11 +80,11 @@ for n in doc["items"]:
         n_v4 += 1
         print("%s %s" % (name, ip))
         if ip not in low:
-            bad.append("%s %s not in 172.19.0.0/17" % (name, ip))
+            bad.append("%s %s not in %s" % (name, ip, low))
         if ip in routers:
-            bad.append("%s %s is in 172.19.254.0/24 (routers)" % (name, ip))
+            bad.append("%s %s is in %s (routers)" % (name, ip, routers))
         if ip in vips:
-            bad.append("%s %s is in 172.19.255.0/24 (reserved VIP)" % (name, ip))
+            bad.append("%s %s is in %s (reserved VIP)" % (name, ip, vips))
 if n_v4 == 0:
     sys.exit("no IPv4 InternalIP on any node")
 if bad:
@@ -104,10 +108,10 @@ rec kubectl --context "kind-$EG_COLIMA_CLUSTER" wait --for=condition=Ready nodes
 rec kubectl --context "kind-$EG_COLIMA_CLUSTER" get nodes -o wide
 if ! ips=$(assert_node_ips); then
   printf '%s\n' "$ips" | tee -a "$TRANSCRIPT"
-  die "$EG_COLIMA_CLUSTER: a node IP is outside 172.19.0.0/17 or inside a reserved /24"
+  die "$EG_COLIMA_CLUSTER: a node IP is outside $KIND_EG_COLIMA_IP_RANGE or inside a reserved /24"
 fi
 {
-  echo "node IPv4 InternalIPs (must be in 172.19.0.0/17, none in 172.19.254.0/24 or 172.19.255.0/24):"
+  echo "node IPv4 InternalIPs (must be in $KIND_EG_COLIMA_IP_RANGE, none in 172.20.254.0/24 or 172.20.255.0/24):"
   printf '%s\n' "$ips"
 } | tee -a "$TRANSCRIPT"
 

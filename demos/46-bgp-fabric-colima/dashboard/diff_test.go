@@ -11,10 +11,10 @@ func TestDiffSessionAndRouterAndRoute(t *testing.T) {
 		Routers: []Router{{Name: "edge", Reachable: true}, {Name: "spine", Reachable: true}},
 		Sessions: []Session{
 			{Router: "spine", Peer: "10.200.1.19", State: "Established"},
-			{Router: "leaf1", Peer: "172.19.0.3", State: "Established"},
+			{Router: "leaf1", Peer: "172.20.0.3", State: "Established"},
 		},
 		Routes: []Route{
-			{Router: "leaf1", Prefix: "10.98.0.10/32", Bestpath: true, Nexthop: "172.19.0.5"},
+			{Router: "leaf1", Prefix: "10.198.0.10/32", Bestpath: true, Nexthop: "172.20.0.5"},
 			{Router: "leaf1", Prefix: "10.200.255.2/32", Bestpath: true, Nexthop: "10.200.1.3"},
 		},
 	}
@@ -25,8 +25,8 @@ func TestDiffSessionAndRouterAndRoute(t *testing.T) {
 			{Router: "spine", Peer: "10.200.1.2", State: "Established"},
 		},
 		Routes: []Route{
-			{Router: "leaf1", Prefix: "10.98.0.10/32", Bestpath: true, Nexthop: "172.19.0.6"},
-			{Router: "leaf1", Prefix: "10.99.0.1/32", Bestpath: true, Nexthop: "10.200.1.3"},
+			{Router: "leaf1", Prefix: "10.198.0.10/32", Bestpath: true, Nexthop: "172.20.0.6"},
+			{Router: "leaf1", Prefix: "10.199.0.1/32", Bestpath: true, Nexthop: "10.200.1.3"},
 		},
 	}
 	ev := diff(prev, next, ts)
@@ -46,10 +46,10 @@ func TestDiffSessionAndRouterAndRoute(t *testing.T) {
 		"router edge unreachable",
 		"spine 10.200.1.19 Established → Idle",
 		"spine 10.200.1.2 appeared Established",
-		"leaf1 172.19.0.3 vanished (was Established)",
-		"leaf1: 10.99.0.1/32 added via 10.200.1.3",
+		"leaf1 172.20.0.3 vanished (was Established)",
+		"leaf1: 10.199.0.1/32 added via 10.200.1.3",
 		"leaf1: 10.200.255.2/32 withdrawn",
-		"leaf1: 10.98.0.10/32 bestpath via 172.19.0.5 → 172.19.0.6",
+		"leaf1: 10.198.0.10/32 bestpath via 172.20.0.5 → 172.20.0.6",
 	}
 	got := map[string]bool{}
 	for _, t := range texts {

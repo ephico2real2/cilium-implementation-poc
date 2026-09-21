@@ -79,7 +79,7 @@ func diff(prev, next Snapshot, ts time.Time) []Event {
 		k := routeKey(r)
 		if nextByPrefix[k] {
 			// one Route per path (ECMP): the prefix is "added" once, not per path
-			// (measured 2026-09-20: 10.98.0.11/32 on leaf2 logged three times)
+			// (measured 2026-09-20: 10.198.0.11/32 on leaf2 logged three times)
 			continue
 		}
 		nextByPrefix[k] = true

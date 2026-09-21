@@ -95,7 +95,7 @@ spec:
             # TCP_MD5SIG and the session stayed ACTIVE. This kernel has
             # CONFIG_TCP_MD5SIG=y — apply.sh records whether gobgp can set it.
             - name: bgp_peers
-              value: "172.19.254.11:65101:__BGP_PASSWORD__:false,172.19.254.12:65102:__BGP_PASSWORD__:false"
+              value: "172.20.254.11:65101:__BGP_PASSWORD__:false,172.20.254.12:65102:__BGP_PASSWORD__:false"
             - name: bgp_routerid
               valueFrom:
                 fieldRef:

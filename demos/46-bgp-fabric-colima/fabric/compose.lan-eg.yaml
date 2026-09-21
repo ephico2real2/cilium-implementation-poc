@@ -1,17 +1,17 @@
 # Overlay: attach the Colima fabric's leaves to kind-eg-colima at the
-# network-devices block (enhancement 008 / Desktop compose.lan-eg.yaml
-# for kind-eg). The leaf frr.conf already carries
-# `bgp listen range 172.19.0.0/17` and prefix-list EG-POC1-VIPS.
-# Apply with both files and --no-recreate so the four routers stay.
+# network-devices block (enhancement 008 / P4). The leaf frr.conf already
+# carries `bgp listen range 172.20.0.0/17` and prefix-list EG-POC1-VIPS
+# (`10.198.0.0/26`). Apply with both files and --no-recreate so the four
+# routers stay.
 services:
   leaf1:
     networks:
       kind-eg-colima:
-        ipv4_address: 172.19.254.11
+        ipv4_address: 172.20.254.11
   leaf2:
     networks:
       kind-eg-colima:
-        ipv4_address: 172.19.254.12
+        ipv4_address: 172.20.254.12
 
 networks:
   kind-eg-colima:

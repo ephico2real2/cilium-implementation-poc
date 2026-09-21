@@ -30,25 +30,25 @@
         ]
       }
     ],
-    "10.98.0.10/32": [
+    "10.198.0.10/32": [
       {
         "valid": true,
         "bestpath": true,
         "selectionReason": "First path received",
         "pathFrom": "external",
-        "prefix": "10.98.0.10",
+        "prefix": "10.198.0.10",
         "prefixLen": 32,
-        "network": "10.98.0.10/32",
+        "network": "10.198.0.10/32",
         "version": 4,
         "metric": 0,
         "locPrf": 100,
         "weight": 0,
-        "peerId": "172.19.0.3",
+        "peerId": "172.20.0.3",
         "path": "65021",
         "origin": "IGP",
         "nexthops": [
           {
-            "ip": "172.19.0.3",
+            "ip": "172.20.0.3",
             "hostname": "eg-poc1-worker",
             "afi": "ipv4",
             "used": true

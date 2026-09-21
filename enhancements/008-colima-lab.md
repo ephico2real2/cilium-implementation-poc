@@ -48,7 +48,7 @@ What runs on Colima:
 | # | Lab | What it is |
 |---|---|---|
 | 46c | `demos/46-bgp-fabric-colima` | the four-router fabric, with TCP MD5 **enforced** instead of warned |
-| 54c | `demos/54-eg-poc1-kube-vip-colima` | one kind cluster (`eg-poc1-colima` on `kind-eg-colima`), kube-vip AS 65021. **Measured 2026-09-20:** nodes `172.19.0.2` / `.3`; dashboard `routers 4/4 · fabric sessions 6/6 · server sessions 4/4 · external 2`; door `10.98.0.10/32`; client0 `http_code=200`; MD5 **signed** (`20` packets, `Established→ABSENT; restored`); check 6 PASS, 1 WARN (Mac `sudo` route), 0 FAIL |
+| 54c | `demos/54-eg-poc1-kube-vip-colima` | one kind cluster (`eg-poc1-colima` on `kind-eg-colima` `172.20.0.0/16`), kube-vip AS 65021. Door `10.198.0.10` in `10.198.0.0/26`. The Colima family has its own address space (P4 closed): Desktop keeps `172.19` / `10.98`. The Mac's gateway is the profile's vzNAT address `192.168.64.4`; the operator's line is `sudo route -n add -net 10.198.0.0/24 192.168.64.4` |
 | 52c | `demos/52-eg-poc2-metallb-colima` | one kind cluster, MetalLB's FRR-K8s speaking BGP to that fabric |
 
 What does not: **everything else**. Every existing lab — `poc1`/`poc2`, the vanilla Envoy Gateway clusters `eg-poc1`
@@ -66,8 +66,10 @@ demos, and of nothing else here.
 The question that started this was whether the **existing** kind clusters on Docker Desktop could peer with a
 fabric inside Colima. Measured:
 
-- Both VMs sit on the same host bridge: Docker Desktop at `192.168.64.2`, Colima at `192.168.64.3`
-  (`colima start --network-address`), and the Mac reaches both (0.95 ms).
+- Both VMs sit on the same host bridge: Docker Desktop at `192.168.64.2`, the `md5lab` Colima profile at
+  `192.168.64.3` (`colima start --network-address`), and the Mac reaches both (0.95 ms). The `bgp-fabric` profile
+  had **no** such address until 2026-09-21 — it was created without the flag and had only Lima's user-mode
+  `192.168.5.3`; a stop/start with `--network-address` gave it `192.168.64.4` (measured, no data lost).
 - They **overlap in RFC1918 space**. From inside the Colima VM, `ping 172.19.0.3` answers in 0.19 ms — its own
   bridge, not Desktop's `kind-eg` node of the same address.
 - Docker SNATs anything leaving a bridge, so a cross-VM session arrives from `192.168.64.2`, not from the node.
@@ -88,7 +90,7 @@ kind clusters   eg-poc1-colima            kube-vip     (kindnet + kube-proxy)
                 eg-poc2-colima            MetalLB      (kindnet + kube-proxy)
 registry        kind-registry             127.0.0.1:5001  (measured working: push from the Mac, catalog read back)
 dashboard       127.0.0.1:8098            (8088 is the Desktop fabric's — they must not collide)
-the Mac's route <VIP block> → 192.168.64.3
+the Mac's route <VIP block> → the profile's vzNAT address (colima list → ADDRESS; 192.168.64.4 here)
 ```
 
 ### 3.1 Rules every script in the family obeys
@@ -140,7 +142,7 @@ ln -sfn "$(brew --prefix)/opt/docker-buildx/bin/docker-buildx"   ~/.docker/cli-p
 | Lab | The rows that make it worth running |
 |---|---|
 | 46c | the kernel flag; the fabric converged; **packets carrying a TCP-MD5 option**; **a wrong password breaks the session and restoring it brings the session back**; the dashboard reading the routers over the management LAN |
-| 54c | kube-vip peering from each node's own address (`172.19.0.2`, `172.19.0.3`); `4/4` SERVERS Established (both nodes × both leaves); door `10.98.0.10/32` in each leaf with a node next hop (AS 65021, ECMP); client0 `http_code=200` after the node return route `10.200.0.0/16 via 172.19.254.11` (Docker inter-bridge isolation — a Colima-specific finding); Mac `WARN` until the operator adds `10.98.0.0/24 → 192.168.64.3` (script never runs `sudo`); dashboard `routers 4/4 · fabric sessions 6/6 · server sessions 4/4 · external 2`; **both halves signed** (`md5-option packets=20`; mismatch `Established→ABSENT; restored`). Gobgp set `TCP_MD5SIG` on this kernel (`6.8.0-117-generic`) — the opposite of Desktop's `sockopt_linux.go` refusal |
+| 54c | kube-vip peering from each node's own address on `172.20.0.0/17`; `4/4` SERVERS Established (both nodes × both leaves); door `10.198.0.10/32` in each leaf with a node next hop (AS 65021, ECMP); client0 `http_code=200` after the node return route; dashboard `server sessions 4/4 · external 2`; **the session signed** — `md5` option on every segment in both directions, and the negative control on the peer-group key; the VM route plus `DOCKER-USER` accept for `10.198.0.0/24`; the VIP answered from the Mac over `10.198.0.0/24 → 192.168.64.4` (`route in place http_code=200`, check `2026-09-21T00:36:14Z` 7 PASS) |
 | 52c | the same for MetalLB's FRR-K8s speaker, including its own `BGPPeer`/`BGPAdvertisement` objects and `ServiceBGPStatus` |
 
 Each lab carries the three pages of the `demo-guide` skill and its own `check.sh` whose exit is the FAIL count.
@@ -153,5 +155,5 @@ Each lab carries the three pages of the `demo-guide` skill and its own `check.sh
 | D2 | One Colima profile (`lab`) for the BGP labs | the clusters and the fabric must share a Docker context to peer without NAT (§2) |
 | D3 | Default CNI only — kindnet + kube-proxy | the operator, 2026-09-20 |
 | D4 | A local registry instead of `kind load` | one build, one push, both clusters pull the same digest; measured working through Colima's port forwarding |
-| D5 | The Mac reaches VIPs by a route to `192.168.64.3`, not by `extraPortMappings` | a port mapping cannot express one address per door |
+| D5 | The Mac reaches VIPs by a route to the profile's vzNAT address (`--network-address`; `192.168.64.4` here — `192.168.64.3` is `md5lab`'s), plus a `DOCKER-USER` accept in the VM, not by `extraPortMappings` | a port mapping cannot express one address per door; Docker 29's `FORWARD` policy drops what enters from outside a bridge (measured 2026-09-21) |
 | D6 | MD5 is a FAIL row here, not a WARN | on this kernel it is enforceable, so an unsigned session is a defect rather than a platform limit |

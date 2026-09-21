@@ -23,8 +23,8 @@ func TestBuildGraphMergesPairAndKeepsExternal(t *testing.T) {
 		{Router: "spine", Peer: "10.200.1.19", PeerASN: 65000, State: "Established", Uptime: "00:00:04", PfxRcd: 2},
 		{Router: "spine", Peer: "10.200.1.2", PeerASN: 65101, State: "Established", PfxRcd: 1},
 		{Router: "leaf1", Peer: "10.200.1.3", PeerASN: 65100, State: "Established", PfxRcd: 4},
-		{Router: "leaf1", Peer: "172.19.0.3", PeerASN: 65021, State: "Established", PfxRcd: 2},
-		{Router: "leaf2", Peer: "172.19.0.3", PeerASN: 65021, State: "Established", PfxRcd: 2},
+		{Router: "leaf1", Peer: "172.20.0.3", PeerASN: 65021, State: "Established", PfxRcd: 2},
+		{Router: "leaf2", Peer: "172.20.0.3", PeerASN: 65021, State: "Established", PfxRcd: 2},
 	}
 	nodes, edges := buildGraph(testRouters(), sessions, testASNames())
 	kinds := map[string]string{}
@@ -34,20 +34,20 @@ func TestBuildGraphMergesPairAndKeepsExternal(t *testing.T) {
 	if kinds["edge"] != "router" || kinds["spine"] != "router" {
 		t.Fatalf("router kinds = %v", kinds)
 	}
-	if kinds["172.19.0.3"] != "external" {
-		t.Fatalf("expected external node 172.19.0.3, got %v", kinds)
+	if kinds["172.20.0.3"] != "external" {
+		t.Fatalf("expected external node 172.20.0.3, got %v", kinds)
 	}
 	var ext Node
 	for _, n := range nodes {
-		if n.ID == "172.19.0.3" {
+		if n.ID == "172.20.0.3" {
 			ext = n
 		}
 	}
-	if ext.Label != "eg-poc1 (kube-vip)\n172.19.0.3" {
+	if ext.Label != "eg-poc1 (kube-vip)\n172.20.0.3" {
 		t.Fatalf("external label %q", ext.Label)
 	}
 	// one edge for edge↔spine (merged), one spine↔leaf1, two leaf→external?
-	// both leaves see the same address → two edges leaf1|172.19.0.3 and leaf2|172.19.0.3
+	// both leaves see the same address → two edges leaf1|172.20.0.3 and leaf2|172.20.0.3
 	if len(edges) != 4 {
 		t.Fatalf("edges = %d %+v", len(edges), edges)
 	}
@@ -78,7 +78,7 @@ func TestBuildGraphWorseState(t *testing.T) {
 
 func TestBuildGraphIdleIsDownStaleWins(t *testing.T) {
 	sessions := []Session{
-		{Router: "leaf1", Peer: "172.19.0.3", PeerASN: 65021, State: "Idle"},
+		{Router: "leaf1", Peer: "172.20.0.3", PeerASN: 65021, State: "Idle"},
 		{Router: "leaf1", Peer: "10.200.1.3", PeerASN: 65100, State: "Established", Stale: true},
 	}
 	_, edges := buildGraph(testRouters(), sessions, testASNames())
@@ -86,7 +86,7 @@ func TestBuildGraphIdleIsDownStaleWins(t *testing.T) {
 	for _, e := range edges {
 		byID[e.ID] = e.State
 	}
-	if byID["172.19.0.3|leaf1"] != stateDown {
+	if byID["172.20.0.3|leaf1"] != stateDown {
 		t.Fatalf("down edge %v", byID)
 	}
 	if byID["leaf1|spine"] != stateStale {

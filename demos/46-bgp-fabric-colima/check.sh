@@ -185,7 +185,7 @@ else
   row fail "ECMP maximum-paths on spine and leaves" "$ecmp_msg" "R5 — maximum-paths 8"
 fi
 
-# 9. SERVERS listen both /17s + policy on both leaves
+# 9. SERVERS listen the Colima node LAN only + policy on both leaves
 listen_ok=1
 listen_msg=""
 for leaf in leaf1 leaf2; do
@@ -196,8 +196,9 @@ for leaf in leaf1 leaf2; do
     listen_msg="${listen_msg}${leaf}:vtysh-fail "
     continue
   fi
-  if ! printf '%s\n' "$lo" | grep -F -q 'bgp listen range 172.19.0.0/17 peer-group SERVERS' \
-     || ! printf '%s\n' "$lo" | grep -F -q 'bgp listen range 172.18.0.0/17 peer-group SERVERS' \
+  if ! printf '%s\n' "$lo" | grep -F -q 'bgp listen range 172.20.0.0/17 peer-group SERVERS' \
+     || printf '%s\n' "$lo" | grep -F -q 'bgp listen range 172.18.0.0/17' \
+     || printf '%s\n' "$lo" | grep -F -q 'bgp listen range 172.19.0.0/17' \
      || ! printf '%s\n' "$lo" | grep -F -q 'maximum-prefix 64' \
      || ! printf '%s\n' "$lo" | grep -E -q 'neighbor SERVERS timers 3 9'; then
     listen_ok=0
@@ -205,11 +206,11 @@ for leaf in leaf1 leaf2; do
   fi
 done
 if [ "$listen_ok" -eq 1 ]; then
-  row ok "SERVERS listen both /17s on both leaves" "leaf1+leaf2" \
-    "D5 / §9.1 — listen range on the peer-group"
+  row ok "SERVERS listen 172.20.0.0/17 on both leaves" "leaf1+leaf2" \
+    "P4 — Colima node LAN only; the Cilium lab /17 is not here"
 else
-  row fail "SERVERS listen both /17s on both leaves" "$listen_msg" \
-    "D5 / §9.1 — listen range on the peer-group"
+  row fail "SERVERS listen 172.20.0.0/17 on both leaves" "$listen_msg" \
+    "P4 — Colima node LAN only; the Cilium lab /17 is not here"
 fi
 
 # 10. per-cluster VIP prefix-lists
@@ -220,13 +221,13 @@ if [ "$pl_rc" -ne 0 ]; then
   pl_ok=0
 else
   for want in \
-    'ip prefix-list EG-POC1-VIPS seq 10 permit 10.98.0.0/26 ge 32 le 32' \
-    'ip prefix-list EG-POC2-VIPS seq 10 permit 10.98.0.64/26 ge 32 le 32' \
-    'ip prefix-list EG-ANYCAST-VIPS seq 10 permit 10.98.0.192/26 ge 32 le 32' \
-    'ip prefix-list CILIUM-POC1-VIPS seq 10 permit 10.99.0.0/26 ge 32 le 32' \
-    'ip prefix-list CILIUM-POC2-VIPS seq 10 permit 10.99.0.64/26 ge 32 le 32' \
-    'ip prefix-list CILIUM-ANYCAST-VIPS seq 10 permit 10.99.0.192/26 ge 32 le 32' \
-    'ip prefix-list EG-VIPS seq 10 permit 10.98.0.0/24 ge 32 le 32'
+    'ip prefix-list EG-POC1-VIPS seq 10 permit 10.198.0.0/26 ge 32 le 32' \
+    'ip prefix-list EG-POC2-VIPS seq 10 permit 10.198.0.64/26 ge 32 le 32' \
+    'ip prefix-list EG-ANYCAST-VIPS seq 10 permit 10.198.0.192/26 ge 32 le 32' \
+    'ip prefix-list CILIUM-POC1-VIPS seq 10 permit 10.199.0.0/26 ge 32 le 32' \
+    'ip prefix-list CILIUM-POC2-VIPS seq 10 permit 10.199.0.64/26 ge 32 le 32' \
+    'ip prefix-list CILIUM-ANYCAST-VIPS seq 10 permit 10.199.0.192/26 ge 32 le 32' \
+    'ip prefix-list EG-VIPS seq 10 permit 10.198.0.0/24 ge 32 le 32'
   do
     if ! printf '%s\n' "$pl_out" | grep -Fxq "$want"; then
       pl_ok=0

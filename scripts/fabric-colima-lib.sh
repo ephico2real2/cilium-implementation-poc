@@ -27,7 +27,18 @@ export FABRIC_COLIMA_ROUTER_IMAGE FABRIC_COLIMA_DASHBOARD_IMAGE
 # Demo 54c — one kind cluster in this VM. kind talks to Colima via
 # DOCKER_HOST (no `docker context use`). The kubeconfig is a file under
 # $HOME so Desktop's ~/.kube/config is never rewritten.
+#
+# Address plan is this family's own (P4 / enhancement 008). The Desktop
+# labs keep kind-eg 172.19.0.0/16 and EG VIPs 10.98.0.0/24; a Mac route
+# for a prefix can point at one VM only.
 KIND_EG_COLIMA_NET="${KIND_EG_COLIMA_NET:-kind-eg-colima}"
+KIND_EG_COLIMA_SUBNET="${KIND_EG_COLIMA_SUBNET:-172.20.0.0/16}"
+KIND_EG_COLIMA_IP_RANGE="${KIND_EG_COLIMA_IP_RANGE:-172.20.0.0/17}"
+KIND_EG_COLIMA_GATEWAY="${KIND_EG_COLIMA_GATEWAY:-172.20.0.1}"
+KIND_EG_COLIMA_LEAF1="${KIND_EG_COLIMA_LEAF1:-172.20.254.11}"
+KIND_EG_COLIMA_LEAF2="${KIND_EG_COLIMA_LEAF2:-172.20.254.12}"
+EG_COLIMA_VIP_BLOCK="${EG_COLIMA_VIP_BLOCK:-10.198.0.0/24}"
+EG_COLIMA_DOOR="${EG_COLIMA_DOOR:-10.198.0.10}"
 EG_COLIMA_CLUSTER="${EG_COLIMA_CLUSTER:-eg-poc1-colima}"
 EG_COLIMA_KUBECONFIG="${EG_COLIMA_KUBECONFIG:-$HOME/.kube/config-eg-poc1-colima}"
 KIND_REGISTRY_NAME="${KIND_REGISTRY_NAME:-kind-registry}"
@@ -84,7 +95,7 @@ fabric_colima_compose() {
   dk compose -p "$FABRIC_COLIMA_PROJECT" -f "$FABRIC_COLIMA_FABRIC/compose.yaml" "$@"
 }
 
-# Same project, plus the kind-eg-colima overlay (leaves at .254.11/.12).
+# Same project, plus the kind-eg-colima overlay (leaves at 172.20.254.11/.12).
 # Callers that attach the cluster LAN use this; fabric-only scripts stay
 # on fabric_colima_compose so a missing overlay file cannot break them.
 fabric_colima_compose_lan() {
@@ -112,9 +123,9 @@ fabric_colima_kind_env() {
 # so .254/24 (routers) and .255/24 (L2 VIP blocks) are never node addresses.
 fabric_colima_ensure_kind_net() {
   local name="${KIND_EG_COLIMA_NET}"
-  local subnet="172.19.0.0/16"
-  local ip_range="172.19.0.0/17"
-  local gateway="172.19.0.1"
+  local subnet="${KIND_EG_COLIMA_SUBNET}"
+  local ip_range="${KIND_EG_COLIMA_IP_RANGE}"
+  local gateway="${KIND_EG_COLIMA_GATEWAY}"
   local have mtu
   if dk network inspect "$name" >/dev/null 2>&1; then
     have=$(dk network inspect "$name" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' \
@@ -134,6 +145,35 @@ fabric_colima_ensure_kind_net() {
     -o com.docker.network.driver.mtu="$mtu" \
     "$name"
   echo "created $name: $(dk network inspect "$name" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}')"
+}
+
+# The VM's reachable address — Lima's vzNAT interface (col0), present only
+# when the profile runs with network.address (`colima start --network-address`).
+# Empty when it does not: then NO Mac route can reach this VM. Measured
+# 2026-09-20: 192.168.64.3 belongs to the md5lab profile, not to bgp-fabric,
+# whose profile had been created without the flag (eth0 192.168.5.3 only).
+fabric_colima_vm_address() {
+  colima list --json 2>/dev/null | python3 -c '
+import json, sys
+want = sys.argv[1]
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    d = json.loads(line)
+    if d.get("name") == want:
+        print(d.get("address") or "")
+        break
+' "$FABRIC_COLIMA_PROFILE"
+}
+
+# The Linux bridge behind the node LAN (Docker names it br-<12 hex of the
+# network id>), for the VM's own iptables rules.
+fabric_colima_kind_bridge() {
+  local id
+  id=$(dk network inspect "$KIND_EG_COLIMA_NET" --format '{{.Id}}' 2>/dev/null) || return 1
+  [ -n "$id" ] || return 1
+  printf 'br-%s\n' "${id:0:12}"
 }
 
 # colima start --activate (the default) switches the active docker context.

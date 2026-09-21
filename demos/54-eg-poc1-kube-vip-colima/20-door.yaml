@@ -1,5 +1,5 @@
 # The door — a LoadBalancer Service on the kube-vip class with a pin
-# in EG-POC1-VIPS (10.98.0.0/26). Envoy Gateway is not here: this demo
+# in EG-POC1-VIPS (10.198.0.0/26). Envoy Gateway is not here: this demo
 # is the cluster talking to the fabric, not the HTTP/gRPC product.
 apiVersion: apps/v1
 kind: Deployment
@@ -29,7 +29,7 @@ metadata:
   name: door
   namespace: door
   annotations:
-    kube-vip.io/loadbalancerIPs: "10.98.0.10"
+    kube-vip.io/loadbalancerIPs: "10.198.0.10"
 spec:
   type: LoadBalancer
   loadBalancerClass: kube-vip.io/kube-vip-class

@@ -28,7 +28,7 @@ func TestVanishedSessionIdleThenGoneAndHeldBounded(t *testing.T) {
 	t0 := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
 	now := t0
 
-	f.set(summaryPeers(65021, "00:01:00", map[string]string{"172.19.0.2": "Established"}), "")
+	f.set(summaryPeers(65021, "00:01:00", map[string]string{"172.20.0.2": "Established"}), "")
 	snap, _, _ := p.tick(now)
 	if len(snap.Sessions) != 1 || snap.Sessions[0].State != "Established" {
 		t.Fatalf("tick0 sessions %+v", snap.Sessions)
@@ -63,7 +63,7 @@ func TestVanishedSessionIdleThenGoneAndHeldBounded(t *testing.T) {
 
 	maxHeld := 0
 	for i := 0; i < 200; i++ { // a new dynamic-neighbour address every tick
-		f.set(summaryPeers(65021, "00:01:00", map[string]string{fmt.Sprintf("172.19.%d.%d", i/250, i%250+2): "Established"}), "")
+		f.set(summaryPeers(65021, "00:01:00", map[string]string{fmt.Sprintf("172.20.%d.%d", i/250, i%250+2): "Established"}), "")
 		now = now.Add(2 * time.Second)
 		p.tick(now)
 		if len(p.held) > maxHeld {
@@ -88,7 +88,7 @@ func TestAnsweredEmptySummaryIsNotStaleForever(t *testing.T) {
 	f := newFakeRouter(t)
 	p := newPoller([]RouterCfg{{Name: "leaf1", URL: f.srv.URL}}, map[int]string{65101: "leaf1"}, 2*time.Second)
 	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
-	f.set(summaryPeers(65021, "00:01:00", map[string]string{"172.19.0.2": "Established"}), "")
+	f.set(summaryPeers(65021, "00:01:00", map[string]string{"172.20.0.2": "Established"}), "")
 	p.tick(now)
 
 	f.set("{}\n", `{"warning":"Default BGP instance not found"}`)

@@ -106,17 +106,17 @@ func TestAnsweredEmptySummaryHoldsDownThenClears(t *testing.T) {
 // tick, so the signature has to be order-independent.
 func TestRouteOnlyChangeIsBroadcast(t *testing.T) {
 	const twoPaths = `{"routerId":"10.200.255.11","localAS":65101,"routes":{
-	 "10.98.0.10/32":[{"valid":true,"bestpath":true,"nexthops":[{"ip":"172.19.0.2"}],"path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.2"},
-	                  {"valid":true,"nexthops":[{"ip":"172.19.0.3"}],"path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.3"}],
-	 "10.98.0.11/32":[{"valid":true,"bestpath":true,"nexthops":[{"ip":"172.19.0.2"}],"path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.2"}],
+	 "10.198.0.10/32":[{"valid":true,"bestpath":true,"nexthops":[{"ip":"172.20.0.2"}],"path":"65021","origin":"IGP","weight":0,"peerId":"172.20.0.2"},
+	                  {"valid":true,"nexthops":[{"ip":"172.20.0.3"}],"path":"65021","origin":"IGP","weight":0,"peerId":"172.20.0.3"}],
+	 "10.198.0.11/32":[{"valid":true,"bestpath":true,"nexthops":[{"ip":"172.20.0.2"}],"path":"65021","origin":"IGP","weight":0,"peerId":"172.20.0.2"}],
 	 "10.200.255.11/32":[{"valid":true,"bestpath":true,"nexthops":[{"ip":"0.0.0.0"}],"path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"}]}}`
 	const onePath = `{"routerId":"10.200.255.11","localAS":65101,"routes":{
-	 "10.98.0.10/32":[{"valid":true,"bestpath":true,"nexthops":[{"ip":"172.19.0.2"}],"path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.2"}],
-	 "10.98.0.11/32":[{"valid":true,"bestpath":true,"nexthops":[{"ip":"172.19.0.2"}],"path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.2"}],
+	 "10.198.0.10/32":[{"valid":true,"bestpath":true,"nexthops":[{"ip":"172.20.0.2"}],"path":"65021","origin":"IGP","weight":0,"peerId":"172.20.0.2"}],
+	 "10.198.0.11/32":[{"valid":true,"bestpath":true,"nexthops":[{"ip":"172.20.0.2"}],"path":"65021","origin":"IGP","weight":0,"peerId":"172.20.0.2"}],
 	 "10.200.255.11/32":[{"valid":true,"bestpath":true,"nexthops":[{"ip":"0.0.0.0"}],"path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"}]}}`
 	const movedNexthop = `{"routerId":"10.200.255.11","localAS":65101,"routes":{
-	 "10.98.0.10/32":[{"valid":true,"bestpath":true,"nexthops":[{"ip":"172.19.0.3"}],"path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.3"}],
-	 "10.98.0.11/32":[{"valid":true,"bestpath":true,"nexthops":[{"ip":"172.19.0.2"}],"path":"65021","origin":"IGP","weight":0,"peerId":"172.19.0.2"}],
+	 "10.198.0.10/32":[{"valid":true,"bestpath":true,"nexthops":[{"ip":"172.20.0.3"}],"path":"65021","origin":"IGP","weight":0,"peerId":"172.20.0.3"}],
+	 "10.198.0.11/32":[{"valid":true,"bestpath":true,"nexthops":[{"ip":"172.20.0.2"}],"path":"65021","origin":"IGP","weight":0,"peerId":"172.20.0.2"}],
 	 "10.200.255.11/32":[{"valid":true,"bestpath":true,"nexthops":[{"ip":"0.0.0.0"}],"path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"}]}}`
 	const withdrawn = `{"routerId":"10.200.255.11","localAS":65101,"routes":{
 	 "10.200.255.11/32":[{"valid":true,"bestpath":true,"nexthops":[{"ip":"0.0.0.0"}],"path":"","origin":"IGP","weight":32768,"peerId":"(unspec)"}]}}`

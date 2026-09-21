@@ -58,6 +58,7 @@ if [ ! -d "$profile_dir" ]; then
     --disk 40 \
     --dns 8.8.8.8 \
     --dns 8.8.4.4 \
+    --network-address \
     --activate=false
 else
   echo "== 0. colima start --profile $FABRIC_COLIMA_PROFILE (existing; vmType/mountType frozen, disk can only grow)"
@@ -68,6 +69,16 @@ fi
 
 if ! fabric_colima_require_ctx; then
   exit 1
+fi
+
+# Without network.address the VM has no vzNAT interface and the Mac cannot
+# route to any VIP block in it (enhancement 008 §3.1 rule 4, D5). Enabling it
+# is a stop/start of the profile; containers stay, the fabric is re-applied.
+if [ -z "$(fabric_colima_vm_address)" ]; then
+  echo "fabric-colima-up: NOTE profile $FABRIC_COLIMA_PROFILE has no reachable address (network.address: false)." >&2
+  echo "  The Mac cannot route to VIPs inside this VM. To enable it:" >&2
+  echo "    colima stop --profile $FABRIC_COLIMA_PROFILE && colima start --profile $FABRIC_COLIMA_PROFILE --network-address --activate=false" >&2
+  echo "  then re-run this script and demos/54-eg-poc1-kube-vip-colima/apply.sh." >&2
 fi
 
 if [ ! -f "$FABRIC_COLIMA_FABRIC/.env" ] && [ -f "$FABRIC_COLIMA_FABRIC/.env.example" ]; then
