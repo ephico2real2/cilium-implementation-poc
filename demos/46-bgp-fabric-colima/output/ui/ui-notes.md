@@ -216,6 +216,30 @@ topology counts were hard-coded to this lab's 7/3/4; they are read from
 `/api/state`, so the assertion tests the invariant that matters — the view
 drops no edge — with a floor so it cannot pass against a lab that is down.
 
+## A placement could lose a node with nothing to say so
+
+The arrangement is remembered per browser, and the pull-back that keeps nodes
+inside a narrow pane skipped any node the reader had placed — on the reasoning
+that a rescue must not overrule a decision. It overruled nothing; it simply let
+the node leave the canvas. The ordinary case is the bad one: arrange on a wide
+window, reopen on a narrower one.
+
+```text
+before   arranged @1400 → opened @1200   4/6 on canvas, off=[leaf1 spine], 0 JS errors
+         six placements at 9000,9000     0/6 on canvas — a blank graph, no error
+         {"leaf1":{"x":"abc"}}           node painted at ("abc", 0)
+after    every case                      6/6 on canvas
+```
+
+Three changes. A placed node is now rescued only when **none** of it is on the
+canvas, so a visible placement is still never moved and the recorded position
+is left untouched — the arrangement returns at the width that made it. What
+comes out of `localStorage` is validated to finite numbers, because anything on
+the origin can write it and Cytoscape does not check a position. And the
+counter reports only placements that are actually in the topology, so two ghost
+ids no longer claim "2 placed by hand" over a picture with nothing moved, while
+Reset stays enabled so the record can still be cleared.
+
 ## Three defects this walk found that review had not
 
 1. **The pulse fired on a frame that measured nothing.** The signal frame is

@@ -503,13 +503,7 @@ body.stale-data #graph { opacity: 0.55; filter: saturate(0.4); }
 .traffic-list .msgs .down { color: var(--critical); font-weight: 600; }
 .traffic-list .heard .late { color: var(--late); }
 .traffic-list .heard .critical { color: var(--critical); font-weight: 600; }
-.traffic-list .heard .unknown { color: var(--muted); font-style: italic; }
-.traffic caption {
-  caption-side: top;
-  text-align: left;
-  color: var(--muted);
-  padding: 2px 0 6px;
-}
+
 
 /* ---- the strip under the topology --------------------------------------
    The graph pane had a large dead area below the nodes. It carries the two

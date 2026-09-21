@@ -263,6 +263,51 @@ async function page(viewport, q = '') {
   note(`      arrangement survived a re-render: ${kept}`);
   if (!kept) fail.push('a re-render moved the hand-placed nodes back to the layout');
 
+  // A placement must never leave a node off the canvas, and what comes out of
+  // localStorage is not trusted. Measured 2026-09-21 before the guard: a graph
+  // arranged at 1400px and reopened at 1200px showed 4 of 6 nodes with no JS
+  // error, and six placements at 9000,9000 rendered a blank graph.
+  const placedCases = [
+    ['arranged wider', '{"leaf1":{"x":1300,"y":700},"spine":{"x":1250,"y":80}}'],
+    ['non-numeric', '{"leaf1":{"x":"abc"}}'],
+    ['infinite', '{"leaf1":{"x":1e309,"y":1e309}}'],
+    ['all off-canvas', '{"edge":{"x":9000,"y":9000},"spine":{"x":9000,"y":9000},"leaf1":{"x":9000,"y":9000},"leaf2":{"x":9000,"y":9000},"172.20.0.3":{"x":9000,"y":9000},"172.20.0.4":{"x":9000,"y":9000}}'],
+    ['ghost ids', '{"ghost-1":{"x":10,"y":10},"ghost-2":{"x":20,"y":20}}'],
+    ['a real placement', '{"leaf1":{"x":300,"y":200}}'],
+  ];
+  for (const [label, value] of placedCases) {
+    const ctx2 = await b.newContext({ viewport: { width: 1200, height: 800 }, deviceScaleFactor: 1 });
+    await ctx2.addInitScript(`try { localStorage.setItem('bgp.placed', ${JSON.stringify(value)}); } catch (e) {}`);
+    const p2 = await ctx2.newPage();
+    const errs = [];
+    p2.on('pageerror', (e) => errs.push(String(e)));
+    await p2.goto(URL + '?router=leaf1', { waitUntil: 'networkidle' });
+    await p2.waitForFunction(() => document.body.dataset.ready === '1', { timeout: 15000 });
+    await p2.waitForTimeout(2200);
+    const m2 = await p2.evaluate(() => {
+      const cy = window.__cy, W = cy.width(), H = cy.height();
+      const off = cy.nodes().filter((n) => {
+        const pos = n.position(), bb = n.boundingBox({ includeLabels: true });
+        return !(Number.isFinite(pos.x) && Number.isFinite(pos.y)) || !(bb.x2 > 0 && bb.x1 < W && bb.y2 > 0 && bb.y1 < H);
+      }).map((n) => n.id());
+      return { total: cy.nodes().length, off, leaf1: cy.getElementById('leaf1').position(),
+               placed: window.__placed(), count: document.getElementById('sel-count').textContent.trim(),
+               resetDisabled: document.getElementById('reset-layout').disabled };
+    });
+    note(`placed[${label}]: ${m2.total - m2.off.length}/${m2.total} on canvas${m2.off.length ? ' off=[' + m2.off.join(' ') + ']' : ''}`);
+    if (m2.off.length) fail.push(`placed[${label}]: ${m2.off.length} node(s) not on the canvas`);
+    if (errs.length) fail.push(`placed[${label}] js errors: ` + errs.join(' | '));
+    if (label === 'non-numeric' && m2.placed.leaf1) fail.push('a non-numeric placement survived readPlaced');
+    if (label === 'infinite' && m2.placed.leaf1) fail.push('an infinite placement survived readPlaced');
+    if (label === 'a real placement' && !(m2.leaf1.x === 300 && m2.leaf1.y === 200))
+      fail.push(`a visible placement was moved: leaf1=${JSON.stringify(m2.leaf1)}`);
+    if (label === 'ghost ids') {
+      if (/placed by hand/.test(m2.count)) fail.push('ids that are not in the topology are counted as placed by hand');
+      if (m2.resetDisabled) fail.push('Reset must stay enabled while anything is stored, or a ghost cannot be cleared');
+    }
+    await ctx2.close();
+  }
+
   // the legend is resizable like the other panes
   const foot = await p.evaluate(async () => {
     const h = () => Math.round(document.querySelector('.graph-foot').getBoundingClientRect().height);

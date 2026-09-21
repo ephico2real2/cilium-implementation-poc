@@ -446,10 +446,15 @@
     const paneH = $("graph").clientHeight || m.h;
     const inset = 16;
     cy.nodes().forEach((n) => {
-      // A node the reader placed is left alone: the pull-back exists to rescue
-      // the automatic layout at narrow widths, not to overrule a decision.
-      if (placed[n.id()]) return;
       const bb = n.boundingBox({ includeLabels: true, includeOverlays: false });
+      // A node the reader placed is left where they put it — UNLESS none of it
+      // is on the canvas. Arranging at one window width and opening at another
+      // otherwise loses nodes with nothing on the page to say so: measured
+      // 2026-09-21, a graph arranged at 1400px and reopened at 1200px showed
+      // 4 of 6 nodes, no JS error, and the counter still claiming "2 placed by
+      // hand". The rescue is for THIS render only — the recorded position is
+      // untouched, so the arrangement returns at the width that made it.
+      if (placed[n.id()] && bb.x2 > 0 && bb.x1 < paneW && bb.y2 > 0 && bb.y1 < paneH) return;
       let x = n.position("x");
       let y = n.position("y");
       const hw = bb.w / 2, hh = bb.h / 2;
@@ -719,12 +724,27 @@
 
   let placed = readPlaced();
 
+  // readPlaced accepts only what savePlaced writes: an object of id -> {x, y}
+  // with FINITE numbers. Anything on the origin can write localStorage and
+  // Cytoscape does not validate a position — measured 2026-09-21, {"x":"abc"}
+  // painted a node at ("abc", 0) and {} put it at (0, 0), neither throwing. A
+  // bad entry is dropped on its own so one corrupt node does not discard the
+  // whole arrangement.
   function readPlaced() {
+    let v = null;
     try {
       const raw = localStorage.getItem("bgp.placed");
-      const v = raw ? JSON.parse(raw) : null;
-      return v && typeof v === "object" ? v : {};
+      v = raw ? JSON.parse(raw) : null;
     } catch (err) { return {}; }
+    if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+    const out = {};
+    for (const id of Object.keys(v)) {
+      const q = v[id];
+      if (q && typeof q === "object" && Number.isFinite(q.x) && Number.isFinite(q.y)) {
+        out[id] = { x: q.x, y: q.y };
+      }
+    }
+    return out;
   }
 
   function savePlaced() {
@@ -742,7 +762,13 @@
     const el = $("sel-count");
     if (!el) return;
     const n = cy ? cy.$("node:selected").length : 0;
-    const moved = Object.keys(placed).length;
+    // Count the placements the reader can SEE. `placed` also remembers nodes
+    // that have left the topology — a cluster peer that went away — and those
+    // are kept so the arrangement is there when it returns, but "2 placed by
+    // hand" over a picture with nothing moved is a lie. Reset stays enabled
+    // while anything is stored, so the record can still be cleared.
+    const moved = cy ? cy.nodes().filter((m) => placed[m.id()]).length : 0;
+    const stored = Object.keys(placed).length;
     if (n > 0) {
       el.textContent = n + (n === 1 ? " node selected" : " nodes selected") + " — drag one to move them together";
       el.classList.add("active");
@@ -754,7 +780,7 @@
     const clear = $("clear-sel");
     const reset = $("reset-layout");
     if (clear) clear.disabled = n === 0;
-    if (reset) reset.disabled = moved === 0;
+    if (reset) reset.disabled = stored === 0;
   }
 
   function resetLayout() {
