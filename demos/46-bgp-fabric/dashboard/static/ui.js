@@ -276,6 +276,119 @@
     return [a, b].filter(Boolean).join(" · ");
   }
 
+
+  // FRR prints "(unspec)" in peerId for a path the router originated itself.
+  // It is an internal sentinel, not an address, and the RIB was showing it to
+  // the reader as though it were one.
+  function fromLabel(peerId) {
+    if (!peerId || peerId === "(unspec)") return "self";
+    return peerId;
+  }
+
+  // ---- signal ----------------------------------------------------------
+  //
+  // Everything below turns what the poller MEASURED into what the page may
+  // draw. The rule the API and the page share: no measurement, no motion. A
+  // session with hasTimers false has no heartbeat, not a heartbeat of zero;
+  // a session with hasDelta false has no volume, not a volume of zero.
+
+  // sessionHealth reads FRR's own clock rather than our sampling.
+  //
+  // quietMsec is bgpTimerLastRead: how long ago this peer last said anything.
+  // Measured on the fabric (keepalive 3s, hold 9s) it sawtooths 0 -> 3000 -> 0,
+  // so reaching keepaliveMsec is NORMAL — it is the instant before the next
+  // keepalive. Past that, a keepalive was missed; at holdMsec FRR tears the
+  // session down, so "critical" is set at two thirds of the hold time, which
+  // on this fabric is the last 3 seconds of a peer's life.
+  function sessionHealth(s) {
+    if (!s || !s.hasTimers || !(s.holdMsec > 0)) return { kind: "unknown", fraction: null };
+    const quiet = Math.max(0, s.quietMsec || 0);
+    const fraction = quiet / s.holdMsec;
+    const keepalive = s.keepaliveMsec > 0 ? s.keepaliveMsec : s.holdMsec / 3;
+    let kind = "ok";
+    if (quiet >= s.holdMsec * (2 / 3)) kind = "critical";
+    else if (quiet > keepalive) kind = "late";
+    return { kind: kind, fraction: fraction };
+  }
+
+  // sessionTraffic separates "this session carried a routing change" from
+  // "this session exchanged keepalives". Withdrawals make the prefix deltas
+  // negative, which is real signal about direction but must never be drawn as
+  // a negative width, so magnitude and sign are returned apart.
+  function sessionTraffic(s) {
+    if (!s || !s.hasDelta) return { known: false, messages: 0, prefixes: 0, withdrew: false };
+    const dRcvd = s.dRcvd || 0;
+    const dSent = s.dSent || 0;
+    const dPfx = (s.dPfxRcd || 0) + (s.dPfxSnt || 0);
+    return {
+      known: true,
+      messages: Math.max(0, dRcvd) + Math.max(0, dSent),
+      prefixes: Math.abs(dPfx),
+      withdrew: dPfx < 0,
+    };
+  }
+
+  // routerSignal is what a node draws.
+  //
+  // `accepting` is not inferred: FRR marks a peer that arrived through a
+  // listen range, so a router with one is carrying a cluster's traffic right
+  // now, and a router whose range is empty is up but idle. `beat` is true only
+  // on a tick where a message was actually counted.
+  function routerSignal(router, sessions) {
+    const mine = (sessions || []).filter((s) => s.router === (router && router.name) && !s.stale);
+    const out = {
+      reachable: !!(router && router.reachable),
+      accepting: !!(router && router.dynamicPeers > 0),
+      dynamicPeers: (router && router.dynamicPeers) || 0,
+      beat: false,
+      converging: false,
+      worst: "unknown",
+      known: false,
+    };
+    if (!out.reachable) return out;
+    if (router && router.hasDelta && router.dTableVersion > 0) out.converging = true;
+    const rank = { unknown: 0, ok: 1, late: 2, critical: 3 };
+    for (const s of mine) {
+      const t = sessionTraffic(s);
+      if (t.known) {
+        out.known = true;
+        if (t.messages > 0) out.beat = true;
+      }
+      const h = sessionHealth(s);
+      if (rank[h.kind] > rank[out.worst]) out.worst = h.kind;
+    }
+    return out;
+  }
+
+  // flowDirection turns a route event into an arrow along an edge. The peer
+  // that advertised the prefix is one end; the router that learned it is the
+  // other. Returns null when the router originated the route itself, because
+  // nothing travelled.
+  function flowDirection(ev, edges) {
+    if (!ev || ev.kind !== "route" || !ev.advertisedBy) return null;
+    for (const e of edges || []) {
+      const aMatch = e.aRouter === ev.router && e.bPeer === ev.advertisedBy;
+      const bMatch = e.bRouter === ev.router && e.aPeer === ev.advertisedBy;
+      if (aMatch || bMatch) {
+        const towards = ev.router;
+        const from = aMatch ? e.bRouter || e.target : e.aRouter || e.source;
+        return { edge: e.id, from: from, to: towards, prefix: ev.prefix };
+      }
+    }
+    return null;
+  }
+
+  // freshness says whether the page is looking at live data. ageMsec is
+  // stamped by the server when the snapshot is served, so it does not depend
+  // on the browser's clock agreeing with anything.
+  function freshness(ageMsec, pollMs) {
+    if (ageMsec == null || !Number.isFinite(ageMsec)) return { state: "unknown", label: "age unknown" };
+    const poll = pollMs > 0 ? pollMs : 2000;
+    if (ageMsec <= poll * 2) return { state: "live", label: "live" };
+    if (ageMsec <= poll * 5) return { state: "lagging", label: "lagging " + Math.round(ageMsec / 1000) + "s" };
+    return { state: "stale", label: "stale " + Math.round(ageMsec / 1000) + "s" };
+  }
+
   const api = {
     esc: esc,
     relativeTime: relativeTime,
@@ -287,6 +400,12 @@
     layoutGraph: layoutGraph,
     contrastRatio: contrastRatio,
     edgeCardText: edgeCardText,
+    sessionHealth: sessionHealth,
+    sessionTraffic: sessionTraffic,
+    routerSignal: routerSignal,
+    flowDirection: flowDirection,
+    freshness: freshness,
+    fromLabel: fromLabel,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.bgpUI = api;

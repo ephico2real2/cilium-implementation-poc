@@ -14,6 +14,12 @@
   --focus: #1d4ed8;
   --picked: #2f7d32;
   --hover-fill: #efe8dc;
+  /* signal: a router carrying a cluster's traffic, and the two degrees of a
+     peer running out of hold time. Distinct from --est/--trans/--down, which
+     say what STATE a session is in, not what it is doing. */
+  --accept: #0e7490;
+  --late: #a35f00;
+  --critical: #b42318;
   --card: #fffdf8;
   --wash-stale: #6b65701f;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -37,6 +43,9 @@
     --focus: #93c5fd;
     --picked: #4ade80;
     --hover-fill: #2a241c;
+    --accept: #22d3ee;
+    --late: #fbbf24;
+    --critical: #f87171;
     --card: #1f1b16;
     --wash-stale: #a8a29e26;
   }
@@ -82,6 +91,9 @@ h2 { font-size: 13px; margin: 0 0 6px; font-weight: 650; color: var(--muted); }
 .dot.session { background: var(--session); }
 .dot.router { background: var(--router); }
 .dot.route { background: var(--route); }
+.dot.accept { background: var(--accept); }
+.dot.late { background: var(--late); }
+.dot.critical { background: var(--critical); }
 
 .legend-bar {
   display: flex;
@@ -312,3 +324,78 @@ h2 .dot { margin-right: 4px; vertical-align: middle; }
   th, td { overflow-wrap: anywhere; }
   th:first-child, td.best { width: 1.2em; }
 }
+
+/* ---- resizable panes ---------------------------------------------------
+   The layout was three fixed percentages. It is now a grid whose columns and
+   rows are driven by custom properties, so a splitter can move them and
+   Cytoscape can be told to re-fit. The percentages below are the old ones, so
+   a page that has never been dragged looks exactly as it did. */
+main {
+  --split-col: 65%;
+  --split-row: 58%;
+}
+@media (min-width: 701px) {
+  main { display: grid; grid-template-columns: var(--split-col) 6px 1fr; }
+  #graph-pane { flex: none; min-width: 0; grid-column: 1; }
+  #split-col { grid-column: 2; }
+  .side { flex: none; min-width: 0; display: grid; grid-template-rows: var(--split-row) 6px 1fr; grid-column: 3; }
+  /* Every track is assigned by NAME, not by source order. `.tabs` is
+     display:none at this width, so it leaves the grid entirely and
+     auto-placement slides everything up a track: measured 2026-09-21, the
+     splitter took the RIB's 58% row (a 402px grey void) and the Events pane
+     was squeezed into the 6px one. */
+  #rib-pane { flex: none; min-height: 0; grid-row: 1; }
+  #split-row { grid-row: 2; }
+  #events-pane { flex: none; min-height: 0; grid-row: 3; }
+}
+
+/* A splitter is a real control: it has a role, it takes focus, and the arrow
+   keys move it, because dragging is not available to everyone. */
+.splitter {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  position: relative;
+  touch-action: none;
+}
+.splitter::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--line);
+  transition: background 120ms ease;
+}
+.splitter:hover::before, .splitter:focus-visible::before { background: var(--focus); }
+.splitter:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.splitter[aria-orientation="vertical"] { cursor: col-resize; }
+.splitter[aria-orientation="horizontal"] { cursor: row-resize; }
+body.dragging { user-select: none; cursor: col-resize; }
+@media (max-width: 700px) { .splitter { display: none; } }
+
+/* ---- the strip beside the RIB and above Events -------------------------
+   The two gutters the layout was wasting. They carry per-edge numbers the
+   page already has and had nowhere to put. */
+.signal-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+.signal-strip .k { color: var(--muted); }
+.signal-strip .v { color: var(--fg); font-family: var(--mono); }
+.signal-strip .v.accept { color: var(--accept); }
+.signal-strip .v.late { color: var(--late); }
+.signal-strip .v.critical { color: var(--critical); }
+.signal-strip .v.unknown { color: var(--muted); font-style: italic; }
+.signal-strip.empty { color: var(--muted); font-style: italic; }
+
+/* freshness: the page says out loud when it is showing data that stopped
+   arriving, instead of animating over it. */
+#age.lagging { color: var(--late); }
+#age.stale { color: var(--critical); font-weight: 600; }
+body.stale-data #graph { opacity: 0.55; filter: saturate(0.4); }

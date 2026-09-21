@@ -21,14 +21,23 @@ fail=0
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-# a pristine two-copy tree, laid out as the gate expects (it resolves the repo
-# root from its own dirname/..)
+# A pristine two-copy tree, laid out as the gate expects (it resolves the repo
+# root from its own dirname/..).
+#
+# The files come from `git ls-files`, not from `cp -R`: the throwaway tree is
+# not a git repository, so the gate's "skip what git ignores" step cannot work
+# inside it, and a copied build artefact would fail case 1 for anyone who had
+# run `go build`. Copying what the REPOSITORY holds is also the honest thing to
+# test, because that is exactly what the gate claims to compare.
 fresh() {
   local d="$work/case$1"
-  rm -rf "$d"; mkdir -p "$d/tests" "$d/demos/46-bgp-fabric" "$d/demos/46-bgp-fabric-colima"
+  rm -rf "$d"; mkdir -p "$d/tests"
   cp "$GATE" "$d/tests/"
-  cp -R "$R/demos/46-bgp-fabric/dashboard" "$d/demos/46-bgp-fabric/"
-  cp -R "$R/demos/46-bgp-fabric-colima/dashboard" "$d/demos/46-bgp-fabric-colima/"
+  while IFS= read -r f; do
+    mkdir -p "$d/$(dirname "$f")"
+    cp "$R/$f" "$d/$f"
+  done < <(git -C "$R" ls-files --cached --others --exclude-standard \
+    'demos/46-bgp-fabric/dashboard/*' 'demos/46-bgp-fabric-colima/dashboard/*')
   printf '%s' "$d"
 }
 
@@ -95,6 +104,30 @@ if cmp -s "$R/demos/46-bgp-fabric-colima/dashboard/testdata/bgp-summary-establis
   fail=1
 else
   expect FAIL "$d" "a testdata peer state flipped in one copy"
+fi
+
+# 8. a build artefact must NOT fail the gate. `go build ./...` drops the
+#    compiled binary beside the source in whichever copy you built; it is
+#    gitignored, so it is not part of the repository and the gate skips it.
+#    This case runs against the real repo, because git ignore rules only exist
+#    there — the throwaway copies above are not git repositories.
+artefact="$R/demos/46-bgp-fabric-colima/dashboard/bgp-dashboard"
+if [ -e "$artefact" ]; then
+  echo "  skip: a real build artefact is already present; not overwriting it"
+else
+  cleanup_artefact() { rm -f "$artefact"; }
+  trap 'cleanup_artefact; rm -rf "$work"' EXIT
+  printf 'not really a binary\n' > "$artefact"
+  if ! git -C "$R" check-ignore -q "$artefact"; then
+    echo "FAIL: demos/*/dashboard/bgp-dashboard is not gitignored; one git add -A commits an 11 MB binary"
+    fail=1
+  elif (cd "$R" && bash tests/dashboard-copies-in-sync.sh >/dev/null 2>&1); then
+    echo "  ok: a gitignored build artefact does not fail the gate"
+  else
+    echo "FAIL: a gitignored build artefact failed the gate — it would fail for anyone who runs go build"
+    fail=1
+  fi
+  cleanup_artefact
 fi
 
 [ $fail -eq 0 ] || { echo "TEST FAIL: the sync gate does not catch every drift"; exit 1; }

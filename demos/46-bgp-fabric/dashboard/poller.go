@@ -26,9 +26,13 @@ type poller struct {
 
 	mu     sync.Mutex
 	prev   Snapshot
+	prevAt time.Time // when prev was taken, for the serve-time age
 	ready  bool
 	held   map[string]heldSession // router|peer
 	lastOK map[string]routerView  // last successful poll per router
+	// measuredTV is the tableVersion of the last tick that actually read each
+	// router's table. See the note where it is consumed.
+	measuredTV map[string]int
 }
 
 type routerView struct {
@@ -41,12 +45,13 @@ type routerView struct {
 
 func newPoller(routers []RouterCfg, asNames map[int]string, poll time.Duration) *poller {
 	return &poller{
-		routers: routers,
-		asNames: asNames,
-		poll:    poll,
-		client:  &http.Client{Timeout: 3 * time.Second},
-		held:    map[string]heldSession{},
-		lastOK:  map[string]routerView{},
+		routers:    routers,
+		asNames:    asNames,
+		poll:       poll,
+		client:     &http.Client{Timeout: 3 * time.Second},
+		held:       map[string]heldSession{},
+		lastOK:     map[string]routerView{},
+		measuredTV: map[string]int{},
 	}
 }
 
@@ -57,6 +62,11 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 		ok      bool
 		summary frrSummary
 		ipv4    frrIPv4
+		// neighbors carries FRR's own timers. It is fetched separately and
+		// NON-FATALLY: a router that answers the summary is reachable even if
+		// this third call fails, and the page then shows the session without a
+		// heartbeat rather than showing the router as down.
+		neighbors map[string]frrNeighbor
 	}
 	ch := make(chan result, len(p.routers))
 	var wg sync.WaitGroup
@@ -75,19 +85,44 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 				ch <- res
 				return
 			}
+			// The neighbors call runs BESIDE the ipv4 one, not after it. Warm
+			// it costs 7ms (measured on leaf1: 30 calls, 0.21s, the same as
+			// the 6x smaller summary — vtysh fork+exec dominates, not the
+			// payload). But a bgpd that stops answering makes every call sit
+			// on its 3s deadline, and in series that is one more full timeout
+			// per router per tick against a 2s poll. Concurrent, the third
+			// call costs nothing in either case. It stays behind a successful
+			// summary, so a router that is already failing is not asked again.
+			nbrCh := make(chan map[string]frrNeighbor, 1)
+			go func() {
+				raw, err := p.get(r.URL + "/show/bgp-neighbors")
+				if err != nil {
+					nbrCh <- nil
+					return
+				}
+				nbr, err := decodeNeighbors(raw)
+				if err != nil {
+					nbrCh <- nil
+					return
+				}
+				nbrCh <- nbr
+			}()
 			v4raw, err := p.get(r.URL + "/show/bgp-ipv4")
 			if err != nil {
+				<-nbrCh
 				ch <- res
 				return
 			}
 			v4, err := decodeIPv4(v4raw)
 			if err != nil {
+				<-nbrCh
 				ch <- res
 				return
 			}
 			res.ok = true
 			res.summary = sum
 			res.ipv4 = v4
+			res.neighbors = <-nbrCh
 			ch <- res
 		}(r)
 	}
@@ -101,6 +136,28 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	// Deltas are measured against the PREVIOUS snapshot's own counters. A
+	// session that was replayed stale last tick is skipped: its counters came
+	// from an older poll, so subtracting them would report several ticks of
+	// traffic as one tick's worth.
+	prevSession := map[string]Session{}
+	for _, s := range p.prev.Sessions {
+		// GoneAt marks a session replayed out of the hold-down: its counters
+		// are frozen at the tick it vanished, so a peer that comes back inside
+		// the 30s window would have up to fifteen ticks of traffic reported as
+		// one tick's worth.
+		if !s.Stale && s.GoneAt == "" {
+			prevSession[sessionKey(s)] = s
+		}
+	}
+	// The router delta is measured against the last tick that actually READ
+	// this router's table, which is not the same as the last tick it was
+	// reachable: a router answering `{}` is Reachable with TableVersion 0, and
+	// subtracting that zero reported the router's whole table version as one
+	// tick's change.
+	prevMeasuredTV := p.measuredTV
+	p.measuredTV = map[string]int{}
 
 	snap := Snapshot{
 		TS:   nowRFC3339ms(now),
@@ -116,9 +173,18 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 			fam := res.summary.IPv4Unicast
 			rt.ASN = fam.AS
 			rt.RouterID = fam.RouterID
+			rt.TableVersion = fam.TableVersion
+			rt.DynamicPeers = fam.DynamicPeers
+			rt.FailedPeers = fam.FailedPeers
+			rt.PeerCount = fam.PeerCount
+			p.measuredTV[cfg.Name] = fam.TableVersion
+			if prevTV, ok := prevMeasuredTV[cfg.Name]; ok {
+				rt.HasDelta = true
+				rt.DTableVersion = fam.TableVersion - prevTV
+			}
 			var ss []Session
 			for addr, peer := range fam.Peers {
-				ss = append(ss, Session{
+				s := Session{
 					Router:   cfg.Name,
 					Peer:     addr,
 					PeerASN:  peer.RemoteAS,
@@ -127,7 +193,32 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 					PfxRcd:   peer.PfxRcd,
 					PfxSnt:   peer.PfxSnt,
 					Hostname: peer.Hostname,
-				})
+					MsgRcvd:  peer.MsgRcvd,
+					MsgSent:  peer.MsgSent,
+					InQ:      peer.InQ,
+					OutQ:     peer.OutQ,
+					Flaps:    peer.ConnectionsDropped,
+					Dynamic:  peer.DynamicPeer,
+				}
+				// FRR emits bgpTimerLastRead for EVERY peer, up or not, and for
+				// a peer that is not Established it is not a heartbeat at all:
+				// it is the peer's age. Measured on real FRR 10.7.1 with a
+				// neighbour that never came up — bgpState "Active",
+				// bgpTimerLastRead 23000 and then 64000 forty-one seconds
+				// later, against a holdMsec of 9000. bgp_vty.c sums only
+				// tm_sec+tm_min+tm_hour, dropping the day, so the value also
+				// WRAPS every 24 h: a peer down for exactly a day reads 0,
+				// which a heartbeat renders as "it just spoke". FRR's own
+				// bgpState is what says whether the reading means anything.
+				if nbr, ok := res.neighbors[addr]; ok && nbr.BGPState == "Established" && s.State == "Established" {
+					s.HasTimers = true
+					s.QuietMsec = nbr.LastReadMsec
+					s.HoldMsec = nbr.HoldMsec
+					s.KeepaliveMsec = nbr.KeepaliveMsec
+					s.PeerGroup = nbr.PeerGroup
+				}
+				setSessionDelta(&s, prevSession[sessionKey(s)], prevSession)
+				ss = append(ss, s)
 			}
 			var rs []Route
 			for pfx, paths := range res.ipv4.Routes {
@@ -175,6 +266,7 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 			}
 			for _, s := range last.sessions {
 				s.Stale = true
+				s.clearSignal()
 				sessions = append(sessions, s)
 			}
 			routes = append(routes, last.routes...)
@@ -204,6 +296,7 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 				s.State = "Idle"
 				s.Stale = false
 				s.GoneAt = nowRFC3339ms(now)
+				s.clearSignal()
 				p.held[k] = heldSession{Session: s, goneAt: now}
 			}
 		}
@@ -253,6 +346,7 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 	events := diff(p.prev, snap, now)
 	stateChanged := stateSignature(p.prev) != stateSignature(snap)
 	p.prev = snap
+	p.prevAt = now
 	p.ready = true
 	return snap, events, stateChanged
 }
@@ -321,7 +415,60 @@ func (p *poller) get(url string) ([]byte, error) {
 }
 
 func (p *poller) snapshot() (Snapshot, bool) {
+	return p.snapshotAt(time.Now())
+}
+
+// snapshotAt stamps how old the snapshot is AT THE MOMENT IT IS SERVED, which
+// is the number the page needs: if the poll loop stalls, every field below is
+// still the last good reading and only this one says so. A browser cannot work
+// it out from TS without trusting its own clock against the server's.
+func (p *poller) snapshotAt(now time.Time) (Snapshot, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.prev, p.ready
+	snap := p.prev
+	if !p.prevAt.IsZero() {
+		snap.AgeMsec = now.Sub(p.prevAt).Milliseconds()
+	}
+	return snap, p.ready
+}
+
+// clearSignal drops every field that is a measurement OF THIS TICK. It is
+// called on a session the poll did not read this tick — one replayed stale
+// because its router did not answer, and one replayed out of the hold-down
+// because it vanished from the table.
+//
+// The last-known counters (MsgRcvd, PfxRcd, Flaps) stay: they are labelled by
+// Stale or GoneAt and the page shows them as last-known. The per-tick deltas
+// and FRR's timers cannot survive that, because there is no tick behind them.
+// Without this a held session was replayed with HasDelta true and a one-second
+// heartbeat for the whole 30s it was gone — and Stale is deliberately false on
+// a held session, so the page had nothing to gate on.
+func (s *Session) clearSignal() {
+	s.HasDelta = false
+	s.DRcvd, s.DSent, s.DPfxRcd, s.DPfxSnt = 0, 0, 0, 0
+	s.HasTimers = false
+	s.QuietMsec, s.HoldMsec, s.KeepaliveMsec = 0, 0, 0
+	s.InQ, s.OutQ = 0, 0
+}
+
+// setSessionDelta fills the per-tick deltas from the previous sample of the
+// same session.
+//
+// A counter that went DOWN means the session was reset between polls (bgpd
+// restarts these at zero), so there is no interval to measure and HasDelta
+// stays false — reporting a negative pulse, or clamping it to zero, would both
+// be inventions. The flap itself is still visible: FRR's connectionsDropped
+// survives the reset and is carried as Flaps.
+func setSessionDelta(s *Session, prev Session, have map[string]Session) {
+	if _, ok := have[sessionKey(*s)]; !ok {
+		return // first sight of this session: nothing to subtract
+	}
+	if s.MsgRcvd < prev.MsgRcvd || s.MsgSent < prev.MsgSent {
+		return
+	}
+	s.HasDelta = true
+	s.DRcvd = s.MsgRcvd - prev.MsgRcvd
+	s.DSent = s.MsgSent - prev.MsgSent
+	s.DPfxRcd = s.PfxRcd - prev.PfxRcd
+	s.DPfxSnt = s.PfxSnt - prev.PfxSnt
 }

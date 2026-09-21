@@ -25,22 +25,36 @@ for d in "$A" "$B"; do
   [ -d "$d" ] || { echo "FAIL: missing $d"; exit 1; }
 done
 
-# Every file on one side exists on the other. No path is excluded: a vendor/
-# tree in one copy only (`go mod vendor` run in one directory) is a build-input
-# fork, not an addressing difference, and neither copy is gitignored.
+# This gate compares what is IN THE REPOSITORY, so a path git ignores is
+# skipped: `go build ./...` drops an 11 MB binary beside the source, and the
+# gate would otherwise fail for anyone who builds. Nothing else is excluded —
+# a vendor/ tree in one copy only (`go mod vendor` run in one directory) is a
+# build-input fork, not an addressing difference, and neither copy is ignored.
+# Ignoring a path is a deliberate act recorded in .gitignore, not silent drift.
+tracked() {
+  git -C "$R" check-ignore -q "$1" 2>/dev/null && return 1
+  return 0
+}
+
+files_in() {
+  (cd "$1" && find . -type f | sed 's|^\./||' | sort)
+}
+
 for side in "$A:$B" "$B:$A"; do
   from=${side%%:*}; to=${side##*:}
   while IFS= read -r f; do
+    tracked "$from/$f" || continue
     if [ ! -f "$to/$f" ]; then
       echo "FAIL: $f exists in ${from#"$R/"} but not in ${to#"$R/"}"
       fail=1
     fi
-  done < <(cd "$from" && find . -type f | sed 's|^\./||' | sort)
+  done < <(files_in "$from")
 done
 
 # every shared file is identical unless it is on the allow-list
 while IFS= read -r f; do
   [ -f "$B/$f" ] || continue
+  tracked "$A/$f" || continue
   case " $ALLOWED_DIFF " in *" $f "*) allowed=yes ;; *) allowed=no ;; esac
   if cmp -s "$A/$f" "$B/$f"; then
     if [ "$allowed" = yes ]; then
@@ -51,7 +65,7 @@ while IFS= read -r f; do
     diff "$A/$f" "$B/$f" | head -6 | sed 's/^/       /'
     fail=1
   fi
-done < <(cd "$A" && find . -type f | sed 's|^\./||' | sort)
+done < <(files_in "$A")
 
 # The allow-listed differences must be ONLY addresses, ports and the image tag,
 # never logic. This is done by REWRITING the Colima family's addressing into the
