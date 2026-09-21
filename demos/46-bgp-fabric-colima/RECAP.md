@@ -36,35 +36,50 @@ control, and the Mac path is in
 
 ## Architecture
 
-Path from `client0` to a leaf loopback. `mgmt` is out of band:
+Four routers in one Colima VM, in RFC 7938 tiers. Every session below is **signed** — the password
+lines are enforcement on this kernel, not intent.
 
 ```text
- MacBook
- browser 127.0.0.1:8098
- route 10.198.0.0/24 → (colima list ADDRESS)
-        |
-        v
- Colima VM (profile bgp-fabric, Ubuntu 6.8.0-117-generic)
- context colima-bgp-fabric
-        |
-        |   client0 10.200.100.10
-        |      |  wan 10.200.100.0/24
-        |      v
-        |   edge  AS 65000   lo 10.200.255.1   mgmt .1
-        |      |  10.200.1.16/29  (edge .19 · spine .18)
-        |      v
-        |   spine AS 65100   lo 10.200.255.2   mgmt .2
-        |     / \  10.200.1.0/29            10.200.1.8/29
-        |    /   \ (leaf1 .2 · spine .3)   (leaf2 .10 · spine .11)
-        |   v     v
-        | leaf1 AS 65101                leaf2 AS 65102
-        | lo 10.200.255.11  mgmt .11    lo 10.200.255.12  mgmt .12
-        | SERVERS listen 172.20.0.0/17 only (no members)
-        |
-        |   mgmt 10.200.200.0/24 (not in BGP)
-        |   dashboard .100  →  127.0.0.1:8098
-        |   fabric internals 10.200.0.0/16
-        |   VIP block 10.198.0.0/24 (prefix-lists; door .10)
+      MacBook                        Colima VM · profile bgp-fabric · Ubuntu 6.8.0-117-generic
+  ┌───────────────┐             ┌───────────────────────────────────────────────────────────┐
+  │ browser       │──── :8098 ──┼──────────────────────────────┐                            │
+  │ curl 10.198.. │             │                              │                            │
+  └───────┬───────┘             │        ┌───────────────┐     │   wan 10.200.100.0/24      │
+          │                     │        │  client0      │     │                            │
+   route 10.198.0.0/24          │        │ 10.200.100.10 │     │                            │
+    via 192.168.64.4            │        └───────┬───────┘     │                            │
+          │                     │                │ .2          │                            │
+          └─────────────────────┼────────┐  ┌────┴─────┐       │                            │
+                                │        └─▶│   edge   │ AS 65000   lo 10.200.255.1         │
+                                │           └────┬─────┘                                    │
+                                │        10.200.1.16/29   .19 ── .18                        │
+                                │           ┌────┴─────┐                                    │
+                                │           │  spine   │ AS 65100   lo 10.200.255.2         │
+                                │           └──┬────┬──┘   maximum-paths 8                  │
+                                │  10.200.1.0/29    10.200.1.8/29                           │
+                                │      .3 ──┘        └── .11                                │
+                                │   ┌───────┴──┐      ┌──┴───────┐                          │
+                                │   │  leaf1   │      │  leaf2   │                          │
+                                │   │ AS 65101 │      │ AS 65102 │                          │
+                                │   │ lo ..11  │      │ lo ..12  │                          │
+                                │   └────┬─────┘      └─────┬────┘                          │
+                                │        └── SERVERS listen 172.20.0.0/17 ──┘                │
+                                │            (no members in this demo — 54c brings them)     │
+                                └───────────────────────────────────────────────────────────┘
+```
+
+The routers are managed on a second plane the data plane cannot reach. FORWARD drops transit onto it,
+and INPUT drops the agent's port on every interface but `mgmt` and `lo`:
+
+```text
+   mgmt 10.200.200.0/24  (not in BGP, Docker bridge .254)
+   ┌──────────┬──────────┬──────────┬──────────┐
+   │ edge .1  │ spine .2 │ leaf1 .11│ leaf2 .12│   each :8080, allow-listed `show … json`
+   └────┬─────┴────┬─────┴────┬─────┴────┬─────┘
+        └──────────┴────┬─────┴──────────┘
+                 ┌──────┴───────┐
+                 │ dashboard    │ 10.200.200.100 → 127.0.0.1:8098
+                 └──────────────┘
 ```
 
 | Name | Address | What it is | Who answers |

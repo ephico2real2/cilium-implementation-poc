@@ -42,35 +42,41 @@ cluster talking to the fabric.
 
 ## Architecture
 
-A request from `client0` to the door takes this path. The Mac
-reaches the same VIP over a route to the Colima VM's vzNAT
-address:
+The cluster's two nodes are BGP speakers: kube-vip peers with **both** leaves from each node's own
+address, so the door is a `/32` learned twice and reached by ECMP.
 
 ```text
- MacBook                         Colima VM (profile bgp-fabric)
- browser 127.0.0.1:8098          kernel 6.8.0-117-generic
- route 10.198.0.0/24 → .64.4     col0 192.168.64.4, context colima-bgp-fabric
-        |                        DOCKER-USER: accept 10.198.0.0/24 → node-LAN bridge
-        |   client0 10.200.100.10
-        |      |
-        |      v
-        |   edge AS 65000
-        |      |
-        |      v
-        |   spine AS 65100
-        |     / \
-        |    v   v
-        | leaf1 AS 65101          leaf2 AS 65102
-        | 172.20.254.11           172.20.254.12
-        |     \   /
-        |      v v
-        | kind-eg-colima 172.20.0.0/16 (ip-range /17)
-        |   worker .4  AS 65021   control-plane .3  AS 65021
-        |   kube-vip (both leaves)     kube-vip (both leaves)
-        |              \   /
-        |               v
-        |         door 10.198.0.10/32
+   MacBook                     Colima VM · profile bgp-fabric · one Docker context
+ ┌──────────────┐          ┌──────────────────────────────────────────────────────────────┐
+ │ browser      │          │                                                              │
+ │ 10.198.0.10  │          │   client0 10.200.100.10                                      │
+ └──────┬───────┘          │        │                                                     │
+        │                  │        ▼                                                     │
+ route 10.198.0.0/24       │   ┌─────────┐      ┌─────────┐                               │
+   via 192.168.64.4        │   │  edge   │─────▶│  spine  │        the fabric (demo 46c)  │
+        │                  │   │ AS65000 │      │ AS65100 │                               │
+        └──────────────────┼──▶└─────────┘      └────┬────┘                               │
+                           │                    ┌────┴────┐                               │
+                           │              ┌─────┴───┐ ┌───┴─────┐                         │
+                           │              │  leaf1  │ │  leaf2  │                         │
+                           │              │ AS65101 │ │ AS65102 │                         │
+                           │              └────┬────┘ └────┬────┘                         │
+                           │  kind-eg-colima   │ .11       │ .12    172.20.0.0/16         │
+                           │  ═════════════════╪═══════════╪══════════════════════        │
+                           │                   │  ╲     ╱  │   four sessions, all signed  │
+                           │              ┌────┴───╲───╱───┴────┐                         │
+                           │              │         ╳           │                         │
+                           │        ┌─────┴─────┐       ┌───────┴───┐                     │
+                           │        │ control-  │       │  worker   │  kube-vip AS 65021  │
+                           │        │ plane .3  │       │    .4     │  (both peer both)   │
+                           │        └─────┬─────┘       └─────┬─────┘                     │
+                           │              └──────┬────────────┘                           │
+                           │                 door 10.198.0.10/32  — ECMP over both nodes   │
+                           └──────────────────────────────────────────────────────────────┘
 ```
+
+The leaves accept the nodes through `bgp listen range 172.20.0.0/17`, so no neighbour is configured
+per node; each node's own address is the session's source, which is what makes the range match.
 
 | Name | Address | What it is | Who answers |
 |---|---|---|---|
