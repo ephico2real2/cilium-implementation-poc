@@ -14,6 +14,7 @@ mkdir -p "$T/bin" "$T/repo/demos/46-bgp-fabric-colima/fabric" "$T/repo/scripts/b
 cp "$R/demos/46-bgp-fabric-colima/check.sh" "$T/repo/demos/46-bgp-fabric-colima/check.sh"
 cp "$R/scripts/fabric-bgp-summary.py" "$T/repo/scripts/fabric-bgp-summary.py"
 cp "$R/scripts/fabric-dashboard-state.py" "$T/repo/scripts/fabric-dashboard-state.py"
+cp "$R/scripts/fabric-dashboard-agree.py" "$T/repo/scripts/fabric-dashboard-agree.py"
 cp "$R/scripts/fabric-colima-lib.sh" "$T/repo/scripts/fabric-colima-lib.sh"
 cp "$R/scripts/bootstrap/versions-eg.env" "$T/repo/scripts/bootstrap/versions-eg.env"
 printf 'name: bgp-fabric-colima\n' > "$T/repo/demos/46-bgp-fabric-colima/fabric/compose.yaml"
