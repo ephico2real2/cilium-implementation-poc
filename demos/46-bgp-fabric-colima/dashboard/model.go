@@ -26,6 +26,11 @@ type Router struct {
 	ASN       int    `json:"asn"`
 	RouterID  string `json:"routerId"`
 	Reachable bool   `json:"reachable"`
+	// LastSeen is the time of the last successful poll of this agent.
+	// Frozen while the router is unreachable so the page can say
+	// "cannot reach leaf2 — last seen 12s ago" instead of treating
+	// last-known RIB rows as live. Empty if the agent has never answered.
+	LastSeen string `json:"lastSeen,omitempty"`
 }
 
 type Node struct {

@@ -155,3 +155,26 @@ func TestRouteOnlyChangeIsBroadcast(t *testing.T) {
 		t.Fatalf("withdrawn: routes=%d changed=%v events=%v", n, changed, ev)
 	}
 }
+
+// LastSeen is the last successful poll, frozen while the agent is down, so
+// the page can say "cannot reach leaf1 — last seen 12s ago" instead of
+// presenting last-known RIB rows as current.
+func TestLastSeenFrozenWhenUnreachable(t *testing.T) {
+	f := newFakeRouter(t)
+	f.set(summaryWith(map[string]string{"10.200.1.3": "Established"}), "")
+	p := newPoller([]RouterCfg{{Name: "leaf1", URL: f.srv.URL}}, map[int]string{65100: "spine", 65101: "leaf1"}, 2*time.Second)
+	t0 := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	snap, _, _ := p.tick(t0)
+	if !snap.Routers[0].Reachable || snap.Routers[0].LastSeen != nowRFC3339ms(t0) {
+		t.Fatalf("reachable: %+v", snap.Routers[0])
+	}
+	f.srv.Close()
+	t1 := t0.Add(12 * time.Second)
+	snap, _, _ = p.tick(t1)
+	if snap.Routers[0].Reachable {
+		t.Fatal("closed server must be unreachable")
+	}
+	if snap.Routers[0].LastSeen != nowRFC3339ms(t0) {
+		t.Fatalf("unreachable lastSeen=%q want frozen at %s", snap.Routers[0].LastSeen, nowRFC3339ms(t0))
+	}
+}

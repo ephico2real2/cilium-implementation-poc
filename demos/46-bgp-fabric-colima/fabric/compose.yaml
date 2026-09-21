@@ -4,17 +4,18 @@
 # file as `network` and `bgp router-id`. They are BGP's; client0 still
 # pings them. The show-only agent binds the out-of-band management LAN
 # (FRR_AGENT_ADDR on 10.200.200.0/24); no router port is published.
-# The dashboard is a fifth compose service on mgmt .100 only, published
-# 127.0.0.1:8088 — an NMS reaches routers on their management
-# interfaces, not through the traffic they route. Password: copy
-# fabric/.env.example to fabric/.env (fabric-up.sh does this if .env is
+# The dashboard is a fifth compose service on mgmt .100 only, published on
+# 127.0.0.1:8098 (Desktop's fabric keeps 8088) — an NMS reaches routers on
+# their management interfaces, not through the traffic they route. Password:
+# copy fabric/.env.example to fabric/.env (fabric-up.sh does this if .env is
 # absent). FABRIC_BGP_PASSWORD (default lab-bgp) is rendered into
 # /etc/frr/frr.conf by the entrypoint; committed files have no secret.
 # env_file .env is optional.
-# Colima copy: fabric alone. No kind overlay this phase (kind-eg lives on
-# Docker Desktop, one kind cluster per Docker context). Images and the
-# published dashboard port are this demo's; the 10.200.x subnets stay —
-# they live inside the Colima VM and cannot collide with Desktop's.
+# Colima copy: images and the published dashboard port are this demo's; the
+# 10.200.x subnets stay — they live inside the Colima VM and cannot collide
+# with Desktop's. A cluster attaches with compose.lan-eg.yaml, which puts the
+# leaves on the node LAN at 172.20.254.11/.12; demo 54c runs its kind cluster
+# in this same VM, because a Desktop cluster cannot reach these bridges.
 name: bgp-fabric-colima
 
 x-router: &router
