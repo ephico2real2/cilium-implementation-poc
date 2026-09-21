@@ -12,6 +12,28 @@ func nowRFC3339ms(t time.Time) string {
 func sessionKey(s Session) string { return s.Router + "|" + s.Peer }
 func routeKey(r Route) string     { return r.Router + "|" + r.Prefix }
 
+// unspecPeer is what FRR prints as peerId for a route the router originated
+// itself (measured on leaf1 2026-09-21: 10.200.255.11/32, its own loopback,
+// reads peerId "(unspec)" with nexthop 0.0.0.0). It is a literal string, not
+// an empty field, so it has to be matched by name — otherwise the page would
+// try to animate an advertisement arriving from a peer called "(unspec)".
+const unspecPeer = "(unspec)"
+
+// advertisedBy returns the peer that advertised the chosen path for a prefix,
+// which is the direction an advertisement actually travelled. Empty when the
+// router originated the route itself.
+func advertisedBy(routes []Route, router, prefix string) string {
+	for _, r := range routes {
+		if r.Router == router && r.Prefix == prefix && r.Bestpath {
+			if r.PeerID == unspecPeer {
+				return ""
+			}
+			return r.PeerID
+		}
+	}
+	return ""
+}
+
 func bestNexthop(routes []Route, router, prefix string) (string, bool) {
 	for _, r := range routes {
 		if r.Router == router && r.Prefix == prefix && r.Bestpath {
@@ -92,7 +114,8 @@ func diff(prev, next Snapshot, ts time.Time) []Event {
 		}
 		if !found {
 			ev = append(ev, Event{TS: when, Kind: "route", Router: r.Router, Prefix: r.Prefix,
-				Text: fmt.Sprintf("%s: %s added via %s", r.Router, r.Prefix, r.Nexthop)})
+				AdvertisedBy: advertisedBy(next.Routes, r.Router, r.Prefix),
+				Text:         fmt.Sprintf("%s: %s added via %s", r.Router, r.Prefix, r.Nexthop)})
 		}
 	}
 	seenPrevPrefix := map[string]bool{}
@@ -103,14 +126,19 @@ func diff(prev, next Snapshot, ts time.Time) []Event {
 		}
 		seenPrevPrefix[k] = true
 		if !nextByPrefix[k] {
+			// A withdrawal is read from the PREVIOUS snapshot: the prefix is gone
+			// from the new one, so the peer it used to arrive from is the only
+			// place the direction still exists.
 			ev = append(ev, Event{TS: when, Kind: "route", Router: p.Router, Prefix: p.Prefix,
-				Text: fmt.Sprintf("%s: %s withdrawn", p.Router, p.Prefix)})
+				AdvertisedBy: advertisedBy(prev.Routes, p.Router, p.Prefix),
+				Text:         fmt.Sprintf("%s: %s withdrawn", p.Router, p.Prefix)})
 		} else {
 			oldNH, oldOK := bestNexthop(prev.Routes, p.Router, p.Prefix)
 			newNH, newOK := bestNexthop(next.Routes, p.Router, p.Prefix)
 			if oldOK && newOK && oldNH != newNH {
 				ev = append(ev, Event{TS: when, Kind: "route", Router: p.Router, Prefix: p.Prefix, From: oldNH, To: newNH,
-					Text: fmt.Sprintf("%s: %s bestpath via %s → %s", p.Router, p.Prefix, oldNH, newNH)})
+					AdvertisedBy: advertisedBy(next.Routes, p.Router, p.Prefix),
+					Text:         fmt.Sprintf("%s: %s bestpath via %s → %s", p.Router, p.Prefix, oldNH, newNH)})
 			}
 		}
 	}

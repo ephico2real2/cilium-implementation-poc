@@ -26,6 +26,7 @@ type poller struct {
 
 	mu     sync.Mutex
 	prev   Snapshot
+	prevAt time.Time // when prev was taken, for the serve-time age
 	ready  bool
 	held   map[string]heldSession // router|peer
 	lastOK map[string]routerView  // last successful poll per router
@@ -57,6 +58,11 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 		ok      bool
 		summary frrSummary
 		ipv4    frrIPv4
+		// neighbors carries FRR's own timers. It is fetched separately and
+		// NON-FATALLY: a router that answers the summary is reachable even if
+		// this third call fails, and the page then shows the session without a
+		// heartbeat rather than showing the router as down.
+		neighbors map[string]frrNeighbor
 	}
 	ch := make(chan result, len(p.routers))
 	var wg sync.WaitGroup
@@ -88,6 +94,11 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 			res.ok = true
 			res.summary = sum
 			res.ipv4 = v4
+			if nbrRaw, err := p.get(r.URL + "/show/bgp-neighbors"); err == nil {
+				if nbr, err := decodeNeighbors(nbrRaw); err == nil {
+					res.neighbors = nbr
+				}
+			}
 			ch <- res
 		}(r)
 	}
@@ -101,6 +112,23 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	// Deltas are measured against the PREVIOUS snapshot's own counters. A
+	// session that was replayed stale last tick is skipped: its counters came
+	// from an older poll, so subtracting them would report several ticks of
+	// traffic as one tick's worth.
+	prevSession := map[string]Session{}
+	for _, s := range p.prev.Sessions {
+		if !s.Stale {
+			prevSession[sessionKey(s)] = s
+		}
+	}
+	prevRouter := map[string]Router{}
+	for _, r := range p.prev.Routers {
+		if r.Reachable {
+			prevRouter[r.Name] = r
+		}
+	}
 
 	snap := Snapshot{
 		TS:   nowRFC3339ms(now),
@@ -116,9 +144,17 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 			fam := res.summary.IPv4Unicast
 			rt.ASN = fam.AS
 			rt.RouterID = fam.RouterID
+			rt.TableVersion = fam.TableVersion
+			rt.DynamicPeers = fam.DynamicPeers
+			rt.FailedPeers = fam.FailedPeers
+			rt.PeerCount = fam.PeerCount
+			if prev, ok := prevRouter[cfg.Name]; ok {
+				rt.HasDelta = true
+				rt.DTableVersion = fam.TableVersion - prev.TableVersion
+			}
 			var ss []Session
 			for addr, peer := range fam.Peers {
-				ss = append(ss, Session{
+				s := Session{
 					Router:   cfg.Name,
 					Peer:     addr,
 					PeerASN:  peer.RemoteAS,
@@ -127,7 +163,22 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 					PfxRcd:   peer.PfxRcd,
 					PfxSnt:   peer.PfxSnt,
 					Hostname: peer.Hostname,
-				})
+					MsgRcvd:  peer.MsgRcvd,
+					MsgSent:  peer.MsgSent,
+					InQ:      peer.InQ,
+					OutQ:     peer.OutQ,
+					Flaps:    peer.ConnectionsDropped,
+					Dynamic:  peer.DynamicPeer,
+				}
+				if nbr, ok := res.neighbors[addr]; ok {
+					s.HasTimers = true
+					s.QuietMsec = nbr.LastReadMsec
+					s.HoldMsec = nbr.HoldMsec
+					s.KeepaliveMsec = nbr.KeepaliveMsec
+					s.PeerGroup = nbr.PeerGroup
+				}
+				setSessionDelta(&s, prevSession[sessionKey(s)], prevSession)
+				ss = append(ss, s)
 			}
 			var rs []Route
 			for pfx, paths := range res.ipv4.Routes {
@@ -253,6 +304,7 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 	events := diff(p.prev, snap, now)
 	stateChanged := stateSignature(p.prev) != stateSignature(snap)
 	p.prev = snap
+	p.prevAt = now
 	p.ready = true
 	return snap, events, stateChanged
 }
@@ -321,7 +373,41 @@ func (p *poller) get(url string) ([]byte, error) {
 }
 
 func (p *poller) snapshot() (Snapshot, bool) {
+	return p.snapshotAt(time.Now())
+}
+
+// snapshotAt stamps how old the snapshot is AT THE MOMENT IT IS SERVED, which
+// is the number the page needs: if the poll loop stalls, every field below is
+// still the last good reading and only this one says so. A browser cannot work
+// it out from TS without trusting its own clock against the server's.
+func (p *poller) snapshotAt(now time.Time) (Snapshot, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.prev, p.ready
+	snap := p.prev
+	if !p.prevAt.IsZero() {
+		snap.AgeMsec = now.Sub(p.prevAt).Milliseconds()
+	}
+	return snap, p.ready
+}
+
+// setSessionDelta fills the per-tick deltas from the previous sample of the
+// same session.
+//
+// A counter that went DOWN means the session was reset between polls (bgpd
+// restarts these at zero), so there is no interval to measure and HasDelta
+// stays false — reporting a negative pulse, or clamping it to zero, would both
+// be inventions. The flap itself is still visible: FRR's connectionsDropped
+// survives the reset and is carried as Flaps.
+func setSessionDelta(s *Session, prev Session, have map[string]Session) {
+	if _, ok := have[sessionKey(*s)]; !ok {
+		return // first sight of this session: nothing to subtract
+	}
+	if s.MsgRcvd < prev.MsgRcvd || s.MsgSent < prev.MsgSent {
+		return
+	}
+	s.HasDelta = true
+	s.DRcvd = s.MsgRcvd - prev.MsgRcvd
+	s.DSent = s.MsgSent - prev.MsgSent
+	s.DPfxRcd = s.PfxRcd - prev.PfxRcd
+	s.DPfxSnt = s.PfxSnt - prev.PfxSnt
 }

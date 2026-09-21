@@ -15,6 +15,13 @@ type fakeRouter struct {
 	mu      sync.Mutex
 	summary string
 	ipv4    string
+	// neighbors is empty by default, so /show/bgp-neighbors 404s and the
+	// poller takes its non-fatal path: the router stays reachable and its
+	// sessions carry HasTimers=false.
+	neighbors string
+	// failing makes the agent answer 500 without closing the listener, so a
+	// test can bring the same router back on the same URL.
+	failing bool
 	srv     *httptest.Server
 }
 
@@ -22,19 +29,41 @@ func newFakeRouter(t *testing.T) *fakeRouter {
 	f := &fakeRouter{ipv4: `{"routerId":"10.200.255.11","localAS":65101,"routes":{}}`}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
-		sum, v4 := f.summary, f.ipv4
+		sum, v4, nbr, failing := f.summary, f.ipv4, f.neighbors, f.failing
 		f.mu.Unlock()
+		if failing {
+			http.Error(w, "agent down", http.StatusInternalServerError)
+			return
+		}
 		switch r.URL.Path {
 		case "/show/bgp-summary":
 			_, _ = w.Write([]byte(sum))
 		case "/show/bgp-ipv4":
 			_, _ = w.Write([]byte(v4))
+		case "/show/bgp-neighbors":
+			if nbr == "" {
+				http.Error(w, "unknown", http.StatusNotFound)
+				return
+			}
+			_, _ = w.Write([]byte(nbr))
 		default:
 			http.Error(w, "unknown", http.StatusNotFound)
 		}
 	}))
 	t.Cleanup(f.srv.Close)
 	return f
+}
+
+func (f *fakeRouter) setFailing(failing bool) {
+	f.mu.Lock()
+	f.failing = failing
+	f.mu.Unlock()
+}
+
+func (f *fakeRouter) setNeighbors(neighbors string) {
+	f.mu.Lock()
+	f.neighbors = neighbors
+	f.mu.Unlock()
 }
 
 func (f *fakeRouter) set(summary, ipv4 string) {
