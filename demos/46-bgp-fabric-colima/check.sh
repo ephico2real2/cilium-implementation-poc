@@ -431,41 +431,7 @@ agree_msg=""
 if [ "$dash_rc" -ne 0 ]; then
   agree_ok=0
   agree_msg="no /api/state"
-elif ! agree_msg=$(printf '%s' "$dash_raw" | python3 -c '
-import json, sys
-expected = {
-    ("edge", "10.200.1.18"): 65100,
-    ("spine", "10.200.1.2"): 65101,
-    ("spine", "10.200.1.10"): 65102,
-    ("spine", "10.200.1.19"): 65000,
-    ("leaf1", "10.200.1.3"): 65100,
-    ("leaf2", "10.200.1.11"): 65100,
-}
-try:
-    data = json.loads(sys.stdin.read())
-except ValueError:
-    raise SystemExit("not JSON")
-sessions = data.get("sessions") if isinstance(data, dict) else None
-if not isinstance(sessions, list):
-    raise SystemExit("no session records")
-seen = {}
-for sess in sessions:
-    if isinstance(sess, dict):
-        key = (sess.get("router"), sess.get("peer"))
-        if key in expected:
-            seen[key] = sess
-missing = [k for k in expected if k not in seen]
-if missing:
-    raise SystemExit("dashboard lacks " + ",".join("%s/%s" % k for k in missing))
-bad = [k for k, sess in seen.items()
-       if sess.get("state") != "Established" or sess.get("stale")
-       or sess.get("peerAsn") != expected[k]]
-if bad:
-    raise SystemExit("dashboard not Established: " + ",".join("%s/%s" % k for k in bad))
-if data.get("established") != 6 or data.get("sessionCount") != 6:
-    raise SystemExit("dashboard counters %s/%s" % (data.get("established"), data.get("sessionCount")))
-print("6/6")
-' 2>&1 | tr '\n' ' ' | head -c 80); then
+elif ! agree_msg=$(printf '%s' "$dash_raw" | python3 scripts/fabric-dashboard-agree.py 2>&1 | tr '\n' ' ' | head -c 80); then
   agree_ok=0
   agree_msg=${agree_msg:-dashboard not 6/6}
 fi
@@ -478,8 +444,27 @@ if [ "$agree_ok" -eq 1 ]; then
     agree_msg="vtysh not 6/6"
   fi
 fi
+
+# The dashboard polls every 2 s, so ONE sample taken just after a session changed
+# reads the snapshot from before that poll and reports a disagreement that is
+# really a race — measured 2026-09-20: a run straight after the MD5 negative
+# control had vtysh 6/6 while /api/state still showed two sessions down, and the
+# two agreed seconds later. Re-sample for up to 12 s, and record how long it took.
+agree_waited=0
+if [ "$agree_ok" -eq 0 ] && [ "$agree_msg" != "no /api/state" ] && [ "$agree_msg" != "vtysh not 6/6" ]; then
+  for _ in 1 2 3 4 5 6; do
+    sleep 2
+    agree_waited=$((agree_waited + 2))
+    dash_raw=$(curl -fsS --max-time 3 "${DASH}/api/state" 2>&1) || continue
+    if printf '%s' "$dash_raw" | python3 scripts/fabric-dashboard-agree.py >/dev/null 2>&1; then
+      agree_ok=1
+      agree_msg="6/6 = 6/6 after ${agree_waited}s"
+      break
+    fi
+  done
+fi
 if [ "$agree_ok" -eq 1 ]; then
-  row ok "dashboard sessions agree with vtysh" "6/6 = 6/6" \
+  row ok "dashboard sessions agree with vtysh" "${agree_msg:-6/6 = 6/6}" \
     "D17 — state Established matches fabric-bgp-summary"
 else
   row fail "dashboard sessions agree with vtysh" "$agree_msg" \

@@ -1,31 +1,22 @@
-# Demo 46-colima — the same fabric, with TCP MD5 actually enforced
+# Demo 46-colima — a signed BGP fabric on a Colima kernel
 
 For the reader in a hurry: [RECAP.md](RECAP.md) — the guide.
 
-Demo 46 carries one standing WARN: *"TCP MD5 in effect on the leaves —
-no CONFIG_TCP_MD5SIG here: sessions run unsigned"*. Docker Desktop's
-linuxkit kernel refuses `setsockopt(TCP_MD5SIG)`, so the password
-lines are intent, not enforcement. On a Colima Ubuntu VM they are
-enforced. Last apply `2026-09-21T00:32:26Z`; last check
-`2026-09-21T00:34:06Z`: 17 rows, 16 PASS, 1 FAIL (dashboard
-sessions after the mismatch flap). The proof is the wire
-count (`md5-option packets=20`) and the mismatch
-(`Established→Idle; restored Established`), together.
+Four FRR routers (edge AS 65000, spine AS 65100, leaf1 AS 65101,
+leaf2 AS 65102) plus `client0` and a dashboard on `127.0.0.1:8098`,
+project `bgp-fabric-colima`, docker context `colima-bgp-fabric`.
+Last apply `2026-09-21T00:32:26Z`; last check
+`2026-09-21T01:26:30Z`: 17 rows, 0 FAIL. The three defining rows
+are `md5-option packets=20`,
+`Established→Idle; restored Established`, and
+`CONFIG_TCP_MD5SIG=y kernel=6.8.0-117-generic`.
 
 Routers run `frr-agent:colima` built on
 `quay.io/frrouting/frr:10.7.1`. Management LAN `10.200.200.0/24`
 (edge `10.200.200.1`, spine `10.200.200.2`, leaf1 `10.200.200.11`,
 leaf2 `10.200.200.12`, dashboard `10.200.200.100`, Docker bridge
-`10.200.200.254`); not in BGP.
-
-Same fabric, two kernels:
-
-| | Demo 46 (Docker Desktop linuxkit) | This run (Colima Ubuntu) |
-|---|---|---|
-| kernel | no `CONFIG_TCP_MD5SIG` | `6.8.0-117-generic`, `CONFIG_TCP_MD5SIG=y` |
-| MD5 check | one standing WARN: sessions run unsigned | three PASS: wire 20 packets, mismatch `Established→Idle` then restored, kernel `=y` |
-| dashboard | `127.0.0.1:8088`, kind overlay | `127.0.0.1:8098`, `external=0` |
-| compose | project `bgp-fabric` | project `bgp-fabric-colima` |
+`10.200.200.254`); not in BGP. Node LAN `172.20.0.0/16` (listen
+`172.20.0.0/17`); VIP block `10.198.0.0/24`.
 
 ## Files
 
@@ -41,12 +32,23 @@ Same fabric, two kernels:
 | [apply.sh](apply.sh) | up + tables + MD5 evidence + screenshots + check |
 | [cleanup.sh](cleanup.sh) | calls `fabric-colima-down.sh` |
 | [NETWORK-TEAM-SHEET.md](NETWORK-TEAM-SHEET.md) | hand-off; MD5 row cites wire + mismatch |
-| [GUIDE.md](GUIDE.md) | five exercises |
+| [KERNEL-EVIDENCE.md](KERNEL-EVIDENCE.md) | throwaway VM, wire, wrong-key control, Mac path |
+| [GUIDE.md](GUIDE.md) | four read-only exercises |
 
 ## Run it
 
 From the repo root. The up script refuses `desktop-linux` and any
-context that is not `colima-bgp-fabric`.
+context that is not `colima-bgp-fabric`. Docker Desktop is not
+required:
+
+```bash
+brew install docker docker-compose docker-buildx colima
+mkdir -p ~/.docker/cli-plugins
+ln -sfn "$(brew --prefix)/opt/docker-compose/bin/docker-compose" \
+  ~/.docker/cli-plugins/docker-compose
+ln -sfn "$(brew --prefix)/opt/docker-buildx/bin/docker-buildx" \
+  ~/.docker/cli-plugins/docker-buildx
+```
 
 ```bash
 cp -n demos/46-bgp-fabric-colima/fabric/.env.example \
@@ -61,6 +63,8 @@ Status only (fabric already up):
 bash scripts/fabric-colima-status.sh
 ```
 
+The same lab runs on Linux with Colima or with plain Docker.
+
 ## What was recorded
 
 Recorded from apply `2026-09-21T00:32:26Z`.
@@ -68,7 +72,7 @@ Recorded from apply `2026-09-21T00:32:26Z`.
 ### 1. Bring the fabric up
 
 ```bash
-bash scripts/fabric-colima-up.sh
+RECORD_STRICT=1 bash demos/46-bgp-fabric-colima/apply.sh
 ```
 
 Recorded:
@@ -86,34 +90,7 @@ bgp-fabric-colima-dashboard-1   bgp-dashboard:colima      "/dashboard"          
 bgp-fabric-colima-edge-1        frr-agent:colima          "/sbin/tini -- /usr/…"   edge        12 seconds ago   Up 12 seconds (healthy)
 ```
 
-### 2. Watch it converge
-
-```bash
-docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
-  -f demos/46-bgp-fabric-colima/fabric/compose.yaml \
-  exec -T edge vtysh -c 'show bgp summary'
-docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
-  -f demos/46-bgp-fabric-colima/fabric/compose.yaml \
-  exec -T spine vtysh -c 'show bgp summary'
-```
-
-Recorded:
-
-```text
-Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
-10.200.1.18     4      65100         9        10        5    0    0 00:00:09            3        5 spine
-Total number of neighbors 1
-```
-
-```text
-Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
-10.200.1.2      4      65101         9         9        5    0    0 00:00:09            1        5 leaf1
-10.200.1.10     4      65102         9         9        5    0    0 00:00:09            1        5 leaf2
-10.200.1.19     4      65000         9         9        5    0    0 00:00:09            2        5 edge
-Total number of neighbors 3
-```
-
-### 3. Read the routes on spine and edge
+### 2. Read the routes on spine and edge
 
 ```bash
 docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
@@ -146,7 +123,7 @@ Displayed 5 routes and 5 total paths
 Displayed 5 routes and 5 total paths
 ```
 
-### 4. Walk the path from the outside world
+### 3. Walk the path from the outside world
 
 ```bash
 docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
@@ -173,7 +150,7 @@ traceroute to 10.200.255.11 (10.200.255.11), 30 hops max, 46 byte packets
 3 packets transmitted, 3 received, 0% packet loss, time 2073ms
 ```
 
-### 5. Read the servers' policy
+### 4. Read the servers' policy
 
 ```bash
 docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
@@ -191,7 +168,7 @@ BGP peer-group SERVERS, remote AS 0
     172.20.0.0/17
 ```
 
-### 6. Prove TCP MD5 is on the wire
+### 5. Prove TCP MD5 is on the wire
 
 ```bash
 colima ssh --profile bgp-fabric -- \
@@ -220,7 +197,7 @@ TcpExtTCPMD5Unexpected          0                  0.0
 TcpExtTCPMD5Failure             0                  0.0
 ```
 
-### 7. Read the dashboard
+### 6. Read the dashboard
 
 ```bash
 curl -fsS --max-time 5 'http://127.0.0.1:8098/api/state' \
@@ -234,16 +211,6 @@ routers=4/4 sessions=6/6 external=0
 screenshot written after 1.8 s; chrome_rc=0
 ```
 
-### 8. Clear the spine's sessions and watch them come back
-
-```bash
-docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
-  -f demos/46-bgp-fabric-colima/fabric/compose.yaml \
-  exec -T spine vtysh -c 'clear bgp *'
-```
-
-Recorded:
-
 ```text
 event mark before clear: id=26
 clear bgp * issued on spine
@@ -253,9 +220,28 @@ dashboard confirmed recovery after 0.67 s (polled after the screenshots)
 spine recovery: first Idle 2026-09-21T00:33:02.023Z last Established 2026-09-21T00:33:04.023Z recovered=yes window=2.000 s
 ```
 
+### 7. Route the VIP block from the Mac
+
+The gateway comes from `colima list`. Full record:
+[KERNEL-EVIDENCE.md](KERNEL-EVIDENCE.md).
+
+```bash
+colima list --json | python3 -c 'import json,sys; [print(json.loads(l)["address"]) for l in sys.stdin if l.strip() and json.loads(l)["name"]=="bgp-fabric"]'
+sudo route -n add -net 10.198.0.0/24 192.168.64.4
+curl -s -o /dev/null -w '%{http_code}' http://10.198.0.10/
+```
+
+From [KERNEL-EVIDENCE.md](KERNEL-EVIDENCE.md):
+
+```text
+192.168.64.4
+add net 10.198.0.0: gateway 192.168.64.4
+200
+```
+
 ## Checks
 
-Recorded `check.sh` at `2026-09-21T00:34:06Z`:
+Recorded `check.sh` at `2026-09-21T01:26:30Z`:
 
 ```text
 == demo 46-colima — the BGP fabric (four FRR routers, Colima VM, TCP MD5 enforced)
@@ -274,25 +260,25 @@ Recorded `check.sh` at `2026-09-21T00:34:06Z`:
   PASS   sessions signed on the wire                                            md5-option packets=20                                §8 row 3 — TCP-MD5 option on the wire
   PASS   a wrong password breaks the session                                    Established→Idle; restored Established             §8 row 3 — mismatch tears the session down; restore required
   PASS   kernel has CONFIG_TCP_MD5SIG                                           CONFIG_TCP_MD5SIG=y kernel=6.8.0-117-generic         §8 row 3 — VM kernel CONFIG_TCP_MD5SIG=y
-  PASS   dashboard reachable, 4/4 routers polled                                routers=4/4 sessions=4/6 external=0                  D8 — /api/state from 127.0.0.1:8098
-  FAIL   dashboard sessions agree with vtysh                                    dashboard not Established: spine/10.200.1.2,leaf1/10.200.1.3  D17 — state Established matches fabric-bgp-summary
+  PASS   dashboard reachable, 4/4 routers polled                                routers=4/4 sessions=4/6 external=2                  D8 — /api/state from 127.0.0.1:8098
+  PASS   dashboard sessions agree with vtysh                                    6/6 = 6/6 after 2s                                   D17 — state Established matches fabric-bgp-summary
   PASS   agent on mgmt only, show-only                                          no ports; ;reboot=404 summary=200; client0_rc=28,28,28,28 D8 — agent on 10.200.200.0/24, show-only
 
-demo 46-colima check: 1 FAIL
+demo 46-colima check: 0 FAIL
 ```
 
 ## What is deliberately not here
 
 - A kind cluster in this apply. Attaching a cluster is the next phase
-  (one kind cluster per Docker context);
+  ([demo 54-colima](../54-eg-poc1-kube-vip-colima/RECAP.md));
   [`compose.lan-eg.yaml`](fabric/compose.lan-eg.yaml) pins the
   leaves on the cluster LAN at `172.20.254.11` / `.12` when that
   overlay is used.
 - GTSM (`ttl-security`) on SERVERS. kube-vip and FRR-K8s send TTL 1
   and cannot pass it.
 - The Desktop project `bgp-fabric` (port 8088), `eg-poc1`,
-  `eg-poc2`, the `md5lab` Colima profile, or CRC. Scripts name
-  `--context` and refuse `desktop-linux` before any daemon call.
+  `eg-poc2`, or CRC. Scripts name `--context` and refuse
+  `desktop-linux` before any daemon call.
 - A secret in git. `fabric/.env` is gitignored; committed
   `frr.conf` has `${FABRIC_BGP_PASSWORD}`.
 

@@ -1,10 +1,10 @@
-# Demo 46-colima — five things to try
+# Demo 46-colima — four things to try
 
-Demo 46's password lines are unsigned on Docker Desktop. On this
-Colima VM they are enforced. Five exercises against the fabric once
-it is up. Exercises 1–3 only read. Exercise 4 runs the check (the
-wrong-password row changes one session, then restores it). Exercise
-5 clears the spine's sessions; they return on their own.
+Four read-only exercises against the fabric once it is up — the
+recorded check is 17 rows, 0 FAIL (`md5-option packets=20`,
+`Established→Idle; restored Established`,
+`client0_rc=28,28,28,28`) and apply recorded the spine clear
+(`dashboard showed the drop after 0.61 s`, `window=2.000 s`).
 
 ## Prerequisites
 
@@ -28,12 +28,12 @@ tables).
 
 ```text
 Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
-10.200.1.18     4      65100        17        17        5    0    0 00:00:32            3        5 spine
+10.200.1.18     4      65100         9        10        5    0    0 00:00:09            3        5 spine
 Total number of neighbors 1
 Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
-10.200.1.2      4      65101        17        18        5    0    0 00:00:31            1        5 leaf1
-10.200.1.10     4      65102        17        17        5    0    0 00:00:32            1        5 leaf2
-10.200.1.19     4      65000        17        18        5    0    0 00:00:32            2        5 edge
+10.200.1.2      4      65101         9         9        5    0    0 00:00:09            1        5 leaf1
+10.200.1.10     4      65102         9         9        5    0    0 00:00:09            1        5 leaf2
+10.200.1.19     4      65000         9         9        5    0    0 00:00:09            2        5 edge
 Total number of neighbors 3
 ```
 
@@ -45,7 +45,8 @@ routers=4/4 sessions=6/6 external=0
 
 ### 2. Traceroute from the outside world
 
-From `client0` the path to leaf1's loopback is edge → spine → leaf1.
+From `client0` the path to leaf1's loopback is edge → spine →
+leaf1.
 
 ```bash
 docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
@@ -57,23 +58,24 @@ docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
 
 ```text
 traceroute to 10.200.255.11 (10.200.255.11), 30 hops max, 46 byte packets
- 1  10.200.100.2  0.006 ms  0.003 ms  0.001 ms
- 2  10.200.1.18  0.001 ms  0.002 ms  0.002 ms
- 3  10.200.255.11  0.001 ms  0.001 ms  0.005 ms
+ 1  10.200.100.2  0.004 ms  0.001 ms  0.001 ms
+ 2  10.200.1.18  0.002 ms  0.000 ms  0.002 ms
+ 3  10.200.255.11  0.001 ms  0.003 ms  0.001 ms
 ```
 
-### 3. Count TCP-MD5 options on the wire
+### 3. Read the kernel MD5 flag
 
-tcpdump in leaf1's netns. Zero packets with a TCP-MD5 option is a
-FAIL. Kernel counters at zero are not enough.
+The VM kernel must carry the flag. The check's wire count and
+wrong-key row are the proof that signing is real; the kernel
+write-up is [KERNEL-EVIDENCE.md](KERNEL-EVIDENCE.md).
 
 ```bash
 colima ssh --profile bgp-fabric -- \
   sh -c 'echo "kernel=$(uname -r)"; grep -E "^CONFIG_TCP_MD5SIG=" /boot/config-$(uname -r)'
 ```
 
-**Expect:** the recorded kernel line. Apply captured 20 packets,
-each with `options [nop,nop,md5 …]`; check counted 18.
+**Expect:** the recorded kernel line and the check's three MD5
+rows.
 
 ```text
 kernel=6.8.0-117-generic
@@ -81,54 +83,24 @@ CONFIG_TCP_MD5SIG=y
 ```
 
 ```text
-20 packets captured
-20 packets received by filter
-0 packets dropped by kernel
-```
-
-### 4. Run the check (wrong-password row changes one session)
-
-The check keeps demo 46's rows and replaces the MD5 WARN with three
-rows that FAIL when signing is not real. The mismatch row sets a
-bad password on leaf1's session to `10.200.1.3`, waits until the
-state leaves Established, restores `lab-bgp`, and waits until it
-is Established again. A row that cannot restore is a FAIL.
-
-```bash
-bash demos/46-bgp-fabric-colima/check.sh
-```
-
-**Expect:** 16 PASS, 1 FAIL (dashboard sessions after the mismatch
-flap). The three MD5 rows and the agent row:
-
-```text
   PASS   sessions signed on the wire                                            md5-option packets=20                                §8 row 3 — TCP-MD5 option on the wire
   PASS   a wrong password breaks the session                                    Established→Idle; restored Established             §8 row 3 — mismatch tears the session down; restore required
   PASS   kernel has CONFIG_TCP_MD5SIG                                           CONFIG_TCP_MD5SIG=y kernel=6.8.0-117-generic         §8 row 3 — VM kernel CONFIG_TCP_MD5SIG=y
-  PASS   agent on mgmt only, show-only                                          no ports; ;reboot=404 summary=200; client0_rc=28,28,28,28 D8 — agent on 10.200.200.0/24, show-only
 ```
 
-```text
-demo 46-colima check: 1 FAIL
-```
+### 4. Read the dashboard
 
-### 5. Clear the spine's sessions (changes state)
-
-The sessions return on their own. The dashboard's event window is
-the clock (`window=2.000 s`).
+The dashboard polls the four agents on the management LAN.
 
 ```bash
-docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
-  -f demos/46-bgp-fabric-colima/fabric/compose.yaml \
-  exec -T spine vtysh -c 'clear bgp *'
+curl -fsS --max-time 5 'http://127.0.0.1:8098/api/state' \
+  | python3 scripts/fabric-dashboard-state.py
 ```
 
-**Expect:** the recorded drop and recovery.
+**Expect:** the recorded one-liner.
 
 ```text
-dashboard showed the drop after 0.61 s
-dashboard confirmed recovery after 0.67 s (polled after the screenshots)
-spine recovery: first Idle 2026-09-21T00:33:02.023Z last Established 2026-09-21T00:33:04.023Z recovered=yes window=2.000 s
+routers=4/4 sessions=6/6 external=0
 ```
 
 ## Clean up

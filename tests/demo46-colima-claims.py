@@ -132,7 +132,7 @@ for needle in (
 ):
     if needle not in final:
         bad.append("final apply transcript lacks %r" % needle)
-if "demo 46-colima check: 1 FAIL" not in final:
+if "demo 46-colima check: 0 FAIL" not in final:
     bad.append("final apply transcript lacks the recorded check footer")
 final_lines = final.splitlines()
 check_starts = [i for i, l in enumerate(final_lines) if l.startswith("$ demos/46-bgp-fabric-colima/check.sh")]
@@ -143,10 +143,15 @@ check_rows = [
 ]
 if len(check_rows) != 17:
     bad.append("final check is %d rows, not 17" % len(check_rows))
-if sum(1 for l in check_rows if l.startswith("  PASS   ")) != 16:
-    bad.append("final check is not 16 PASS")
-if sum(1 for l in check_rows if l.startswith("  FAIL   ")) != 1:
-    bad.append("final check is not the recorded 1 FAIL (dashboard vs vtysh after the mismatch flap)")
+if sum(1 for l in check_rows if l.startswith("  PASS   ")) != 17:
+    bad.append("final check is not 17 PASS")
+if any(l.startswith("  FAIL   ") for l in check_rows):
+    bad.append("final check has a FAIL row")
+# the three rows that are this lab's whole reason to exist
+for needle in ("sessions signed on the wire", "a wrong password breaks the session",
+               "kernel has CONFIG_TCP_MD5SIG"):
+    if not any(needle in l for l in check_rows):
+        bad.append("final check lacks the row %r" % needle)
 if any(l.startswith("  WARN   ") for l in check_rows):
     bad.append("final check still has a WARN row")
 if "FRR_IMAGE=quay.io/frrouting/frr:10.7.1" not in Path("scripts/bootstrap/versions-eg.env").read_text():
@@ -166,7 +171,7 @@ for p in (root / "RECAP.md", root / "README.md"):
         "window=2.000",
         "client0_rc=28,28,28,28",
         "17 rows",
-        "16 PASS",
+        "17 rows, 0 FAIL",   # how the pages state it: the row count and the verdict together
         "10.7.1",
         "10.200.200.1",
         "10.200.200.2",
@@ -190,7 +195,8 @@ for p in (root / "RECAP.md", root / "README.md"):
         "16 rows",
         "2.04 s",
         "window=2.002",
-        "17 PASS",
+        "16 PASS",
+        "1 FAIL",
         "md5-option packets=18",
         "client0_rc=28     ",
         "sessions run unsigned on this VM",
