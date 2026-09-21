@@ -230,6 +230,10 @@ main {
 #rib-pane {
   flex: 1 1 58%;
   min-height: 0;
+  /* Without min-width: 0 a flex/grid item's floor is its content, so the
+     tables' max-content width became the pane's floor and pushed the PAGE
+     128px wider instead of scrolling inside the wrap (measured). */
+  min-width: 0;
   padding: 8px 10px;
   display: flex;
   flex-direction: column;
@@ -237,8 +241,27 @@ main {
 #rib-pane.stale { background: var(--wash-stale); }
 .why, .status { margin: 0 0 6px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .status:empty, .why:empty { display: none; }
-.table-wrap { overflow: auto; flex: 1; min-height: 0; }
-table { width: 100%; border-collapse: collapse; font: 12px/1.35 var(--mono); }
+/* min-width: 0 lets the wrap shrink inside its grid/flex parent instead of
+   pushing the page wider — without it the table's width became the pane's
+   floor and the page overflowed by 41px (measured). */
+.table-wrap { overflow: auto; flex: 1; min-height: 0; min-width: 0; max-width: 100%; }
+/* These tables are wider than the pane, and that is fine — the wrap scrolls
+   and the pane is resizable. Cramming them was worse: at the default 413px
+   split, six columns under `table-layout: fixed` drew the peer address over
+   the AS column ("10.2003.6.51.10.30"), overlapped the headers into "peerAS",
+   and broke "Established" across two lines (measured). Columns size to their
+   content; `min-width: 100%` keeps a narrow table filling the pane. */
+table {
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
+  border-collapse: collapse;
+  font: 12px/1.35 var(--mono);
+}
+/* An address, a state and a count are never wrapped — breaking them is how the
+   column ends up unreadable. Prose-ish cells may wrap. */
+th, td { white-space: nowrap; }
+td.prefix, td.nexthop, .neighbours td:first-child, .traffic-list .meta { white-space: nowrap; }
 th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { color: var(--muted); font-weight: 600; }
 td.best { color: var(--est); width: 1.2em; }
@@ -342,7 +365,13 @@ h2 .dot { margin-right: 4px; vertical-align: middle; }
   #events li { flex-wrap: wrap; }
   #events .ts { flex-basis: 5.5em; }
   .table-wrap { max-width: 100%; }
-  table { table-layout: fixed; width: 100%; max-width: 100%; }
+  /* At phone width the columns share the pane and cells wrap, rather than the
+     table scrolling sideways. width:auto overrides the max-content default. */
+  /* #rib-pane raises the specificity above the .neighbours sizing rule, which
+     is declared later in the file and would otherwise win on source order and
+     leave the table 399px wide in a 375px viewport (measured). */
+  table, #rib-pane .neighbours { table-layout: fixed; width: 100%; max-width: 100%; min-width: 0; }
+  th, td { white-space: normal; overflow-wrap: break-word; }
   th, td { overflow-wrap: anywhere; }
   th:first-child, td.best { width: 1.2em; }
 }
@@ -558,3 +587,60 @@ body.stale-data #graph { opacity: 0.55; filter: saturate(0.4); }
 .roles .mark.accept { border-color: var(--accept); }
 .roles .mark.external { border-radius: 50%; border-style: dotted; }
 @media (max-width: 700px) { .graph-foot { display: none; } }
+
+/* ---- BGP state, wherever it is shown -----------------------------------
+   The event list, the neighbours table and the RIB all name a session state,
+   and they all read it the same way. `Idle (Admin)` is an administrative
+   shutdown: it must read as down rather than falling through to the unknown
+   colour, which is what an exact-string match does. */
+.state-established { color: var(--est); font-weight: 600; }
+.state-down { color: var(--down); font-weight: 600; }
+.state-transitional { color: var(--trans); font-weight: 600; }
+.state-stale { color: var(--stale); font-style: italic; }
+.state-unknown { color: var(--muted); font-style: italic; }
+/* `#events .change` sets the muted colour at (1,1,0) and a bare state class is
+   (0,1,0), so the class was applied and then overruled — the event list showed
+   "Idle→Active" in the same grey as everything else while the neighbours table
+   coloured it correctly (measured: rgb(92,86,78) against rgb(180,35,24)).
+   Scoped here so the state wins where a state is shown. */
+#events .change.state-established { color: var(--est); font-weight: 600; }
+#events .change.state-down { color: var(--down); font-weight: 600; }
+#events .change.state-transitional { color: var(--trans); font-weight: 600; }
+#events .change.state-stale { color: var(--stale); font-style: italic; }
+#events .change.state-unknown { color: var(--muted); font-style: italic; }
+
+/* ---- the neighbours table ---------------------------------------------- */
+.sub {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 10px 0 2px;
+}
+.sub-count { text-transform: none; letter-spacing: 0; }
+.neighbours { width: max-content; min-width: 100%; border-collapse: collapse; }
+.neighbours th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  padding: 2px 6px 3px 0;
+  white-space: nowrap;
+}
+.neighbours td { padding: 3px 6px 3px 0; overflow-wrap: anywhere; }
+.neighbours tbody tr { border-bottom: 1px solid var(--line); }
+.neighbours .num, .neighbours th.num { text-align: right; font-family: var(--mono); }
+.neighbours .nexthop { font-family: var(--mono); }
+.neighbours tr.stale-row td { opacity: 0.65; }
+/* The hostname is context, not the identifier: it gets a muted second line and
+   is cut with an ellipsis rather than wrapping. The full value is in the
+   title. */
+.neighbours .host {
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.neighbours td:first-child { white-space: nowrap; }

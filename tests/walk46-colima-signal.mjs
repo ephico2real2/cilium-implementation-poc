@@ -58,6 +58,49 @@ async function page(viewport, q = '') {
   for (const n of m.nodes) note(`      node ${n.id.padEnd(16)} accepting=${n.accepting} signal=${n.signal} known=${n.known}`);
 
   if (m.painted < 6) fail.push(`only ${m.painted} nodes painted`);
+
+  // A table can fit the pane and still be unreadable. Fixed layout shares the
+  // width equally unless told otherwise, and six equal columns left the
+  // neighbours head rendering as "peAS state pfx rpdx suptime" with every
+  // label overlapping the next, and a peer address broken one character per
+  // line. Overflow assertions cannot see either.
+  const tables = await p.evaluate(() => {
+    const out = [];
+    // The neighbours table is ALSO inside a .table-wrap in #rib-pane, so the
+    // RIB has to be named by the tbody it fills.
+    for (const sel of ['.neighbours', '#rib-pane table:has(#rib)']) {
+      const tbl = document.querySelector(sel);
+      if (!tbl) { out.push({ sel, missing: true }); continue; }
+      const ths = [...tbl.querySelectorAll('thead th')].map((th) => th.getBoundingClientRect());
+      let overlap = 0;
+      for (let i = 0; i < ths.length - 1; i++) if (ths[i].right > ths[i + 1].left + 1) overlap++;
+      // Count the cell's OWN rendered lines with a Range: a table cell
+      // stretches to its row's height, so measuring the cell box reports every
+      // cell in a row as wrapped when only one of them is.
+      const cells = [...tbl.querySelectorAll('tbody td')];
+      // Count the rects of the cell's FIRST TEXT NODE only. Selecting the
+      // whole cell also spans any nested element (the neighbours cell carries
+      // the hostname in a div), and a block box contributes rects of its own —
+      // which reported a perfectly legible two-line cell as four.
+      const lines = (td) => {
+        const n = td.firstChild;
+        if (!n || n.nodeType !== 3 || !n.textContent.trim()) return 1;
+        const r = document.createRange();
+        r.selectNodeContents(n);
+        return r.getClientRects().length || 1;
+      };
+      const shattered = cells.filter((td) => td.textContent.trim().length > 3 && lines(td) > 3)
+        .map((td) => td.textContent.trim().slice(0, 18) + ' (' + lines(td) + ' lines)');
+      out.push({ sel, overlap, shattered: shattered.slice(0, 3), cols: ths.length });
+    }
+    return out;
+  });
+  for (const tb of tables) {
+    if (tb.missing) { fail.push(`${tb.sel} is not on the page`); continue; }
+    note(`      ${tb.sel}: ${tb.cols} cols, header overlaps=${tb.overlap}${tb.shattered.length ? ', shattered=' + JSON.stringify(tb.shattered) : ''}`);
+    if (tb.overlap) fail.push(`${tb.sel}: ${tb.overlap} header label(s) overlap the next column`);
+    if (tb.shattered.length) fail.push(`${tb.sel}: a cell wraps over 3 lines — ${tb.shattered.join(', ')}`);
+  }
   if (m.overflow > 0.5) fail.push(`page overflows by ${m.overflow}px at 1200`);
   if (/waiting for the first poll/.test(m.strip)) fail.push('signal strip never filled');
   if (!/accepting traffic/.test(m.strip)) fail.push('leaf1 is not reported as accepting traffic');
@@ -380,6 +423,46 @@ async function page(viewport, q = '') {
   note(`      empty box l=${r.box[0]} r=${r.box[1]} inside pane l=${r.box[2]} r=${r.box[3]}`);
   if (!r.inside) fail.push('the empty message escaped its pane and painted over the graph');
   await p.screenshot({ path: `${OUT}/1200-events-router-empty.png` });
+  await ctx.close();
+}
+
+// ---- a state is coloured wherever it is shown -----------------------------
+// The class being applied is not the same as the colour appearing: `#events
+// .change` sets the muted colour at (1,1,0) and a bare state class is (0,1,0),
+// so the list once rendered "Idle→Active" in the same grey as everything else
+// while the neighbours table coloured it correctly. Events are injected rather
+// than driven, so the fabric is not disturbed.
+{
+  const { p, ctx } = await page({ width: 1400, height: 900 }, '?router=leaf1&tab=events');
+  await p.waitForTimeout(3000);
+  const c = await p.evaluate(async () => {
+    const ts = new Date().toISOString();
+    window.__ingestEvent({ id: 90001, kind: 'session', router: 'leaf1', peer: '10.200.1.3', from: 'Established', to: 'Idle (Admin)', ts, text: 'x' });
+    window.__ingestEvent({ id: 90002, kind: 'session', router: 'leaf1', peer: '10.200.1.3', from: 'Idle', to: 'Established', ts, text: 'x' });
+    window.__ingestEvent({ id: 90003, kind: 'route', router: 'leaf1', prefix: '10.198.0.10/32', from: '10.200.1.3', to: '172.20.0.4', ts, text: 'x' });
+    await new Promise((r) => setTimeout(r, 200));
+    const rows = [...document.querySelectorAll('#events li')].slice(0, 3).map((li) => {
+      const ch = li.querySelector('.change');
+      return { cls: ch ? ch.className : '', col: ch ? getComputedStyle(ch).color : '' };
+    });
+    const nbr = [...document.querySelectorAll('.neighbours tbody tr')].map((tr) => {
+      const td = tr.querySelectorAll('td')[2];
+      return { state: td.textContent.trim(), col: getComputedStyle(td).color };
+    });
+    return { rows, nbr, muted: getComputedStyle(document.documentElement).getPropertyValue('--muted').trim() };
+  });
+  for (const r of c.rows) note(`      event ${r.cls.replace('change', '').trim().padEnd(20)} ${r.col}`);
+  for (const n of c.nbr) note(`      neighbour ${n.state.padEnd(14)} ${n.col}`);
+  const [route, up, down] = [c.rows[0], c.rows[1], c.rows[2]];
+  if (!down || !/state-down/.test(down.cls)) fail.push('an Idle (Admin) session event is not classed as down');
+  if (!up || !/state-established/.test(up.cls)) fail.push('an Established session event is not classed as established');
+  if (route && /state-/.test(route.cls)) fail.push('a route event was coloured by state — its from/to are nexthops');
+  if (down && up && down.col === up.col) fail.push(`down and established events render the same colour (${down.col})`);
+  const grey = new Set([down && down.col, up && up.col]);
+  if (grey.size === 1) fail.push('both session events render one colour — the state class is being overruled');
+  if (!c.nbr.some((n) => /Established/.test(n.state) && n.col !== down.col))
+    fail.push('the neighbours table does not colour Established differently from down');
+  await p.screenshot({ path: `${OUT}/1400-state-colour.png` });
   await ctx.close();
 }
 

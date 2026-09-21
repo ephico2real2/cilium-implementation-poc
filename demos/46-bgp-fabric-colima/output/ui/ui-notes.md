@@ -123,6 +123,55 @@ selection: 6 nodes selected, 6 recorded as placed
       after reset: placed=0 stored={}
 ```
 
+## The peers were missing, and the states had no colour
+
+Two things the rebuild had quietly dropped, both of which the page was already
+carrying the data for.
+
+**No neighbours table.** The RIB answers "what do I know"; nothing answered
+"who told me". `pfxRcd`, `pfxSnt`, `peerAsn`, `state`, `uptime` and `hostname`
+were all in `/api/state` and none of them were rendered. There is a NEIGHBOURS
+table now, above the BGP table, with the peer (and its hostname on a muted
+second line), the AS, the state, prefixes each way and the uptime.
+
+**States were coloured by KIND, not by state.** The event dot said `session`,
+`route` or `router`; nothing said Established or Idle. `ui.stateClass` now maps
+a state to a colour wherever one is shown — events, neighbours, the RIB — and
+it matches on a PREFIX: `Idle (Admin)` is an administrative shutdown and has to
+read as down, not fall through to the unknown colour. The exact-match version
+of that is a filed bug in the dashboard this one learned from, and a test kills
+the mutant.
+
+The RIB also gained the **LP** and **MED** columns. `locPrf` and `metric` were
+in the model, `omitempty`, and never shown; blank means FRR sent none, which is
+not the same as nought.
+
+### Three layout defects on the way there, each found by looking
+
+The walk's overflow assertion caught the first; it could not see the other two,
+so it gained a legibility check — header labels must not overlap the next
+column, and a cell's own text must not wrap past three lines.
+
+```text
+1. seven RIB columns + a six-column table   page overflowed by 41px at 1200
+2. table-layout: fixed, six equal columns   the head rendered "peAS state pfx
+                                            rpdx suptime" and the address drew
+                                            over the AS column
+3. width: max-content on the table          the pane's floor became the table's
+                                            width — the page went 128px wide
+```
+
+The third is the interesting one: a flex or grid item's floor is its content
+unless it is given `min-width: 0`, so the table stopped scrolling inside its
+wrap and widened the page instead. The tables size to their content and the
+wrap scrolls; at phone width a media rule shares the columns instead, scoped
+`#rib-pane .neighbours` because the sizing rule is declared later in the file
+and would otherwise win on source order.
+
+My own first legibility assertion was wrong too: it measured cell height, and a
+table cell stretches to its row, so one wrapping cell reported every cell in
+the row as wrapped. It counts the rects of the cell's own text node now.
+
 ## One meaning per channel
 
 Selection was invisible on the routers while the dashed ellipses showed it
