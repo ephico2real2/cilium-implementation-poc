@@ -65,6 +65,17 @@ fabric_colima_refuse_wrong_ctx() {
       return 1
       ;;
   esac
+  # CTX names the daemon; FABRIC_COLIMA_PROFILE names the VM that `colima ssh`
+  # and `colima start` write to — the kernel read, the VM route, the
+  # DOCKER-USER rule and the Mac-reachable address all come from the profile,
+  # not from CTX. Two variables for one lab: refuse the pair when they
+  # disagree, or a stray profile gets the sudo (the md5lab address published
+  # in the pages, 2026-09-20, was exactly this mistake by hand).
+  if [ "$CTX" != "colima-${FABRIC_COLIMA_PROFILE}" ]; then
+    echo "fabric-colima: refusing CTX=$CTX with profile $FABRIC_COLIMA_PROFILE (expected colima-${FABRIC_COLIMA_PROFILE})." >&2
+    echo "Set both or neither: CTX=colima-<profile> FABRIC_COLIMA_PROFILE=<profile>." >&2
+    return 1
+  fi
   return 0
 }
 
