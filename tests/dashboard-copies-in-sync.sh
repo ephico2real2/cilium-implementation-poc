@@ -25,7 +25,9 @@ for d in "$A" "$B"; do
   [ -d "$d" ] || { echo "FAIL: missing $d"; exit 1; }
 done
 
-# every file on one side exists on the other
+# Every file on one side exists on the other. No path is excluded: a vendor/
+# tree in one copy only (`go mod vendor` run in one directory) is a build-input
+# fork, not an addressing difference, and neither copy is gitignored.
 for side in "$A:$B" "$B:$A"; do
   from=${side%%:*}; to=${side##*:}
   while IFS= read -r f; do
@@ -33,7 +35,7 @@ for side in "$A:$B" "$B:$A"; do
       echo "FAIL: $f exists in ${from#"$R/"} but not in ${to#"$R/"}"
       fail=1
     fi
-  done < <(cd "$from" && find . -type f ! -path './vendor/*' | sed 's|^\./||' | sort)
+  done < <(cd "$from" && find . -type f | sed 's|^\./||' | sort)
 done
 
 # every shared file is identical unless it is on the allow-list
@@ -49,23 +51,41 @@ while IFS= read -r f; do
     diff "$A/$f" "$B/$f" | head -6 | sed 's/^/       /'
     fail=1
   fi
-done < <(cd "$A" && find . -type f ! -path './vendor/*' | sed 's|^\./||' | sort)
+done < <(cd "$A" && find . -type f | sed 's|^\./||' | sort)
 
-# the allow-listed differences must be ONLY addresses and ports, never logic:
-# a Go statement that differs is a behaviour change wearing a fixture's clothes.
+# The allow-listed differences must be ONLY addresses, ports and the image tag,
+# never logic. This is done by REWRITING the Colima family's addressing into the
+# Desktop family's and requiring what is left to be byte-identical — not by
+# whitelisting changed lines that happen to contain an address.
 #
-# NOTE ON THE SHAPE: the changed lines are read into a variable and filtered
-# afterwards. A `... | grep -q ...` here would close the pipe on its first match,
-# the upstream grep would take SIGPIPE (141), and `set -o pipefail` would report
-# the whole pipeline as failed — which an `if` reads as "no drift found", so real
-# drift would pass silently. Measured on this file 2026-09-20; the same SIGPIPE
-# shape killed a router in the fork's ci/rename-ifaces.sh.
-for f in diff.go; do
-  changed=$(diff "$A/$f" "$B/$f" || true)
-  offending=$(printf '%s\n' "$changed" | grep -E '^[<>]' | \
-    grep -vE '10\.(98|198|199)\.|172\.(19|20)\.|80[89][0-9]' || true)
+# A per-line regex whitelist cannot do this job. When a changed line carries the
+# family address on BOTH sides — `k == "10.98.0.11/32"` against
+# `k == "10.198.0.11/32" && !r.Bestpath` — every `<` and `>` line matches the
+# address pattern, so nothing is left to complain about and a behaviour fork in
+# ECMP de-duplication passes clean (measured 2026-09-20, both holes reproduced).
+# That version also only ever covered diff.go, so an assertion deleted from the
+# Colima copy's poller_test.go passed too. Normalise-then-compare covers every
+# allow-listed file and cannot be fooled by where the address sits on the line.
+#
+# The rewrite is one-way, Colima → Desktop, and each rule is an addressing fact:
+#   10.198. → 10.98.   VIP range       172.20. → 172.19.   node LAN
+#   10.199. → 10.99.   second VIP      8098    → 8088      published port
+#   bgp-dashboard:colima → :local      the image each lab builds
+# A legitimate new difference means a new rule here, stated as a fact, not a
+# file dropped from the check.
+canon() {
+  sed -e 's/10\.198\./10.98./g' \
+      -e 's/10\.199\./10.99./g' \
+      -e 's/172\.20\./172.19./g' \
+      -e 's/8098/8088/g' \
+      -e 's/bgp-dashboard:colima/bgp-dashboard:local/g' "$1"
+}
+
+for f in $ALLOWED_DIFF; do
+  [ -f "$A/$f" ] && [ -f "$B/$f" ] || continue
+  offending=$(diff <(canon "$A/$f") <(canon "$B/$f") || true)
   if [ -n "$offending" ]; then
-    echo "FAIL: $f differs by more than an address or a port:"
+    echo "FAIL: $f differs by more than an address, a port or the image tag:"
     printf '%s\n' "$offending" | sed 's/^/       /'
     fail=1
   fi
