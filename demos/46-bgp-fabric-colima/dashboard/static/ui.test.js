@@ -253,3 +253,74 @@ test("the RIB says 'self' rather than FRR's (unspec) sentinel", () => {
   assert.equal(ui.fromLabel(null), "self");
   assert.equal(ui.fromLabel("172.20.0.4"), "172.20.0.4");
 });
+
+// ---- traffic ----------------------------------------------------------
+
+const TRAFFIC_EDGES = [
+  { id: "leaf1|spine", state: "established", aRouter: "spine", aPeer: "10.200.1.2", bRouter: "leaf1", bPeer: "10.200.1.3" },
+  { id: "172.20.0.3|leaf1", state: "established", aRouter: "leaf1", aPeer: "172.20.0.3", bRouter: "", bPeer: "" },
+];
+const TRAFFIC_SESSIONS = [
+  { router: "spine", peer: "10.200.1.2", state: "Established", hasDelta: true, dRcvd: 1, dSent: 1, dPfxRcd: 0, dPfxSnt: 0,
+    hasTimers: true, quietMsec: 1000, holdMsec: 9000, keepaliveMsec: 3000, pfxRcd: 2, pfxSnt: 6, flaps: 8, inq: 0, outq: 0 },
+  { router: "leaf1", peer: "10.200.1.3", state: "Established", hasDelta: true, dRcvd: 1, dSent: 0, dPfxRcd: 0, dPfxSnt: 0,
+    hasTimers: true, quietMsec: 2000, holdMsec: 9000, keepaliveMsec: 3000, pfxRcd: 5, pfxSnt: 6, flaps: 8, inq: 0, outq: 0 },
+  { router: "leaf1", peer: "172.20.0.3", state: "Established", hasDelta: true, dRcvd: 1, dSent: 0, dPfxRcd: 0, dPfxSnt: 0,
+    hasTimers: true, quietMsec: 1000, holdMsec: 9000, keepaliveMsec: 3000, pfxRcd: 1, pfxSnt: 0, flaps: 0, inq: 0, outq: 0 },
+];
+
+test("a fabric link reports both directions; a cluster link says the far end is not polled", () => {
+  const rows = ui.trafficRows(TRAFFIC_EDGES, TRAFFIC_SESSIONS);
+  const fabric = rows.find((r) => r.id === "leaf1|spine");
+  const cluster = rows.find((r) => r.id === "172.20.0.3|leaf1");
+
+  assert.equal(fabric.kind, "fabric");
+  assert.equal(fabric.a.polled, true);
+  assert.equal(fabric.b.polled, true);
+  assert.equal(fabric.messages, 3); // 1+1 from spine, 1+0 from leaf1
+
+  assert.equal(cluster.kind, "cluster");
+  assert.equal(cluster.a.polled, true);
+  // The far end is a BGP peer we cannot read. It must NOT report zero, which
+  // would read as "that side sent nothing".
+  assert.equal(cluster.b.polled, false);
+  assert.equal(cluster.b.messages, undefined);
+});
+
+test("a link where neither end measured anything says so rather than showing zero", () => {
+  const sessions = TRAFFIC_SESSIONS.map((s) => Object.assign({}, s, { hasDelta: false, dRcvd: 0, dSent: 0 }));
+  const rows = ui.trafficRows(TRAFFIC_EDGES, sessions);
+  for (const r of rows) {
+    assert.equal(r.known, false, r.id + " must report no measurement");
+    assert.equal(r.messages, 0);
+  }
+  // and with a measurement, known flips
+  const live = ui.trafficRows(TRAFFIC_EDGES, TRAFFIC_SESSIONS);
+  assert.ok(live.every((r) => r.known), "a measured tick must be known");
+});
+
+test("the busiest link sorts first and ties keep a stable order", () => {
+  const busy = TRAFFIC_SESSIONS.map((s) =>
+    s.peer === "172.20.0.3" ? Object.assign({}, s, { dRcvd: 40 }) : s);
+  const rows = ui.trafficRows(TRAFFIC_EDGES, busy);
+  assert.equal(rows[0].id, "172.20.0.3|leaf1");
+
+  // a tie must not shuffle between renders
+  const flat = TRAFFIC_SESSIONS.map((s) => Object.assign({}, s, { dRcvd: 0, dSent: 0 }));
+  const a = ui.trafficRows(TRAFFIC_EDGES, flat).map((r) => r.id);
+  const b = ui.trafficRows(TRAFFIC_EDGES.slice().reverse(), flat).map((r) => r.id);
+  assert.deepEqual(a, b, "equally quiet links must sort the same regardless of input order");
+});
+
+test("a session with no timers reports a null quiet time, not zero", () => {
+  const sessions = TRAFFIC_SESSIONS.map((s) => Object.assign({}, s, { hasTimers: false }));
+  const rows = ui.trafficRows(TRAFFIC_EDGES, sessions);
+  assert.equal(rows.find((r) => r.id === "leaf1|spine").a.quietMsec, null);
+  assert.equal(rows.find((r) => r.id === "leaf1|spine").a.health, "unknown");
+});
+
+test("an edge whose session is missing entirely is not polled", () => {
+  const rows = ui.trafficRows([{ id: "x|y", state: "down", aRouter: "ghost", aPeer: "1.1.1.1" }], TRAFFIC_SESSIONS);
+  assert.equal(rows[0].a.polled, false);
+  assert.equal(rows[0].known, false);
+});

@@ -399,3 +399,69 @@ body.dragging { user-select: none; cursor: col-resize; }
 #age.lagging { color: var(--late); }
 #age.stale { color: var(--critical); font-weight: 600; }
 body.stale-data #graph { opacity: 0.55; filter: saturate(0.4); }
+
+/* ---- the Activity pane: Events or Traffic ------------------------------
+   Events answers "what changed" and correctly falls silent on a healthy
+   fabric. Traffic answers "is anything moving", which is the question an
+   empty Events list cannot. */
+.pane-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.subtabs { display: inline-flex; gap: 2px; }
+.subtabs button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.subtabs button:first-child { border-radius: 4px 0 0 4px; }
+.subtabs button:last-child { border-radius: 0 4px 4px 0; }
+.subtabs button[aria-selected="true"] {
+  color: var(--fg);
+  background: var(--hover-fill);
+  border-color: var(--focus);
+}
+#events-pane[data-view="traffic"] .event-toolbar,
+#events-pane[data-view="traffic"] #events,
+#events-pane[data-view="traffic"] #events-empty { display: none; }
+#events-pane[data-view="events"] #traffic,
+#events-pane[data-view="events"] #traffic-empty { display: none; }
+
+.traffic { overflow: auto; flex: 1; min-height: 0; font-size: 12px; }
+/* The activity pane's empty states are NOT .empty: that class is
+   `position: absolute; inset: 0` for centring over the graph, and inside this
+   pane it resolved against the wrong ancestor and spilled the message across
+   the topology and the RIB (measured 2026-09-21). These stay in the flow. */
+.pane-empty {
+  position: static;
+  margin: 6px 0 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.pane-empty[hidden] { display: none; }
+#events-pane[data-view="traffic"] #events-empty { display: none; }
+
+.traffic-caption { color: var(--muted); margin: 2px 0 6px; }
+.traffic-list { list-style: none; margin: 0; padding: 0; }
+.traffic-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+.traffic-list .link { font-weight: 600; white-space: nowrap; flex: 0 0 auto; }
+.traffic-list .msgs { font-family: var(--mono); white-space: nowrap; margin-left: auto; }
+.traffic-list .arrows { color: var(--muted); }
+.traffic-list .unit { color: var(--muted); }
+.traffic-list .heard { font-family: var(--mono); white-space: nowrap; color: var(--muted); }
+.traffic-list .meta { flex: 1 0 100%; color: var(--muted); font-size: 11px; }
+.traffic caption {
+  caption-side: top;
+  text-align: left;
+  color: var(--muted);
+  padding: 2px 0 6px;
+}

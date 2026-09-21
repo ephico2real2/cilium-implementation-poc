@@ -124,6 +124,98 @@ async function page(viewport, q = '') {
   await ctx.close();
 }
 
+// ---- the operator's case: filter Events by "router" -----------------------
+// A healthy fabric emits no router events, so this list is legitimately empty.
+// A blank pane is indistinguishable from a broken one, so it must say why and
+// point at the view that does answer "is anything moving".
+{
+  const { p, ctx } = await page({ width: 1200, height: 800 }, '?router=leaf1&tab=events');
+  await p.waitForTimeout(3000);
+  const r = await p.evaluate(async () => {
+    const sel = document.getElementById('ev-kind');
+    sel.value = 'router';
+    sel.dispatchEvent(new Event('change'));
+    await new Promise((r2) => setTimeout(r2, 100));
+    const empty = document.getElementById('events-empty');
+    const eb = empty.getBoundingClientRect();
+    const pb = document.getElementById('events-pane').getBoundingClientRect();
+    return {
+      rows: document.querySelectorAll('#events li').length,
+      emptyHidden: empty.hidden,
+      text: empty.textContent,
+      kinds: Array.from(document.querySelectorAll('#ev-kind option')).map((o) => o.textContent.trim()),
+      // The message must sit INSIDE its pane. Reusing the graph's .empty class
+      // (position:absolute; inset:0) resolved it against the wrong ancestor and
+      // painted the sentence across the topology and the RIB.
+      inside: eb.left >= pb.left - 1 && eb.right <= pb.right + 1 && eb.top >= pb.top - 1,
+      box: [Math.round(eb.left), Math.round(eb.right), Math.round(pb.left), Math.round(pb.right)],
+    };
+  });
+  note(`events kind=router: rows=${r.rows} emptyShown=${!r.emptyHidden}`);
+  note(`      "${r.text.trim()}"`);
+  note(`      options: ${r.kinds.join(' | ')}`);
+  if (r.rows !== 0) fail.push('this fabric should have no router events');
+  if (r.emptyHidden) fail.push('an empty Events list explained nothing — the operator saw a blank pane');
+  if (!/Traffic view/.test(r.text)) fail.push('the empty state does not point at the Traffic view');
+  if (!r.kinds.some((k) => /unreachable/.test(k))) fail.push('the router option still reads as "router", not what it means');
+  note(`      empty box l=${r.box[0]} r=${r.box[1]} inside pane l=${r.box[2]} r=${r.box[3]}`);
+  if (!r.inside) fail.push('the empty message escaped its pane and painted over the graph');
+  await p.screenshot({ path: `${OUT}/1200-events-router-empty.png` });
+  await ctx.close();
+}
+
+// ---- Traffic answers what Events cannot -----------------------------------
+{
+  const { p, ctx, errors } = await page({ width: 1200, height: 800 }, '?router=leaf1&tab=events');
+  await p.waitForTimeout(4500);
+  const r = await p.evaluate(async () => {
+    window.__setActivityView('traffic');
+    await new Promise((r2) => setTimeout(r2, 200));
+    const items = Array.from(document.querySelectorAll('#traffic .traffic-list li'));
+    const rows = items.map((li) => ({
+      link: li.querySelector('.link').textContent.trim(),
+      msgs: li.querySelector('.msgs').textContent.replace(/\s+/g, ' ').trim(),
+      heard: li.querySelector('.heard').textContent.replace(/\s+/g, ' ').trim(),
+      meta: li.querySelector('.meta').textContent.replace(/\s+/g, ' ').trim(),
+      h: Math.round(li.getBoundingClientRect().height),
+    }));
+    const pane = document.getElementById('events-pane').getBoundingClientRect();
+    return {
+      caption: (document.querySelector('#traffic .traffic-caption') || {}).textContent || '',
+      rows,
+      tallest: Math.max.apply(null, rows.map((r) => r.h)),
+      paneH: Math.round(pane.height),
+      eventsHidden: getComputedStyle(document.getElementById('events')).display,
+    };
+  });
+  note(`traffic: ${r.caption.trim()}`);
+  for (const row of r.rows) note(`      ${row.link.padEnd(22)} ${row.msgs.padEnd(14)} ${row.heard.padEnd(12)} ${row.meta} [${row.h}px]`);
+  note(`      tallest row ${r.tallest}px in a ${r.paneH}px pane`);
+  if (r.rows.length !== 7) fail.push(`traffic shows ${r.rows.length} links, expected 7`);
+  if (r.eventsHidden !== 'none') fail.push('the Events list is still visible in the Traffic view');
+  const fabric = r.rows.filter((x) => /fabric link/.test(x.meta));
+  const cluster = r.rows.filter((x) => /cluster node/.test(x.meta));
+  if (fabric.length !== 3) fail.push(`expected 3 fabric links, got ${fabric.length}`);
+  if (cluster.length !== 4) fail.push(`expected 4 cluster links, got ${cluster.length}`);
+  if (!cluster.some((x) => /not polled/.test(x.msgs))) fail.push('a cluster link must say its far end is not polled, not 0');
+  if (!r.rows.some((x) => /\d/.test(x.msgs))) fail.push('no link reported a measured message');
+  // The first layout wrapped the link name over four lines and fitted three
+  // rows on screen. A row is two lines of text; anything taller has wrapped.
+  if (r.tallest > 46) fail.push(`a traffic row is ${r.tallest}px tall — the link name is wrapping again`);
+  if (r.rows.length * r.tallest > r.paneH * 2) fail.push('the traffic list needs more than two pane-heights for 7 links');
+  if (errors.length) fail.push('traffic js errors: ' + errors.join(' | '));
+  await p.screenshot({ path: `${OUT}/1200-traffic.png` });
+
+  // it must keep up with the live signal, not freeze at the first render
+  const before = await p.evaluate(() => document.querySelector('#traffic .traffic-caption').textContent);
+  await p.waitForTimeout(5000);
+  const after = await p.evaluate(() => document.querySelector('#traffic .traffic-list').textContent.replace(/\s+/g, ' ').trim());
+  note(`      still live after 5s: ${after.slice(0, 70)}...`);
+  if (!after) fail.push('the traffic table emptied itself');
+  void before;
+  await ctx.close();
+}
+
 // ---- the heartbeat only beats on a measured delta -------------------------
 {
   const { p, ctx } = await page({ width: 1200, height: 800 }, '?router=leaf1');

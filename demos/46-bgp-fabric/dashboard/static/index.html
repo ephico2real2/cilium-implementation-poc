@@ -66,15 +66,21 @@
       <button type="button" class="splitter" id="split-row" aria-orientation="horizontal"
               role="separator" aria-label="Resize the RIB pane" tabindex="0"
               aria-valuemin="20" aria-valuemax="85" aria-valuenow="58"></button>
-      <section id="events-pane" role="tabpanel" aria-labelledby="tab-events">
-        <h2>Events</h2>
+      <section id="events-pane" role="tabpanel" aria-labelledby="tab-events" data-view="events">
+        <div class="pane-head">
+          <h2>Activity</h2>
+          <div class="subtabs" role="tablist" aria-label="Events or traffic">
+            <button type="button" role="tab" id="view-events" data-view="events" aria-selected="true">Events</button>
+            <button type="button" role="tab" id="view-traffic" data-view="traffic" aria-selected="false">Traffic</button>
+          </div>
+        </div>
         <div class="event-toolbar">
           <label>kind
             <select id="ev-kind">
               <option value="">all</option>
-              <option value="session">session</option>
-              <option value="route">route</option>
-              <option value="router">router</option>
+              <option value="session">session up/down</option>
+              <option value="route">route added/withdrawn</option>
+              <option value="router">router reachable/unreachable</option>
             </select>
           </label>
           <label class="check"><input type="checkbox" id="ev-selected"> selected router</label>
@@ -82,6 +88,9 @@
           <span id="ev-paused" class="paused" hidden>paused, 0 new</span>
         </div>
         <ol id="events" reversed></ol>
+        <p id="events-empty" class="pane-empty" hidden></p>
+        <div id="traffic" class="traffic"></div>
+        <p id="traffic-empty" class="pane-empty" hidden>waiting for the first poll</p>
       </section>
     </div>
   </main>

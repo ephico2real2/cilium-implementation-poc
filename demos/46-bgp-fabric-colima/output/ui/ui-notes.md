@@ -52,6 +52,38 @@ stale: age.class="stale" text="age 42s · stale 42s" body.stale-data=true
 | `1200-stale.png` | a 42-second-old snapshot: the graph faded and the header saying so |
 | `375-signal.png` | the same page at a real 375 px, no overflow, splitters hidden |
 
+## Activity: Events, and Traffic
+
+Filtering Events by `router` returned a blank pane. That was correct — a router
+event is a router going unreachable or coming back, and none had — but the page
+said nothing, and the option was read as "traffic between the routers".
+
+Measured on the ring at the time: 55 events, 38 `route` and 17 `session`, and
+**zero** `router`.
+
+Three things changed:
+
+| Before | Now |
+|---|---|
+| a blank list | the reason, and which of the three cases it is |
+| `session` / `route` / `router` | `session up/down` / `route added/withdrawn` / `router reachable/unreachable` |
+| no view of ongoing traffic | a Traffic view, one row per link, from the same measurements the heartbeat uses |
+
+Traffic is one row per link rather than per session, so a fabric link is a
+single line carrying both directions. The far end of a cluster link reads
+**not polled** — the node is a BGP peer, not an agent we can read — which is a
+different statement from zero.
+
+```text
+7 links · 6 carried a message on the last poll
+edge  ⇄ spine          2 ⇄ 2 msg        heard 1.0s
+      fabric link · 4 in / 5 out prefixes · 2 flaps since boot
+spine ⇄ leaf2          2 ⇄ 2 msg        heard 1.0s
+      fabric link · 2 in / 6 out prefixes · 2 flaps since boot
+leaf1 ⇄ 172.20.0.3     2 ⇄ not polled   heard 1.0s
+      cluster node peering in · 1 in / 0 out prefixes
+```
+
 ## Three defects this walk found that review had not
 
 1. **The pulse fired on a frame that measured nothing.** The signal frame is
@@ -67,3 +99,11 @@ stale: age.class="stale" text="age 42s · stale 42s" body.stale-data=true
    a pulse leaves its flag set for 580 ms, so both injection cases passed or
    failed by luck. They silence the WebSocket first; the walk then passed three
    times in a row.
+4. **The empty message escaped its pane.** It reused `.empty`, which is
+   `position: absolute; inset: 0` for centring over the graph, so inside the
+   activity pane it resolved against the wrong ancestor and painted the
+   sentence across the topology and the RIB. The walk now asserts the message's
+   box is inside its pane.
+5. **The first Traffic layout was a five-column fixed table.** In a 414 px pane
+   it wrapped the link name over four lines and fitted three rows on screen. It
+   is a list now, 43 px a row, and the walk fails if a row grows past 46 px.

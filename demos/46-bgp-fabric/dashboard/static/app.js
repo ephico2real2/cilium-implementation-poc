@@ -499,10 +499,107 @@
     const list = $("events");
     list.replaceChildren();
     const filter = currentFilter();
+    let shown = 0;
     for (const ev of eventStore) {
       if (!ui.eventMatches(ev, filter)) continue;
       list.appendChild(eventItem(ev));
+      shown += 1;
     }
+    // A blank pane is indistinguishable from a broken one. Say which of the
+    // three reasons it is: nothing has happened yet, the filter excludes
+    // everything that has, or this kind of event does not occur on a fabric
+    // that is behaving. `router` is the one that bites — it means a router
+    // went unreachable, and on a healthy fabric it is empty for ever.
+    const empty = $("events-empty");
+    empty.hidden = shown > 0;
+    if (shown === 0) empty.textContent = emptyEventsReason(filter);
+  }
+
+  function emptyEventsReason(filter) {
+    if (!eventStore.length) return "no events yet — the fabric has not changed since this page loaded";
+    const kinds = { session: "session", route: "route", router: "router" };
+    const bits = [];
+    if (filter.kind && kinds[filter.kind]) {
+      const held = eventStore.some((e) => e.kind === filter.kind);
+      if (!held && filter.kind === "router") {
+        return "no router events: a router event is a router going unreachable or coming back, " +
+          "and none has. For traffic between the routers, use the Traffic view.";
+      }
+      if (!held) {
+        return "no " + kinds[filter.kind] + " events among the " + eventStore.length + " recorded";
+      }
+      bits.push("kind " + kinds[filter.kind]);
+    }
+    if (filter.router) bits.push("router " + filter.router);
+    return "no events match " + (bits.join(" and ") || "this filter") +
+      " — " + eventStore.length + " recorded";
+  }
+
+  // renderTraffic answers the question an empty Events list cannot: is
+  // anything moving between these routers right now. Every number is a
+  // measurement from the last tick; a link with nothing measured says so.
+  function renderTraffic() {
+    const host = $("traffic");
+    const empty = $("traffic-empty");
+    if (!snap) {
+      host.replaceChildren();
+      empty.hidden = false;
+      empty.textContent = "waiting for the first poll";
+      return;
+    }
+    const rows = ui.trafficRows(snap.edges || [], snap.sessions || []);
+    if (!rows.length) {
+      host.replaceChildren();
+      empty.hidden = false;
+      empty.textContent = "no links yet";
+      return;
+    }
+    empty.hidden = true;
+
+    // A list, not a table: five fixed columns in a 414px pane wrapped the link
+    // name over four lines and fitted three rows on screen (measured). Each
+    // link is one line of numbers with a muted second line of context.
+    function msgs(s) {
+      if (!s.polled) return "<span class=\"unpolled\" title=\"a cluster node, not an agent we poll\">not polled</span>";
+      if (!s.known) return "<span class=\"idle\">unmeasured</span>";
+      return "<span class=\"" + (s.messages > 0 ? "moving" : "idle") + "\">" + s.messages + "</span>";
+    }
+    function quiet(s) {
+      if (!s.polled || s.quietMsec == null) return "<span class=\"unpolled\">—</span>";
+      const cls = s.health === "ok" ? "idle" : s.health;
+      return "<span class=\"" + cls + "\">" + (s.quietMsec / 1000).toFixed(1) + "s</span>";
+    }
+
+    const moving = rows.filter((r) => r.messages > 0).length;
+    let html = "<p class=\"traffic-caption\">" + rows.length + " links · " + moving +
+      " carried a message on the last poll</p><ul class=\"traffic-list\">";
+    for (const r of rows) {
+      const far = r.b.polled ? r.b.router : r.a.peer;
+      const pfx = r.a.polled ? (r.a.pfxRcd + " in / " + r.a.pfxSnt + " out") : "";
+      const bits = [r.kind === "fabric" ? "fabric link" : "cluster node peering in"];
+      if (pfx) bits.push(pfx + " prefixes");
+      if (r.a.polled && r.a.flaps > 0) bits.push(r.a.flaps + " flaps since boot");
+      if (r.a.polled && r.a.queued > 0) bits.push(r.a.queued + " queued");
+      html += "<li>" +
+        "<span class=\"link\">" + ui.esc(r.a.router || "?") + " \u21c4 " + ui.esc(far) + "</span>" +
+        // The unit only follows a pair of numbers: "2 \u21c4 not polled msg"
+        // reads as though "not polled" were a quantity.
+        "<span class=\"msgs\">" + msgs(r.a) + " <span class=\"arrows\">\u21c4</span> " + msgs(r.b) +
+          (r.a.polled && r.b.polled ? " <span class=\"unit\">msg</span>" : "") + "</span>" +
+        "<span class=\"heard\">heard " + quiet(r.a) + "</span>" +
+        "<span class=\"meta\">" + ui.esc(bits.join(" · ")) + "</span>" +
+        "</li>";
+    }
+    host.innerHTML = html + "</ul>";
+  }
+
+  function setActivityView(view) {
+    const v = view === "traffic" ? "traffic" : "events";
+    $("events-pane").dataset.view = v;
+    $("view-events").setAttribute("aria-selected", v === "events" ? "true" : "false");
+    $("view-traffic").setAttribute("aria-selected", v === "traffic" ? "true" : "false");
+    if (v === "traffic") renderTraffic();
+    else renderEvents();
   }
 
   function pruneSeen() {
@@ -684,6 +781,7 @@
     snap.ts = msg.ts || snap.ts;
     renderFreshness();
     renderSignalStrip();
+    if ($("events-pane").dataset.view === "traffic") renderTraffic();
     if (!cy) return;
     for (const r of snap.routers || []) {
       const sig = ui.routerSignal(r, snap.sessions || []);
@@ -770,6 +868,7 @@
     ribRows();
     renderFreshness();
     renderSignalStrip();
+    if ($("events-pane").dataset.view === "traffic") renderTraffic();
     applyReady();
   }
 
@@ -956,6 +1055,12 @@
     window.__ingestEvent = ingestEvent;
     window.__connect = connect;
     window.__applySignal = applySignal;
+    window.__setActivityView = setActivityView;
+    window.__renderTraffic = renderTraffic;
+
+    for (const id of ["view-events", "view-traffic"]) {
+      $(id).addEventListener("click", (e) => setActivityView(e.currentTarget.dataset.view));
+    }
     window.__applySplit = applySplit;
     window.__signalOf = nodeSignalData;
 
