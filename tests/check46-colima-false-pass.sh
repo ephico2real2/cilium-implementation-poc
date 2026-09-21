@@ -71,6 +71,8 @@ case "$*" in
     printf 'frr defaults %s\n' "${STUB_PROFILE:-traditional}"
     printf 'router bgp 65100\n'
     printf ' maximum-paths 8\n'
+    printf ' neighbor 10.200.1.3 remote-as 65100\n'
+    printf ' neighbor 10.200.1.3 password %s\n' "${STUB_RUNNING_PW:-lab-bgp}"
     printf ' neighbor SERVERS maximum-prefix 64\n'
     printf ' neighbor SERVERS timers 3 9\n'
     if [ "${STUB_LISTEN:-colima}" = old ]; then
@@ -144,6 +146,11 @@ case "$*" in
 esac
 STUB
 chmod +x "$T/bin/docker"
+
+# the check's poll loops are logic here, not clocks: a no-op sleep keeps this
+# harness at seconds while the hold window in the MD5 control stays honest.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$T/bin/sleep"
+chmod +x "$T/bin/sleep"
 
 cat > "$T/bin/colima" <<'STUB'
 #!/usr/bin/env bash
