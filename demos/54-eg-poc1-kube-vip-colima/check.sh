@@ -281,15 +281,27 @@ data = json.load(sys.stdin)
 print("server=%s/%s external=%s" % (
     data.get("serverEstablished"), data.get("serverSessions"), data.get("external")))
 ' 2>/dev/null) || dash_line="parse-fail"
-  ext_ok=$(NODE_IPS="$node_ips" printf '%s' "$dash_raw" | python3 -c '
+  # The variable belongs to python3, not to printf: `NODE_IPS=... printf | python3`
+  # exports it to the printf, so python saw an empty NODE_IPS and the
+  # "external missing" assertion below could never fire.
+  ext_ok=$(printf '%s' "$dash_raw" | NODE_IPS="$node_ips" python3 -c '
 import json, os, sys
 data = json.load(sys.stdin)
 want = set(os.environ.get("NODE_IPS","").split())
 ext = {n.get("addr") or n.get("id") for n in (data.get("nodes") or []) if n.get("kind")=="external"}
-se = data.get("serverEstablished")
-ss = data.get("serverSessions")
-if se != 4 or ss != 4:
-    print("want server 4/4 got %s/%s" % (se, ss)); raise SystemExit(1)
+# Count only the sessions THIS demo owns, not the fabric total. Another
+# cluster peering with the same leaves (demo 52c runs MetalLB as AS 65022
+# beside this one) is not a failure here, but a hard total of 4 said it was:
+# the row went FAIL at server 8/8 with all four of its own up.
+# No apostrophes in this block: it lives inside python3 -c "..." quoted with
+# single quotes, and one apostrophe ends the string and corrupts the source.
+mine = [s for s in (data.get("sessions") or [])
+        if s.get("router") in ("leaf1", "leaf2") and s.get("peer") in want]
+est = sum(1 for s in mine if s.get("state") == "Established" and not s.get("stale"))
+if len(mine) != 4 or est != 4:
+    print("want this cluster 4/4 got %s/%s (fabric total %s/%s)"
+          % (est, len(mine), data.get("serverEstablished"), data.get("serverSessions")))
+    raise SystemExit(1)
 missing = want - ext
 if missing:
     print("external missing %s" % ",".join(sorted(missing))); raise SystemExit(1)
@@ -298,11 +310,11 @@ print("ok")
   if [ "$ext_ok" = ok ]; then
     row ok "dashboard server sessions and external peers" \
       "$dash_line nodes=$node_ips" \
-      "/api/state — server 4/4 (both nodes × both leaves), external=2"
+      "/api/state — this cluster 4/4 (both nodes × both leaves), its nodes external"
   else
     row fail "dashboard server sessions and external peers" \
       "${dash_line}; ${ext_ok}" \
-      "/api/state — server 4/4 (both nodes × both leaves), external=2"
+      "/api/state — this cluster 4/4 (both nodes × both leaves), its nodes external"
   fi
 fi
 

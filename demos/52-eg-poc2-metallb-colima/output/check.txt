@@ -1,0 +1,15 @@
+== demo 52c — MetalLB in BGP mode on a second Colima cluster (AS 65022)
+  STATUS WHAT                                                           MEASURED                                                 RULE
+  PASS   both Colima clusters exist                                     eg-poc1-colima eg-poc2-colima                            52c runs beside 54c on kind-eg-colima
+  PASS   the two clusters' pod CIDRs differ                             poc1 10.70.0.0/16 vs poc2 10.72.0.0/16                   one node LAN, two clusters: no shared pod CIDR
+  PASS   fs.inotify.max_user_instances raised                           instances=512                                            128 starts one cluster and fails the second
+  PASS   MetalLB running frr-k8s (not the deprecated FRR mode)          metallb-frr-k8s ready=2                                  0.16 deprecates speaker.frr.enabled
+  PASS   four AS 65022 sessions Established (2 nodes x 2 leaves)        4/4 Established                                          two nodes x two leaves
+  PASS   the sessions are signed (TCP MD5)                              leaf1 requires a password; secret/fabric-bgp-password supplies it MetalLB stays in Connect unsigned
+  PASS   the door holds 10.198.0.70 from 10.198.0.64/26                 external-ip=10.198.0.70                                  EG-POC2-VIPS permits 10.198.0.64/26 ge 32 le 32
+  PASS   spine has two paths to 10.198.0.70 (one per leaf)              paths=2                                                  ECMP: a leaf may be lost
+  PASS   the edge sees it via the whole fabric                          aspath=65100 65101 65022                                 spine, a leaf, then the cluster
+  PASS   the door answers from the Mac                                  curl http://10.198.0.70/ -> 200                          route via the Colima VM address
+  PASS   the leaf filters this cluster to its own /26                   EG-POC2-VIPS 10.198.0.64/26 ge 32 le 32                  a cluster may not announce another's range
+
+demo 52c check: 0 FAIL

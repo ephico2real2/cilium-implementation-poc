@@ -1,0 +1,59 @@
+# One door on eg-poc2-colima, announced to the fabric by BGP.
+#
+# The address is asked for by annotation rather than left to auto-assign, so
+# the demo can name the /32 it expects the fabric to learn. It has to sit
+# inside the pool — MetalLB refuses an address outside its configured ranges,
+# which is the difference from kube-vip, which will announce anything.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: eg-poc2
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: door
+  namespace: eg-poc2
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: door }
+  template:
+    metadata:
+      labels: { app: door }
+    spec:
+      # One replica per node, so the door answers wherever the fabric sends it
+      # and the two ECMP paths are both real.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: door }
+      containers:
+        - name: door
+          image: registry.k8s.io/e2e-test-images/agnhost:2.47
+          args: ["netexec", "--http-port=8080"]
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: door
+  namespace: eg-poc2
+  annotations:
+    metallb.io/loadBalancerIPs: 10.198.0.70
+    metallb.io/address-pool: eg-poc2-vips
+spec:
+  type: LoadBalancer
+  selector: { app: door }
+  ports:
+    - port: 80
+      targetPort: 8080
+  # Cluster, not Local: either node may answer, which is what makes the two
+  # BGP paths interchangeable. Local would withdraw the route from a node with
+  # no endpoint — a different lesson, and not this one.
+  externalTrafficPolicy: Cluster
