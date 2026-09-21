@@ -302,28 +302,47 @@ else
   fi
 fi
 
-# 13. a wrong password on ONE side of ONE session must leave Established.
-# Restore always (even when the drop is not seen). A row that cannot restore
-# is a FAIL; the fabric is left as we found it when restore succeeds.
+# 13. a wrong password on ONE side of ONE session must take it down AND KEEP
+# it down. A password change resets the session whatever the kernel does —
+# FRR 10.7.1 peer_password_set() calls peer_notify_config_change() /
+# bgp_session_reset() before it ever touches the socket (bgpd/bgpd.c:7546) —
+# so one non-Established sample proves nothing. Only a session that cannot
+# come back while the keys differ proves the key is enforced: the lab's own
+# standard (KERNEL-EVIDENCE.md: "still Connect after 30 s") and what demo
+# 54c's row measures (0/2 up in 10/10 samples).
+# The password restored is the one the session is RUNNING with, read from the
+# running config — fabric/.env may have been edited since apply, and restoring
+# a value the spine does not share leaves the fabric down for good.
 BAD_PW="wrong-colima-md5"
-restore_leaf1_spine_pw() {
+FABRIC_PEER=10.200.1.3
+HOLD_SAMPLES=15
+running_pw() { # the password leaf1 is actually using for the fabric peer
+  "${COMPOSE[@]}" exec -T leaf1 vtysh -c 'show running-config' 2>/dev/null \
+    | awk -v ip="$FABRIC_PEER" \
+        '$1 == "neighbor" && $2 == ip && $3 == "password" { print $4; exit }'
+}
+set_leaf1_spine_pw() {
   "${COMPOSE[@]}" exec -T leaf1 vtysh \
     -c 'configure terminal' \
     -c 'router bgp 65101' \
-    -c "neighbor 10.200.1.3 password ${GOOD_PW}" >/dev/null 2>&1
+    -c "neighbor ${FABRIC_PEER} password $1" >/dev/null 2>&1
 }
 mismatch_ok=1
 mismatch_msg=""
-before_st=$(peer_state leaf1 10.200.1.3)
-if [ "$before_st" != Established ]; then
+ran_control=0
+REAL_PW=$(running_pw)
+before_st=$(peer_state leaf1 "$FABRIC_PEER")
+if [ -z "$REAL_PW" ]; then
+  # Never mutate a session whose key we could not read back.
   mismatch_ok=0
-  mismatch_msg="pre:leaf1/10.200.1.3=$before_st"
+  mismatch_msg="no 'neighbor ${FABRIC_PEER} password' in leaf1's running config — control not run"
+elif [ "$before_st" != Established ]; then
+  mismatch_ok=0
+  mismatch_msg="pre:leaf1/${FABRIC_PEER}=$before_st"
 else
+  ran_control=1
   set_rc=0
-  "${COMPOSE[@]}" exec -T leaf1 vtysh \
-    -c 'configure terminal' \
-    -c 'router bgp 65101' \
-    -c "neighbor 10.200.1.3 password ${BAD_PW}" >/dev/null 2>&1 || set_rc=$?
+  set_leaf1_spine_pw "$BAD_PW" || set_rc=$?
   if [ "$set_rc" -ne 0 ]; then
     mismatch_ok=0
     mismatch_msg="vtysh-set-fail rc=$set_rc"
@@ -331,7 +350,7 @@ else
     dropped=""
     i=0
     while [ "$i" -lt 30 ]; do
-      st=$(peer_state leaf1 10.200.1.3)
+      st=$(peer_state leaf1 "$FABRIC_PEER")
       if [ "$st" != Established ] && [ "$st" != FAIL ] && [ "$st" != ABSENT ]; then
         dropped=$st
         break
@@ -348,20 +367,46 @@ else
       mismatch_ok=0
       mismatch_msg="still Established after 30 s (unsigned look-alike)"
     elif [ "$mismatch_ok" -eq 1 ]; then
-      mismatch_msg="Established→${dropped}"
+      # It went down. Now it must STAY down while the keys differ.
+      came_back=""
+      down_samples=0
+      k=0
+      while [ "$k" -lt "$HOLD_SAMPLES" ]; do
+        sleep 1
+        st=$(peer_state leaf1 "$FABRIC_PEER")
+        if [ "$st" = Established ]; then
+          came_back=$((k + 1))
+          break
+        fi
+        down_samples=$((down_samples + 1))
+        k=$((k + 1))
+      done
+      if [ -n "$came_back" ]; then
+        mismatch_ok=0
+        mismatch_msg="Established→${dropped}→Established after ${came_back}s with the WRONG key (not enforced)"
+      else
+        mismatch_msg="Established→${dropped}, down in ${down_samples}/${HOLD_SAMPLES} samples"
+      fi
     fi
   fi
 fi
 rest_rc=0
-restore_leaf1_spine_pw || rest_rc=$?
-if [ "$rest_rc" -ne 0 ]; then
+if [ "$ran_control" -eq 1 ]; then
+  set_leaf1_spine_pw "$REAL_PW" || rest_rc=$?
+fi
+if [ "$ran_control" -eq 0 ]; then
+  row fail "a wrong password breaks the session" "$mismatch_msg" \
+    "§8 row 3 — mismatch keeps the session down; restore required"
+elif [ "$rest_rc" -ne 0 ]; then
+  echo "check.sh: leaf1 still carries ${BAD_PW} for ${FABRIC_PEER} — the fabric is DOWN." >&2
+  echo "  restore by hand: docker --context $CTX compose -p $FABRIC_COLIMA_PROJECT -f $FABRIC_COLIMA_FABRIC/compose.yaml exec -T leaf1 vtysh -c 'configure terminal' -c 'router bgp 65101' -c 'neighbor ${FABRIC_PEER} password <the fabric key>'" >&2
   row fail "a wrong password breaks the session" "restore-fail rc=$rest_rc ($mismatch_msg)" \
-    "§8 row 3 — mismatch tears the session down; restore required"
+    "§8 row 3 — mismatch keeps the session down; restore required"
 else
   back=""
   j=0
   while [ "$j" -lt 40 ]; do
-    st=$(peer_state leaf1 10.200.1.3)
+    st=$(peer_state leaf1 "$FABRIC_PEER")
     if [ "$st" = Established ]; then
       back=1
       break
@@ -375,14 +420,16 @@ else
     sleep 1
   done
   if [ -z "$back" ]; then
+    echo "check.sh: leaf1/${FABRIC_PEER} did not return to Established after the key was put back." >&2
+    echo "  the running key read before the control was '${REAL_PW}'; the fabric is DOWN until it matches the spine's." >&2
     row fail "a wrong password breaks the session" "could not restore Established ($mismatch_msg)" \
-      "§8 row 3 — mismatch tears the session down; restore required"
+      "§8 row 3 — mismatch keeps the session down; restore required"
   elif [ "$mismatch_ok" -eq 1 ]; then
     row ok "a wrong password breaks the session" "$mismatch_msg; restored Established" \
-      "§8 row 3 — mismatch tears the session down; restore required"
+      "§8 row 3 — mismatch keeps the session down; restore required"
   else
     row fail "a wrong password breaks the session" "$mismatch_msg; restored Established" \
-      "§8 row 3 — mismatch tears the session down; restore required"
+      "§8 row 3 — mismatch keeps the session down; restore required"
   fi
 fi
 
