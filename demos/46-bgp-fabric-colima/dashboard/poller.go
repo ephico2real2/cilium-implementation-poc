@@ -36,6 +36,7 @@ type routerView struct {
 	routerID string
 	sessions []Session
 	routes   []Route
+	seenAt   time.Time
 }
 
 func newPoller(routers []RouterCfg, asNames map[int]string, poll time.Duration) *poller {
@@ -150,7 +151,8 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 					})
 				}
 			}
-			p.lastOK[cfg.Name] = routerView{asn: rt.ASN, routerID: rt.RouterID, sessions: ss, routes: rs}
+			rt.LastSeen = nowRFC3339ms(now)
+			p.lastOK[cfg.Name] = routerView{asn: rt.ASN, routerID: rt.RouterID, sessions: ss, routes: rs, seenAt: now}
 			for _, s := range ss {
 				delete(p.held, sessionKey(s))
 			}
@@ -163,10 +165,14 @@ func (p *poller) tick(now time.Time) (Snapshot, []Event, bool) {
 			// sessions, not a lost one: its old sessions take the hold-down
 			// below like any vanished peer. Only an unanswered poll replays
 			// the last good view as stale.
-			p.lastOK[cfg.Name] = routerView{}
+			rt.LastSeen = nowRFC3339ms(now)
+			p.lastOK[cfg.Name] = routerView{seenAt: now}
 		} else if last, ok := p.lastOK[cfg.Name]; ok {
 			rt.ASN = last.asn
 			rt.RouterID = last.routerID
+			if !last.seenAt.IsZero() {
+				rt.LastSeen = nowRFC3339ms(last.seenAt)
+			}
 			for _, s := range last.sessions {
 				s.Stale = true
 				sessions = append(sessions, s)
