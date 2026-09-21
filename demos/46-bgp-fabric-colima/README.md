@@ -5,10 +5,10 @@ For the reader in a hurry: [RECAP.md](RECAP.md) — the guide.
 Four FRR routers (edge AS 65000, spine AS 65100, leaf1 AS 65101,
 leaf2 AS 65102) plus `client0` and a dashboard on `127.0.0.1:8098`,
 project `bgp-fabric-colima`, docker context `colima-bgp-fabric`.
-Last apply `2026-09-21T00:32:26Z`; last check
-`2026-09-21T01:26:30Z`: 17 rows, 0 FAIL. The three defining rows
-are `md5-option packets=20`,
-`Established→Idle; restored Established`, and
+Last apply `2026-09-21T02:58:09Z`; last check
+`2026-09-21T02:58:46Z`: 17 rows, 0 FAIL. The three defining rows
+are `md5-option packets=10/10 on 10.200.1.3`,
+`Established→Idle, down in 15/15 samples; restored Established`, and
 `CONFIG_TCP_MD5SIG=y kernel=6.8.0-117-generic`.
 
 Routers run `frr-agent:colima` built on
@@ -67,7 +67,7 @@ The same lab runs on Linux with Colima or with plain Docker.
 
 ## What was recorded
 
-Recorded from apply `2026-09-21T00:32:26Z`.
+Recorded from apply `2026-09-21T02:58:09Z`.
 
 ### 1. Bring the fabric up
 
@@ -81,13 +81,13 @@ Recorded:
 image frr-agent:colima present
 image bgp-dashboard:colima present
  Container bgp-fabric-colima-dashboard-1 Healthy
-converged after 0 s (1 polls)
-dashboard ready after 0 s (routers=4/4 sessions=6/6 external=0)
+converged after 1 s (1 polls)
+dashboard ready after 0 s (routers=4/4 sessions=6/6 external=2)
 ```
 
 ```text
-bgp-fabric-colima-dashboard-1   bgp-dashboard:colima      "/dashboard"             dashboard   12 seconds ago   Up 6 seconds (healthy)    127.0.0.1:8098->8080/tcp
-bgp-fabric-colima-edge-1        frr-agent:colima          "/sbin/tini -- /usr/…"   edge        12 seconds ago   Up 12 seconds (healthy)
+bgp-fabric-colima-dashboard-1   bgp-dashboard:colima      "/dashboard"             dashboard   2 hours ago   Up 2 hours (healthy)   127.0.0.1:8098->8080/tcp
+bgp-fabric-colima-edge-1        frr-agent:colima          "/sbin/tini -- /usr/…"   edge        2 hours ago   Up 2 hours (healthy)   
 ```
 
 ### 2. Read the routes on spine and edge
@@ -105,22 +105,25 @@ Recorded:
 
 ```text
      Network          Next Hop            Metric LocPrf Weight Path
+ *>  10.198.0.10/32   10.200.1.10                            0 65102 65021 i
+ *=                   10.200.1.2                             0 65101 65021 i
  *>  10.200.100.0/24  10.200.1.19              0             0 65000 i
  *>  10.200.255.1/32  10.200.1.19              0             0 65000 i
  *>  10.200.255.2/32  0.0.0.0                  0         32768 i
  *>  10.200.255.11/32 10.200.1.2               0             0 65101 i
  *>  10.200.255.12/32 10.200.1.10              0             0 65102 i
-Displayed 5 routes and 5 total paths
+Displayed 6 routes and 7 total paths
 ```
 
 ```text
      Network          Next Hop            Metric LocPrf Weight Path
+ *>  10.198.0.10/32   10.200.1.18                            0 65100 65102 65021 i
  *>  10.200.100.0/24  0.0.0.0                  0         32768 i
  *>  10.200.255.1/32  0.0.0.0                  0         32768 i
  *>  10.200.255.2/32  10.200.1.18              0             0 65100 i
  *>  10.200.255.11/32 10.200.1.18                            0 65100 65101 i
  *>  10.200.255.12/32 10.200.1.18                            0 65100 65102 i
-Displayed 5 routes and 5 total paths
+Displayed 6 routes and 6 total paths
 ```
 
 ### 3. Walk the path from the outside world
@@ -138,16 +141,16 @@ Recorded:
 
 ```text
 traceroute to 10.200.255.11 (10.200.255.11), 30 hops max, 46 byte packets
- 1  10.200.100.2  0.004 ms  0.001 ms  0.001 ms
- 2  10.200.1.18  0.002 ms  0.000 ms  0.002 ms
- 3  10.200.255.11  0.001 ms  0.003 ms  0.001 ms
+ 1  10.200.100.2  0.004 ms  0.001 ms  0.002 ms
+ 2  10.200.1.18  0.001 ms  0.002 ms  0.001 ms
+ 3  10.200.255.11  0.001 ms  0.001 ms  0.002 ms
 ```
 
 ```text
-64 bytes from 10.200.255.11: icmp_seq=1 ttl=62 time=0.048 ms
-64 bytes from 10.200.255.11: icmp_seq=2 ttl=62 time=0.063 ms
-64 bytes from 10.200.255.11: icmp_seq=3 ttl=62 time=0.052 ms
-3 packets transmitted, 3 received, 0% packet loss, time 2073ms
+64 bytes from 10.200.255.11: icmp_seq=1 ttl=62 time=0.045 ms
+64 bytes from 10.200.255.11: icmp_seq=2 ttl=62 time=0.052 ms
+64 bytes from 10.200.255.11: icmp_seq=3 ttl=62 time=0.069 ms
+3 packets transmitted, 3 received, 0% packet loss, time 2088ms
 ```
 
 ### 4. Read the servers' policy
@@ -183,12 +186,12 @@ CONFIG_TCP_MD5SIG=y
 ```
 
 ```text
-18 packets received by filter
+20 packets received by filter
 0 packets dropped by kernel
 ```
 
 ```text
-    10.200.1.3.41902 > 10.200.1.2.179: Flags [P.], cksum 0x17d6 (incorrect -> 0xe54e), seq 331173676:331173695, ack 2492514229, win 501, options [nop,nop,md5 shared secret not supplied with -M, can't check - 41d0e5f10685ceee6675793cc5804aad], length 19: BGP
+    10.200.1.2.179 > 10.200.1.3.43010: Flags [P.], cksum 0x17d6 (incorrect -> 0x9d3e), seq 104988144:104988163, ack 853766002, win 501, options [nop,nop,md5 shared secret not supplied with -M, can't check - e03f29e624ab374b23a9231b508a440f], length 19: BGP
 ```
 
 ```text
@@ -207,17 +210,17 @@ curl -fsS --max-time 5 'http://127.0.0.1:8098/api/state' \
 Recorded:
 
 ```text
-routers=4/4 sessions=6/6 external=0
-screenshot written after 1.8 s; chrome_rc=0
+routers=4/4 sessions=6/6 external=2
+screenshot written after 2.0 s; chrome_rc=0
 ```
 
 ```text
-event mark before clear: id=26
+event mark before clear: id=155
 clear bgp * issued on spine
-dashboard showed the drop after 0.61 s
+dashboard showed the drop after 0.62 s
 screenshot written after 1.4 s; chrome_rc=0
-dashboard confirmed recovery after 0.67 s (polled after the screenshots)
-spine recovery: first Idle 2026-09-21T00:33:02.023Z last Established 2026-09-21T00:33:04.023Z recovered=yes window=2.000 s
+dashboard confirmed recovery after 0.68 s (polled after the screenshots)
+spine recovery: first Idle 2026-09-21T02:58:24.022Z last Established 2026-09-21T02:58:26.023Z recovered=yes window=2.001 s
 ```
 
 ### 7. Route the VIP block from the Mac
@@ -241,7 +244,7 @@ add net 10.198.0.0: gateway 192.168.64.4
 
 ## Checks
 
-Recorded `check.sh` at `2026-09-21T01:26:30Z`:
+Recorded `check.sh` at `2026-09-21T02:58:46Z`:
 
 ```text
 == demo 46-colima — the BGP fabric (four FRR routers, Colima VM, TCP MD5 enforced)
@@ -257,8 +260,8 @@ Recorded `check.sh` at `2026-09-21T01:26:30Z`:
   PASS   SERVERS listen 172.20.0.0/17 on both leaves                            leaf1+leaf2                                          P4 — Colima node LAN only; the Cilium lab /17 is not here
   PASS   per-cluster VIP prefix-lists                                           EG/CILIUM POC1/POC2/ANYCAST ge 32 le 32              R8 — prefix-list + as-path per cluster
   PASS   RFC 8212 in effect                                                     traditional profile, ebgp-requires-policy on         §8 row 5 — traditional defaults, explicit route-maps
-  PASS   sessions signed on the wire                                            md5-option packets=20                                §8 row 3 — TCP-MD5 option on the wire
-  PASS   a wrong password breaks the session                                    Established→Idle; restored Established             §8 row 3 — mismatch tears the session down; restore required
+  PASS   sessions signed on the wire                                            md5-option packets=10/10 on 10.200.1.3               §8 row 3 — TCP-MD5 option on every leaf1–spine segment
+  PASS   a wrong password breaks the session                                    Established→Idle, down in 15/15 samples; restored Established §8 row 3 — mismatch keeps the session down; restore required
   PASS   kernel has CONFIG_TCP_MD5SIG                                           CONFIG_TCP_MD5SIG=y kernel=6.8.0-117-generic         §8 row 3 — VM kernel CONFIG_TCP_MD5SIG=y
   PASS   dashboard reachable, 4/4 routers polled                                routers=4/4 sessions=4/6 external=2                  D8 — /api/state from 127.0.0.1:8098
   PASS   dashboard sessions agree with vtysh                                    6/6 = 6/6 after 2s                                   D17 — state Established matches fabric-bgp-summary

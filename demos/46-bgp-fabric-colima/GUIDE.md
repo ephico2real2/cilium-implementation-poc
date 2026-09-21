@@ -1,10 +1,10 @@
 # Demo 46-colima — four things to try
 
 Four read-only exercises against the fabric once it is up — the
-recorded check is 17 rows, 0 FAIL (`md5-option packets=20`,
-`Established→Idle; restored Established`,
+recorded check is 17 rows, 0 FAIL (`md5-option packets=10/10 on 10.200.1.3`,
+`Established→Idle, down in 15/15 samples; restored Established`,
 `client0_rc=28,28,28,28`) and apply recorded the spine clear
-(`dashboard showed the drop after 0.61 s`, `window=2.000 s`).
+(`dashboard showed the drop after 0.62 s`, `window=2.001 s`).
 
 ## Prerequisites
 
@@ -40,7 +40,7 @@ Total number of neighbors 3
 The same apply's dashboard line:
 
 ```text
-routers=4/4 sessions=6/6 external=0
+routers=4/4 sessions=6/6 external=2
 ```
 
 ### 2. Traceroute from the outside world
@@ -83,8 +83,8 @@ CONFIG_TCP_MD5SIG=y
 ```
 
 ```text
-  PASS   sessions signed on the wire                                            md5-option packets=20                                §8 row 3 — TCP-MD5 option on the wire
-  PASS   a wrong password breaks the session                                    Established→Idle; restored Established             §8 row 3 — mismatch tears the session down; restore required
+  PASS   sessions signed on the wire                                            md5-option packets=10/10 on 10.200.1.3               §8 row 3 — TCP-MD5 option on every leaf1–spine segment
+  PASS   a wrong password breaks the session                                    Established→Idle, down in 15/15 samples; restored Established §8 row 3 — mismatch keeps the session down; restore required
   PASS   kernel has CONFIG_TCP_MD5SIG                                           CONFIG_TCP_MD5SIG=y kernel=6.8.0-117-generic         §8 row 3 — VM kernel CONFIG_TCP_MD5SIG=y
 ```
 
@@ -100,7 +100,7 @@ curl -fsS --max-time 5 'http://127.0.0.1:8098/api/state' \
 **Expect:** the recorded one-liner.
 
 ```text
-routers=4/4 sessions=6/6 external=0
+routers=4/4 sessions=6/6 external=2
 ```
 
 ## Clean up

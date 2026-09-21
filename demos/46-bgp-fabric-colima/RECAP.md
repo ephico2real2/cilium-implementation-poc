@@ -9,28 +9,28 @@ otherwise — that is the WARN row demo 46 carries. Colima runs a
 full Linux kernel in a Lima VM (and runs on both macOS and Linux);
 here `6.8.0-117-generic` with `CONFIG_TCP_MD5SIG=y`, so the same
 `neighbor … password` lines are enforced — this run's check
-counted `md5-option packets=20` and a wrong password took the
-session `Established→Idle` then restored `Established`. The
+counted `md5-option packets=10/10 on 10.200.1.3` and a wrong password took the
+session `Established→Idle`, down in 15/15 samples, then restored `Established`. The
 throwaway VM that settled the flag, the wire, the wrong-key
 control, and the Mac path is in
 [KERNEL-EVIDENCE.md](KERNEL-EVIDENCE.md).
 
 ## What you get
 
-- Apply `2026-09-21T00:32:26Z`. Four routers on
+- Apply `2026-09-21T02:58:09Z`. Four routers on
   `frr-agent:colima` / `quay.io/frrouting/frr:10.7.1` (AS 65000 /
   65100 / 65101 / 65102). Six sessions;
-  `converged after 0 s (1 polls)`.
+  `converged after 1 s (1 polls)`.
 - `client0` reaches `10.200.255.1` / `.2` / `.11` / `.12`
   (`ttl=62`, 0% loss); hops `10.200.100.2 → 10.200.1.18 →
   10.200.255.11`.
 - Kernel `6.8.0-117-generic`, `CONFIG_TCP_MD5SIG=y`;
-  `md5-option packets=20`;
-  `Established→Idle; restored Established`.
+  `md5-option packets=10/10 on 10.200.1.3`;
+  `Established→Idle, down in 15/15 samples; restored Established`.
 - Mgmt `10.200.200.0/24` (`10.200.200.1`, `10.200.200.2`,
   `10.200.200.11`, `10.200.200.12`, `10.200.200.100`,
   `10.200.200.254`); not in BGP. Dashboard `127.0.0.1:8098`,
-  `external=0`. Check `2026-09-21T01:26:30Z`: 17 rows, 0 FAIL;
+  `external=2`. Check `2026-09-21T02:58:46Z`: 17 rows, 0 FAIL;
   `client0_rc=28,28,28,28`. Mac path `192.168.64.4`;
   `http://10.198.0.10/` → `200`.
 
@@ -138,8 +138,8 @@ RECORD_STRICT=1 bash demos/46-bgp-fabric-colima/apply.sh
 
 Result: `image frr-agent:colima present`;
 `image bgp-dashboard:colima present`;
-`converged after 0 s (1 polls)`; `dashboard ready after 0 s
-(routers=4/4 sessions=6/6 external=0)`.
+`converged after 1 s (1 polls)`; `dashboard ready after 0 s
+(routers=4/4 sessions=6/6 external=2)`.
 
 ### 2. Read the routes on spine and edge
 
@@ -190,7 +190,7 @@ colima ssh --profile bgp-fabric -- \
 ```
 
 Result: `kernel=6.8.0-117-generic`; `CONFIG_TCP_MD5SIG=y`; check
-`md5-option packets=20`.
+`md5-option packets=10/10 on 10.200.1.3`.
 
 ### 6. Read the dashboard
 
@@ -199,10 +199,10 @@ curl -fsS --max-time 5 'http://127.0.0.1:8098/api/state' \
   | python3 scripts/fabric-dashboard-state.py
 ```
 
-Result: `routers=4/4 sessions=6/6 external=0`. Apply clear:
-`dashboard showed the drop after 0.61 s`; `dashboard confirmed
-recovery after 0.67 s (polled after the screenshots)`;
-`window=2.000 s`.
+Result: `routers=4/4 sessions=6/6 external=2`. Apply clear:
+`dashboard showed the drop after 0.62 s`; `dashboard confirmed
+recovery after 0.68 s (polled after the screenshots)`;
+`window=2.001 s`.
 
 ### 7. Route the VIP block from the Mac
 
@@ -230,8 +230,8 @@ bash demos/46-bgp-fabric-colima/check.sh
 ```
 
 Result: `CONFIG_TCP_MD5SIG=y`; 17 rows, 0 FAIL;
-`md5-option packets=20`;
-`Established→Idle; restored Established`;
+`md5-option packets=10/10 on 10.200.1.3`;
+`Established→Idle, down in 15/15 samples; restored Established`;
 `client0_rc=28,28,28,28`;
 `demo 46-colima check: 0 FAIL`.
 
@@ -245,8 +245,8 @@ Result: `CONFIG_TCP_MD5SIG=y`; 17 rows, 0 FAIL;
 | images | `frr-agent:colima`, `bgp-dashboard:colima` |
 | dashboard | `127.0.0.1:8098` (`FABRIC_COLIMA_DASHBOARD_PORT`) |
 | password | `FABRIC_BGP_PASSWORD` in `fabric/.env` (default `lab-bgp`) |
-| last apply | `2026-09-21T00:32:26Z` |
-| last check | `2026-09-21T01:26:30Z` |
+| last apply | `2026-09-21T02:58:09Z` |
+| last check | `2026-09-21T02:58:46Z` |
 | files | [README.md](README.md), [GUIDE.md](GUIDE.md), [NETWORK-TEAM-SHEET.md](NETWORK-TEAM-SHEET.md), [KERNEL-EVIDENCE.md](KERNEL-EVIDENCE.md) |
 
 ## Clean up
