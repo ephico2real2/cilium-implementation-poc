@@ -272,32 +272,44 @@ else
     "§8 row 5 — traditional defaults, explicit route-maps"
 fi
 
-# 12. sessions signed on the wire — TCP-MD5 option in the router's netns.
-# Zero packets is a FAIL (an unsigned session also shows zero kernel
-# TcpExtTCPMD5* failures; the wire count is the positive evidence).
+# 12. sessions signed on the wire — the TCP-MD5 option on the leaf1–spine
+# session. The filter names the fabric peer on purpose: once demo 54c is
+# applied leaf1's namespace also carries the SERVERS sessions to the cluster
+# nodes, and those are signed too — an unfiltered capture counts them and
+# PASSes with the fabric session in clear (measured 2026-09-20: 14 of the 20
+# captured segments were 172.20.x SERVERS traffic). Every captured segment of
+# this session must carry the option; zero packets is a FAIL (an unsigned
+# session shows zero kernel TcpExtTCPMD5* failures too, so the wire count is
+# the positive evidence). -l keeps tcpdump line-buffered: with one session in
+# the filter the -c limit may be reached after the timeout kills it.
+FABRIC_PEER=10.200.1.3
 cid=$("${COMPOSE[@]}" ps -q leaf1 2>&1)
 cid_rc=$?
 if [ "$cid_rc" -ne 0 ] || [ -z "$cid" ]; then
   row fail "sessions signed on the wire" "docker ps -q leaf1 failed" \
-    "§8 row 3 — TCP-MD5 option on the wire"
+    "§8 row 3 — TCP-MD5 option on every leaf1–spine segment"
 else
   cap=""
   cap_rc=0
   cap=$(docker --context "$CTX" run --rm --net "container:${cid}" \
     --cap-add NET_ADMIN --cap-add NET_RAW \
     "$NETSHOOT_IMAGE" \
-    timeout 15 tcpdump -nn -v -c 20 -i any 'tcp port 179' 2>&1) || cap_rc=$?
+    timeout 20 tcpdump -nn -v -l -c 10 -i any \
+    "tcp port 179 and host ${FABRIC_PEER}" 2>&1) || cap_rc=$?
   if [ "$cap_rc" -ne 0 ] && [ "$cap_rc" -ne 124 ]; then
     row fail "sessions signed on the wire" "tcpdump/docker rc=$cap_rc" \
-      "§8 row 3 — TCP-MD5 option on the wire"
+      "§8 row 3 — TCP-MD5 option on every leaf1–spine segment"
   else
+    seg_n=$(printf '%s\n' "$cap" | grep -cE '^[[:space:]]+[0-9.]+\.[0-9]+ > [0-9.]+\.[0-9]+:')
     md5_n=$(printf '%s\n' "$cap" | grep -ciE 'md5valid|tcp-md5|md5')
-    if [ "$md5_n" -gt 0 ]; then
-      row ok "sessions signed on the wire" "md5-option packets=$md5_n" \
-        "§8 row 3 — TCP-MD5 option on the wire"
+    if [ "$md5_n" -gt 0 ] && [ "$md5_n" -eq "$seg_n" ]; then
+      row ok "sessions signed on the wire" \
+        "md5-option packets=${md5_n}/${seg_n} on ${FABRIC_PEER}" \
+        "§8 row 3 — TCP-MD5 option on every leaf1–spine segment"
     else
-      row fail "sessions signed on the wire" "md5-option packets=0" \
-        "§8 row 3 — TCP-MD5 option on the wire"
+      row fail "sessions signed on the wire" \
+        "md5-option packets=${md5_n}/${seg_n} on ${FABRIC_PEER}" \
+        "§8 row 3 — TCP-MD5 option on every leaf1–spine segment"
     fi
   fi
 fi
