@@ -360,6 +360,92 @@
     return out;
   }
 
+
+  // trafficRows turns the graph's edges into one row per LINK, carrying what
+  // each end measured on the last tick.
+  //
+  // The Events pane answers "what changed" and falls silent on a healthy
+  // fabric, which is correct and also useless for the question "is anything
+  // moving between these routers". This answers that one, and it answers it
+  // from the same measurements the heartbeat uses.
+  //
+  // A fabric link has both ends polled, so both directions are real. A link to
+  // a cluster node has only our end polled — the node is a BGP peer, not an
+  // agent we can read — so its far side reports `polled: false` rather than a
+  // zero, which would read as "that side sent nothing".
+  function trafficRows(edges, sessions) {
+    const byKey = {};
+    for (const s of sessions || []) byKey[s.router + "|" + s.peer] = s;
+
+    function side(router, peer) {
+      if (!router) return { polled: false };
+      const s = byKey[router + "|" + peer];
+      if (!s) return { polled: false, router: router, peer: peer };
+      const traffic = sessionTraffic(s);
+      const health = sessionHealth(s);
+      return {
+        polled: true,
+        router: router,
+        peer: peer,
+        state: s.state,
+        stale: !!s.stale,
+        known: traffic.known,
+        messages: traffic.messages,
+        prefixes: traffic.prefixes,
+        withdrew: traffic.withdrew,
+        pfxRcd: s.pfxRcd,
+        pfxSnt: s.pfxSnt,
+        quietMsec: health.kind === "unknown" ? null : s.quietMsec,
+        health: health.kind,
+        flaps: s.flaps || 0,
+        queued: (s.inq || 0) + (s.outq || 0),
+      };
+    }
+
+    const rows = [];
+    for (const e of edges || []) {
+      const a = side(e.aRouter, e.aPeer);
+      const b = side(e.bRouter, e.bPeer);
+      const messages = (a.messages || 0) + (b.messages || 0);
+      rows.push({
+        id: e.id,
+        state: e.state,
+        // A link both of whose ends we poll is a fabric link; one with a single
+        // polled end is a cluster node peering in.
+        kind: a.polled && b.polled ? "fabric" : "cluster",
+        a: a,
+        b: b,
+        messages: messages,
+        // known is false when NEITHER end measured anything this tick, which is
+        // what the row must say instead of showing a zero.
+        known: !!(a.known || b.known),
+      });
+    }
+    // Busiest first, then a stable name so the list does not shuffle when two
+    // links are equally quiet.
+    rows.sort((x, y) => (y.messages - x.messages) || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
+    return rows;
+  }
+
+  // trafficCaption is the one line above the list, and it must never turn "we
+  // did not measure this tick" into "nothing moved". A stale router's sessions
+  // and a held-down session both arrive with hasDelta false and their deltas
+  // cleared, so counting those as zero reports a measurement that was never
+  // taken — the same invention the poller refuses when it declines to clamp a
+  // negative delta to zero. `known` exists for exactly this and was unused.
+  function trafficCaption(rows) {
+    const all = rows || [];
+    const measured = all.filter((r) => r.known);
+    const moving = measured.filter((r) => r.messages > 0).length;
+    const n = all.length + (all.length === 1 ? " link" : " links");
+    if (!measured.length) return n + " · nothing measured on the last poll";
+    if (measured.length < all.length) {
+      return n + " · " + moving + " of " + measured.length +
+        " measured carried a message on the last poll";
+    }
+    return n + " · " + moving + " carried a message on the last poll";
+  }
+
   // flowDirection turns a route event into an arrow along an edge. The peer
   // that advertised the prefix is one end; the router that learned it is the
   // other. Returns null when the router originated the route itself, because
@@ -406,6 +492,8 @@
     flowDirection: flowDirection,
     freshness: freshness,
     fromLabel: fromLabel,
+    trafficRows: trafficRows,
+    trafficCaption: trafficCaption,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.bgpUI = api;

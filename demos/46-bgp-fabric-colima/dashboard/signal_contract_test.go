@@ -144,3 +144,45 @@ func TestNeighborsFetchIsNotOnTheCriticalPath(t *testing.T) {
 	}
 	t.Logf("tick took %s", el.Round(time.Millisecond))
 }
+
+// Roles are description text from DASHBOARD_ROLES, and the separator is a
+// SEMICOLON because a role description is a sentence with commas in it.
+func TestParseRolesSplitsOnSemicolonsNotCommas(t *testing.T) {
+	got := parseRoles("edge=the border: the WAN, and client0, live beyond it;spine=transit only;leaf1=where clusters attach")
+	if len(got) != 3 {
+		t.Fatalf("roles=%d want 3: %+v", len(got), got)
+	}
+	if got["edge"] != "the border: the WAN, and client0, live beyond it" {
+		t.Fatalf("a comma inside a description split the entry: %q", got["edge"])
+	}
+	if got["spine"] != "transit only" || got["leaf1"] != "where clusters attach" {
+		t.Fatalf("roles wrong: %+v", got)
+	}
+	// An unset variable is not an error; the legend simply has nothing to say.
+	if len(parseRoles("")) != 0 {
+		t.Fatal("empty DASHBOARD_ROLES must produce no roles")
+	}
+	// A malformed entry is skipped rather than poisoning the rest.
+	if r := parseRoles("bare;spine=transit"); len(r) != 1 || r["spine"] != "transit" {
+		t.Fatalf("a malformed entry was not skipped: %+v", r)
+	}
+}
+
+// The role reaches the snapshot, and a router with no role configured simply
+// has none — the field is omitempty so the page can tell.
+func TestRoleIsStampedOntoTheRouter(t *testing.T) {
+	f := newFakeRouter(t)
+	f.set(summaryWithCounters("10.200.1.3", "Established", 100, 100, 1, 1, false, 10), "")
+	p := newPoller([]RouterCfg{{Name: "leaf1", URL: f.srv.URL}}, map[int]string{65100: "spine", 65101: "leaf1"}, 2*time.Second)
+	p.setRoles(map[string]string{"leaf1": "where clusters attach"})
+	snap, _, _ := p.tick(time.Now())
+	if snap.Routers[0].Role != "where clusters attach" {
+		t.Fatalf("role=%q want the configured text", snap.Routers[0].Role)
+	}
+
+	p2 := newPoller([]RouterCfg{{Name: "leaf1", URL: f.srv.URL}}, map[int]string{65101: "leaf1"}, 2*time.Second)
+	snap, _, _ = p2.tick(time.Now())
+	if snap.Routers[0].Role != "" {
+		t.Fatalf("an unconfigured router must have no role, got %q", snap.Routers[0].Role)
+	}
+}

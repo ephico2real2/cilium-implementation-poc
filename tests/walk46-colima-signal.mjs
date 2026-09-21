@@ -124,6 +124,396 @@ async function page(viewport, q = '') {
   await ctx.close();
 }
 
+// ---- the waiting message stays in its pane --------------------------------
+// `.empty` is the graph overlay: position absolute, inset 0. As a shared class
+// it also caught #signal-strip, whose pane is not positioned, so the strip
+// resolved against the VIEWPORT and painted "waiting for the first poll" across
+// the header and the topology. A router name the fabric does not have holds
+// that state open. Fixing the Events message alone treated the symptom.
+{
+  const { p, ctx } = await page({ width: 1200, height: 800 }, '?router=nosuchrouter');
+  await p.waitForTimeout(3000);
+  const r = await p.evaluate(() => {
+    const el = document.getElementById('signal-strip');
+    const pane = document.getElementById('rib-pane');
+    const e = el.getBoundingClientRect(), q = pane.getBoundingClientRect();
+    return {
+      text: el.textContent.trim(),
+      position: getComputedStyle(el).position,
+      inside: e.left >= q.left - 1 && e.right <= q.right + 1 && e.top >= q.top - 1 && e.bottom <= q.bottom + 1,
+      box: [e.left, e.top, e.right, e.bottom].map(Math.round),
+      pane: [q.left, q.top, q.right, q.bottom].map(Math.round),
+    };
+  });
+  note(`signal strip (?router=nosuchrouter): "${r.text}" position=${r.position}`);
+  note(`      box=[${r.box}] rib-pane=[${r.pane}]`);
+  if (!r.inside) fail.push("the signal strip's waiting message escaped the RIB pane and painted over the page");
+  if (r.position === 'absolute') fail.push("the signal strip is absolutely positioned — it reused the graph overlay's .empty");
+  await ctx.close();
+}
+
+// ---- roles, selection and group move --------------------------------------
+{
+  const { p, ctx, errors } = await page({ width: 1400, height: 900 }, '?router=leaf1');
+  await p.waitForTimeout(3500);
+  await p.evaluate(() => window.__resetLayout());
+  await p.waitForTimeout(400);
+
+  const roles = await p.evaluate(() => ({
+    rows: Array.from(document.querySelectorAll('#roles dt')).map((dt, i) => ({
+      name: dt.textContent.replace(/\s+/g, ' ').trim(),
+      desc: document.querySelectorAll('#roles dd')[i].textContent.replace(/\s+/g, ' ').trim(),
+      accept: !!dt.querySelector('.mark.accept'),
+    })),
+    inPane: (() => {
+      const f = document.querySelector('.graph-foot').getBoundingClientRect();
+      const g = document.getElementById('graph-pane').getBoundingClientRect();
+      return f.left >= g.left - 1 && f.right <= g.right + 1 && f.bottom <= g.bottom + 1;
+    })(),
+  }));
+  note(`roles: ${roles.rows.length} entries, inside the graph pane=${roles.inPane}`);
+  for (const r of roles.rows) note(`      ${r.name.padEnd(22)} accept=${r.accept}  ${r.desc.slice(0, 68)}`);
+  if (roles.rows.length !== 5) fail.push(`roles legend has ${roles.rows.length} entries, expected 4 routers + the dynamic neighbour`);
+  if (!roles.inPane) fail.push('the roles strip is not inside the graph pane');
+  if (!roles.rows.some((r) => /leaf1/.test(r.name) && r.accept)) fail.push('leaf1 should carry the accepting mark in the legend');
+  if (!roles.rows.some((r) => /spine/.test(r.name) && !r.accept)) fail.push('spine must not carry the accepting mark');
+  if (!roles.rows.some((r) => /dynamic neighbour/.test(r.name))) fail.push('the dashed ellipses are not described');
+  if (roles.rows.some((r) => !r.desc)) fail.push('a role entry has no description');
+
+  // selection must be VISIBLE, and equally visible on a wide router and a
+  // small ellipse. It was not: node.picked came after node:selected and erased
+  // it, and overlay-padding is an absolute number, so the halo was a thin rim
+  // on a 90px router and a broad ring on a small ellipse.
+  const look = await p.evaluate(async () => {
+    const cy = window.__cy;
+    cy.nodes().unselect();
+    await new Promise((r2) => setTimeout(r2, 60));
+    const off = {};
+    cy.nodes().forEach((n) => { off[n.id()] = n.renderedStyle('outline-width'); });
+    cy.nodes().select();
+    await new Promise((r2) => setTimeout(r2, 60));
+    const on = {};
+    cy.nodes().forEach((n) => {
+      on[n.id()] = {
+        outline: n.renderedStyle('outline-width'),
+        colour: n.renderedStyle('outline-color'),
+        kind: n.data('kind'),
+        picked: n.hasClass('picked'),
+      };
+    });
+    return { off, on };
+  });
+  const outlines = Object.entries(look.on).map(([id, v]) =>
+    `${id}=${v.outline}${v.picked ? ' (picked)' : ''}`);
+  note(`selection outline: ${outlines.join(' ')}`);
+  note(`      unselected: ${Object.entries(look.off).map(([k, v]) => k + '=' + v).join(' ')}`);
+  for (const [id, v] of Object.entries(look.on)) {
+    const w = parseFloat(v.outline);
+    if (!(w > 0)) fail.push(`${id} shows no selection outline${v.picked ? ' (the picked router overrides it)' : ''}`);
+  }
+  for (const [id, v] of Object.entries(look.off)) {
+    if (parseFloat(v) > 0) fail.push(`${id} has a selection outline while unselected`);
+  }
+  // the SAME width on a router and an ellipse — that is the asymmetry that was reported
+  const widths = new Set(Object.values(look.on).map((v) => parseFloat(v.outline)));
+  if (widths.size !== 1) fail.push(`selection reads differently by node shape: widths ${[...widths].join(',')}`);
+
+  // select all, then move the whole selection with one drag
+  const moved = await p.evaluate(async () => {
+    const cy = window.__cy;
+    cy.nodes().select();
+    const before = {};
+    cy.nodes().forEach((n) => { before[n.id()] = { x: n.position('x'), y: n.position('y') }; });
+    const sel = cy.$('node:selected').length;
+    // Cytoscape moves every selected node when one is dragged; do it through
+    // the same positions API the drag handler records from.
+    cy.$('node:selected').forEach((n) => n.position({ x: n.position('x') + 40, y: n.position('y') + 25 }));
+    cy.$('node:selected').emit('dragfree');
+    await new Promise((r2) => setTimeout(r2, 150));
+    const after = {};
+    cy.nodes().forEach((n) => { after[n.id()] = { x: n.position('x'), y: n.position('y') }; });
+    return { sel, before, after, placed: Object.keys(window.__placed()).length,
+             count: document.getElementById('sel-count').textContent.trim() };
+  });
+  note(`selection: ${moved.sel} nodes selected, ${moved.placed} recorded as placed`);
+  note(`      "${moved.count}"`);
+  if (moved.sel !== 6) fail.push(`select all selected ${moved.sel} nodes, expected 6`);
+  const allShifted = Object.keys(moved.before).every((id) =>
+    Math.round(moved.after[id].x - moved.before[id].x) === 40 &&
+    Math.round(moved.after[id].y - moved.before[id].y) === 25);
+  if (!allShifted) fail.push('the selected nodes did not all move together');
+  if (moved.placed !== 6) fail.push(`${moved.placed} positions recorded, expected 6`);
+
+  // a state re-render must NOT throw the arrangement away
+  const kept = await p.evaluate(async () => {
+    const cy = window.__cy;
+    const before = {};
+    cy.nodes().forEach((n) => { before[n.id()] = { x: n.position('x'), y: n.position('y') }; });
+    const state = await (await fetch('/api/state')).json();
+    state.type = 'state';
+    window.__ingestEvent({ id: 0, kind: 'route', router: 'leaf1', prefix: 'x', ts: new Date().toISOString() });
+    // force the full path the WebSocket takes on a state frame
+    window.dispatchEvent(new Event('resize'));
+    await new Promise((r2) => setTimeout(r2, 300));
+    const after = {};
+    cy.nodes().forEach((n) => { after[n.id()] = { x: n.position('x'), y: n.position('y') }; });
+    return Object.keys(before).every((id) =>
+      Math.abs(after[id].x - before[id].x) < 1 && Math.abs(after[id].y - before[id].y) < 1);
+  });
+  note(`      arrangement survived a re-render: ${kept}`);
+  if (!kept) fail.push('a re-render moved the hand-placed nodes back to the layout');
+
+  // A placement must never leave a node off the canvas, and what comes out of
+  // localStorage is not trusted. Measured 2026-09-21 before the guard: a graph
+  // arranged at 1400px and reopened at 1200px showed 4 of 6 nodes with no JS
+  // error, and six placements at 9000,9000 rendered a blank graph.
+  const placedCases = [
+    ['arranged wider', '{"leaf1":{"x":1300,"y":700},"spine":{"x":1250,"y":80}}'],
+    ['non-numeric', '{"leaf1":{"x":"abc"}}'],
+    ['infinite', '{"leaf1":{"x":1e309,"y":1e309}}'],
+    ['all off-canvas', '{"edge":{"x":9000,"y":9000},"spine":{"x":9000,"y":9000},"leaf1":{"x":9000,"y":9000},"leaf2":{"x":9000,"y":9000},"172.20.0.3":{"x":9000,"y":9000},"172.20.0.4":{"x":9000,"y":9000}}'],
+    ['ghost ids', '{"ghost-1":{"x":10,"y":10},"ghost-2":{"x":20,"y":20}}'],
+    ['a real placement', '{"leaf1":{"x":300,"y":200}}'],
+  ];
+  for (const [label, value] of placedCases) {
+    const ctx2 = await b.newContext({ viewport: { width: 1200, height: 800 }, deviceScaleFactor: 1 });
+    await ctx2.addInitScript(`try { localStorage.setItem('bgp.placed', ${JSON.stringify(value)}); } catch (e) {}`);
+    const p2 = await ctx2.newPage();
+    const errs = [];
+    p2.on('pageerror', (e) => errs.push(String(e)));
+    await p2.goto(URL + '?router=leaf1', { waitUntil: 'networkidle' });
+    await p2.waitForFunction(() => document.body.dataset.ready === '1', { timeout: 15000 });
+    await p2.waitForTimeout(2200);
+    const m2 = await p2.evaluate(() => {
+      const cy = window.__cy, W = cy.width(), H = cy.height();
+      const off = cy.nodes().filter((n) => {
+        const pos = n.position(), bb = n.boundingBox({ includeLabels: true });
+        return !(Number.isFinite(pos.x) && Number.isFinite(pos.y)) || !(bb.x2 > 0 && bb.x1 < W && bb.y2 > 0 && bb.y1 < H);
+      }).map((n) => n.id());
+      return { total: cy.nodes().length, off, leaf1: cy.getElementById('leaf1').position(),
+               placed: window.__placed(), count: document.getElementById('sel-count').textContent.trim(),
+               resetDisabled: document.getElementById('reset-layout').disabled };
+    });
+    note(`placed[${label}]: ${m2.total - m2.off.length}/${m2.total} on canvas${m2.off.length ? ' off=[' + m2.off.join(' ') + ']' : ''}`);
+    if (m2.off.length) fail.push(`placed[${label}]: ${m2.off.length} node(s) not on the canvas`);
+    if (errs.length) fail.push(`placed[${label}] js errors: ` + errs.join(' | '));
+    if (label === 'non-numeric' && m2.placed.leaf1) fail.push('a non-numeric placement survived readPlaced');
+    if (label === 'infinite' && m2.placed.leaf1) fail.push('an infinite placement survived readPlaced');
+    if (label === 'a real placement' && !(m2.leaf1.x === 300 && m2.leaf1.y === 200))
+      fail.push(`a visible placement was moved: leaf1=${JSON.stringify(m2.leaf1)}`);
+    if (label === 'ghost ids') {
+      if (/placed by hand/.test(m2.count)) fail.push('ids that are not in the topology are counted as placed by hand');
+      if (m2.resetDisabled) fail.push('Reset must stay enabled while anything is stored, or a ghost cannot be cleared');
+    }
+    await ctx2.close();
+  }
+
+  // the legend is resizable like the other panes
+  const foot = await p.evaluate(async () => {
+    const h = () => Math.round(document.querySelector('.graph-foot').getBoundingClientRect().height);
+    const before = h();
+    window.__applySplit('foot', 45);
+    await new Promise((r2) => setTimeout(r2, 350));
+    const bigger = h();
+    window.__applySplit('foot', 12);
+    await new Promise((r2) => setTimeout(r2, 350));
+    const smaller = h();
+    const graphH = Math.round(document.getElementById('graph').getBoundingClientRect().height);
+    const canvas = window.__cy.height();
+    window.__applySplit('foot', 26);
+    await new Promise((r2) => setTimeout(r2, 350));
+    return { before, bigger, smaller, graphH, canvas };
+  });
+  note(`legend height: ${foot.before}px → ${foot.bigger}px (45%) → ${foot.smaller}px (12%)`);
+  note(`      graph got the rest: ${foot.graphH}px, cytoscape canvas ${foot.canvas}px`);
+  if (!(foot.bigger > foot.before && foot.smaller < foot.before)) fail.push('the legend splitter did not resize the legend');
+  if (Math.abs(foot.canvas - foot.graphH) > 4) fail.push(`cytoscape did not re-fit: canvas ${foot.canvas} vs pane ${foot.graphH}`);
+
+  // reset puts them back and forgets
+  const reset = await p.evaluate(async () => {
+    window.__resetLayout();
+    await new Promise((r2) => setTimeout(r2, 300));
+    return { placed: Object.keys(window.__placed()).length,
+             stored: (() => { try { return localStorage.getItem('bgp.placed'); } catch (e) { return null; } })() };
+  });
+  note(`      after reset: placed=${reset.placed} stored=${reset.stored}`);
+  if (reset.placed !== 0) fail.push('reset layout did not forget the hand placements');
+  if (errors.length) fail.push('roles/selection js errors: ' + errors.join(' | '));
+  await p.screenshot({ path: `${OUT}/1400-roles-selection.png` });
+  await ctx.close();
+}
+
+// ---- the operator's case: filter Events by "router" -----------------------
+// A healthy fabric emits no router events, so this list is legitimately empty.
+// A blank pane is indistinguishable from a broken one, so it must say why and
+// point at the view that does answer "is anything moving".
+{
+  const { p, ctx } = await page({ width: 1200, height: 800 }, '?router=leaf1&tab=events');
+  await p.waitForTimeout(3000);
+  const r = await p.evaluate(async () => {
+    const sel = document.getElementById('ev-kind');
+    sel.value = 'router';
+    sel.dispatchEvent(new Event('change'));
+    await new Promise((r2) => setTimeout(r2, 100));
+    const empty = document.getElementById('events-empty');
+    const eb = empty.getBoundingClientRect();
+    const pb = document.getElementById('events-pane').getBoundingClientRect();
+    return {
+      rows: document.querySelectorAll('#events li').length,
+      emptyHidden: empty.hidden,
+      text: empty.textContent,
+      kinds: Array.from(document.querySelectorAll('#ev-kind option')).map((o) => o.textContent.trim()),
+      // The message must sit INSIDE its pane. Reusing the graph's .empty class
+      // (position:absolute; inset:0) resolved it against the wrong ancestor and
+      // painted the sentence across the topology and the RIB.
+      inside: eb.left >= pb.left - 1 && eb.right <= pb.right + 1 && eb.top >= pb.top - 1,
+      box: [Math.round(eb.left), Math.round(eb.right), Math.round(pb.left), Math.round(pb.right)],
+    };
+  });
+  note(`events kind=router: rows=${r.rows} emptyShown=${!r.emptyHidden}`);
+  note(`      "${r.text.trim()}"`);
+  note(`      options: ${r.kinds.join(' | ')}`);
+  if (r.rows !== 0) fail.push('this fabric should have no router events');
+  if (r.emptyHidden) fail.push('an empty Events list explained nothing — the operator saw a blank pane');
+  if (!/Traffic view/.test(r.text)) fail.push('the empty state does not point at the Traffic view');
+  if (!r.kinds.some((k) => /unreachable/.test(k))) fail.push('the router option still reads as "router", not what it means');
+  note(`      empty box l=${r.box[0]} r=${r.box[1]} inside pane l=${r.box[2]} r=${r.box[3]}`);
+  if (!r.inside) fail.push('the empty message escaped its pane and painted over the graph');
+  await p.screenshot({ path: `${OUT}/1200-events-router-empty.png` });
+  await ctx.close();
+}
+
+// ---- Traffic answers what Events cannot -----------------------------------
+{
+  const { p, ctx, errors } = await page({ width: 1200, height: 800 }, '?router=leaf1&tab=events');
+  await p.waitForTimeout(4500);
+  const r = await p.evaluate(async () => {
+    window.__setActivityView('traffic');
+    await new Promise((r2) => setTimeout(r2, 200));
+    const items = Array.from(document.querySelectorAll('#traffic .traffic-list li'));
+    const rows = items.map((li) => ({
+      link: li.querySelector('.link').textContent.trim(),
+      msgs: li.querySelector('.msgs').textContent.replace(/\s+/g, ' ').trim(),
+      heard: li.querySelector('.heard').textContent.replace(/\s+/g, ' ').trim(),
+      meta: li.querySelector('.meta').textContent.replace(/\s+/g, ' ').trim(),
+      h: Math.round(li.getBoundingClientRect().height),
+    }));
+    const pane = document.getElementById('events-pane').getBoundingClientRect();
+    return {
+      caption: (document.querySelector('#traffic .traffic-caption') || {}).textContent || '',
+      rows,
+      tallest: Math.max.apply(null, rows.map((r) => r.h)),
+      paneH: Math.round(pane.height),
+      eventsHidden: getComputedStyle(document.getElementById('events')).display,
+    };
+  });
+  note(`traffic: ${r.caption.trim()}`);
+  for (const row of r.rows) note(`      ${row.link.padEnd(22)} ${row.msgs.padEnd(14)} ${row.heard.padEnd(12)} ${row.meta} [${row.h}px]`);
+  note(`      tallest row ${r.tallest}px in a ${r.paneH}px pane`);
+  // The counts come from the fabric, not from this file: the invariant is that
+  // the view drops no edge, and an edge is a fabric link exactly when both ends
+  // are polled. A hard 7 would fail on a fifth router for a reason that has
+  // nothing to do with this view. The floor keeps it from passing vacuously.
+  const want = await p.evaluate(async () => {
+    const s = await (await fetch('/api/state')).json();
+    const edges = s.edges || [];
+    return { links: edges.length,
+             fabric: edges.filter((e) => e.bRouter).length,
+             cluster: edges.filter((e) => !e.bRouter).length };
+  });
+  note(`      the fabric reports ${want.links} links (${want.fabric} fabric, ${want.cluster} cluster)`);
+  if (want.fabric < 3 || want.cluster < 1) fail.push(`the lab is not up: ${want.fabric} fabric + ${want.cluster} cluster links in /api/state`);
+  if (r.rows.length !== want.links) fail.push(`traffic shows ${r.rows.length} links, the fabric has ${want.links}`);
+  if (r.eventsHidden !== 'none') fail.push('the Events list is still visible in the Traffic view');
+  const fabric = r.rows.filter((x) => /fabric link/.test(x.meta));
+  const cluster = r.rows.filter((x) => /cluster node/.test(x.meta));
+  if (fabric.length !== want.fabric) fail.push(`expected ${want.fabric} fabric links, got ${fabric.length}`);
+  if (cluster.length !== want.cluster) fail.push(`expected ${want.cluster} cluster links, got ${cluster.length}`);
+  if (!cluster.some((x) => /not polled/.test(x.msgs))) fail.push('a cluster link must say its far end is not polled, not 0');
+  if (!r.rows.some((x) => /\d/.test(x.msgs))) fail.push('no link reported a measured message');
+  // The first layout wrapped the link name over four lines and fitted three
+  // rows on screen. A row is two lines of text; anything taller has wrapped.
+  if (r.tallest > 46) fail.push(`a traffic row is ${r.tallest}px tall — the link name is wrapping again`);
+  if (r.rows.length * r.tallest > r.paneH * 2) fail.push('the traffic list needs more than two pane-heights for 7 links');
+  if (errors.length) fail.push('traffic js errors: ' + errors.join(' | '));
+  await p.screenshot({ path: `${OUT}/1200-traffic.png` });
+
+  // Colour is the half of this view a textContent assertion cannot see. The
+  // classes shipped with no CSS behind them, so a busy link, a silent link and
+  // a session eating its hold time all rendered in one colour. A healthy lab
+  // never produces an overdue keepalive, so the rows are staged.
+  const paint = await p.evaluate(async () => {
+    const real = window.bgpUI.trafficRows;
+    window.bgpUI.trafficRows = (edges, sessions) => {
+      const rows = real(edges, sessions).slice(0, 3).map((x) => JSON.parse(JSON.stringify(x)));
+      rows[0].a.messages = 7; rows[0].messages = 7;
+      rows[1].a.messages = 0; rows[1].messages = 0;
+      rows[2].a.health = 'critical'; rows[2].a.quietMsec = 8000;
+      return rows;
+    };
+    window.__renderTraffic();
+    await new Promise((r2) => setTimeout(r2, 150));
+    const lis = Array.from(document.querySelectorAll('#traffic .traffic-list li'));
+    const col = (li, sel) => { const s = li && li.querySelector(sel); return s ? getComputedStyle(s).color : ''; };
+    const out = {
+      moving: col(lis[0], '.msgs .moving'),
+      idle: col(lis[1], '.msgs .idle'),
+      heardOk: col(lis[0], '.heard .idle'),
+      heardCritical: col(lis[2], '.heard .critical'),
+    };
+    window.bgpUI.trafficRows = real;
+    window.__renderTraffic();
+    return out;
+  });
+  note(`      paint: moving=${paint.moving} idle=${paint.idle} heard-ok=${paint.heardOk} heard-critical=${paint.heardCritical}`);
+  if (paint.moving === paint.idle) fail.push('a link carrying messages is painted exactly like a silent one');
+  if (paint.heardCritical === paint.heardOk) fail.push('a session eating its hold time is painted like a healthy one');
+
+  // A link that is DOWN must say so. A session the poller could not read and a
+  // session in Idle both arrive with hasDelta false, so "unmeasured" used to be
+  // the answer for both — silence is the wrong answer to "this end is idle".
+  const down = await p.evaluate(async () => {
+    const real = window.bgpUI.trafficRows;
+    window.bgpUI.trafficRows = (edges, sessions) => {
+      const rows = real(edges, sessions).map((x) => JSON.parse(JSON.stringify(x)));
+      rows[0].a.state = 'Idle'; rows[0].a.known = false; rows[0].a.messages = 0;
+      return rows;
+    };
+    window.__renderTraffic();
+    await new Promise((r2) => setTimeout(r2, 150));
+    const li = document.querySelector('#traffic .traffic-list li');
+    const out = { text: li.querySelector('.msgs').textContent.replace(/\s+/g, ' ').trim(),
+                  colour: (() => { const s = li.querySelector('.msgs .down'); return s ? getComputedStyle(s).color : 'MISSING'; })() };
+    window.bgpUI.trafficRows = real;
+    window.__renderTraffic();
+    return out;
+  });
+  note(`      a down end renders: "${down.text}" colour=${down.colour}`);
+  if (/unmeasured/.test(down.text) || !/idle/.test(down.text))
+    fail.push(`a down link renders "${down.text}" — indistinguishable from one we did not measure`);
+  if (down.colour === 'MISSING') fail.push('the down state has no colour of its own');
+
+  // A fabric link's prefix counts are ONE end's. The row must say whose.
+  if (!r.rows.every((x) => new RegExp('\\b' + x.link.split(' ')[0] + ':').test(x.meta)))
+    fail.push('a traffic row does not say which end its prefix counts belong to');
+
+  // It must keep up with the live signal, not freeze at the first render.
+  // "the list is non-empty after 5s" does not test that — measured, it passes
+  // identically with the WebSocket closed. renderTraffic rebuilds the <ul>, so
+  // a tick that rendered leaves a NEW node behind; identity is the assertion.
+  await p.evaluate(() => { window.__trafficUl = document.querySelector('#traffic .traffic-list'); });
+  await p.waitForTimeout(5000);
+  const live = await p.evaluate(() => {
+    const ul = document.querySelector('#traffic .traffic-list');
+    return { rerendered: !!ul && ul !== window.__trafficUl,
+             text: ul ? ul.textContent.replace(/\s+/g, ' ').trim() : '' };
+  });
+  note(`      still live after 5s: ${live.text.slice(0, 70)}...`);
+  if (!live.text) fail.push('the traffic list emptied itself');
+  if (!live.rerendered) fail.push('the traffic list froze at the first render — no tick re-rendered it');
+  await ctx.close();
+}
+
 // ---- the heartbeat only beats on a measured delta -------------------------
 {
   const { p, ctx } = await page({ width: 1200, height: 800 }, '?router=leaf1');

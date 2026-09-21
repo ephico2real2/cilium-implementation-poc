@@ -36,6 +36,7 @@
       accept: css("--accept"),
       late: css("--late"),
       critical: css("--critical"),
+      select: css("--select"),
     };
   }
 
@@ -267,7 +268,10 @@
     });
     const elements = [];
     for (const n of snap.nodes || []) {
-      const p = laid.pos[n.id] || { x: m.w / 2, y: m.h / 2 };
+      // A node the reader has moved keeps where they put it. renderGraph runs
+      // again on every state change, so without this the next tick would throw
+      // their arrangement away and snap everything back to the layout.
+      const p = placed[n.id] || laid.pos[n.id] || { x: m.w / 2, y: m.h / 2 };
       elements.push({
         data: Object.assign({ id: n.id, label: n.label, kind: n.kind }, nodeSignalData(n.id)),
         position: p,
@@ -367,6 +371,25 @@
           color: c.muted,
         },
       },
+      // LAST among the node rules on purpose: Cytoscape takes the last matching
+      // declaration, and node.picked came after this and erased it, so the
+      // router you were reading never looked selected.
+      //
+      // Selection uses the OUTLINE, drawn outside the node. The border already
+      // carries three other meanings (session state, accepting a cluster, the
+      // picked router) and the overlay carries hover, so a fourth on either was
+      // unreadable. An outline also follows the node's own shape and size,
+      // which is why the small dashed ellipses looked obviously selected while
+      // the wide routers did not: overlay-padding is an absolute number.
+      {
+        selector: "node:selected",
+        style: {
+          "outline-color": c.select,
+          "outline-width": 4,
+          "outline-opacity": 1,
+          "outline-offset": 3,
+        },
+      },
       { selector: "edge[state = \"established\"]", style: { "line-color": c.est } },
       { selector: "edge[state = \"transitional\"]", style: { "line-color": c.trans } },
       { selector: "edge[state = \"stale\"]", style: { "line-color": c.stale, "line-style": "dashed" } },
@@ -380,7 +403,10 @@
         layout: { name: "preset" },
         userZoomingEnabled: false,
         userPanningEnabled: false,
-        boxSelectionEnabled: false,
+        // Dragging the background draws a selection box, and Cytoscape moves
+        // every selected node when one of them is grabbed.
+        boxSelectionEnabled: true,
+        selectionType: "additive",
       });
       window.__cy = cy;
       cy.on("tap", "node", (ev) => selectRouter(ev.target.id(), "click"));
@@ -392,6 +418,12 @@
         ev.target.removeClass("hover");
         $("graph").style.cursor = "";
       });
+      cy.on("dragfree", "node", (ev) => {
+        const sel = cy.$("node:selected");
+        recordPositions(sel.length > 1 && sel.contains(ev.target) ? sel : ev.target);
+        updateSelectionCount();
+      });
+      cy.on("select unselect", "node", () => updateSelectionCount());
       cy.on("mouseover", "edge", (ev) => setHover(ev.target.data()));
       cy.on("mouseout", "edge", () => { if (!shotHover) setHover(null); });
       // Label-sized nodes have no resolved width on the instance's first
@@ -415,6 +447,14 @@
     const inset = 16;
     cy.nodes().forEach((n) => {
       const bb = n.boundingBox({ includeLabels: true, includeOverlays: false });
+      // A node the reader placed is left where they put it — UNLESS none of it
+      // is on the canvas. Arranging at one window width and opening at another
+      // otherwise loses nodes with nothing on the page to say so: measured
+      // 2026-09-21, a graph arranged at 1400px and reopened at 1200px showed
+      // 4 of 6 nodes, no JS error, and the counter still claiming "2 placed by
+      // hand". The rescue is for THIS render only — the recorded position is
+      // untouched, so the arrangement returns at the width that made it.
+      if (placed[n.id()] && bb.x2 > 0 && bb.x1 < paneW && bb.y2 > 0 && bb.y1 < paneH) return;
       let x = n.position("x");
       let y = n.position("y");
       const hw = bb.w / 2, hh = bb.h / 2;
@@ -499,10 +539,118 @@
     const list = $("events");
     list.replaceChildren();
     const filter = currentFilter();
+    let shown = 0;
     for (const ev of eventStore) {
       if (!ui.eventMatches(ev, filter)) continue;
       list.appendChild(eventItem(ev));
+      shown += 1;
     }
+    // A blank pane is indistinguishable from a broken one. Say which of the
+    // three reasons it is: nothing has happened yet, the filter excludes
+    // everything that has, or this kind of event does not occur on a fabric
+    // that is behaving. `router` is the one that bites — it means a router
+    // went unreachable, and on a healthy fabric it is empty for ever.
+    const empty = $("events-empty");
+    empty.hidden = shown > 0;
+    if (shown === 0) empty.textContent = emptyEventsReason(filter);
+  }
+
+  function emptyEventsReason(filter) {
+    if (!eventStore.length) return "no events yet — the fabric has not changed since this page loaded";
+    const kinds = { session: "session", route: "route", router: "router" };
+    const bits = [];
+    if (filter.kind && kinds[filter.kind]) {
+      const held = eventStore.some((e) => e.kind === filter.kind);
+      if (!held && filter.kind === "router") {
+        return "no router events: a router event is a router going unreachable or coming back, " +
+          "and none has. For traffic between the routers, use the Traffic view.";
+      }
+      if (!held) {
+        return "no " + kinds[filter.kind] + " events among the " + eventStore.length + " recorded";
+      }
+      bits.push("kind " + kinds[filter.kind]);
+    }
+    if (filter.router) bits.push("router " + filter.router);
+    return "no events match " + (bits.join(" and ") || "this filter") +
+      " — " + eventStore.length + " recorded";
+  }
+
+  // renderTraffic answers the question an empty Events list cannot: is
+  // anything moving between these routers right now. Every number is a
+  // measurement from the last tick; a link with nothing measured says so.
+  function renderTraffic() {
+    const host = $("traffic");
+    const empty = $("traffic-empty");
+    if (!snap) {
+      host.replaceChildren();
+      empty.hidden = false;
+      empty.textContent = "waiting for the first poll";
+      return;
+    }
+    const rows = ui.trafficRows(snap.edges || [], snap.sessions || []);
+    if (!rows.length) {
+      host.replaceChildren();
+      empty.hidden = false;
+      empty.textContent = "no links yet";
+      return;
+    }
+    empty.hidden = true;
+
+    // A list, not a table: five fixed columns in a 414px pane wrapped the link
+    // name over four lines and fitted three rows on screen (measured). Each
+    // link is one line of numbers with a muted second line of context.
+    function msgs(s) {
+      if (!s.polled) return "<span class=\"unpolled\" title=\"a cluster node, not an agent we poll\">not polled</span>";
+      // A session the poller could not read and a session that is DOWN both
+      // arrive with hasDelta false, so "unmeasured" was this view's answer for
+      // both. It is the wrong answer for one of them: "is anything moving" is
+      // answered by "this end is idle", not by silence.
+      if (s.state && s.state !== "Established") {
+        return "<span class=\"down\">" + ui.esc(s.state.toLowerCase()) + "</span>";
+      }
+      if (!s.known) return "<span class=\"idle\">unmeasured</span>";
+      return "<span class=\"" + (s.messages > 0 ? "moving" : "idle") + "\">" + s.messages + "</span>";
+    }
+    function quiet(s) {
+      if (!s.polled || s.quietMsec == null) return "<span class=\"unpolled\">—</span>";
+      const cls = s.health === "ok" ? "idle" : s.health;
+      return "<span class=\"" + cls + "\">" + (s.quietMsec / 1000).toFixed(1) + "s</span>";
+    }
+
+    let html = "<p class=\"traffic-caption\">" + ui.esc(ui.trafficCaption(rows)) +
+      "</p><ul class=\"traffic-list\">";
+    for (const r of rows) {
+      const far = r.b.router || r.a.peer;
+      // Every number below is the FIRST-NAMED end's. FRR counts prefixes, flaps
+      // and queues per session, and the two ends of a fabric link disagree —
+      // spine counts 10 flaps on leaf1 where leaf1 counts its own — so the row
+      // has to say whose they are. Named once, on the first clause: naming it on
+      // every clause wrapped the row to 59px and undid the layout this list
+      // replaced the five-column table to get.
+      const bits = [r.kind === "fabric" ? "fabric link" : "cluster node peering in"];
+      if (r.a.polled) bits.push(r.a.router + ": " + r.a.pfxRcd + " in / " + r.a.pfxSnt + " out prefixes");
+      if (r.a.polled && r.a.flaps > 0) bits.push(r.a.flaps + " flaps since boot");
+      if (r.a.polled && r.a.queued > 0) bits.push(r.a.queued + " queued");
+      html += "<li>" +
+        "<span class=\"link\">" + ui.esc(r.a.router || "?") + " \u21c4 " + ui.esc(far) + "</span>" +
+        // The unit only follows a pair of numbers: "2 \u21c4 not polled msg"
+        // reads as though "not polled" were a quantity.
+        "<span class=\"msgs\">" + msgs(r.a) + " <span class=\"arrows\">\u21c4</span> " + msgs(r.b) +
+          (r.a.polled && r.b.polled ? " <span class=\"unit\">msg</span>" : "") + "</span>" +
+        "<span class=\"heard\">heard " + quiet(r.a) + "</span>" +
+        "<span class=\"meta\">" + ui.esc(bits.join(" · ")) + "</span>" +
+        "</li>";
+    }
+    host.innerHTML = html + "</ul>";
+  }
+
+  function setActivityView(view) {
+    const v = view === "traffic" ? "traffic" : "events";
+    $("events-pane").dataset.view = v;
+    $("view-events").setAttribute("aria-selected", v === "events" ? "true" : "false");
+    $("view-traffic").setAttribute("aria-selected", v === "traffic" ? "true" : "false");
+    if (v === "traffic") renderTraffic();
+    else renderEvents();
   }
 
   function pruneSeen() {
@@ -567,6 +715,108 @@
     }).catch(() => {});
   }
 
+  // ---- arranging the picture ---------------------------------------------
+  //
+  // `placed` holds the nodes the reader has moved, by id. It is consulted when
+  // the elements are rebuilt, which happens on every state change, and it is
+  // remembered per browser so an arrangement survives a reload. A node that is
+  // no longer in the topology is simply never looked up.
+
+  let placed = readPlaced();
+
+  // readPlaced accepts only what savePlaced writes: an object of id -> {x, y}
+  // with FINITE numbers. Anything on the origin can write localStorage and
+  // Cytoscape does not validate a position — measured 2026-09-21, {"x":"abc"}
+  // painted a node at ("abc", 0) and {} put it at (0, 0), neither throwing. A
+  // bad entry is dropped on its own so one corrupt node does not discard the
+  // whole arrangement.
+  function readPlaced() {
+    let v = null;
+    try {
+      const raw = localStorage.getItem("bgp.placed");
+      v = raw ? JSON.parse(raw) : null;
+    } catch (err) { return {}; }
+    if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+    const out = {};
+    for (const id of Object.keys(v)) {
+      const q = v[id];
+      if (q && typeof q === "object" && Number.isFinite(q.x) && Number.isFinite(q.y)) {
+        out[id] = { x: q.x, y: q.y };
+      }
+    }
+    return out;
+  }
+
+  function savePlaced() {
+    try { localStorage.setItem("bgp.placed", JSON.stringify(placed)); } catch (err) { /* private window */ }
+  }
+
+  // Cytoscape drags every SELECTED node when one of them is grabbed, so the
+  // group move needs no code of its own — only the positions recorded after.
+  function recordPositions(nodes) {
+    nodes.forEach((n) => { placed[n.id()] = { x: n.position("x"), y: n.position("y") }; });
+    savePlaced();
+  }
+
+  function updateSelectionCount() {
+    const el = $("sel-count");
+    if (!el) return;
+    const n = cy ? cy.$("node:selected").length : 0;
+    // Count the placements the reader can SEE. `placed` also remembers nodes
+    // that have left the topology — a cluster peer that went away — and those
+    // are kept so the arrangement is there when it returns, but "2 placed by
+    // hand" over a picture with nothing moved is a lie. Reset stays enabled
+    // while anything is stored, so the record can still be cleared.
+    const moved = cy ? cy.nodes().filter((m) => placed[m.id()]).length : 0;
+    const stored = Object.keys(placed).length;
+    if (n > 0) {
+      el.textContent = n + (n === 1 ? " node selected" : " nodes selected") + " — drag one to move them together";
+      el.classList.add("active");
+    } else {
+      el.textContent = "drag the background to select · drag a selected node to move them together" +
+        (moved ? " · " + moved + " placed by hand" : "");
+      el.classList.remove("active");
+    }
+    const clear = $("clear-sel");
+    const reset = $("reset-layout");
+    if (clear) clear.disabled = n === 0;
+    if (reset) reset.disabled = stored === 0;
+  }
+
+  function resetLayout() {
+    placed = {};
+    savePlaced();
+    renderGraph();
+    updateSelectionCount();
+  }
+
+  // renderRoles fills the strip under the topology. The text is configuration
+  // (DASHBOARD_ROLES), not something the page infers: a leaf with no cluster
+  // attached right now looks exactly like a spine.
+  function renderRoles() {
+    const el = $("roles");
+    if (!el || !snap) return;
+    const parts = [];
+    for (const r of snap.routers || []) {
+      if (!r.role) continue;
+      const mark = r.dynamicPeers > 0 ? "mark accept" : "mark";
+      parts.push(
+        "<dt><i class=\"" + mark + "\" aria-hidden=\"true\"></i>" + ui.esc(r.name) +
+          (r.asn ? " <span class=\"asn\">AS " + r.asn + "</span>" : "") + "</dt>" +
+        "<dd>" + ui.esc(r.role) + "</dd>");
+    }
+    // The dashed ellipses are not routers and have no agent, so they are
+    // described once rather than per node.
+    const externals = (snap.nodes || []).filter((n) => n.kind === "external").length;
+    if (externals) {
+      parts.push(
+        "<dt><i class=\"mark external\" aria-hidden=\"true\"></i>dynamic neighbour</dt>" +
+        "<dd>" + externals + " peer" + (externals === 1 ? "" : "s") +
+        " that arrived through a leaf's listen range — a cluster node, not a router this page polls</dd>");
+    }
+    el.innerHTML = parts.join("");
+  }
+
   // ---- signal -----------------------------------------------------------
   //
   // Everything here is driven by a number the poller MEASURED. Nothing below
@@ -600,11 +850,14 @@
     if (!n || n.empty()) return;
     if (n.scratch("_beating")) return;
     n.scratch("_beating", true);
+    // The pulse uses the UNDERLAY, drawn beneath the node. The overlay belongs
+    // to hover and to the picked router, and animating it to 0 left a picked
+    // node without its highlight after the first beat.
     const c = colours();
-    n.style("overlay-color", c.accept);
-    n.style("overlay-padding", 6);
-    n.animate({ style: { "overlay-opacity": 0.3 }, duration: 160 })
-      .animate({ style: { "overlay-opacity": 0 }, duration: 420, complete: () => n.scratch("_beating", false) });
+    n.style("underlay-color", c.accept);
+    n.style("underlay-padding", 8);
+    n.animate({ style: { "underlay-opacity": 0.45 }, duration: 160 })
+      .animate({ style: { "underlay-opacity": 0 }, duration: 420, complete: () => n.scratch("_beating", false) });
   }
 
   // flow draws an advertisement travelling along an edge, in the direction it
@@ -684,6 +937,7 @@
     snap.ts = msg.ts || snap.ts;
     renderFreshness();
     renderSignalStrip();
+    if ($("events-pane").dataset.view === "traffic") renderTraffic();
     if (!cy) return;
     for (const r of snap.routers || []) {
       const sig = ui.routerSignal(r, snap.sessions || []);
@@ -770,6 +1024,9 @@
     ribRows();
     renderFreshness();
     renderSignalStrip();
+    renderRoles();
+    updateSelectionCount();
+    if ($("events-pane").dataset.view === "traffic") renderTraffic();
     applyReady();
   }
 
@@ -834,12 +1091,21 @@
     try { localStorage.setItem(key, String(pct)); } catch (err) { /* private window */ }
   }
 
+  // Each splitter is one entry here: the CSS property it drives, the button
+  // that reports its value, and the range it may take.
+  const SPLITS = {
+    col: { prop: "--split-col", button: "split-col", min: 25, max: 80 },
+    row: { prop: "--split-row", button: "split-row", min: 20, max: 85 },
+    foot: { prop: "--split-foot", button: "split-foot", min: 8, max: 60 },
+  };
+
   function applySplit(which, pct) {
     const main = document.querySelector("main");
-    if (!main) return;
-    const clamped = Math.min(which === "col" ? 80 : 85, Math.max(which === "col" ? 25 : 20, pct));
-    main.style.setProperty(which === "col" ? "--split-col" : "--split-row", clamped + "%");
-    const btn = $(which === "col" ? "split-col" : "split-row");
+    const spec = SPLITS[which];
+    if (!main || !spec) return;
+    const clamped = Math.min(spec.max, Math.max(spec.min, pct));
+    main.style.setProperty(spec.prop, clamped + "%");
+    const btn = $(spec.button);
     if (btn) btn.setAttribute("aria-valuenow", String(Math.round(clamped)));
     saveSplit("bgp.split." + which, clamped);
     refit();
@@ -869,6 +1135,12 @@
     function pctFromEvent(e) {
       const box = main.getBoundingClientRect();
       if (which === "col") return ((e.clientX - box.left) / box.width) * 100;
+      if (which === "foot") {
+        // the legend is the BOTTOM track, so the percentage grows as the
+        // pointer rises
+        const pane = document.getElementById("graph-pane").getBoundingClientRect();
+        return ((pane.bottom - e.clientY) / pane.height) * 100;
+      }
       const side = document.querySelector(".side").getBoundingClientRect();
       return ((e.clientY - side.top) / side.height) * 100;
     }
@@ -896,12 +1168,14 @@
     el.addEventListener("keydown", (e) => {
       const step = e.shiftKey ? 10 : 2;
       const now = parseFloat(el.getAttribute("aria-valuenow")) || 50;
-      const less = which === "col" ? "ArrowLeft" : "ArrowUp";
-      const more = which === "col" ? "ArrowRight" : "ArrowDown";
-      if (e.key === less) applySplit(which, now - step);
-      else if (e.key === more) applySplit(which, now + step);
-      else if (e.key === "Home") applySplit(which, which === "col" ? 25 : 20);
-      else if (e.key === "End") applySplit(which, which === "col" ? 80 : 85);
+      const spec = SPLITS[which];
+      // The legend grows upwards, so Up must make it bigger, not smaller.
+      const grow = which === "col" ? "ArrowRight" : which === "foot" ? "ArrowUp" : "ArrowDown";
+      const shrink = which === "col" ? "ArrowLeft" : which === "foot" ? "ArrowDown" : "ArrowUp";
+      if (e.key === shrink) applySplit(which, now - step);
+      else if (e.key === grow) applySplit(which, now + step);
+      else if (e.key === "Home") applySplit(which, spec.min);
+      else if (e.key === "End") applySplit(which, spec.max);
       else return;
       e.preventDefault();
     });
@@ -910,8 +1184,10 @@
   function wireResize() {
     wireSplitter("split-col", "col");
     wireSplitter("split-row", "row");
+    wireSplitter("split-foot", "foot");
     applySplit("col", readSaved("bgp.split.col", 65));
     applySplit("row", readSaved("bgp.split.row", 58));
+    applySplit("foot", readSaved("bgp.split.foot", 26));
     // The window itself, and anything else that changes the pane, must re-fit
     // too — this is the half the old layout never did.
     if (typeof ResizeObserver !== "undefined") {
@@ -956,10 +1232,41 @@
     window.__ingestEvent = ingestEvent;
     window.__connect = connect;
     window.__applySignal = applySignal;
+    window.__setActivityView = setActivityView;
+    window.__renderTraffic = renderTraffic;
+
+    for (const id of ["view-events", "view-traffic"]) {
+      $(id).addEventListener("click", (e) => setActivityView(e.currentTarget.dataset.view));
+    }
     window.__applySplit = applySplit;
     window.__signalOf = nodeSignalData;
 
     wireResize();
+
+    $("select-all").addEventListener("click", () => {
+      if (cy) cy.nodes().select();
+      updateSelectionCount();
+    });
+    $("clear-sel").addEventListener("click", () => {
+      if (cy) cy.nodes().unselect();
+      updateSelectionCount();
+    });
+    $("reset-layout").addEventListener("click", resetLayout);
+    // Ctrl/Cmd+A selects every node when the graph has focus, and Escape
+    // clears. Both are scoped to the graph so they do not steal the shortcut
+    // from the rest of the page.
+    $("graph").addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+        if (cy) cy.nodes().select();
+        updateSelectionCount();
+        e.preventDefault();
+      } else if (e.key === "Escape") {
+        if (cy) cy.nodes().unselect();
+        updateSelectionCount();
+      }
+    });
+    window.__placed = () => placed;
+    window.__resetLayout = resetLayout;
 
     setInterval(() => {
       document.querySelectorAll("[data-ts]").forEach((el) => {

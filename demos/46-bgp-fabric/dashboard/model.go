@@ -37,6 +37,11 @@ type Router struct {
 	// last-known RIB rows as live. Empty if the agent has never answered.
 	LastSeen string `json:"lastSeen,omitempty"`
 
+	// Role is what this router is FOR, which the dashboard cannot infer: a leaf
+	// with no cluster attached right now looks exactly like a spine. It comes
+	// from DASHBOARD_ROLES so a different fabric describes its own, rather than
+	// this lab's four names being compiled in.
+	Role string `json:"role,omitempty"`
 	// TableVersion is this router's own "something changed" counter. FRR
 	// repeats it on every peer in the summary; it belongs to the router.
 	TableVersion int `json:"tableVersion"`

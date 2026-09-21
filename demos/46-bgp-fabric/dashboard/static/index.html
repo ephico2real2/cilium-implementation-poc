@@ -32,14 +32,27 @@
       <li><i class="dot accept"></i> accepting a cluster (listen range has members)</li>
       <li><i class="dot late"></i> a keepalive is overdue</li>
       <li><i class="dot critical"></i> running out of hold time</li>
+      <li><i class="legend-outline" aria-hidden="true"></i> selected — drag one to move them together</li>
     </ul>
   </div>
   <main>
     <section id="graph-pane">
-      <div id="graph" aria-label="topology"></div>
+      <div id="graph" aria-label="topology" tabindex="0"></div>
       <p id="graph-empty" class="empty">waiting for the first poll</p>
       <ul id="node-keys" class="node-keys"></ul>
       <aside id="hover-card" class="hover-card" hidden></aside>
+      <button type="button" class="splitter" id="split-foot" aria-orientation="horizontal"
+              role="separator" aria-label="Resize the legend" tabindex="0"
+              aria-valuemin="8" aria-valuemax="60" aria-valuenow="26"></button>
+      <div class="graph-foot">
+        <div class="graph-tools">
+          <button type="button" id="select-all" title="Select every node (Ctrl/Cmd+A with the graph focused)">Select all</button>
+          <button type="button" id="clear-sel" title="Clear the selection (Escape)">Clear</button>
+          <button type="button" id="reset-layout" title="Put every node back where the layout put it">Reset layout</button>
+          <span id="sel-count" class="sel-count">drag the background to select · drag a selected node to move them together</span>
+        </div>
+        <dl id="roles" class="roles"></dl>
+      </div>
     </section>
     <button type="button" class="splitter" id="split-col" aria-orientation="vertical"
             role="separator" aria-label="Resize the topology pane" tabindex="0"
@@ -66,15 +79,21 @@
       <button type="button" class="splitter" id="split-row" aria-orientation="horizontal"
               role="separator" aria-label="Resize the RIB pane" tabindex="0"
               aria-valuemin="20" aria-valuemax="85" aria-valuenow="58"></button>
-      <section id="events-pane" role="tabpanel" aria-labelledby="tab-events">
-        <h2>Events</h2>
+      <section id="events-pane" role="tabpanel" aria-labelledby="tab-events" data-view="events">
+        <div class="pane-head">
+          <h2>Activity</h2>
+          <div class="subtabs" role="tablist" aria-label="Events or traffic">
+            <button type="button" role="tab" id="view-events" data-view="events" aria-selected="true">Events</button>
+            <button type="button" role="tab" id="view-traffic" data-view="traffic" aria-selected="false">Traffic</button>
+          </div>
+        </div>
         <div class="event-toolbar">
           <label>kind
             <select id="ev-kind">
               <option value="">all</option>
-              <option value="session">session</option>
-              <option value="route">route</option>
-              <option value="router">router</option>
+              <option value="session">session up/down</option>
+              <option value="route">route added/withdrawn</option>
+              <option value="router">router reachable/unreachable</option>
             </select>
           </label>
           <label class="check"><input type="checkbox" id="ev-selected"> selected router</label>
@@ -82,6 +101,9 @@
           <span id="ev-paused" class="paused" hidden>paused, 0 new</span>
         </div>
         <ol id="events" reversed></ol>
+        <p id="events-empty" class="pane-empty" hidden></p>
+        <div id="traffic" class="traffic"></div>
+        <p id="traffic-empty" class="pane-empty" hidden>waiting for the first poll</p>
       </section>
     </div>
   </main>
