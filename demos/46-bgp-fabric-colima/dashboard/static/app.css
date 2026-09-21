@@ -598,6 +598,16 @@ body.stale-data #graph { opacity: 0.55; filter: saturate(0.4); }
 .state-transitional { color: var(--trans); font-weight: 600; }
 .state-stale { color: var(--stale); font-style: italic; }
 .state-unknown { color: var(--muted); font-style: italic; }
+/* `#events .change` sets the muted colour at (1,1,0) and a bare state class is
+   (0,1,0), so the class was applied and then overruled — the event list showed
+   "Idle→Active" in the same grey as everything else while the neighbours table
+   coloured it correctly (measured: rgb(92,86,78) against rgb(180,35,24)).
+   Scoped here so the state wins where a state is shown. */
+#events .change.state-established { color: var(--est); font-weight: 600; }
+#events .change.state-down { color: var(--down); font-weight: 600; }
+#events .change.state-transitional { color: var(--trans); font-weight: 600; }
+#events .change.state-stale { color: var(--stale); font-style: italic; }
+#events .change.state-unknown { color: var(--muted); font-style: italic; }
 
 /* ---- the neighbours table ---------------------------------------------- */
 .sub {

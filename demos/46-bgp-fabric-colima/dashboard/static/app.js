@@ -576,7 +576,11 @@
     // The dot says what KIND of event this is; the text now says what STATE it
     // reached. A list where "Established" and "Idle" are the same colour makes
     // the reader parse every line to find the one that matters.
-    change.className = "change " + ui.stateClass(ev.to || ev.from, false);
+    //
+    // Only a SESSION event carries a state. A route event's from/to are
+    // nexthop addresses, and colouring those by state renders a bestpath move
+    // in the muted "unrecognised state" style — the address is not a state.
+    change.className = "change" + (ev.kind === "session" ? " " + ui.stateClass(ev.to || ev.from, false) : "");
     if (ev.from || ev.to) change.textContent = (ev.from || "") + "→" + (ev.to || "");
     li.append(dot, ts, kind, router, who, change);
     return li;

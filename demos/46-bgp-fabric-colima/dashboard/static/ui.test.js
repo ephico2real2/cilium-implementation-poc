@@ -379,3 +379,11 @@ test("a state maps to a colour, and 'Idle (Admin)' is down rather than unknown",
   // something FRR might add later is marked unknown, not silently coloured
   assert.equal(ui.stateClass("Weird"), "state-unknown");
 });
+
+test("a nexthop is not a state", () => {
+  // A route bestpath event's from/to are addresses. stateClass answers for a
+  // STATE, so the caller must not hand it a nexthop — this pins the value it
+  // returns for one, so the caller's guard cannot be quietly dropped.
+  assert.equal(ui.stateClass("10.200.1.3"), "state-unknown");
+  assert.equal(ui.stateClass("172.20.0.4"), "state-unknown");
+});
