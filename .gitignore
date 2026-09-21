@@ -12,3 +12,4 @@ demos/40-shop-mesh-phase0/client/go/shopctl/bin/
 
 # demo 46 fabric password (copy fabric/.env.example)
 demos/46-bgp-fabric/fabric/.env
+demos/46-bgp-fabric-colima/fabric/.env

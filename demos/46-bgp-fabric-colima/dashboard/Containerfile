@@ -1,0 +1,18 @@
+# bgp-dashboard: Go binary on alpine 3.22, uid 65532, management LAN only.
+#
+#   docker build -t bgp-dashboard:local \
+#     -f demos/46-bgp-fabric/dashboard/Containerfile demos/46-bgp-fabric/dashboard
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /dashboard .
+
+FROM alpine:3.22
+RUN adduser -D -H -u 65532 dashboard
+COPY --from=build /dashboard /dashboard
+RUN chmod 0755 /dashboard
+EXPOSE 8080
+USER 65532
+ENTRYPOINT ["/dashboard"]
