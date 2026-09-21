@@ -1,0 +1,70 @@
+# MetalLB in BGP mode for eg-poc2-colima (demo 52c).
+#
+# The fabric already enforces this cluster's half of the address plan — the
+# leaves carry `EG-POC2-VIPS` (10.198.0.64/26 ge 32 le 32) and the as-path
+# filter `^65022$` — so the pool below is not a preference, it is the only
+# range the fabric will accept from AS 65022. Announce anything else and the
+# session stays up while the route is silently dropped.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: eg-poc2-vips
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.198.0.64/26
+  # The fabric's prefix-list is `ge 32 le 32`: only host routes are accepted,
+  # which is what MetalLB advertises per service anyway.
+  autoAssign: true
+  avoidBuggyIPs: true
+---
+apiVersion: metallb.io/v1beta1
+kind: BGPAdvertisement
+metadata:
+  name: eg-poc2-bgp
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - eg-poc2-vips
+  # One /32 per service. The default already is 32; it is written down because
+  # the fabric rejects anything shorter and a silent drop is hard to read.
+  aggregationLength: 32
+---
+# Both leaves, from every node. Two sessions per node means a VIP survives a
+# leaf going away, which is the whole reason there are two.
+apiVersion: metallb.io/v1beta2
+kind: BGPPeer
+metadata:
+  name: leaf1
+  namespace: metallb-system
+spec:
+  myASN: 65022
+  peerASN: 65101
+  peerAddress: 172.20.254.11
+  # The fabric signs every session: the leaves carry
+  # `neighbor SERVERS password …`, so a speaker that does not sign never gets
+  # past Connect — the TCP handshake is dropped before BGP is spoken. The
+  # secret is created by apply.sh from FABRIC_BGP_PASSWORD; no committed file
+  # here carries the password, the same rule the fabric's frr.conf follows.
+  passwordSecret:
+    name: fabric-bgp-password
+    namespace: metallb-system
+  # The leaves run `timers 3 9`; matching them keeps a failure visible in
+  # seconds rather than the default 90s hold.
+  holdTime: 9s
+  keepaliveTime: 3s
+---
+apiVersion: metallb.io/v1beta2
+kind: BGPPeer
+metadata:
+  name: leaf2
+  namespace: metallb-system
+spec:
+  myASN: 65022
+  peerASN: 65102
+  peerAddress: 172.20.254.12
+  passwordSecret:
+    name: fabric-bgp-password
+    namespace: metallb-system
+  holdTime: 9s
+  keepaliveTime: 3s

@@ -1,0 +1,542 @@
+
+=== eg-colima-up.sh start 2026-09-21T08:45:16Z cluster=eg-poc2-colima ctx=colima-bgp-fabric ===
+=== kindnet + kube-proxy iptables; no Cilium; no Envoy Gateway ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima ===
+=== kubeconfig=/Users/olasumbo/.kube/config-eg-poc2-colima ===
+network kind-eg-colima exists with 172.20.0.0/16, kept
+### 2026-09-21T08:45:16Z
+$ docker --context colima-bgp-fabric network inspect kind-eg-colima --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+subnet=172.20.0.0/16 ip-range=172.20.0.0/17 gateway=172.20.0.1
+
+
+### 2026-09-21T08:45:16Z
+$ scripts/colima-registry.sh up
+network kind-eg-colima exists with 172.20.0.0/16, kept
+registry kind-registry present
+registry kind-registry already on kind-eg-colima at 172.20.0.2
+catalog (in-container): {"repositories":["door","kube-vip","kube-vip-cloud-provider"]}
+
+colima-registry: up (kind-registry on kind-eg-colima at 172.20.0.2, published 127.0.0.1:5001)
+
+### 2026-09-21T08:45:16Z
+$ env KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock kind create cluster --name eg-poc2-colima --kubeconfig /Users/olasumbo/.kube/config-eg-poc2-colima --config clusters/eg-poc1-colima.yaml --image kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+Creating cluster "eg-poc2-colima" ...
+ • Ensuring node image (kindest/node:v1.36.4) 🖼️  ...
+WARNING: Overriding docker network due to KIND_EXPERIMENTAL_DOCKER_NETWORK
+WARNING: Here be dragons! This is not supported currently.
+ ✓ Ensuring node image (kindest/node:v1.36.4) 🖼️
+ • Preparing nodes 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✗ Joining worker nodes 🚜
+Deleted nodes: ["eg-poc2-colima-control-plane" "eg-poc2-colima-worker"]
+ERROR: failed to create cluster: failed to join node with kubeadm: command "docker exec --privileged eg-poc2-colima-worker kubeadm join --config /kind/kubeadm.conf --v=6" failed with error: exit status 1
+
+Command Output: I0921 08:45:25.958424     257 join.go:423] [preflight] found NodeName empty; using OS hostname as NodeName
+I0921 08:45:25.958461     257 joinconfiguration.go:82] loading configuration from "/kind/kubeadm.conf"
+W0921 08:45:25.958638     257 joinconfiguration.go:112] [config] WARNING: Ignored configuration document with GroupVersionKind kubeadm.k8s.io/v1beta4, Kind=ClusterConfiguration
+W0921 08:45:25.958658     257 joinconfiguration.go:112] [config] WARNING: Ignored configuration document with GroupVersionKind kubeadm.k8s.io/v1beta4, Kind=InitConfiguration
+W0921 08:45:25.958796     257 joinconfiguration.go:112] [config] WARNING: Ignored configuration document with GroupVersionKind kubelet.config.k8s.io/v1beta1, Kind=KubeletConfiguration
+W0921 08:45:25.958800     257 joinconfiguration.go:112] [config] WARNING: Ignored configuration document with GroupVersionKind kubeproxy.config.k8s.io/v1alpha1, Kind=KubeProxyConfiguration
+I0921 08:45:25.958866     257 controlplaneprepare.go:225] [download-certs] Skipping certs download
+I0921 08:45:25.958870     257 join.go:553] [preflight] Discovering cluster-info
+I0921 08:45:25.958902     257 token.go:71] [discovery] Created cluster-info discovery client, requesting info from "eg-poc2-colima-control-plane:6443"
+I0921 08:45:25.958945     257 envvar.go:195] "Feature gate default state" feature="AtomicFIFO" enabled=true
+I0921 08:45:25.958950     257 envvar.go:195] "Feature gate default state" feature="ClientsAllowTLSCacheGC" enabled=true
+I0921 08:45:25.958951     257 envvar.go:195] "Feature gate default state" feature="InOrderInformers" enabled=true
+I0921 08:45:25.958953     257 envvar.go:195] "Feature gate default state" feature="ClientsAllowCBOR" enabled=false
+I0921 08:45:25.958954     257 envvar.go:195] "Feature gate default state" feature="InformerResourceVersion" enabled=true
+I0921 08:45:25.958955     257 envvar.go:195] "Feature gate default state" feature="ClientsAllowCARotation" enabled=true
+I0921 08:45:25.958956     257 envvar.go:195] "Feature gate default state" feature="UnlockWhileProcessingFIFO" enabled=true
+I0921 08:45:25.958957     257 envvar.go:195] "Feature gate default state" feature="ClientsPreferCBOR" enabled=false
+I0921 08:45:25.958958     257 envvar.go:195] "Feature gate default state" feature="InOrderInformersBatchProcess" enabled=true
+I0921 08:45:25.958959     257 envvar.go:195] "Feature gate default state" feature="WatchListClient" enabled=true
+I0921 08:45:25.959104     257 token.go:229] [discovery] Waiting for the cluster-info ConfigMap to receive a JWS signature for token ID "abcdef"
+I0921 08:45:25.962345     257 round_trippers.go:632] "Response" verb="GET" url="https://eg-poc2-colima-control-plane:6443/api/v1/namespaces/kube-public/configmaps/cluster-info?timeout=10s" status="200 OK" milliseconds=3
+I0921 08:45:25.962423     257 token.go:249] [discovery] Retrying due to error: could not find a JWS signature in the cluster-info ConfigMap for token ID "abcdef"
+I0921 08:45:30.959867     257 token.go:229] [discovery] Waiting for the cluster-info ConfigMap to receive a JWS signature for token ID "abcdef"
+I0921 08:45:30.963777     257 round_trippers.go:632] "Response" verb="GET" url="https://eg-poc2-colima-control-plane:6443/api/v1/namespaces/kube-public/configmaps/cluster-info?timeout=10s" status="200 OK" milliseconds=3
+I0921 08:45:30.963843     257 token.go:249] [discovery] Retrying due to error: could not find a JWS signature in the cluster-info ConfigMap for token ID "abcdef"
+I0921 08:45:35.961836     257 token.go:229] [discovery] Waiting for the cluster-info ConfigMap to receive a JWS signature for token ID "abcdef"
+I0921 08:45:35.964662     257 round_trippers.go:632] "Response" verb="GET" url="https://eg-poc2-colima-control-plane:6443/api/v1/namespaces/kube-public/configmaps/cluster-info?timeout=10s" status="200 OK" milliseconds=2
+I0921 08:45:35.964933     257 token.go:113] [discovery] Cluster info signature and contents are valid and no TLS pinning was specified, will use API Server "eg-poc2-colima-control-plane:6443"
+I0921 08:45:35.964939     257 discovery.go:57] [discovery] Using provided TLSBootstrapToken as authentication credentials for the join process
+I0921 08:45:35.964977     257 discovery.go:85] [discovery] Using CA certificate from discovery kubeconfig:
+CA Certificate:
+	Subject: CN=kubernetes
+	Issuer: CN=kubernetes
+	SerialNumber: 5114629025404652091
+	NotBefore: 2026-09-21 08:40:19 +0000 UTC
+	NotAfter: 2036-09-18 08:45:19 +0000 UTC
+	SignatureAlgorithm: SHA256-RSA
+	PublicKeyAlgorithm: RSA
+	Hash: sha256:557e90b88d51a0805c62174f75ec7351117c7cacb8306952f84d316fc734ad1e
+I0921 08:45:35.964985     257 join.go:567] [preflight] Fetching init configuration
+I0921 08:45:35.964992     257 join.go:681] [preflight] Retrieving KubeConfig objects
+[preflight] Reading configuration from the "kubeadm-config" ConfigMap in namespace "kube-system"...
+[preflight] Use 'kubeadm init phase upload-config kubeadm --config your-config-file' to re-upload it.
+I0921 08:45:35.967422     257 round_trippers.go:632] "Response" verb="GET" url="https://eg-poc2-colima-control-plane:6443/api/v1/namespaces/kube-system/configmaps/kubeadm-config?timeout=10s" status="200 OK" milliseconds=2
+I0921 08:45:35.967751     257 kubeproxy.go:55] attempting to download the KubeProxyConfiguration from ConfigMap "kube-proxy"
+I0921 08:45:35.968661     257 round_trippers.go:632] "Response" verb="GET" url="https://eg-poc2-colima-control-plane:6443/api/v1/namespaces/kube-system/configmaps/kube-proxy?timeout=10s" status="200 OK" milliseconds=0
+I0921 08:45:35.969157     257 kubelet.go:73] attempting to download the KubeletConfiguration from ConfigMap "kubelet-config"
+I0921 08:45:35.970002     257 round_trippers.go:632] "Response" verb="GET" url="https://eg-poc2-colima-control-plane:6443/api/v1/namespaces/kube-system/configmaps/kubelet-config?timeout=10s" status="200 OK" milliseconds=0
+I0921 08:45:35.970544     257 initconfiguration.go:116] skip CRI socket detection, fill with the default CRI socket unix:///var/run/containerd/containerd.sock
+W0921 08:45:35.970569     257 utils.go:69] The recommended value for "bindAddress" in "KubeProxyConfiguration" is: ::; the provided value is: 0.0.0.0
+I0921 08:45:35.970677     257 kubelet.go:146] [kubelet-start] writing bootstrap kubelet config file at /etc/kubernetes/bootstrap-kubelet.conf
+I0921 08:45:35.973794     257 kubelet.go:161] [kubelet-start] writing CA certificate at /etc/kubernetes/pki/ca.crt
+I0921 08:45:35.973852     257 kubelet.go:177] [kubelet-start] Checking for an existing Node in the cluster with name "eg-poc2-colima-worker" and status "Ready"
+I0921 08:45:35.975050     257 round_trippers.go:632] "Response" verb="GET" url="https://eg-poc2-colima-control-plane:6443/api/v1/nodes/eg-poc2-colima-worker?timeout=10s" status="404 Not Found" milliseconds=1
+I0921 08:45:35.975098     257 kubelet.go:192] [kubelet-start] Stopping the kubelet
+[kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/instance-config.yaml"
+[patches] Applied patch of type "application/strategic-merge-patch+json" to target "kubeletconfiguration"
+[kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/config.yaml"
+[kubelet-start] Writing kubelet environment file with flags to file "/var/lib/kubelet/kubeadm-flags.env"
+[kubelet-start] Starting the kubelet
+[kubelet-check] Waiting for a healthy kubelet at http://127.0.0.1:10248/healthz. This can take up to 4m0s
+[kubelet-check] The kubelet is not healthy after 4m0.000337451s
+
+Unfortunately, an error has occurred, likely caused by:
+	- The kubelet is not running
+	- The kubelet is unhealthy due to a misconfiguration of the node in some way (required cgroups disabled)
+
+If you are on a systemd-powered system, you can try to troubleshoot the error with the following commands:
+	- 'systemctl status kubelet'
+	- 'journalctl -xeu kubelet'
+
+error: error execution phase kubelet-wait-bootstrap: failed while waiting for the kubelet to start: The HTTP call equal to 'curl -sSL http://127.0.0.1:10248/healthz' returned error: Get "http://127.0.0.1:10248/healthz": context deadline exceeded
+
+k8s.io/kubernetes/cmd/kubeadm/app/cmd/phases/workflow.(*Runner).Run.func1
+	k8s.io/kubernetes/cmd/kubeadm/app/cmd/phases/workflow/runner.go:262
+k8s.io/kubernetes/cmd/kubeadm/app/cmd/phases/workflow.(*Runner).visitAll
+	k8s.io/kubernetes/cmd/kubeadm/app/cmd/phases/workflow/runner.go:450
+k8s.io/kubernetes/cmd/kubeadm/app/cmd/phases/workflow.(*Runner).Run
+	k8s.io/kubernetes/cmd/kubeadm/app/cmd/phases/workflow/runner.go:234
+k8s.io/kubernetes/cmd/kubeadm/app/cmd.newCmdJoin.func1
+	k8s.io/kubernetes/cmd/kubeadm/app/cmd/join.go:187
+github.com/spf13/cobra.(*Command).execute
+	github.com/spf13/cobra@v1.10.2/command.go:1015
+github.com/spf13/cobra.(*Command).ExecuteC
+	github.com/spf13/cobra@v1.10.2/command.go:1148
+github.com/spf13/cobra.(*Command).Execute
+	github.com/spf13/cobra@v1.10.2/command.go:1071
+k8s.io/kubernetes/cmd/kubeadm/app.Run
+	k8s.io/kubernetes/cmd/kubeadm/app/kubeadm.go:48
+main.main
+	k8s.io/kubernetes/cmd/kubeadm/kubeadm.go:25
+runtime.main
+	runtime/proc.go:290
+runtime.goexit
+	runtime/asm_arm64.s:1447
+[exit code: 1]
+
+
+=== eg-colima-up.sh start 2026-09-21T08:50:59Z cluster=eg-poc2-colima ctx=colima-bgp-fabric ===
+=== kindnet + kube-proxy iptables; no Cilium; no Envoy Gateway ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima ===
+=== kubeconfig=/Users/olasumbo/.kube/config-eg-poc2-colima ===
+network kind-eg-colima exists with 172.20.0.0/16, kept
+### 2026-09-21T08:50:59Z
+$ docker --context colima-bgp-fabric network inspect kind-eg-colima --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+subnet=172.20.0.0/16 ip-range=172.20.0.0/17 gateway=172.20.0.1
+
+
+### 2026-09-21T08:50:59Z
+$ scripts/colima-registry.sh up
+network kind-eg-colima exists with 172.20.0.0/16, kept
+registry kind-registry present
+registry kind-registry already on kind-eg-colima at 172.20.0.2
+catalog (in-container): {"repositories":["door","kube-vip","kube-vip-cloud-provider"]}
+
+colima-registry: up (kind-registry on kind-eg-colima at 172.20.0.2, published 127.0.0.1:5001)
+
+### 2026-09-21T08:50:59Z
+$ env KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock kind create cluster --name eg-poc2-colima --kubeconfig /Users/olasumbo/.kube/config-eg-poc2-colima --config clusters/eg-poc2-colima.yaml --image kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+Creating cluster "eg-poc2-colima" ...
+ • Ensuring node image (kindest/node:v1.36.4) 🖼️  ...
+WARNING: Overriding docker network due to KIND_EXPERIMENTAL_DOCKER_NETWORK
+WARNING: Here be dragons! This is not supported currently.
+ ✓ Ensuring node image (kindest/node:v1.36.4) 🖼️
+ • Preparing nodes 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✗ Joining worker nodes 🚜
+Deleted nodes: ["eg-poc2-colima-control-plane" "eg-poc2-colima-worker"]
+ERROR: failed to create cluster: failed to join node with kubeadm: command "docker exec --privileged eg-poc2-colima-worker kubeadm join --config /kind/kubeadm.conf --v=6" failed with error: exit status 1
+
+Command Output: I0921 08:51:09.376693     254 join.go:423] [preflight] found NodeName empty; using OS hostname as NodeName
+I0921 08:51:09.376722     254 joinconfiguration.go:82] loading configuration from "/kind/kubeadm.conf"
+W0921 08:51:09.376909     254 joinconfiguration.go:112] [config] WARNING: Ignored configuration document with GroupVersionKind kubeadm.k8s.io/v1beta4, Kind=ClusterConfiguration
+W0921 08:51:09.376916     254 joinconfiguration.go:112] [config] WARNING: Ignored configuration document with GroupVersionKind kubeadm.k8s.io/v1beta4, Kind=InitConfiguration
+W0921 08:51:09.377022     254 joinconfiguration.go:112] [config] WARNING: Ignored configuration document with GroupVersionKind kubelet.config.k8s.io/v1beta1, Kind=KubeletConfiguration
+W0921 08:51:09.377027     254 joinconfiguration.go:112] [config] WARNING: Ignored configuration document with GroupVersionKind kubeproxy.config.k8s.io/v1alpha1, Kind=KubeProxyConfiguration
+I0921 08:51:09.377078     254 controlplaneprepare.go:225] [download-certs] Skipping certs download
+I0921 08:51:09.377085     254 join.go:553] [preflight] Discovering cluster-info
+I0921 08:51:09.377102     254 token.go:71] [discovery] Created cluster-info discovery client, requesting info from "eg-poc2-colima-control-plane:6443"
+I0921 08:51:09.377151     254 envvar.go:195] "Feature gate default state" feature="InOrderInformersBatchProcess" enabled=true
+I0921 08:51:09.377182     254 envvar.go:195] "Feature gate default state" feature="InformerResourceVersion" enabled=true
+I0921 08:51:09.377186     254 envvar.go:195] "Feature gate default state" feature="WatchListClient" enabled=true
+I0921 08:51:09.377197     254 envvar.go:195] "Feature gate default state" feature="ClientsPreferCBOR" enabled=false
+I0921 08:51:09.377200     254 envvar.go:195] "Feature gate default state" feature="ClientsAllowTLSCacheGC" enabled=true
+I0921 08:51:09.377203     254 envvar.go:195] "Feature gate default state" feature="ClientsAllowCARotation" enabled=true
+I0921 08:51:09.377205     254 envvar.go:195] "Feature gate default state" feature="InOrderInformers" enabled=true
+I0921 08:51:09.377206     254 envvar.go:195] "Feature gate default state" feature="AtomicFIFO" enabled=true
+I0921 08:51:09.377207     254 envvar.go:195] "Feature gate default state" feature="ClientsAllowCBOR" enabled=false
+I0921 08:51:09.377208     254 envvar.go:195] "Feature gate default state" feature="UnlockWhileProcessingFIFO" enabled=true
+I0921 08:51:09.377339     254 token.go:229] [discovery] Waiting for the cluster-info ConfigMap to receive a JWS signature for token ID "abcdef"
+I0921 08:51:09.380345     254 round_trippers.go:632] "Response" verb="GET" url="https://eg-poc2-colima-control-plane:6443/api/v1/namespaces/kube-public/configmaps/cluster-info?timeout=10s" status="200 OK" milliseconds=2
+I0921 08:51:09.380489     254 token.go:249] [discovery] Retrying due to error: could not find a JWS signature in the cluster-info ConfigMap for token ID "abcdef"
+I0921 08:51:14.381357     254 token.go:229] [discovery] Waiting for the cluster-info ConfigMap to receive a JWS signature for token ID "abcdef"
+I0921 08:51:14.384226     254 round_trippers.go:632] "Response" verb="GET" url="https://eg-poc2-colima-control-plane:6443/api/v1/namespaces/kube-public/configmaps/cluster-info?timeout=10s" status="200 OK" milliseconds=2
+I0921 08:51:14.384301     254 token.go:249] [discovery] Retrying due to error: could not find a JWS signature in the cluster-info ConfigMap for token ID "abcdef"
+I0921 08:51:19.377691     254 token.go:229] [discovery] Waiting for the cluster-info ConfigMap to receive a JWS signature for token ID "abcdef"
+I0921 08:51:19.380382     254 round_trippers.go:632] "Response" verb="GET" url="https://eg-poc2-colima-control-plane:6443/api/v1/namespaces/kube-public/configmaps/cluster-info?timeout=10s" status="200 OK" milliseconds=2
+I0921 08:51:19.380648     254 token.go:113] [discovery] Cluster info signature and contents are valid and no TLS pinning was specified, will use API Server "eg-poc2-colima-control-plane:6443"
+I0921 08:51:19.380656     254 discovery.go:57] [discovery] Using provided TLSBootstrapToken as authentication credentials for the join process
+I0921 08:51:19.380702     254 discovery.go:85] [discovery] Using CA certificate from discovery kubeconfig:
+CA Certificate:
+	Subject: CN=kubernetes
+	Issuer: CN=kubernetes
+	SerialNumber: 5198078563185626692
+	NotBefore: 2026-09-21 08:46:02 +0000 UTC
+	NotAfter: 2036-09-18 08:51:02 +0000 UTC
+	SignatureAlgorithm: SHA256-RSA
+	PublicKeyAlgorithm: RSA
+	Hash: sha256:8f889a63c83117d0f906d35117e58d3aa91e7dd5eff30051258d9a0735f8f54f
+I0921 08:51:19.380709     254 join.go:567] [preflight] Fetching init configuration
+I0921 08:51:19.380711     254 join.go:681] [preflight] Retrieving KubeConfig objects
+[preflight] Reading configuration from the "kubeadm-config" ConfigMap in namespace "kube-system"...
+[preflight] Use 'kubeadm init phase upload-config kubeadm --config your-config-file' to re-upload it.
+I0921 08:51:19.383140     254 round_trippers.go:632] "Response" verb="GET" url="https://eg-poc2-colima-control-plane:6443/api/v1/namespaces/kube-system/configmaps/kubeadm-config?timeout=10s" status="200 OK" milliseconds=2
+I0921 08:51:19.383581     254 kubeproxy.go:55] attempting to download the KubeProxyConfiguration from ConfigMap "kube-proxy"
+I0921 08:51:19.384341     254 round_trippers.go:632] "Response" verb="GET" url="https://eg-poc2-colima-control-plane:6443/api/v1/namespaces/kube-system/configmaps/kube-proxy?timeout=10s" status="200 OK" milliseconds=0
+I0921 08:51:19.384763     254 kubelet.go:73] attempting to download the KubeletConfiguration from ConfigMap "kubelet-config"
+I0921 08:51:19.385467     254 round_trippers.go:632] "Response" verb="GET" url="https://eg-poc2-colima-control-plane:6443/api/v1/namespaces/kube-system/configmaps/kubelet-config?timeout=10s" status="200 OK" milliseconds=0
+I0921 08:51:19.386045     254 initconfiguration.go:116] skip CRI socket detection, fill with the default CRI socket unix:///var/run/containerd/containerd.sock
+W0921 08:51:19.386070     254 utils.go:69] The recommended value for "bindAddress" in "KubeProxyConfiguration" is: ::; the provided value is: 0.0.0.0
+I0921 08:51:19.388614     254 kubelet.go:146] [kubelet-start] writing bootstrap kubelet config file at /etc/kubernetes/bootstrap-kubelet.conf
+I0921 08:51:19.389653     254 kubelet.go:161] [kubelet-start] writing CA certificate at /etc/kubernetes/pki/ca.crt
+I0921 08:51:19.389893     254 kubelet.go:177] [kubelet-start] Checking for an existing Node in the cluster with name "eg-poc2-colima-worker" and status "Ready"
+I0921 08:51:19.390718     254 round_trippers.go:632] "Response" verb="GET" url="https://eg-poc2-colima-control-plane:6443/api/v1/nodes/eg-poc2-colima-worker?timeout=10s" status="404 Not Found" milliseconds=0
+I0921 08:51:19.390752     254 kubelet.go:192] [kubelet-start] Stopping the kubelet
+[kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/instance-config.yaml"
+[patches] Applied patch of type "application/strategic-merge-patch+json" to target "kubeletconfiguration"
+[kubelet-start] Writing kubelet configuration to file "/var/lib/kubelet/config.yaml"
+[kubelet-start] Writing kubelet environment file with flags to file "/var/lib/kubelet/kubeadm-flags.env"
+[kubelet-start] Starting the kubelet
+[kubelet-check] Waiting for a healthy kubelet at http://127.0.0.1:10248/healthz. This can take up to 4m0s
+[kubelet-check] The kubelet is not healthy after 4m0.001560207s
+
+Unfortunately, an error has occurred, likely caused by:
+	- The kubelet is not running
+	- The kubelet is unhealthy due to a misconfiguration of the node in some way (required cgroups disabled)
+
+If you are on a systemd-powered system, you can try to troubleshoot the error with the following commands:
+	- 'systemctl status kubelet'
+	- 'journalctl -xeu kubelet'
+
+error: error execution phase kubelet-wait-bootstrap: failed while waiting for the kubelet to start: The HTTP call equal to 'curl -sSL http://127.0.0.1:10248/healthz' returned error: Get "http://127.0.0.1:10248/healthz": context deadline exceeded
+
+k8s.io/kubernetes/cmd/kubeadm/app/cmd/phases/workflow.(*Runner).Run.func1
+	k8s.io/kubernetes/cmd/kubeadm/app/cmd/phases/workflow/runner.go:262
+k8s.io/kubernetes/cmd/kubeadm/app/cmd/phases/workflow.(*Runner).visitAll
+	k8s.io/kubernetes/cmd/kubeadm/app/cmd/phases/workflow/runner.go:450
+k8s.io/kubernetes/cmd/kubeadm/app/cmd/phases/workflow.(*Runner).Run
+	k8s.io/kubernetes/cmd/kubeadm/app/cmd/phases/workflow/runner.go:234
+k8s.io/kubernetes/cmd/kubeadm/app/cmd.newCmdJoin.func1
+	k8s.io/kubernetes/cmd/kubeadm/app/cmd/join.go:187
+github.com/spf13/cobra.(*Command).execute
+	github.com/spf13/cobra@v1.10.2/command.go:1015
+github.com/spf13/cobra.(*Command).ExecuteC
+	github.com/spf13/cobra@v1.10.2/command.go:1148
+github.com/spf13/cobra.(*Command).Execute
+	github.com/spf13/cobra@v1.10.2/command.go:1071
+k8s.io/kubernetes/cmd/kubeadm/app.Run
+	k8s.io/kubernetes/cmd/kubeadm/app/kubeadm.go:48
+main.main
+	k8s.io/kubernetes/cmd/kubeadm/kubeadm.go:25
+runtime.main
+	runtime/proc.go:290
+runtime.goexit
+	runtime/asm_arm64.s:1447
+[exit code: 1]
+
+
+=== 2026-09-21T12:57:09Z — demo 52c apply
+### 2026-09-21T12:57:09Z
+$ bash -c docker --context colima-bgp-fabric ps --format '{{.Names}}' | grep -c '^bgp-fabric-colima-' | xargs -I{} echo 'fabric containers: {}'
+fabric containers: 6
+
+### 2026-09-21T12:57:09Z
+$ bash -c docker --context colima-bgp-fabric exec bgp-fabric-colima-leaf1-1 ip -br addr show | grep -o '172\.20\.254\.[0-9]*/[0-9]*' | xargs -I{} echo 'leaf1 node-LAN {}'
+leaf1 node-LAN 172.20.254.11/16
+
+### 2026-09-21T12:57:09Z
+$ bash -c docker --context colima-bgp-fabric exec bgp-fabric-colima-leaf2-1 ip -br addr show | grep -o '172\.20\.254\.[0-9]*/[0-9]*' | xargs -I{} echo 'leaf2 node-LAN {}'
+leaf2 node-LAN 172.20.254.12/16
+
+### 2026-09-21T12:57:09Z
+$ scripts/eg-colima-up.sh
+
+
+=== eg-colima-up.sh start 2026-09-21T12:57:10Z cluster=eg-poc2-colima ctx=colima-bgp-fabric ===
+=== kindnet + kube-proxy iptables; no Cilium; no Envoy Gateway ===
+=== eg-colima-up.sh start 2026-09-21T12:57:10Z cluster=eg-poc2-colima ctx=colima-bgp-fabric ===
+=== kindnet + kube-proxy iptables; no Cilium; no Envoy Gateway ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima ===
+=== kubeconfig=/Users/olasumbo/.kube/config-eg-poc2-colima ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima ===
+=== kubeconfig=/Users/olasumbo/.kube/config-eg-poc2-colima ===
+
+== 0. inotify limits in the VM (a second kind cluster needs them)  (12:57:10Z)
+### 2026-09-21T12:57:10Z
+$ echo fs.inotify.max_user_instances=512 already >= 512
+fs.inotify.max_user_instances=512 already >= 512
+### 2026-09-21T12:57:10Z
+$ echo fs.inotify.max_user_instances=512 already >= 512
+fs.inotify.max_user_instances=512 already >= 512
+
+
+
+== 1. the kind-eg-colima network (172.20.0.0/16, ip-range 172.20.0.0/17)  (12:57:10Z)
+network kind-eg-colima exists with 172.20.0.0/16, kept
+network kind-eg-colima exists with 172.20.0.0/16, kept
+### 2026-09-21T12:57:10Z
+$ docker --context colima-bgp-fabric network inspect kind-eg-colima --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+### 2026-09-21T12:57:10Z
+$ docker --context colima-bgp-fabric network inspect kind-eg-colima --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+subnet=172.20.0.0/16 ip-range=172.20.0.0/17 gateway=172.20.0.1
+
+subnet=172.20.0.0/16 ip-range=172.20.0.0/17 gateway=172.20.0.1
+
+
+
+
+== 2. local registry kind-registry on 127.0.0.1:5001  (12:57:10Z)
+### 2026-09-21T12:57:10Z
+$ scripts/colima-registry.sh up
+### 2026-09-21T12:57:10Z
+$ scripts/colima-registry.sh up
+network kind-eg-colima exists with 172.20.0.0/16, kept
+network kind-eg-colima exists with 172.20.0.0/16, kept
+registry kind-registry present
+registry kind-registry present
+registry kind-registry already on kind-eg-colima at 172.20.0.2
+catalog (in-container): registry kind-registry already on kind-eg-colima at 172.20.0.2
+catalog (in-container): {"repositories":["door","kube-vip","kube-vip-cloud-provider"]}
+{"repositories":["door","kube-vip","kube-vip-cloud-provider"]}
+
+
+colima-registry: up (kind-registry on kind-eg-colima at 172.20.0.2, published 127.0.0.1:5001)
+colima-registry: up (kind-registry on kind-eg-colima at 172.20.0.2, published 127.0.0.1:5001)
+
+
+
+== 3. cluster eg-poc2-colima on kind-eg-colima (kindnet + kube-proxy iptables; no Cilium)  (12:57:11Z)
+kind cluster eg-poc2-colima exists, kept
+### 2026-09-21T12:57:11Z
+$ kubectl --context kind-eg-poc2-colima wait --for=condition=Ready nodes --all --timeout=180s
+### 2026-09-21T12:57:11Z
+$ kubectl --context kind-eg-poc2-colima wait --for=condition=Ready nodes --all --timeout=180s
+node/eg-poc2-colima-control-plane condition met
+node/eg-poc2-colima-control-plane condition met
+node/eg-poc2-colima-worker condition met
+node/eg-poc2-colima-worker condition met
+
+
+### 2026-09-21T12:57:11Z
+$ kubectl --context kind-eg-poc2-colima get nodes -o wide
+### 2026-09-21T12:57:11Z
+$ kubectl --context kind-eg-poc2-colima get nodes -o wide
+NAME                           STATUS   ROLES           AGE     VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+eg-poc2-colima-control-plane   Ready    control-plane   3h56m   v1.36.4   172.20.0.6    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+eg-poc2-colima-worker          Ready    <none>          3h56m   v1.36.4   172.20.0.5    <none>        NAME                           STATUS   ROLES           AGE     Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+eg-poc2-colima-control-plane   Ready    control-plane   3h56m   v1.36.4   172.20.0.6    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+eg-poc2-colima-worker          Ready    <none>          3h56m   v1.36.4   172.20.0.5    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+
+
+node IPv4 InternalIPs (must be in 172.20.0.0/17, none in 172.20.254.0/24 or 172.20.255.0/24):
+eg-poc2-colima-control-plane 172.20.0.6
+eg-poc2-colima-worker 172.20.0.5
+node IPv4 InternalIPs (must be in 172.20.0.0/17, none in 172.20.254.0/24 or 172.20.255.0/24):
+eg-poc2-colima-control-plane 172.20.0.6
+eg-poc2-colima-worker 172.20.0.5
+eg-poc2-colima-worker docker kind-eg-colima=172.20.0.5
+eg-poc2-colima-worker docker kind-eg-colima=172.20.0.5
+eg-poc2-colima-control-plane docker kind-eg-colima=172.20.0.6
+eg-poc2-colima-control-plane docker kind-eg-colima=172.20.0.6
+### 2026-09-21T12:57:11Z
+$ kubectl --context kind-eg-poc2-colima -n kube-system get ds kindnet kube-proxy
+### 2026-09-21T12:57:11Z
+$ kubectl --context kind-eg-poc2-colima -n kube-system get ds kindnet kube-proxy
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   3h56m
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   3h56m
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   3h56m
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   3h56m
+
+
+### 2026-09-21T12:57:11Z
+$ bash -c kubectl --context kind-eg-poc2-colima -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+### 2026-09-21T12:57:11Z
+$ bash -c kubectl --context kind-eg-poc2-colima -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+    mode: iptables
+    mode: iptables
+
+
+
+== 4. containerd hosts.toml for localhost:5001 + local-registry-hosting ConfigMap  (12:57:11Z)
+### 2026-09-21T12:57:11Z
+$ bash -c registry_hosts
+### 2026-09-21T12:57:11Z
+$ bash -c registry_hosts
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc2-colima-worker
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc2-colima-worker
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc2-colima-control-plane
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc2-colima-control-plane
+
+
+### 2026-09-21T12:57:12Z
+$ bash -c kubectl --context kind-eg-poc2-colima apply -f -
+### 2026-09-21T12:57:12Z
+$ bash -c kubectl --context kind-eg-poc2-colima apply -f -
+configmap/local-registry-hosting created
+configmap/local-registry-hosting created
+
+
+eg-colima-up: done. cluster eg-poc2-colima on kind-eg-colima; kubeconfig /Users/olasumbo/.kube/config-eg-poc2-colima
+eg-colima-up: done. cluster eg-poc2-colima on kind-eg-colima; kubeconfig /Users/olasumbo/.kube/config-eg-poc2-colima
+
+### 2026-09-21T12:57:12Z
+$ kubectl --context kind-eg-poc2-colima get nodes -o wide
+NAME                           STATUS   ROLES           AGE     VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+eg-poc2-colima-control-plane   Ready    control-plane   3h56m   v1.36.4   172.20.0.6    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+eg-poc2-colima-worker          Ready    <none>          3h56m   v1.36.4   172.20.0.5    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+
+### 2026-09-21T12:57:12Z
+$ helm repo add metallb https://metallb.github.io/metallb --force-update
+"metallb" has been added to your repositories
+
+### 2026-09-21T12:57:12Z
+$ helm upgrade --install metallb metallb/metallb --version 0.16.0 -n metallb-system --create-namespace --kube-context kind-eg-poc2-colima --set speaker.frr.enabled=false --set frrk8s.enabled=true --wait --timeout 8m
+Release "metallb" has been upgraded. Happy Helming!
+NAME: metallb
+LAST DEPLOYED: Mon Sep 21 07:57:12 2026
+NAMESPACE: metallb-system
+STATUS: deployed
+REVISION: 3
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+NOTES:
+MetalLB is now running in the cluster.
+
+Now you can configure it via its CRs. Please refer to the metallb official docs
+on how to use the CRs.
+
+### 2026-09-21T12:57:13Z
+$ kubectl --context kind-eg-poc2-colima -n metallb-system get deploy,ds
+NAME                                            READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/metallb-controller              1/1     1            1           3h55m
+deployment.apps/metallb-frr-k8s-statuscleaner   1/1     1            1           3h55m
+
+NAME                             DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+daemonset.apps/metallb-frr-k8s   2         2         2       2            2           kubernetes.io/os=linux   3h55m
+daemonset.apps/metallb-speaker   2         2         2       2            2           kubernetes.io/os=linux   3h55m
+
+### 2026-09-21T12:57:13Z
+$ bash -c kubectl --context kind-eg-poc2-colima -n metallb-system create secret generic fabric-bgp-password   --type=kubernetes.io/basic-auth --from-literal=username=bgp --from-literal=password='lab-bgp'   --dry-run=client -o yaml | kubectl --context kind-eg-poc2-colima apply -f -
+secret/fabric-bgp-password unchanged
+
+### 2026-09-21T12:57:13Z
+$ kubectl --context kind-eg-poc2-colima apply -f demos/52-eg-poc2-metallb-colima/10-metallb-bgp.yaml
+ipaddresspool.metallb.io/eg-poc2-vips unchanged
+bgpadvertisement.metallb.io/eg-poc2-bgp unchanged
+bgppeer.metallb.io/leaf1 unchanged
+bgppeer.metallb.io/leaf2 unchanged
+
+### 2026-09-21T12:57:13Z
+$ kubectl --context kind-eg-poc2-colima apply -f demos/52-eg-poc2-metallb-colima/20-door.yaml
+namespace/eg-poc2 unchanged
+deployment.apps/door unchanged
+service/door unchanged
+
+### 2026-09-21T12:57:13Z
+$ kubectl --context kind-eg-poc2-colima -n eg-poc2 rollout status deploy/door --timeout=180s
+deployment "door" successfully rolled out
+
+### 2026-09-21T12:57:13Z
+$ kubectl --context kind-eg-poc2-colima -n eg-poc2 get svc door -o wide
+NAME   TYPE           CLUSTER-IP     EXTERNAL-IP   PORT(S)        AGE     SELECTOR
+door   LoadBalancer   10.73.60.199   10.198.0.70   80:31499/TCP   3h51m   app=door
+
+### 2026-09-21T12:57:28Z
+$ bash -c docker --context colima-bgp-fabric exec bgp-fabric-colima-leaf1-1 vtysh -c 'show bgp summary json' | python3 -c '
+import json,sys
+d=json.load(sys.stdin); peers=d.get("ipv4Unicast",{}).get("peers",{})
+for ip,p in sorted(peers.items()):
+    if p.get("remoteAs")==65022:
+        print("leaf1 %-14s AS%s %-12s pfxRcd=%s" % (ip, p.get("remoteAs"), p.get("state"), p.get("pfxRcd")))
+'
+leaf1 172.20.0.5     AS65022 Established  pfxRcd=1
+leaf1 172.20.0.6     AS65022 Established  pfxRcd=0
+
+### 2026-09-21T12:57:28Z
+$ bash -c docker --context colima-bgp-fabric exec bgp-fabric-colima-leaf2-1 vtysh -c 'show bgp summary json' | python3 -c '
+import json,sys
+d=json.load(sys.stdin); peers=d.get("ipv4Unicast",{}).get("peers",{})
+for ip,p in sorted(peers.items()):
+    if p.get("remoteAs")==65022:
+        print("leaf2 %-14s AS%s %-12s pfxRcd=%s" % (ip, p.get("remoteAs"), p.get("state"), p.get("pfxRcd")))
+'
+leaf2 172.20.0.5     AS65022 Established  pfxRcd=1
+leaf2 172.20.0.6     AS65022 Established  pfxRcd=0
+
+### 2026-09-21T12:57:28Z
+$ bash -c docker --context colima-bgp-fabric exec bgp-fabric-colima-leaf1-1 vtysh -c 'show bgp ipv4 unicast 10.198.0.70/32 json' | python3 -c '
+import json,sys
+d=json.load(sys.stdin); paths=d.get("paths",[])
+outs=[((p.get("nexthops") or [{}])[0].get("ip","?"))+("*" if p.get("bestpath") else "") for p in paths]
+print("leaf1 %d path(s): %s aspath=%s" % (len(paths), " ".join(outs), (paths[0].get("aspath") or {}).get("string","") if paths else ""))
+'
+leaf1 1 path(s): 172.20.0.5* aspath=65022
+
+### 2026-09-21T12:57:28Z
+$ bash -c docker --context colima-bgp-fabric exec bgp-fabric-colima-spine-1 vtysh -c 'show bgp ipv4 unicast 10.198.0.70/32 json' | python3 -c '
+import json,sys
+d=json.load(sys.stdin); paths=d.get("paths",[])
+outs=[((p.get("nexthops") or [{}])[0].get("ip","?"))+("*" if p.get("bestpath") else "") for p in paths]
+print("spine %d path(s): %s aspath=%s" % (len(paths), " ".join(outs), (paths[0].get("aspath") or {}).get("string","") if paths else ""))
+'
+spine 2 path(s): 10.200.1.2* 10.200.1.10 aspath=65101 65022
+
+### 2026-09-21T12:57:28Z
+$ bash -c docker --context colima-bgp-fabric exec bgp-fabric-colima-edge-1 vtysh -c 'show bgp ipv4 unicast 10.198.0.70/32 json' | python3 -c '
+import json,sys
+d=json.load(sys.stdin); paths=d.get("paths",[])
+outs=[((p.get("nexthops") or [{}])[0].get("ip","?"))+("*" if p.get("bestpath") else "") for p in paths]
+print("edge %d path(s): %s aspath=%s" % (len(paths), " ".join(outs), (paths[0].get("aspath") or {}).get("string","") if paths else ""))
+'
+edge 1 path(s): 10.200.1.18* aspath=65100 65101 65022
+
+### 2026-09-21T12:57:28Z
+$ bash -c curl -s -o /dev/null -m 8 -w 'curl http://10.198.0.70/ -> %{http_code}\n' http://10.198.0.70/
+curl http://10.198.0.70/ -> 200
+
+demo 52c apply: done. door 10.198.0.70; dashboard http://127.0.0.1:8098

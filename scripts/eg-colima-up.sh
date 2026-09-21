@@ -45,6 +45,23 @@ die() { echo "eg-colima-up: $1" >&2; exit 1; }
 } | tee -a "$TRANSCRIPT"
 
 # ---------------------------------------------------------------- (1) the node LAN
+# A kind node runs a kubelet, a containerd and a CNI, and each takes inotify
+# instances. Ubuntu ships fs.inotify.max_user_instances=128, which ONE cluster
+# survives and a second does not: measured 2026-09-21, the second cluster's
+# worker never joined and its kubelet died with
+#   "Failed to start cAdvisor" err="inotify_init: too many open files"
+# after kubeadm had waited out its whole timeout. The failure names a cgroup
+# problem in kubeadm's summary, which sends you looking in the wrong place.
+# 512 is the value kind's own known-issues page recommends.
+say "0. inotify limits in the VM (a second kind cluster needs them)"
+want_instances=512
+have=$(colima ssh --profile "$FABRIC_COLIMA_PROFILE" -- sysctl -n fs.inotify.max_user_instances 2>/dev/null || echo 0)
+if [ "${have:-0}" -lt "$want_instances" ]; then
+  rec colima ssh --profile "$FABRIC_COLIMA_PROFILE" -- sudo sh -c "printf 'fs.inotify.max_user_instances = %s\nfs.inotify.max_user_watches = 1048576\n' $want_instances > /etc/sysctl.d/99-kind-inotify.conf && sysctl -q -p /etc/sysctl.d/99-kind-inotify.conf"
+else
+  rec echo "fs.inotify.max_user_instances=$have already >= $want_instances"
+fi
+
 say "1. the $KIND_EG_COLIMA_NET network ($KIND_EG_COLIMA_SUBNET, ip-range $KIND_EG_COLIMA_IP_RANGE)"
 fabric_colima_ensure_kind_net | tee -a "$TRANSCRIPT"
 rec docker --context "$CTX" network inspect "$KIND_EG_COLIMA_NET" \
@@ -101,7 +118,7 @@ else
     kind create cluster \
     --name "$EG_COLIMA_CLUSTER" \
     --kubeconfig "$KUBECONFIG" \
-    --config clusters/eg-poc1-colima.yaml \
+    --config "${EG_COLIMA_KIND_CONFIG:-clusters/${EG_COLIMA_CLUSTER}.yaml}" \
     --image "$KIND_NODE_IMAGE"
 fi
 rec kubectl --context "kind-$EG_COLIMA_CLUSTER" wait --for=condition=Ready nodes --all --timeout=180s
