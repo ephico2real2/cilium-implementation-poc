@@ -490,6 +490,22 @@
     return { state: "stale", label: "stale " + Math.round(ageMsec / 1000) + "s" };
   }
 
+  // What the header says about which build is serving the page. "unknown" is
+  // a real answer — it means this binary was not built by the pipeline and
+  // cannot name its commit — and "local build" is more use to a reader than
+  // the word "unknown", or worse, a fabricated number.
+  function buildLabel(v) {
+    const revision = (v && v.revision) || "";
+    const known = revision !== "" && revision !== "unknown";
+    return {
+      text: known ? "build " + ((v && v.short) || revision.slice(0, 7)) : "local build",
+      title: known
+        ? revision + "\nbuilt " + ((v && v.built) || "unknown")
+        : "not built by the pipeline, so it cannot say which commit it came from",
+      unknown: !known,
+    };
+  }
+
   const api = {
     esc: esc,
     relativeTime: relativeTime,
@@ -510,6 +526,7 @@
     stateClass: stateClass,
     trafficRows: trafficRows,
     trafficCaption: trafficCaption,
+    buildLabel: buildLabel,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.bgpUI = api;

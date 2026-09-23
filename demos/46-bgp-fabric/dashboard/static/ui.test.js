@@ -387,3 +387,37 @@ test("a nexthop is not a state", () => {
   assert.equal(ui.stateClass("10.200.1.3"), "state-unknown");
   assert.equal(ui.stateClass("172.20.0.4"), "state-unknown");
 });
+
+test("buildLabel names the build when the binary knows its commit", () => {
+  const l = ui.buildLabel({
+    revision: "4cf18646880b540d48b029ea25a35ebe2e1821c2",
+    short: "4cf1864",
+    built: "2026-09-23T10:32:58Z",
+  });
+  assert.equal(l.text, "build 4cf1864");
+  assert.equal(l.unknown, false);
+  assert.match(l.title, /4cf18646880b540d48b029ea25a35ebe2e1821c2/);
+  assert.match(l.title, /built 2026-09-23T10:32:58Z/);
+});
+
+test("buildLabel falls back to the first seven characters when short is absent", () => {
+  const l = ui.buildLabel({ revision: "4cf18646880b540d48b029ea25a35ebe2e1821c2" });
+  assert.equal(l.text, "build 4cf1864");
+});
+
+test("buildLabel says local build rather than the word unknown", () => {
+  for (const v of [{ revision: "unknown", short: "unknown" }, { revision: "" }, {}, null]) {
+    const l = ui.buildLabel(v);
+    assert.equal(l.text, "local build", JSON.stringify(v));
+    assert.equal(l.unknown, true);
+    assert.doesNotMatch(l.text, /unknown/);
+  }
+});
+
+test("buildLabel never claims a commit it was not given", () => {
+  // The header links nothing and the tooltip says why, rather than showing a
+  // number a reader could paste into git and not find.
+  const l = ui.buildLabel({ revision: "unknown", built: "unknown" });
+  assert.match(l.title, /not built by the pipeline/);
+  assert.doesNotMatch(l.title, /[0-9a-f]{7}/);
+});

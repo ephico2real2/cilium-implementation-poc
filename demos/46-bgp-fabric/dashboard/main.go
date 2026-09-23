@@ -19,6 +19,22 @@ import (
 //go:embed static
 var staticFS embed.FS
 
+// Set at link time: `-X main.revision=<sha> -X main.built=<rfc3339>`. Not a
+// constant, because the source cannot know which commit it is being built
+// from — and "unknown" is a real answer that says this binary was not built
+// by the pipeline, which is worth knowing when a page looks wrong.
+var (
+	revision = "unknown"
+	built    = "unknown"
+)
+
+func shortRevision() string {
+	if revision == "unknown" || len(revision) < 7 {
+		return revision
+	}
+	return revision[:7]
+}
+
 const (
 	defaultRouters = "edge=http://10.200.200.1:8080,spine=http://10.200.200.2:8080,leaf1=http://10.200.200.11:8080,leaf2=http://10.200.200.12:8080"
 	defaultASNames = "65000=edge,65100=spine,65101=leaf1,65102=leaf2,65021=eg-poc1 (kube-vip),65022=eg-poc2 (MetalLB),65001=poc1 (Cilium),65002=poc2 (Cilium)"
@@ -202,6 +218,7 @@ func main() {
 	mux.HandleFunc("GET /api/state", h.apiState)
 	mux.HandleFunc("GET /api/signal", h.apiSignal)
 	mux.HandleFunc("GET /api/events", h.apiEvents)
+	mux.HandleFunc("GET /api/version", h.apiVersion)
 	mux.HandleFunc("GET /healthz", h.healthz)
 	mux.HandleFunc("GET /ws", h.ws)
 	log.Printf("bgp-dashboard: listen %s poll %s routers %d", listen, poll, len(routers))
@@ -271,6 +288,20 @@ func (h *hub) apiEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(ev)
+}
+
+// apiVersion is which build is serving this page. The page asks once — an
+// image cannot change under a running container — and shows it in the header,
+// so the question does not have to be answered by comparing served files
+// against a checkout.
+func (h *hub) apiVersion(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"revision": revision,
+		"short":    shortRevision(),
+		"built":    built,
+	})
 }
 
 func (h *hub) healthz(w http.ResponseWriter, _ *http.Request) {
