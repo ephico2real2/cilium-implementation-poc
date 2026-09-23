@@ -9,6 +9,7 @@
   - last apply timestamp and this-run numbers on the pages
 usage: python3 tests/demo46-colima-claims.py   (exit 0 = pass)
 """
+import subprocess
 from pathlib import Path
 import sys
 
@@ -91,7 +92,12 @@ else:
 if (root / "fabric/compose.lan-cilium.yaml").exists():
     bad.append("compose.lan-cilium.yaml present — no Cilium lab on Colima")
 
-dash = (root / "dashboard/README.md").read_text()
+# The dashboard's own page lives in bgp-fabric now, so the claim is read from
+# the pinned tree this lab builds against rather than from a copy here.
+fabric_src = Path(subprocess.run(
+    ["scripts/bgp-fabric-fetch.sh"], capture_output=True, text=True, check=True
+).stdout.strip())
+dash = (fabric_src / "dashboard/README.md").read_text()
 if "gergovadasz.hu/make-bgp-visible" not in dash:
     bad.append("dashboard/README.md does not credit the blog")
 if "No auth" not in dash and "no auth" not in dash:

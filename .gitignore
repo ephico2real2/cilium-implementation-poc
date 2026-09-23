@@ -19,3 +19,4 @@ demos/46-bgp-fabric-colima/fabric/.env
 # easy to commit. tests/dashboard-copies-in-sync.sh catches it as drift.
 demos/*/dashboard/bgp-dashboard
 demos/*/frr-agent/frr-agent
+vendor/

@@ -112,13 +112,23 @@ if [ -n "$port_holder" ]; then
   exit 1
 fi
 
+# The fabric, the dashboard and the agent come from the bgp-fabric repository
+# at a pinned commit (scripts/bgp-fabric.env), not from a copy in this tree.
+BGP_FABRIC=$(scripts/bgp-fabric-fetch.sh)
+export BGP_FABRIC
+
 # The image is stamped with the commit it was built from, and the stamp is
 # COMPUTED, never typed: a hand-passed sha is an assertion nobody checks, and
 # the page then names a commit that does not contain the code it is serving
 # (measured 2026-09-23 — the lab served `build 4cf1864`, a commit with neither
 # the endpoint nor the label function in its tree). A dirty tree keeps its
 # `-dirty` marker.
-IFS=$'\t' read -r REVISION BUILT < <(scripts/build-revision.sh)
+#
+# The revision asked for is bgp-fabric's, not this repository's: the dashboard
+# source lives there now, so a sha from here would name a commit whose tree
+# does not contain the code being built — the very mistake the stamp exists to
+# catch.
+IFS=$'\t' read -r REVISION BUILT < <("$BGP_FABRIC/scripts/build-revision.sh")
 export REVISION BUILT
 
 rec() { scripts/record.sh "$TRANSCRIPT" "$@"; }
@@ -137,14 +147,14 @@ need_image() {
 say "1. local images ($FABRIC_ROUTER_IMAGE, $FABRIC_DASHBOARD_IMAGE) via docker --context $CTX"
 if need_image "$FABRIC_ROUTER_IMAGE"; then
   rec docker --context "$CTX" build -t "$FABRIC_ROUTER_IMAGE" --build-arg FRR_IMAGE="$FRR_IMAGE" \
-    -f "$FABRIC_COLIMA_HERE/frr-agent/Containerfile" "$FABRIC_COLIMA_HERE/frr-agent"
+    -f "$BGP_FABRIC/frr-agent/Containerfile" "$BGP_FABRIC/frr-agent"
 else
   rec echo "image $FABRIC_ROUTER_IMAGE present"
 fi
 if need_image "$FABRIC_DASHBOARD_IMAGE"; then
   rec docker --context "$CTX" build -t "$FABRIC_DASHBOARD_IMAGE" \
     --build-arg REVISION="$REVISION" --build-arg BUILT="$BUILT" \
-    -f "$FABRIC_COLIMA_HERE/dashboard/Containerfile" "$FABRIC_COLIMA_HERE/dashboard"
+    -f "$BGP_FABRIC/dashboard/Containerfile" "$BGP_FABRIC/dashboard"
 else
   rec echo "image $FABRIC_DASHBOARD_IMAGE present"
 fi
