@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,33 @@ import (
 
 //go:embed static
 var staticFS embed.FS
+
+// Set at link time: `-X main.revision=<sha> -X main.built=<rfc3339>`. Not a
+// constant, because the source cannot know which commit it is being built
+// from — and "unknown" is a real answer that says this binary was not built
+// by the pipeline, which is worth knowing when a page looks wrong.
+var (
+	revision = "unknown"
+	built    = "unknown"
+)
+
+// A 40-character hex sha, and whatever `git describe --dirty` put after it.
+var fullSHA = regexp.MustCompile(`^([0-9a-f]{40})(.*)$`)
+
+// shortRevision is the revision as the header shows it: seven characters of
+// the sha, with any suffix KEPT. `-dirty` is the difference between "this
+// commit" and "this commit plus edits nobody committed", and a header that
+// drops it names a commit that does not contain the code being served.
+// Anything that is not a sha — a tag, `git describe` of a shallow tree,
+// "unknown" — is left exactly as it is: seven characters of it identify
+// nothing.
+func shortRevision() string {
+	m := fullSHA.FindStringSubmatch(revision)
+	if m == nil {
+		return revision
+	}
+	return m[1][:7] + m[2]
+}
 
 const (
 	defaultRouters = "edge=http://10.200.200.1:8080,spine=http://10.200.200.2:8080,leaf1=http://10.200.200.11:8080,leaf2=http://10.200.200.12:8080"
@@ -197,18 +225,28 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	mux := http.NewServeMux()
-	mux.Handle("GET /", http.FileServer(http.FS(static)))
-	mux.HandleFunc("GET /api/state", h.apiState)
-	mux.HandleFunc("GET /api/signal", h.apiSignal)
-	mux.HandleFunc("GET /api/events", h.apiEvents)
-	mux.HandleFunc("GET /healthz", h.healthz)
-	mux.HandleFunc("GET /ws", h.ws)
+	mux := routes(h, static)
 	log.Printf("bgp-dashboard: listen %s poll %s routers %d", listen, poll, len(routers))
 	srv := &http.Server{Addr: listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+}
+
+// routes is the server's URL map, out of main() so a test can ask the real
+// mux. A handler that is correct but never registered serves 404, and a test
+// that calls the method directly cannot see that — measured: deleting the
+// /api/version line left every gate green while the endpoint 404'd.
+func routes(h *hub, static fs.FS) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.Handle("GET /", http.FileServer(http.FS(static)))
+	mux.HandleFunc("GET /api/state", h.apiState)
+	mux.HandleFunc("GET /api/signal", h.apiSignal)
+	mux.HandleFunc("GET /api/events", h.apiEvents)
+	mux.HandleFunc("GET /api/version", h.apiVersion)
+	mux.HandleFunc("GET /healthz", h.healthz)
+	mux.HandleFunc("GET /ws", h.ws)
+	return mux
 }
 
 func (h *hub) runTick() {
@@ -271,6 +309,20 @@ func (h *hub) apiEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(ev)
+}
+
+// apiVersion is which build is serving this page. The page asks once — an
+// image cannot change under a running container — and shows it in the header,
+// so the question does not have to be answered by comparing served files
+// against a checkout.
+func (h *hub) apiVersion(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"revision": revision,
+		"short":    shortRevision(),
+		"built":    built,
+	})
 }
 
 func (h *hub) healthz(w http.ResponseWriter, _ *http.Request) {

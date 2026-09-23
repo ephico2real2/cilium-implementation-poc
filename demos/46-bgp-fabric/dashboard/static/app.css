@@ -644,3 +644,16 @@ body.stale-data #graph { opacity: 0.55; filter: saturate(0.4); }
   text-overflow: ellipsis;
 }
 .neighbours td:first-child { white-space: nowrap; }
+
+/* Which build is serving this page. Provenance, not status: it sits after the
+   live dot and does not compete with it for attention. */
+.build {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  color: var(--muted, #6b6560);
+  white-space: nowrap;
+}
+.build[data-unknown="yes"] { color: var(--warn, #9a6700); }
+/* A dirty tree is not a commit either: the sha names code that is not what is
+   running, so it reads like a build nobody can name rather than a clean one. */
+.build[data-dirty="yes"] { color: var(--warn, #9a6700); }

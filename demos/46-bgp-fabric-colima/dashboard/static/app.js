@@ -1335,6 +1335,15 @@
       if (router && !router.reachable) ribRows();
     }, 1000);
 
+    // Which build this is. Asked once — an image cannot change under a running
+    // container — and failing is not worth breaking the page for.
+    fetch("/api/version", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((v) => {
+        if (v) ui.applyBuildLabel($("build"), v);
+      })
+      .catch((err) => console.warn("build version unavailable", err));
+
     Promise.all([
       fetch("/api/state").then((r) => { if (!r.ok) throw new Error("state"); return r.json(); }),
       fetch("/api/events?since=0").then((r) => { if (!r.ok) throw new Error("events"); return r.json(); }),
