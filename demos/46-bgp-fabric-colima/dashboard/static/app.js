@@ -1340,13 +1340,7 @@
     fetch("/api/version", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((v) => {
-        const el = $("build");
-        if (!el || !v) return;
-        const label = ui.buildLabel(v);
-        el.textContent = label.text;
-        el.title = label.title;
-        el.dataset.unknown = label.unknown ? "yes" : "no";
-        el.hidden = false;
+        if (v) ui.applyBuildLabel($("build"), v);
       })
       .catch((err) => console.warn("build version unavailable", err));
 

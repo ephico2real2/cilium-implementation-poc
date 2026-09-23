@@ -84,6 +84,15 @@ if [ -n "$port_holder" ]; then
   exit 1
 fi
 
+# The image is stamped with the commit it was built from, and the stamp is
+# COMPUTED, never typed: a hand-passed sha is an assertion nobody checks, and
+# the page then names a commit that does not contain the code it is serving
+# (measured 2026-09-23 — the lab served `build 4cf1864`, a commit with neither
+# the endpoint nor the label function in its tree). A dirty tree keeps its
+# `-dirty` marker.
+IFS=$'\t' read -r REVISION BUILT < <(scripts/build-revision.sh)
+export REVISION BUILT
+
 rec() { scripts/record.sh "$TRANSCRIPT" "$@"; }
 printf '\n### %s — fabric-up project=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROJECT" >>"$TRANSCRIPT"
 
@@ -105,6 +114,7 @@ else
 fi
 if need_image "$FABRIC_DASHBOARD_IMAGE"; then
   rec docker build -t "$FABRIC_DASHBOARD_IMAGE" \
+    --build-arg REVISION="$REVISION" --build-arg BUILT="$BUILT" \
     -f demos/46-bgp-fabric/dashboard/Containerfile demos/46-bgp-fabric/dashboard
 else
   rec echo "image $FABRIC_DASHBOARD_IMAGE present"

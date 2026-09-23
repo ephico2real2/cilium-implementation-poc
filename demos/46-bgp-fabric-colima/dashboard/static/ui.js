@@ -490,20 +490,47 @@
     return { state: "stale", label: "stale " + Math.round(ageMsec / 1000) + "s" };
   }
 
+  // Seven characters of a 40-character sha, with whatever follows it kept —
+  // `-dirty` above all. Anything that is not a sha is left alone: seven
+  // characters of a tag, or of `git describe` output, identify nothing.
+  // Mirrors shortRevision() in main.go.
+  function shortSHA(revision) {
+    const m = /^([0-9a-f]{40})(.*)$/.exec(revision);
+    return m ? m[1].slice(0, 7) + m[2] : revision;
+  }
+
   // What the header says about which build is serving the page. "unknown" is
   // a real answer — it means this binary was not built by the pipeline and
   // cannot name its commit — and "local build" is more use to a reader than
-  // the word "unknown", or worse, a fabricated number.
+  // the word "unknown", or worse, a fabricated number. The short form is
+  // derived from `revision` rather than taken from `short`, so the two can
+  // never disagree on the page.
   function buildLabel(v) {
-    const revision = (v && v.revision) || "";
+    const revision = v && typeof v.revision === "string" ? v.revision : "";
     const known = revision !== "" && revision !== "unknown";
     return {
-      text: known ? "build " + ((v && v.short) || revision.slice(0, 7)) : "local build",
+      text: known ? "build " + shortSHA(revision) : "local build",
       title: known
         ? revision + "\nbuilt " + ((v && v.built) || "unknown")
         : "not built by the pipeline, so it cannot say which commit it came from",
       unknown: !known,
+      dirty: known && /-dirty$/.test(revision),
     };
+  }
+
+  // The header element, given what /api/version said. Here rather than inline
+  // in app.js because this is the part a test can drive: with it in app.js
+  // nothing covered it, and deleting `el.hidden = false` passed every gate
+  // (measured 2026-09-23).
+  function applyBuildLabel(el, v) {
+    if (!el) return null;
+    const label = buildLabel(v);
+    el.textContent = label.text;
+    el.title = label.title;
+    el.dataset.unknown = label.unknown ? "yes" : "no";
+    el.dataset.dirty = label.dirty ? "yes" : "no";
+    el.hidden = false;
+    return label;
   }
 
   const api = {
@@ -527,6 +554,7 @@
     trafficRows: trafficRows,
     trafficCaption: trafficCaption,
     buildLabel: buildLabel,
+    applyBuildLabel: applyBuildLabel,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.bgpUI = api;

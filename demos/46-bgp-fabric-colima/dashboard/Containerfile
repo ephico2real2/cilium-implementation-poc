@@ -18,8 +18,15 @@ RUN CGO_ENABLED=0 go build -trimpath \
       -o /dashboard .
 
 FROM alpine:3.22
+# ARG is PER STAGE. Without these the final stage expands $REVISION to the
+# empty string and the label is silently blank while the binary is right —
+# measured with a two-stage probe build.
 ARG REVISION=unknown
-ARG BUILT=unknown
+# org.opencontainers.image.created must be an RFC 3339 date (OCI image-spec,
+# annotations.md), so its fallback is EMPTY — an absent date rather than the
+# invalid token "unknown" a scanner would try to parse. The binary still says
+# "unknown", which is a sentence a reader understands.
+ARG BUILT=
 # The same two values as labels, from the same arguments: `docker inspect` and
 # the page cannot disagree about which build this is.
 LABEL org.opencontainers.image.title="bgp-dashboard" \

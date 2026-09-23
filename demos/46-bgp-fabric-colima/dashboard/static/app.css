@@ -654,3 +654,6 @@ body.stale-data #graph { opacity: 0.55; filter: saturate(0.4); }
   white-space: nowrap;
 }
 .build[data-unknown="yes"] { color: var(--warn, #9a6700); }
+/* A dirty tree is not a commit either: the sha names code that is not what is
+   running, so it reads like a build nobody can name rather than a clean one. */
+.build[data-dirty="yes"] { color: var(--warn, #9a6700); }

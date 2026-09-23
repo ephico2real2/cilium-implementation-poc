@@ -421,3 +421,63 @@ test("buildLabel never claims a commit it was not given", () => {
   assert.match(l.title, /not built by the pipeline/);
   assert.doesNotMatch(l.title, /[0-9a-f]{7}/);
 });
+
+test("buildLabel keeps a dirty marker: the sha alone names code that is not running", () => {
+  const l = ui.buildLabel({
+    revision: "4cf18646880b540d48b029ea25a35ebe2e1821c2-dirty",
+    short: "4cf1864",
+    built: "2026-09-23T10:32:58Z",
+  });
+  assert.equal(l.text, "build 4cf1864-dirty");
+  assert.equal(l.dirty, true);
+  assert.equal(l.unknown, false);
+});
+
+test("buildLabel shortens a sha and leaves anything that is not one alone", () => {
+  assert.equal(ui.buildLabel({ revision: "4cf18646880b540d48b029ea25a35ebe2e1821c2" }).text, "build 4cf1864");
+  assert.equal(ui.buildLabel({ revision: "v1.2.3-4-g4cf1864" }).text, "build v1.2.3-4-g4cf1864");
+  assert.equal(ui.buildLabel({ revision: "v1.2" }).text, "build v1.2");
+});
+
+test("buildLabel trusts revision over a short that disagrees with it", () => {
+  const l = ui.buildLabel({ revision: "4cf18646880b540d48b029ea25a35ebe2e1821c2", short: "0000000" });
+  assert.equal(l.text, "build 4cf1864");
+});
+
+test("buildLabel does not throw on a revision that is not a string", () => {
+  for (const v of [{ revision: 1234567890 }, { revision: ["a"] }, { revision: {} }]) {
+    const l = ui.buildLabel(v);
+    assert.equal(l.text, "local build", JSON.stringify(v));
+    assert.equal(l.unknown, true);
+  }
+});
+
+test("applyBuildLabel fills the element and unhides it", () => {
+  const el = { dataset: {}, hidden: true, textContent: "", title: "" };
+  const l = ui.applyBuildLabel(el, {
+    revision: "4cf18646880b540d48b029ea25a35ebe2e1821c2",
+    built: "2026-09-23T10:32:58Z",
+  });
+  assert.equal(el.textContent, "build 4cf1864");
+  assert.match(el.title, /4cf18646880b540d48b029ea25a35ebe2e1821c2/);
+  assert.equal(el.dataset.unknown, "no");
+  assert.equal(el.dataset.dirty, "no");
+  assert.equal(el.hidden, false, "an element that is never unhidden shows nothing");
+  assert.equal(l.text, "build 4cf1864");
+});
+
+test("applyBuildLabel marks a build the pipeline did not make, and a dirty one", () => {
+  const unknown = { dataset: {}, hidden: true };
+  ui.applyBuildLabel(unknown, { revision: "unknown", built: "unknown" });
+  assert.equal(unknown.textContent, "local build");
+  assert.equal(unknown.dataset.unknown, "yes");
+
+  const dirty = { dataset: {}, hidden: true };
+  ui.applyBuildLabel(dirty, { revision: "4cf18646880b540d48b029ea25a35ebe2e1821c2-dirty" });
+  assert.equal(dirty.dataset.dirty, "yes");
+  assert.equal(dirty.dataset.unknown, "no");
+});
+
+test("applyBuildLabel on a page without the element does nothing and does not throw", () => {
+  assert.equal(ui.applyBuildLabel(null, { revision: "unknown" }), null);
+});
