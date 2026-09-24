@@ -23,24 +23,32 @@ accepted by policy, carried across three autonomous systems, and **used**.
 
 That last row is what this plan closes.
 
-## The address, and where it comes from
+## The address: allocated, not invented
 
-Not invented. `10.98.0.0/24` is the routed VIP block for the `kind-eg` fabric,
-carved per cluster in [enhancement 006 §9](../enhancements/006-bgp-tutorial.md):
+`10.98.0.0/24` is the routed VIP block for the `kind-eg` fabric, carved per
+cluster in [enhancement 006 §9](../enhancements/006-bgp-tutorial.md). The
+allocation is not a convention — **it is enforced by the leaves' prefix-lists**,
+and an address outside a named block is not "unusual", it is unreachable:
 
-| block | owner | already allocated |
-|---|---|---|
-| `10.98.0.0/26` | **eg-poc1** | `.10` `bgp-http-gw`, `.11` `bgp-grpc-gw` (demo 56) |
-| `10.98.0.64/26` | eg-poc2 | `.74`, `.75` (demo 52) |
-| `10.98.0.128/26` | reserved | — |
-| `10.98.0.192/26` | anycast | an address more than one cluster may announce |
+| block | prefix-list on the leaves | owner | allocated |
+|---|---|---|---|
+| `10.98.0.0/26` | `EG-POC1-VIPS` | eg-poc1, AS 65021 | `.10` `.11` demo 56's doors; **`.46` demo 46's probe** |
+| `10.98.0.64/26` | `EG-POC2-VIPS` | eg-poc2, AS 65022 | `.74` `.75` demo 52's doors |
+| `10.98.0.128/26` | **none** | reserved | — nothing here can be announced |
+| `10.98.0.192/26` | `EG-ANYCAST-VIPS` | either cluster | an address both may announce |
 
-Demo 46 takes **`10.98.0.46`** from eg-poc1's `/26`. It is inside the block the
-leaves will accept, outside the two doors demo 56 owns, and its last octet is
-the demo's number so nobody has to look it up twice. One address, one `/32`,
-one purpose: to be reached.
+The reserved `/26` looked like the tidy place for a test address until the
+prefix-lists were read: there is no list naming it, so `SERVERS-IN` would
+refuse it and the test would fail for a reason that has nothing to do with the
+fabric's data plane. **`10.98.0.46/32`** therefore comes from eg-poc1's own
+block — the cluster that announces it is eg-poc1, and AS 65021 is what
+`as-path EG-POC1` permits — clear of demo 56's two doors, with the demo's
+number as the last octet so nobody has to look it up twice.
 
-## The forward path, and the line that permits each hop
+The Colima fabric's equivalent block is `10.198.0.0/26` and its probe is
+`10.198.0.46`. Same reasoning, different fabric.
+
+## The path, hop by hop
 
 Every hop is a policy decision, and each one is written down. Nothing here is
 "it should route" — each arrow is a rule that has to match.
@@ -78,29 +86,44 @@ Every hop is a policy decision, and each one is written down. Nothing here is
 Four autonomous systems, three eBGP hops, two of them ECMP. A packet from
 `client0` to `10.98.0.46` crosses AS 65000 → 65100 → 65101 or 65102 → 65021.
 
-## The return path is not symmetric, and that is deliberate
+## The return path is not symmetric, and that is correct
 
 The leaves advertise **nothing** to their server peers:
 
 ```text
 neighbor SERVERS route-map NOTHING out        (leaf1 frr.conf:24)
+route-map NOTHING deny 10                     (leaf1 frr.conf:71)
 ```
 
-So a cluster node learns no route to `10.200.100.0/24` from BGP. The reply to
-`client0` leaves the node by its own default route — the `kind-eg` bridge,
-owned by the Docker host — and the host puts it back onto the `wan` bridge,
-which it also owns. Forward through the fabric, back through the host.
+My first reading of this was that it is an omission to fix with a `SERVERS-OUT`
+advertising `COMPANY`. **I retract that.** It is a deliberate decision, made
+before this work, recorded in three places and gated by a test:
 
-This is worth stating rather than discovering. It means:
+| | |
+|---|---|
+| [NETWORK-TEAM-SHEET.md](../demos/46-bgp-fabric/NETWORK-TEAM-SHEET.md) row 5 | *"What the servers may receive — nothing (Cilium does not import; kube-vip / MetalLB do not need fabric routes)"* |
+| [enhancement 006](../enhancements/006-bgp-tutorial.md) §2 row 5 | *"nothing … RFC 8212 satisfied both ways"* |
+| [REVIEW_DEMO46.md](REVIEW_DEMO46.md) | traced on a throwaway: *"`NOTHING out` → the server receives 0 prefixes"* |
+| `tests/fabric-servers-policy.sh:25` | fails if the line is removed |
 
-- The test proves the **forward** path is a real routed path. It does not prove
-  the reverse is.
-- A reply that came back says nothing about how it came back. Any assertion
-  about the return path must be made on the return path, not inferred from a
-  successful `curl`.
-- On a lab where the nodes *should* route back through the fabric, the leaves
-  would need a `SERVERS-OUT` that advertises `COMPANY`. That is a change to the
-  fabric's policy, not to this test, and it is not made here.
+And the reasoning is right. A Kubernetes load-balancer speaker is
+**announce-only**: kube-vip and MetalLB exist to advertise service addresses,
+and Cilium does not import BGP routes at all. A node's route back to the rest
+of the world comes from its own network configuration — its default gateway —
+not from the session it uses to announce. Sending a ToR's table to every node
+in a cluster would be a leak, not a service, and `route-map NOTHING deny 10`
+is how RFC 8212's "advertise nothing without a policy" is satisfied on purpose
+rather than by accident.
+
+What follows for this test:
+
+- A reply proves the **forward** path is a real routed path across four
+  autonomous systems. It says nothing about how the reply came back.
+- In this lab the reply leaves the node by its default route to the node LAN's
+  bridge, and the Docker host — which owns both bridges — puts it on the WAN.
+  In a deployment where the leaf *is* the node's default gateway, the same
+  design carries it back through the fabric with no BGP change at all.
+- So no assertion here is made about the return path, and none should be.
 
 ## The password is a property of the kernel, not a constant
 
@@ -162,6 +185,42 @@ is the failure this ordering is designed to catch.
    assumed.
 7. **The page says so** — `/api/state` reports the VIP among the routes, and
    the header's `server sessions` is non-zero.
+
+## Four things this cost, and what each one teaches
+
+Every one of these was found by running the lab somewhere it had never run.
+None of them could have been found by reading the code, and none of them
+showed up on the machine the lab was written on.
+
+**1. A hardcoded neighbour address is an assumption about someone else's
+cluster.** `leaf1 ping 172.19.0.3` passed for months because the recorded run
+had a 1+1 cluster whose second node took `.3`. A single-node cluster puts its
+only node on `.2` and the step fails. *Ask the network which nodes are there;
+prefer the recorded address when it is present so a re-run reproduces the
+record.*
+
+**2. A stub is a contract, and it goes stale silently.** `fabric-up-converge.sh`
+failed for months against a `curl` stub returning the four counters alone,
+after `fabric-dashboard-state.py` started counting from the **records**. The
+failure read as "needs a live lab", which kept it out of every sweep — a wrong
+diagnosis is worse than none, because it stops anyone looking again. *When a
+stub fails, ask what the real thing returns now.*
+
+**3. A manifest that names a kernel property depends on that kernel.** demo
+56's kube-vip sends no password, and its header says why: on the Docker
+Desktop VM the kernel refuses `TCP_MD5SIG`, so a password would hold the
+session in ACTIVE for ever. On a kernel that takes the option the opposite is
+true, and the *unsigned* speaker never connects — with nothing in the leaf's
+log, because the kernel discards the segments before FRR sees them. *Read the
+comment that says "measured on this kernel" before moving the file to another
+one; and decide such things by probing, not by constant.*
+
+**4. A third-party action builds a different lab.** `helm/kind-action` gave a
+green workflow that was quietly testing a single-node cluster while
+`clusters/eg-poc1.yaml` is 1+1. The address mismatch surfaced it; a node
+count, a taint, a CNI mode or the reserved-range assertion would not have.
+*Build the lab with the repository's own scripts, or the run proves nothing
+about the lab anyone uses.*
 
 ## What this still does not prove
 

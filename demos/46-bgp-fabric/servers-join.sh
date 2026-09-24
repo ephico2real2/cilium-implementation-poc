@@ -16,25 +16,36 @@
 #   FABRIC_SERVERS_DEADLINE=120 demos/.../servers-join.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-HERE=demos/46-bgp-fabric
+# Every difference between the two fabrics is a variable with a Desktop/CI
+# default, so there is ONE implementation rather than a copy per fabric —
+# which is the lesson this repository just spent fifteen thousand deleted
+# lines learning. demos/46-bgp-fabric-colima's values are passed by
+# scripts/demo46-colima-e2e.sh.
+HERE="${DEMO46_HERE:-demos/46-bgp-fabric}"
 CTX="${SERVERS_KUBE_CONTEXT:-kind-eg-poc1}"
 PROJECT="${FABRIC_PROJECT:-bgp-fabric}"
-DS=demos/56-kube-vip-bgp/10b-kube-vip-ds-bgp-active-active.yaml
+DS="${DEMO46_KUBEVIP_DS:-demos/56-kube-vip-bgp/10b-kube-vip-ds-bgp-active-active.yaml}"
+NODE_LAN="${DEMO46_NODE_LAN:-kind-eg}"
+LEAF1_LAN="${DEMO46_LEAF1_LAN:-172.19.254.11}"
+LEAF2_LAN="${DEMO46_LEAF2_LAN:-172.19.254.12}"
+DOCKER_CTX_ARGS=()
+[ -n "${CTX_DOCKER:-}" ] && DOCKER_CTX_ARGS=(--context "$CTX_DOCKER")
 DEADLINE="${FABRIC_SERVERS_DEADLINE:-120}"
 TRANSCRIPT="${FABRIC_TRANSCRIPT:-$HERE/output/transcript.txt}"
 export RECORD_STRICT=1
 mkdir -p "$(dirname "$TRANSCRIPT")"
 rec() { scripts/record.sh "$TRANSCRIPT" "$@"; }
-COMPOSE=(docker compose -p "$PROJECT" -f "$HERE/fabric/compose.yaml" -f "$HERE/fabric/compose.lan-eg.yaml")
+COMPOSE=(docker "${DOCKER_CTX_ARGS[@]}" compose -p "$PROJECT" -f "$HERE/fabric/compose.yaml" -f "$HERE/fabric/compose.lan-eg.yaml")
 
 # The leaves must already be on the node LAN, or the peers in the DaemonSet
 # point at nothing and kube-vip retries for the whole deadline with no clue why.
 for leaf in leaf1 leaf2; do
   cid=$("${COMPOSE[@]}" ps -q "$leaf" 2>/dev/null || true)
   [ -n "$cid" ] || { echo "servers-join: $leaf is not running — run $HERE/apply.sh first" >&2; exit 1; }
-  ip=$(docker inspect -f '{{(index .NetworkSettings.Networks "kind-eg").IPAddress}}' "$cid" 2>/dev/null || true)
-  [ -n "$ip" ] || { echo "servers-join: $leaf is not on kind-eg — the overlay is not applied" >&2; exit 1; }
-  echo "servers-join: $leaf on kind-eg at $ip"
+  ip=$(docker "${DOCKER_CTX_ARGS[@]}" inspect \
+    -f "{{(index .NetworkSettings.Networks \"$NODE_LAN\").IPAddress}}" "$cid" 2>/dev/null || true)
+  [ -n "$ip" ] || { echo "servers-join: $leaf is not on $NODE_LAN — the overlay is not applied" >&2; exit 1; }
+  echo "servers-join: $leaf on $NODE_LAN at $ip"
 done
 
 # Whether the speaker must sign is a property of the KERNEL, measured, not a
@@ -76,11 +87,20 @@ echo "== 1. kube-vip in BGP mode on $CTX (RBAC + the active-active DaemonSet)"
 # be one.
 rendered=$(mktemp) || exit 1
 trap 'rm -f "$rendered"' EXIT
-sed "s|172.19.254.11:65101::false,172.19.254.12:65102::false|172.19.254.11:65101:${peer_pw}:false,172.19.254.12:65102:${peer_pw}:false|" \
+# Both spellings of the field: demo 56's is literally empty (its kernel
+# refuses MD5), demo 54c's carries a __BGP_PASSWORD__ placeholder because
+# Colima's kernel signs and that demo had already met this.
+sed -E "s|[0-9.]+:65101:[^:,\"]*:false,[0-9.]+:65102:[^:,\"]*:false|${LEAF1_LAN}:65101:${peer_pw}:false,${LEAF2_LAN}:65102:${peer_pw}:false|" \
   "$DS" > "$rendered"
 grep -q 'bgp_peers' "$rendered" || { echo "servers-join: bgp_peers not found in $DS" >&2; exit 1; }
 rec bash -c "grep -A1 'name: bgp_peers' '$rendered' | tail -1 | sed 's/^ *//'"
-rec kubectl --context "$CTX" apply -f clusters/eg/kube-vip-rbac.yaml -f "$rendered"
+# The cloud-provider is what writes status.loadBalancer.ingress; the
+# DaemonSet announces what it finds there. Without it a Service stays
+# <pending> for ever and nothing is ever announced.
+rec kubectl --context "$CTX" apply -f clusters/eg/kube-vip-rbac.yaml \
+  -f clusters/eg/kube-vip-cloud-provider.yaml -f "$rendered"
+rec kubectl --context "$CTX" -n kube-system wait deploy/kube-vip-cloud-provider \
+  --for=condition=Available --timeout=120s
 rec kubectl --context "$CTX" -n kube-system rollout status ds/kube-vip-ds --timeout=120s
 
 node_ips=$(kubectl --context "$CTX" get nodes \

@@ -172,6 +172,27 @@ jobs:
           BROWSER_SHOT_FILE_LABEL="demos/46-bgp-fabric/output/screenshots/dashboard-servers-joined.png" \
           browser_shot
 
+      # The claim demo 46 could not previously make: a packet from the WAN
+      # reaches a service address a cluster announced, four autonomous systems
+      # away. Seven assertions in order, so a curl that worked while the route
+      # was absent — the address reachable some other way — cannot pass.
+      - name: Traffic — a packet crosses the fabric to an announced address
+        id: traffic
+        env:
+          CHROME: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          demos/46-bgp-fabric/traffic.sh
+          export HERE=demos/46-bgp-fabric
+          # shellcheck disable=SC1091
+          . demos/shared/browser-shot.sh
+          BROWSER_SHOT_PATH="$PWD/demos/46-bgp-fabric/output/screenshots/dashboard-vip-routed.png" \
+          BROWSER_SHOT_URL="http://127.0.0.1:8088/?router=spine" \
+          BROWSER_SHOT_WIDTH=1200 BROWSER_SHOT_HEIGHT=700 \
+          BROWSER_SHOT_VIRTUAL_TIME_MS=4000 \
+          BROWSER_SHOT_FILE_LABEL="demos/46-bgp-fabric/output/screenshots/dashboard-vip-routed.png" \
+          browser_shot
+
       - name: Check
         id: check
         run: |

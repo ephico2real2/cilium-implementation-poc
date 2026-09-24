@@ -40,6 +40,9 @@ does not know Kubernetes. The path a packet takes is in the
 | [`../../.github/workflows/demo46-ci.yaml`](../../.github/workflows/demo46-ci.yaml) | the same demo on a runner: node LAN, kind cluster, fabric, apply, screenshots, check |
 | [`../../tests/run-demo46-gates.sh`](../../tests/run-demo46-gates.sh) | every gate that needs no running fabric, in one command |
 | [`servers-join.sh`](servers-join.sh) | makes the cluster's nodes dial the leaves through the listen range, and waits for the sessions |
+| [`traffic.sh`](traffic.sh) | announces `10.98.0.46/32` and carries a packet to it from `client0`, four autonomous systems away |
+| [`probe/10-probe.yaml`](probe/10-probe.yaml) | two pods and a `LoadBalancer` Service — the smallest thing that can answer and name itself |
+| [`../../docs/DEMO46_DATA_PATH.md`](../../docs/DEMO46_DATA_PATH.md) | the network plan: the address, each hop's policy, the return path, and what four CI failures taught |
 | [`../../scripts/fabric-up.sh`](../../scripts/fabric-up.sh) | builds `frr-agent:local` and `bgp-dashboard:local` if absent; compose up + convergence |
 | [`../../scripts/fabric-down.sh`](../../scripts/fabric-down.sh) | compose down; never removes `kind` / `kind-eg` |
 | [`../../scripts/fabric-status.sh`](../../scripts/fabric-status.sh) | four summaries + topology + dashboard one-liner |

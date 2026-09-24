@@ -58,6 +58,28 @@ fi
 echo "== 4. apply — the tables, the events, the screenshots"
 "$HERE/apply.sh"
 
+if [ "$want_cluster" -eq 1 ]; then
+  # One implementation, two fabrics: the scripts live in demos/46-bgp-fabric
+  # and take every difference as a variable. The Colima values below are this
+  # fabric's own — its node LAN, its leaf addresses on it, its cluster, its
+  # port, and a VIP from ITS prefix-list block (10.198.0.0/26, not 10.98's).
+  echo "== 4b. servers dial in, and a packet crosses to what they announce"
+  export DEMO46_HERE="$HERE"
+  export CTX_DOCKER="$CTX"
+  export FABRIC_PROJECT="$FABRIC_COLIMA_PROJECT"
+  export FABRIC_DASHBOARD_PORT="$FABRIC_COLIMA_DASHBOARD_PORT"
+  export SERVERS_KUBE_CONTEXT="kind-${EG_COLIMA_CLUSTER}"
+  export KUBECONFIG="${KUBECONFIG:-$EG_COLIMA_KUBECONFIG}"
+  export DEMO46_NODE_LAN="$KIND_EG_COLIMA_NET"
+  export DEMO46_LEAF1_LAN="$KIND_EG_COLIMA_LEAF1"
+  export DEMO46_LEAF2_LAN="$KIND_EG_COLIMA_LEAF2"
+  export DEMO46_KUBEVIP_DS=demos/54-eg-poc1-kube-vip-colima/10b-kube-vip-ds-bgp-active-active.yaml
+  export DEMO46_VIP=10.198.0.46
+  export DEMO46_PROBE_MANIFEST=demos/46-bgp-fabric/probe/10-probe.yaml
+  demos/46-bgp-fabric/servers-join.sh
+  demos/46-bgp-fabric/traffic.sh
+fi
+
 echo "== 5. check"
 rc=0
 "$HERE/check.sh" || rc=$?
