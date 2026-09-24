@@ -84,13 +84,23 @@ if [ -n "$port_holder" ]; then
   exit 1
 fi
 
+# The fabric, the dashboard and the agent come from the bgp-fabric repository
+# at a pinned commit (scripts/bgp-fabric.env), not from a copy in this tree.
+BGP_FABRIC=$(scripts/bgp-fabric-fetch.sh)
+export BGP_FABRIC
+
 # The image is stamped with the commit it was built from, and the stamp is
 # COMPUTED, never typed: a hand-passed sha is an assertion nobody checks, and
 # the page then names a commit that does not contain the code it is serving
 # (measured 2026-09-23 — the lab served `build 4cf1864`, a commit with neither
 # the endpoint nor the label function in its tree). A dirty tree keeps its
 # `-dirty` marker.
-IFS=$'\t' read -r REVISION BUILT < <(scripts/build-revision.sh)
+#
+# The revision asked for is bgp-fabric's, not this repository's: the dashboard
+# source lives there now, so a sha from here would name a commit whose tree
+# does not contain the code being built — the very mistake the stamp exists to
+# catch.
+IFS=$'\t' read -r REVISION BUILT < <("$BGP_FABRIC/scripts/build-revision.sh")
 export REVISION BUILT
 
 rec() { scripts/record.sh "$TRANSCRIPT" "$@"; }
@@ -98,26 +108,18 @@ printf '\n### %s — fabric-up project=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$
 
 say() { echo "== $*"; }
 
-need_image() { # tag — 0 if we should build
-  if [ "${FABRIC_REBUILD:-0}" = 1 ]; then
-    return 0
-  fi
-  ! docker image inspect "$1" >/dev/null 2>&1
-}
-
-say "0. local images ($FABRIC_ROUTER_IMAGE, $FABRIC_DASHBOARD_IMAGE)"
-if need_image "$FABRIC_ROUTER_IMAGE"; then
-  rec docker build -t "$FABRIC_ROUTER_IMAGE" --build-arg FRR_IMAGE="$FRR_IMAGE" \
-    -f demos/46-bgp-fabric/frr-agent/Containerfile demos/46-bgp-fabric/frr-agent
-else
-  rec echo "image $FABRIC_ROUTER_IMAGE present"
-fi
-if need_image "$FABRIC_DASHBOARD_IMAGE"; then
-  rec docker build -t "$FABRIC_DASHBOARD_IMAGE" \
-    --build-arg REVISION="$REVISION" --build-arg BUILT="$BUILT" \
-    -f demos/46-bgp-fabric/dashboard/Containerfile demos/46-bgp-fabric/dashboard
-else
-  rec echo "image $FABRIC_DASHBOARD_IMAGE present"
+say "0. images ($FABRIC_ROUTER_IMAGE, $FABRIC_DASHBOARD_IMAGE)"
+# shellcheck disable=SC2034  # read by scripts/bgp-fabric-images.sh, sourced below
+FABRIC_DOCKER=(docker)
+# shellcheck disable=SC1091
+. scripts/bgp-fabric-images.sh
+fabric_get_images
+# The image must agree with the pin about which commit it is. A pulled tag can
+# be moved; a built one can lose its label to a missing per-stage ARG. Neither
+# is visible from the outside unless somebody reads it back.
+if ! fabric_verify_images; then
+  echo "fabric-up: the images do not match the pinned revision" >&2
+  exit 1
 fi
 
 say "1. docker compose up -d --wait (project $PROJECT)"

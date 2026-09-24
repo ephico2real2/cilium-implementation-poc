@@ -5,13 +5,14 @@
 # usage: bash tests/fabric-agent-allowlist.sh
 set -euo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
+BGP_FABRIC=$("$R/scripts/bgp-fabric-fetch.sh")
 # shellcheck disable=SC1091
 . "$R/scripts/bootstrap/versions-eg.env"
 export FRR_IMAGE="${FRR_IMAGE:-quay.io/frrouting/frr:10.7.1}"
 if ! docker image inspect frr-agent:local >/dev/null 2>&1; then
   docker build -t frr-agent:local --build-arg FRR_IMAGE="$FRR_IMAGE" \
-    -f "$R/demos/46-bgp-fabric/frr-agent/Containerfile" \
-    "$R/demos/46-bgp-fabric/frr-agent"
+    -f "$BGP_FABRIC/frr-agent/Containerfile" \
+    "$BGP_FABRIC/frr-agent"
 fi
 name=frr-agent-allowlist-$$
 cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; }

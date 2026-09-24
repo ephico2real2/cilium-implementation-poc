@@ -39,7 +39,6 @@ if [ -f "$FABRIC_COLIMA_FABRIC/.env" ]; then
   . "$FABRIC_COLIMA_FABRIC/.env"
   set +a
 fi
-GOOD_PW="${FABRIC_BGP_PASSWORD:-lab-bgp}"
 
 printf '\n== demo 46-colima — the BGP fabric (four FRR routers, Colima VM, TCP MD5 enforced)\n'
 printf '  %-6s %-70s %-52s %s\n' STATUS WHAT MEASURED RULE

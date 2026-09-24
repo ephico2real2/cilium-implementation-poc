@@ -8,6 +8,7 @@
   - .env ignored and .env.example present
 usage: python3 tests/demo46-claims.py   (exit 0 = pass)
 """
+import subprocess
 from pathlib import Path
 import sys
 
@@ -70,7 +71,12 @@ if not (root / "fabric/.env.example").is_file():
     bad.append("fabric/.env.example missing")
 
 # phase 2 — dashboard README (orchestrator writes the demo README later)
-dash = (root / "dashboard/README.md").read_text()
+# The dashboard's own page lives in bgp-fabric now, so the claim is read from
+# the pinned tree this lab builds against rather than from a copy here.
+fabric_src = Path(subprocess.run(
+    ["scripts/bgp-fabric-fetch.sh"], capture_output=True, text=True, check=True
+).stdout.strip())
+dash = (fabric_src / "dashboard/README.md").read_text()
 if "gergovadasz.hu/make-bgp-visible" not in dash:
     bad.append("dashboard/README.md does not credit the blog")
 if "No auth" not in dash and "no auth" not in dash:

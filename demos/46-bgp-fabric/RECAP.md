@@ -506,8 +506,8 @@ start when another container publishes it and names the holder.
 | [`fabric/frr/<router>/`](fabric/frr/) | `frr.conf`, `daemons`, `vtysh.conf` |
 | [`fabric/entrypoint.sh`](fabric/entrypoint.sh) | renders the password, FORWARD drop on mgmt, INPUT accept on mgmt/`lo` and drop elsewhere, then `docker-start` |
 | [`fabric/.env.example`](fabric/.env.example) | copy to `.env`; default `lab-bgp` |
-| [`frr-agent/`](frr-agent/) | show-only HTTP agent baked into the FRR image |
-| [`dashboard/`](dashboard/) | live topology (Go, vendored Cytoscape) |
+| [`../../scripts/bgp-fabric.env`](../../scripts/bgp-fabric.env) | which bgp-fabric commit this lab builds against — the agent and the dashboard come from there |
+| [`../../scripts/bgp-fabric-fetch.sh`](../../scripts/bgp-fabric-fetch.sh) | puts that commit on disk under `vendor/`; `BGP_FABRIC_DIR` overrides it |
 | [`../../scripts/fabric-up.sh`](../../scripts/fabric-up.sh) | builds images if absent, compose up + convergence |
 | [`../../scripts/fabric-down.sh`](../../scripts/fabric-down.sh) | compose down; never removes `kind` / `kind-eg` |
 | [`../../scripts/fabric-status.sh`](../../scripts/fabric-status.sh) | four summaries + topology + dashboard one-liner |

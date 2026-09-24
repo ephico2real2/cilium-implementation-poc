@@ -2,6 +2,8 @@
 
 For the reader in a hurry: [RECAP.md](RECAP.md) — the guide
 
+The fabric, the dashboard and the router agent are not in this repository: they live in [ephico2real2/bgp-fabric](https://github.com/ephico2real2/bgp-fabric) and this lab builds them at a pinned commit ([`scripts/bgp-fabric.env`](../../scripts/bgp-fabric.env)).
+
 Four FRR routers in docker compose — edge, spine, two leaves — on their
 own bridges, attachable to any cluster lab by a compose overlay. A
 fifth compose service, `bgp-dashboard` on `127.0.0.1:8088`, reads a
@@ -33,8 +35,11 @@ does not know Kubernetes. The path a packet takes is in the
 | [`fabric/frr/<router>/frr.conf`](fabric/frr/) | FRR config; password is `${FABRIC_BGP_PASSWORD}` |
 | [`fabric/.env.example`](fabric/.env.example) | copy to `.env`; default `lab-bgp` |
 | [`fabric/entrypoint.sh`](fabric/entrypoint.sh) | renders the password, FORWARD drop on mgmt, INPUT accept on mgmt/`lo` and drop elsewhere, then `docker-start` |
-| [`frr-agent/`](frr-agent/) | show-only HTTP agent baked into the FRR image |
-| [`dashboard/`](dashboard/) | live topology (Go, vendored Cytoscape) |
+| [`../../scripts/bgp-fabric.env`](../../scripts/bgp-fabric.env) | which bgp-fabric commit this lab builds against — the agent and the dashboard come from there |
+| [`../../scripts/bgp-fabric-fetch.sh`](../../scripts/bgp-fabric-fetch.sh) | puts that commit on disk under `vendor/`; `BGP_FABRIC_DIR` overrides it |
+| [`../../.github/workflows/demo46-ci.yaml`](../../.github/workflows/demo46-ci.yaml) | the same demo on a runner: node LAN, kind cluster, fabric, apply, screenshots, check |
+| [`../../tests/run-demo46-gates.sh`](../../tests/run-demo46-gates.sh) | every gate that needs no running fabric, in one command |
+| [`servers-join.sh`](servers-join.sh) | makes the cluster's nodes dial the leaves through the listen range, and waits for the sessions |
 | [`../../scripts/fabric-up.sh`](../../scripts/fabric-up.sh) | builds `frr-agent:local` and `bgp-dashboard:local` if absent; compose up + convergence |
 | [`../../scripts/fabric-down.sh`](../../scripts/fabric-down.sh) | compose down; never removes `kind` / `kind-eg` |
 | [`../../scripts/fabric-status.sh`](../../scripts/fabric-status.sh) | four summaries + topology + dashboard one-liner |

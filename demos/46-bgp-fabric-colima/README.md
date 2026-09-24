@@ -2,6 +2,8 @@
 
 For the reader in a hurry: [RECAP.md](RECAP.md) — the guide.
 
+The fabric, the dashboard and the router agent are not in this repository: they live in [ephico2real2/bgp-fabric](https://github.com/ephico2real2/bgp-fabric) and this lab builds them at a pinned commit ([`scripts/bgp-fabric.env`](../../scripts/bgp-fabric.env)).
+
 Four FRR routers (edge AS 65000, spine AS 65100, leaf1 AS 65101,
 leaf2 AS 65102) plus `client0` and a dashboard on `127.0.0.1:8098`,
 project `bgp-fabric-colima`, docker context `colima-bgp-fabric`.
@@ -26,6 +28,10 @@ leaf2 `10.200.200.12`, dashboard `10.200.200.100`, Docker bridge
 | [scripts/fabric-colima-down.sh](../../scripts/fabric-colima-down.sh) | compose down in `colima-bgp-fabric` only |
 | [scripts/fabric-colima-status.sh](../../scripts/fabric-colima-status.sh) | four summaries, topology, dashboard one-liner |
 | [scripts/fabric-colima-lib.sh](../../scripts/fabric-colima-lib.sh) | `CTX` gate, `dk`, restore-context trap |
+| [scripts/bgp-fabric.env](../../scripts/bgp-fabric.env) | which bgp-fabric commit this lab builds against |
+| [scripts/bgp-fabric-fetch.sh](../../scripts/bgp-fabric-fetch.sh) | puts that commit on disk under `vendor/`; `BGP_FABRIC_DIR` overrides it |
+| [scripts/demo46-colima-e2e.sh](../../scripts/demo46-colima-e2e.sh) | the whole demo on this machine: the VM, the fabric, the node LAN, a kind cluster on it, apply, check, the gates |
+| [tests/run-demo46-gates.sh](../../tests/run-demo46-gates.sh) | every gate that needs no running fabric, in one command |
 | [fabric/compose.yaml](fabric/compose.yaml) | project `bgp-fabric-colima`, port 8098, images `:colima` |
 | [fabric/.env.example](fabric/.env.example) | `FABRIC_BGP_PASSWORD` (copy to `.env`; gitignored) |
 | [check.sh](check.sh) | 17 rows; MD5 wire / mismatch / kernel FAIL if unsigned |

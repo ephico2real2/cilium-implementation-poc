@@ -1,17 +1,11 @@
 #!/usr/bin/env bash
-# test: go test + go vet on frr-agent and bgp-dashboard.
+# test: go test + go vet on the router agent and the dashboard.
+#
+# The code is bgp-fabric's, so its own suite is what runs — this is a
+# delegation, not a second copy of the assertions. Running it here means a
+# bad pin fails in this repository rather than only in the other one's CI.
 # usage: bash tests/fabric-dashboard-unit.sh
 set -euo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
-cd "$R/demos/46-bgp-fabric/frr-agent"
-go test ./...
-go vet ./...
-# BOTH copies. The sync gate forces them byte-identical, so a break in one is
-# a break in the other — but it is the Go suite that says WHAT broke, and it
-# was only ever run in one of them.
-for d in demos/46-bgp-fabric demos/46-bgp-fabric-colima; do
-  cd "$R/$d/dashboard"
-  go test ./...
-  go vet ./...
-done
-echo "TEST PASS: frr-agent and bgp-dashboard go test + go vet (both copies)"
+BGP_FABRIC=$("$R/scripts/bgp-fabric-fetch.sh")
+exec "$BGP_FABRIC/tests/fabric-dashboard-unit.sh"
