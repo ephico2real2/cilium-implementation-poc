@@ -402,6 +402,44 @@ Result: row 16 `client0_rc=28,28,28,28` (timed out on
   PASS   agent on mgmt only, show-only                                          no ports; ;reboot=404 summary=200; client0_rc=28,28,28,28 D8 — agent on 10.200.200.0/24, show-only
 ```
 
+### 11. Let a cluster dial in
+
+The leaves listen rather than name their peers, so a server arrives by
+connecting. kube-vip in BGP mode on `eg-poc1` peers both nodes with both
+leaves ([`docs/DEMO46_DATA_PATH.md`](../../docs/DEMO46_DATA_PATH.md)).
+
+```bash
+demos/46-bgp-fabric/servers-join.sh
+```
+
+Result: `the leaves are signing — the speaker sends the fabric password`,
+then `SERVERS sessions 4/4 Established after 4 s (172.19.0.2 172.19.0.3)`.
+The page moves from `server sessions 0/0` to `4/4` and draws the two nodes
+as dashed ellipses.
+
+### 12. Carry a packet to what the cluster announces
+
+Everything above is the fabric talking about itself. This announces
+`10.98.0.46/32` from AS 65021 and uses it from `client0`, four autonomous
+systems away.
+
+```bash
+demos/46-bgp-fabric/traffic.sh
+```
+
+Result: `demo 46 traffic: 0 FAIL` over eight claims — `SERVERS-IN seq 10
+did the accepting invoked=2`, `spine has two nexthops 10.200.1.10,10.200.1.2`,
+`the nodes can route back to the fabric 10.200.0.0/16 via 172.19.254.11`,
+`client0 reaches 10.98.0.46 answered by demo46-probe-859c56cff4-6xzw9`,
+`20/20 answered`. The path is five hops:
+
+```text
+ 1  10.200.100.2   (edge)
+ 2  10.200.1.18    (spine)
+ 3  10.200.1.2     (leaf1)
+ 4  172.19.0.2     (the node)
+```
+
 ## Verify
 
 ```bash
