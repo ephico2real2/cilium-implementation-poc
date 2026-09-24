@@ -150,6 +150,28 @@ jobs:
             echo "the page says revision=$got, the pin says $BGP_FABRIC_COMMIT"; exit 1; }
           echo "/api/version revision=$got — the pin, the image and the page agree"
 
+      # With nothing dialling in, the page reports `server sessions 0/0` — true,
+      # and the least interesting truth it can tell. This makes both nodes peer
+      # with both leaves through the listen range, so the run photographs a
+      # fabric with something actually connected to it.
+      - name: A server dials in — kube-vip over BGP on both leaves
+        id: servers
+        env:
+          CHROME: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          demos/46-bgp-fabric/servers-join.sh
+          # A second steady shot, now that the leaves have cluster sessions.
+          export HERE=demos/46-bgp-fabric
+          # shellcheck disable=SC1091
+          . demos/shared/browser-shot.sh
+          BROWSER_SHOT_PATH="$PWD/demos/46-bgp-fabric/output/screenshots/dashboard-servers-joined.png" \
+          BROWSER_SHOT_URL="http://127.0.0.1:8088/?router=leaf1" \
+          BROWSER_SHOT_WIDTH=1200 BROWSER_SHOT_HEIGHT=700 \
+          BROWSER_SHOT_VIRTUAL_TIME_MS=4000 \
+          BROWSER_SHOT_FILE_LABEL="demos/46-bgp-fabric/output/screenshots/dashboard-servers-joined.png" \
+          browser_shot
+
       - name: Check
         id: check
         run: |
