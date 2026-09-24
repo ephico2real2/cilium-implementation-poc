@@ -37,8 +37,50 @@ for leaf in leaf1 leaf2; do
   echo "servers-join: $leaf on kind-eg at $ip"
 done
 
+# Whether the speaker must sign is a property of the KERNEL, measured, not a
+# constant. FRR asks for TCP_MD5SIG per neighbour and per listen range: a
+# kernel without CONFIG_TCP_MD5SIG answers ENOPROTOOPT, FRR logs "Unable to
+# set TCP MD5 option ... Protocol not available" and the leaf then accepts an
+# unsigned session — which is why demo 56's manifest carries no password, and
+# it is right for the VM it was measured on. On a kernel that TAKES the option
+# the leaf signs, and an unsigned speaker never gets past ACTIVE: the kernel
+# discards its segments before FRR sees them, so nothing is logged on the leaf
+# side at all (measured on a CI runner, 2026-09-24: kube-vip in BGP_FSM_ACTIVE
+# with idle-hold-timer-expired, both leaves reporting one neighbour).
+# NETWORK-TEAM-SHEET.md row 3 predicted exactly this: "on a real kernel the
+# speaker signs".
+FABRIC_BGP_PASSWORD="${FABRIC_BGP_PASSWORD:-}"
+if [ -z "$FABRIC_BGP_PASSWORD" ] && [ -f "$HERE/fabric/.env" ]; then
+  # shellcheck disable=SC1091
+  . "$HERE/fabric/.env"
+fi
+FABRIC_BGP_PASSWORD="${FABRIC_BGP_PASSWORD:-lab-bgp}"
+
+refused=0
+for leaf in leaf1 leaf2; do
+  "${COMPOSE[@]}" logs --no-log-prefix "$leaf" 2>/dev/null \
+    | grep -qF 'Unable to set TCP MD5 option' && refused=1
+done
+if [ "$refused" -eq 1 ]; then
+  peer_pw=""
+  echo "servers-join: the leaves' kernel refused TCP_MD5SIG — the fabric runs unsigned, so the speaker sends no password"
+else
+  peer_pw="$FABRIC_BGP_PASSWORD"
+  echo "servers-join: the leaves are signing — the speaker sends the fabric password"
+fi
+
 echo "== 1. kube-vip in BGP mode on $CTX (RBAC + the active-active DaemonSet)"
-rec kubectl --context "$CTX" apply -f clusters/eg/kube-vip-rbac.yaml -f "$DS"
+# demo 56's manifest, with the ONE field that depends on the kernel rendered
+# for this one. Everything else about it is used as written; there is no
+# second copy of this repository's kube-vip BGP DaemonSet and there should not
+# be one.
+rendered=$(mktemp) || exit 1
+trap 'rm -f "$rendered"' EXIT
+sed "s|172.19.254.11:65101::false,172.19.254.12:65102::false|172.19.254.11:65101:${peer_pw}:false,172.19.254.12:65102:${peer_pw}:false|" \
+  "$DS" > "$rendered"
+grep -q 'bgp_peers' "$rendered" || { echo "servers-join: bgp_peers not found in $DS" >&2; exit 1; }
+rec bash -c "grep -A1 'name: bgp_peers' '$rendered' | tail -1 | sed 's/^ *//'"
+rec kubectl --context "$CTX" apply -f clusters/eg/kube-vip-rbac.yaml -f "$rendered"
 rec kubectl --context "$CTX" -n kube-system rollout status ds/kube-vip-ds --timeout=120s
 
 node_ips=$(kubectl --context "$CTX" get nodes \
