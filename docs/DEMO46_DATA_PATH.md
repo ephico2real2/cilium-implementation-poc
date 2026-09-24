@@ -86,7 +86,7 @@ Every hop is a policy decision, and each one is written down. Nothing here is
 Four autonomous systems, three eBGP hops, two of them ECMP. A packet from
 `client0` to `10.98.0.46` crosses AS 65000 → 65100 → 65101 or 65102 → 65021.
 
-## The return path is not symmetric, and that is correct
+## The return path: what is BGP's job and what is not
 
 The leaves advertise **nothing** to their server peers:
 
@@ -95,35 +95,47 @@ neighbor SERVERS route-map NOTHING out        (leaf1 frr.conf:24)
 route-map NOTHING deny 10                     (leaf1 frr.conf:71)
 ```
 
-My first reading of this was that it is an omission to fix with a `SERVERS-OUT`
-advertising `COMPANY`. **I retract that.** It is a deliberate decision, made
-before this work, recorded in three places and gated by a test:
+That is deliberate, recorded in three places and gated by
+`tests/fabric-servers-policy.sh:25`, and it is right. A Kubernetes
+load-balancer speaker is **announce-only**: kube-vip and MetalLB exist to
+advertise service addresses, and Cilium does not import BGP routes at all.
+Sending a ToR's table to every node would be a leak, not a service.
 
-| | |
+But "the speaker needs no routes" is a statement about **announcing**. It says
+nothing about how the node **replies**, and that is a separate question with a
+separate answer: the node's own network configuration. In a real deployment
+the node's default gateway is the ToR, so a reply goes back through the fabric
+with no BGP involved. In this lab the node's default gateway is the Docker
+bridge — and **Docker does not forward between two bridges**.
+
+I got this wrong twice before measuring it. The record:
+
+| claim | verdict |
 |---|---|
-| [NETWORK-TEAM-SHEET.md](../demos/46-bgp-fabric/NETWORK-TEAM-SHEET.md) row 5 | *"What the servers may receive — nothing (Cilium does not import; kube-vip / MetalLB do not need fabric routes)"* |
-| [enhancement 006](../enhancements/006-bgp-tutorial.md) §2 row 5 | *"nothing … RFC 8212 satisfied both ways"* |
-| [REVIEW_DEMO46.md](REVIEW_DEMO46.md) | traced on a throwaway: *"`NOTHING out` → the server receives 0 prefixes"* |
-| `tests/fabric-servers-policy.sh:25` | fails if the line is removed |
+| *"the leaves should advertise `COMPANY` with a `SERVERS-OUT`"* | **retracted** — the policy is correct as it stands; this is not BGP's job |
+| *"the Docker host puts the reply back on the WAN bridge"* | **refuted** — CI's traceroute from `client0` reaches leaf1 at hop 3 and then `* * *` |
 
-And the reasoning is right. A Kubernetes load-balancer speaker is
-**announce-only**: kube-vip and MetalLB exist to advertise service addresses,
-and Cilium does not import BGP routes at all. A node's route back to the rest
-of the world comes from its own network configuration — its default gateway —
-not from the session it uses to announce. Sending a ToR's table to every node
-in a cluster would be a leak, not a service, and `route-map NOTHING deny 10`
-is how RFC 8212's "advertise nothing without a policy" is satisfied on purpose
-rather than by accident.
+The measurement that settled it. On a laptop where the route IS installed, the
+same request answers:
+
+```text
+client0 -> 10.198.0.10   http_code=200
+eg-poc1-colima-worker:  10.200.0.0/16 via 172.20.254.11 dev eth0
+```
+
+So the lab installs the route the real topology would have provided, on each
+node, exactly as
+[demo 54c's apply.sh step 7b](../demos/54-eg-poc1-kube-vip-colima/apply.sh)
+already does and for the reason its own comment gives — *"Docker's inter-bridge
+isolation drops it"*. It is one `ip route replace` per node. It is not a change
+to the fabric's policy, and the SERVERS contract is untouched.
 
 What follows for this test:
 
-- A reply proves the **forward** path is a real routed path across four
-  autonomous systems. It says nothing about how the reply came back.
-- In this lab the reply leaves the node by its default route to the node LAN's
-  bridge, and the Docker host — which owns both bridges — puts it on the WAN.
-  In a deployment where the leaf *is* the node's default gateway, the same
-  design carries it back through the fabric with no BGP change at all.
-- So no assertion here is made about the return path, and none should be.
+- The **forward** path is proved by BGP across four autonomous systems.
+- The **return** path is proved to exist, and is asserted separately, because
+  its absence looks exactly like "the fabric does not work" from `client0` and
+  is not.
 
 ## The password is a property of the kernel, not a constant
 

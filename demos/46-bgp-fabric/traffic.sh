@@ -24,6 +24,7 @@ CTX="${SERVERS_KUBE_CONTEXT:-kind-eg-poc1}"
 PROJECT="${FABRIC_PROJECT:-bgp-fabric}"
 VIP="${DEMO46_VIP:-10.98.0.46}"
 PROBE="${DEMO46_PROBE_MANIFEST:-$HERE/probe/10-probe.yaml}"
+LEAF1_LAN="${DEMO46_LEAF1_LAN:-172.19.254.11}"
 DOCKER_CTX_ARGS=()
 [ -n "${CTX_DOCKER:-}" ] && DOCKER_CTX_ARGS=(--context "$CTX_DOCKER")
 DEADLINE="${DEMO46_TRAFFIC_DEADLINE:-120}"
@@ -89,8 +90,28 @@ if [ "$assigned" != "$VIP" ]; then
 fi
 rec echo "Service demo46-probe ingress $assigned after $(( $(date +%s) - start )) s"
 
+# The node's way back. Its default gateway is the Docker bridge, not a leaf,
+# and Docker does not forward between two bridges — so a reply to client0
+# leaves by the default route and is dropped. Measured both ways: in CI the
+# traceroute from client0 reached leaf1 at hop 3 and stopped; on a laptop
+# where this route IS installed the same request answers 200.
+#
+# This is not a BGP change and the leaves still advertise nothing to their
+# server peers — that contract is deliberate and stays. It is the node's own
+# network configuration, which in a real deployment would already point at the
+# ToR as its default gateway. demos/54-eg-poc1-kube-vip-colima/apply.sh does
+# exactly this at its step 7b, for exactly this reason.
+echo "== 2b. the node's return route to the company fabric, via a leaf"
+NODES=$(kubectl --context "$CTX" get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+for n in $NODES; do
+  rec docker "${DOCKER_CTX_ARGS[@]}" exec "$n" ip route replace 10.200.0.0/16 via "$LEAF1_LAN"
+done
+for n in $NODES; do
+  rec docker "${DOCKER_CTX_ARGS[@]}" exec "$n" ip route show 10.200.0.0/16
+done
+
 echo
-echo "== 3. the seven claims, in order"
+echo "== 3. the eight claims, in order"
 printf '  %-6s %-46s %s\n' STATUS WHAT MEASURED
 
 # (1) the leaves accepted it, with the as-path that let it in
@@ -167,6 +188,20 @@ elif [ -n "$kr" ]; then
   row ok "spine FIB has a route" "$(printf '%s' "$kr" | head -1 | cut -c1-60)"
 else
   row fail "spine FIB has a route" "ip route show $VIP is empty"
+fi
+
+# (4b) the node can answer. Without this route the request arrives and the
+# reply is dropped by Docker's inter-bridge isolation, which looks exactly
+# like "the fabric does not work" from client0 and is not.
+back=""
+for n in $NODES; do
+  back=$(docker "${DOCKER_CTX_ARGS[@]}" exec "$n" ip route show 10.200.0.0/16 2>/dev/null | head -1)
+  [ -n "$back" ] || break
+done
+if [ -n "$back" ]; then
+  row ok "the nodes can route back to the fabric" "$back"
+else
+  row fail "the nodes can route back to the fabric" "10.200.0.0/16 absent on a node"
 fi
 
 # (5) a packet arrives, and the body says which pod answered
