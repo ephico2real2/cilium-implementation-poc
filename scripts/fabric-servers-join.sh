@@ -15,7 +15,7 @@
 #   scripts/fabric-servers-join.sh                 (the fabric must be up)
 #   FABRIC_SERVERS_DEADLINE=120 demos/.../servers-join.sh
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/.." || exit 1
 # Every difference between the two fabrics is a variable with a Desktop/CI
 # default, so there is ONE implementation rather than a copy per fabric —
 # which is the lesson this repository just spent fifteen thousand deleted

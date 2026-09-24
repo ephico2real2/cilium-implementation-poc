@@ -14,7 +14,7 @@
 #   scripts/fabric-traffic.sh          (the fabric, the cluster and
 #                                       fabric-servers-join.sh must have run)
 set -uo pipefail
-cd "$(dirname "$0")/../.." || exit 1
+cd "$(dirname "$0")/.." || exit 1
 # Desktop/CI defaults; scripts/demo46-colima-e2e.sh passes the Colima ones.
 # The VIP differs between the two fabrics because their prefix-lists do:
 # 10.98.0.0/26 here, 10.198.0.0/26 there. An address is only reachable if a
