@@ -67,8 +67,18 @@ jobs:
       - name: Gates that need no lab
         run: bash tests/run-demo46-gates.sh
 
+      # Demo 46's own surface, not every script in the repository. `tests/*.sh`
+      # pulled in other demos' gates, so an unrelated warning (SC2063 in
+      # tests/docs51-review-and-gap.sh) failed this workflow for a change that
+      # had nothing to do with it. A workflow that fails on someone else's file
+      # teaches people to ignore it.
       - name: Shellcheck
-        run: shellcheck -S warning scripts/fabric-*.sh scripts/bgp-fabric-*.sh tests/*.sh
+        run: |
+          shellcheck -S warning \
+            scripts/fabric-*.sh scripts/bgp-fabric-*.sh scripts/demo46-colima-e2e.sh \
+            scripts/eg-net.sh \
+            tests/*46*.sh tests/fabric-*.sh tests/bgp-fabric-*.sh tests/dashboard-*.sh \
+            demos/46-bgp-fabric/*.sh demos/46-bgp-fabric-colima/*.sh
 
       # The pin, from a clean checkout: this is the first time in the run that
       # anything reaches the other repository, and it is the step that fails if

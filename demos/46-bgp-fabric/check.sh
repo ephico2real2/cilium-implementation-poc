@@ -4,7 +4,7 @@
 # JSON field match (Established), never a substring of the blob.
 #   demos/46-bgp-fabric/check.sh
 set -uo pipefail
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../.." || exit 1
 fails=0
 row() { # ok|fail|warn  what  measured  rule
   local st
