@@ -41,8 +41,32 @@ rec docker compose "${COMPOSE_ARGS[@]}" exec -T client0 ping -c 3 -W 2 10.200.25
 echo "== 7. client0 ip route"
 rec docker compose "${COMPOSE_ARGS[@]}" exec -T client0 ip route
 
-echo "== 8. leaf1 ping 172.19.0.3 (kind-eg node, on-link)"
-rec docker compose "${COMPOSE_ARGS[@]}" exec -T leaf1 ping -c 1 -W 2 172.19.0.3
+# Which node a leaf must reach on the LAN. A single hardcoded address assumes
+# a cluster shape: the recorded run had a node at 172.19.0.3, and a one-node
+# cluster puts its only node on .2 (measured on a CI runner, 2026-09-23 — this
+# step was the first thing in the whole apply that a different machine could
+# not satisfy). The recorded address is preferred when it is actually on the
+# LAN, so a local re-run reproduces the recorded line exactly; otherwise the
+# first node there is used and named. FABRIC_NODE_PROBE overrides both.
+node_on_lan() {
+  docker network inspect kind-eg \
+    --format '{{range .Containers}}{{.Name}} {{.IPv4Address}}{{"\n"}}{{end}}' 2>/dev/null \
+    | awk 'NF {split($2, a, "/"); print a[1]}'
+}
+NODE_PROBE="${FABRIC_NODE_PROBE:-}"
+if [ -z "$NODE_PROBE" ]; then
+  if node_on_lan | grep -qx 172.19.0.3; then
+    NODE_PROBE=172.19.0.3
+  else
+    NODE_PROBE=$(node_on_lan | head -1)
+  fi
+fi
+if [ -z "$NODE_PROBE" ]; then
+  echo "apply: no node on kind-eg to probe — is a cluster up on it?" >&2
+  exit 1
+fi
+echo "== 8. leaf1 ping $NODE_PROBE (kind-eg node, on-link)"
+rec docker compose "${COMPOSE_ARGS[@]}" exec -T leaf1 ping -c 1 -W 2 "$NODE_PROBE"
 
 echo "== 9. SERVERS group, listen range, prefix-lists, route-maps"
 rec docker compose "${COMPOSE_ARGS[@]}" exec -T leaf1 vtysh -c 'show bgp peer-group SERVERS'
