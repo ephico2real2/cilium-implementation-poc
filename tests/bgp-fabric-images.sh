@@ -37,14 +37,14 @@ SHA=$(git -C "$T/fabric" rev-parse HEAD)
 SHORT=$(printf '%s' "$SHA" | cut -c1-7)
 
 # --- the stand-in for this repository --------------------------------------
-mkdir -p "$T/bin" "$T/home" "$T/repo/scripts/bootstrap" "$T/repo/demos/46-bgp-fabric/fabric"
+mkdir -p "$T/bin" "$T/home" "$T/repo/scripts/bootstrap" "$T/repo/demos/55-bgp-fabric-desktop/fabric"
 for s in fabric-up.sh fabric-colima-lib.sh record.sh bgp-fabric.env bgp-fabric-images.sh; do
   cp "$R/scripts/$s" "$T/repo/scripts/$s" \
     || { echo "TEST FAIL: scripts/$s does not exist"; exit 1; }
 done
 cp "$R/scripts/bootstrap/versions-eg.env" "$T/repo/scripts/bootstrap/versions-eg.env" \
   || { echo "TEST FAIL: scripts/bootstrap/versions-eg.env does not exist"; exit 1; }
-printf 'name: x\n' > "$T/repo/demos/46-bgp-fabric/fabric/compose.yaml"
+printf 'name: x\n' > "$T/repo/demos/55-bgp-fabric-desktop/fabric/compose.yaml"
 # A fetch that hands over the fixture WITHOUT setting BGP_FABRIC_DIR, so the
 # pull path is reachable here. Setting the variable is itself a build trigger,
 # which is what case (c) is for.

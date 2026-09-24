@@ -59,7 +59,7 @@ echo "== 4. apply — the tables, the events, the screenshots"
 "$HERE/apply.sh"
 
 if [ "$want_cluster" -eq 1 ]; then
-  # One implementation, two fabrics: the scripts live in demos/46-bgp-fabric
+  # One implementation, two fabrics: the scripts live in demos/55-bgp-fabric-desktop
   # and take every difference as a variable. The Colima values below are this
   # fabric's own — its node LAN, its leaf addresses on it, its cluster, its
   # port, and a VIP from ITS prefix-list block (10.198.0.0/26, not 10.98's).
@@ -75,9 +75,9 @@ if [ "$want_cluster" -eq 1 ]; then
   export DEMO46_LEAF2_LAN="$KIND_EG_COLIMA_LEAF2"
   export DEMO46_KUBEVIP_DS=demos/54-eg-poc1-kube-vip-colima/10b-kube-vip-ds-bgp-active-active.yaml
   export DEMO46_VIP=10.198.0.46
-  export DEMO46_PROBE_MANIFEST=demos/46-bgp-fabric/probe/10-probe.yaml
-  demos/46-bgp-fabric/servers-join.sh
-  demos/46-bgp-fabric/traffic.sh
+  export DEMO46_PROBE_MANIFEST=demos/55-bgp-fabric-desktop/probe/10-probe.yaml
+  demos/55-bgp-fabric-desktop/servers-join.sh
+  demos/55-bgp-fabric-desktop/traffic.sh
 fi
 
 echo "== 5. check"
@@ -86,7 +86,7 @@ rc=0
 
 if [ "$want_gates" -eq 1 ]; then
   echo "== 6. the gates that need no lab"
-  bash tests/run-demo46-gates.sh || rc=$((rc + $?))
+  bash tests/run-bgp-fabric-gates.sh || rc=$((rc + $?))
   echo "== 7. the gates that need the running fabric"
   bash tests/fabric-agent-mgmt-input.sh || rc=$((rc + $?))
 fi

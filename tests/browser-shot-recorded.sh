@@ -41,7 +41,7 @@ else
   echo "ok demo 54: $got54"
 fi
 
-want46=$(segment_of "$R/demos/46-bgp-fabric/output/transcript.txt" '--virtual-time-budget')
+want46=$(segment_of "$R/demos/55-bgp-fabric-desktop/output/transcript.txt" '--virtual-time-budget')
 got46=$(shot_line BROWSER_SHOT_WIDTH=1200 BROWSER_SHOT_HEIGHT=700 \
   BROWSER_SHOT_VIRTUAL_TIME_MS=4000 BROWSER_SHOT_URL='http://127.0.0.1:8088/?router=spine' \
   | sed -e 's/^.*--user-data-dir=<tmp> //' -e 's/ --screenshot=.*$//')

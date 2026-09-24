@@ -21,7 +21,7 @@ L2_GRPC=172.19.255.101
 HTTP_HOST=api.eg-poc1.poc.local
 GRPC_HOST=grpc.eg-poc1.poc.local
 CLIENT=bgp-fabric-client0-1
-FABRIC=demos/46-bgp-fabric/fabric
+FABRIC=demos/55-bgp-fabric-desktop/fabric
 PROJECT=bgp-fabric
 PROBE=demos/52-eg-poc2-metallb/probe
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -97,7 +97,7 @@ done
 ip11=$(docker inspect -f '{{(index .NetworkSettings.Networks "kind-eg").IPAddress}}' "${PROJECT}-leaf1-1" 2>/dev/null || true)
 ip12=$(docker inspect -f '{{(index .NetworkSettings.Networks "kind-eg").IPAddress}}' "${PROJECT}-leaf2-1" 2>/dev/null || true)
 if [ "$leaf_ok" -ne 1 ] || [ "$ip11" != 172.19.254.11 ] || [ "$ip12" != 172.19.254.12 ]; then
-  echo "apply.sh: fabric not up on kind-eg (leaf1/leaf2 healthy at 172.19.254.11/.12). run demos/46-bgp-fabric/apply.sh" >&2
+  echo "apply.sh: fabric not up on kind-eg (leaf1/leaf2 healthy at 172.19.254.11/.12). run demos/55-bgp-fabric-desktop/apply.sh" >&2
   exit 1
 fi
 rec kubectl --context "$CTX" get --raw /readyz

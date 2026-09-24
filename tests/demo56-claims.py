@@ -42,7 +42,7 @@ for f in ('10a-kube-vip-ds-bgp-election.yaml', '10b-kube-vip-ds-bgp-active-activ
     for needle in ('Established in 25 s', 'in 25 s', 't+47', 'no SYN on the leaf'):
         if needle in s and needle not in tx:
             bad.append('%s: "%s" is not in the record' % (f, needle))
-sheet = open('demos/46-bgp-fabric/NETWORK-TEAM-SHEET.md').read()
+sheet = open('demos/55-bgp-fabric-desktop/NETWORK-TEAM-SHEET.md').read()
 if 'Established in 25 s' in sheet:
     bad.append('NETWORK-TEAM-SHEET.md: "Established in 25 s" is not in the record (every run: "after 3s")')
 

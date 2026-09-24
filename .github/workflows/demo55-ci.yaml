@@ -1,6 +1,14 @@
-# Demo 46 end to end on a runner: the node LAN, a kind cluster on it, the
+# Demo 55 end to end on a runner: the node LAN, a kind cluster on it, the
 # four-router fabric with the cluster overlay, every gate, the recorded apply
-# and its screenshots, and check.sh.
+# and its screenshots, check.sh, and a packet carried to an announced address.
+#
+# Demo 55 and not demo 46 because demo 46 runs on Colima, and Colima does not
+# start on a GitHub-hosted runner: it needs nested virtualisation, which the
+# hosted images do not have (abiosoft/colima#696, actions/runner-images#7541).
+# Demo 55 is the same fabric on a plain Docker engine — which is precisely
+# what a Linux runner is — so this proves the lab on the machine that can
+# actually run it, and demo 46 is proved on a Mac by
+# scripts/demo46-colima-e2e.sh.
 #
 # The fabric, the dashboard and the router agent are NOT in this repository —
 # they are pinned in scripts/bgp-fabric.env and built by
@@ -12,35 +20,35 @@
 # FABRIC_ANY_CONTEXT=1 are for. contents: write is only for the ci-captures
 # branch — a job summary strips data: URIs and cannot read artifacts, so the
 # screenshots need somewhere a Markdown image tag can reach.
-name: demo46-ci
+name: demo55-ci
 
 on:
   push:
     branches: [main]
     paths:
-      - 'demos/46-bgp-fabric/**'
+      - 'demos/55-bgp-fabric-desktop/**'
       - 'demos/46-bgp-fabric-colima/**'
       - 'scripts/fabric-*.sh'
       - 'scripts/bgp-fabric*'
       - 'scripts/eg-net.sh'
       - 'tests/**'
-      - '.github/workflows/demo46-ci.yaml'
+      - '.github/workflows/demo55-ci.yaml'
   pull_request:
     paths:
-      - 'demos/46-bgp-fabric/**'
+      - 'demos/55-bgp-fabric-desktop/**'
       - 'demos/46-bgp-fabric-colima/**'
       - 'scripts/fabric-*.sh'
       - 'scripts/bgp-fabric*'
       - 'scripts/eg-net.sh'
       - 'tests/**'
-      - '.github/workflows/demo46-ci.yaml'
+      - '.github/workflows/demo55-ci.yaml'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  demo46:
+  demo55:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     # No job-level CTX or FABRIC_ANY_CONTEXT. The Desktop demo-46 path calls
@@ -65,7 +73,7 @@ jobs:
       # daemon. A logic regression fails here in seconds rather than after a
       # ten-minute bring-up.
       - name: Gates that need no lab
-        run: bash tests/run-demo46-gates.sh
+        run: bash tests/run-bgp-fabric-gates.sh
 
       # Demo 46's own surface, not every script in the repository. `tests/*.sh`
       # pulled in other demos' gates, so an unrelated warning (SC2063 in
@@ -77,8 +85,9 @@ jobs:
           shellcheck -S warning \
             scripts/fabric-*.sh scripts/bgp-fabric-*.sh scripts/demo46-colima-e2e.sh \
             scripts/eg-net.sh \
-            tests/*46*.sh tests/fabric-*.sh tests/bgp-fabric-*.sh tests/dashboard-*.sh \
-            demos/46-bgp-fabric/*.sh demos/46-bgp-fabric-colima/*.sh
+            tests/*46*.sh tests/*55*.sh tests/fabric-*.sh tests/bgp-fabric-*.sh \
+            tests/dashboard-*.sh tests/run-bgp-fabric-gates.sh \
+            demos/55-bgp-fabric-desktop/*.sh demos/46-bgp-fabric-colima/*.sh
 
       # The pin, from a clean checkout: this is the first time in the run that
       # anything reaches the other repository, and it is the step that fails if
@@ -137,7 +146,7 @@ jobs:
         id: apply
         env:
           CHROME: /usr/bin/google-chrome
-        run: demos/46-bgp-fabric/apply.sh
+        run: demos/55-bgp-fabric-desktop/apply.sh
 
       - name: The running dashboard names the pinned commit
         run: |
@@ -160,16 +169,21 @@ jobs:
           CHROME: /usr/bin/google-chrome
         run: |
           set -euo pipefail
-          demos/46-bgp-fabric/servers-join.sh
+          FABRIC_DEMO_HERE=demos/55-bgp-fabric-desktop CTX_DOCKER= \
+            FABRIC_PROJECT=bgp-fabric SERVERS_KUBE_CONTEXT=kind-eg-poc1 \
+            FABRIC_NODE_LAN=kind-eg \
+            FABRIC_LEAF1_LAN=172.19.254.11 FABRIC_LEAF2_LAN=172.19.254.12 \
+            FABRIC_KUBEVIP_DS=demos/56-kube-vip-bgp/10b-kube-vip-ds-bgp-active-active.yaml \
+            scripts/fabric-servers-join.sh
           # A second steady shot, now that the leaves have cluster sessions.
-          export HERE=demos/46-bgp-fabric
+          export HERE=demos/55-bgp-fabric-desktop
           # shellcheck disable=SC1091
           . demos/shared/browser-shot.sh
-          BROWSER_SHOT_PATH="$PWD/demos/46-bgp-fabric/output/screenshots/dashboard-servers-joined.png" \
+          BROWSER_SHOT_PATH="$PWD/demos/55-bgp-fabric-desktop/output/screenshots/dashboard-servers-joined.png" \
           BROWSER_SHOT_URL="http://127.0.0.1:8088/?router=leaf1" \
           BROWSER_SHOT_WIDTH=1200 BROWSER_SHOT_HEIGHT=700 \
           BROWSER_SHOT_VIRTUAL_TIME_MS=4000 \
-          BROWSER_SHOT_FILE_LABEL="demos/46-bgp-fabric/output/screenshots/dashboard-servers-joined.png" \
+          BROWSER_SHOT_FILE_LABEL="demos/55-bgp-fabric-desktop/output/screenshots/dashboard-servers-joined.png" \
           browser_shot
 
       # The claim demo 46 could not previously make: a packet from the WAN
@@ -182,28 +196,32 @@ jobs:
           CHROME: /usr/bin/google-chrome
         run: |
           set -euo pipefail
-          demos/46-bgp-fabric/traffic.sh
-          export HERE=demos/46-bgp-fabric
+          FABRIC_DEMO_HERE=demos/55-bgp-fabric-desktop CTX_DOCKER= \
+            FABRIC_PROJECT=bgp-fabric SERVERS_KUBE_CONTEXT=kind-eg-poc1 \
+            FABRIC_VIP=10.98.0.46 FABRIC_LEAF1_LAN=172.19.254.11 \
+            FABRIC_DASHBOARD_PORT=8088 \
+            scripts/fabric-traffic.sh
+          export HERE=demos/55-bgp-fabric-desktop
           # shellcheck disable=SC1091
           . demos/shared/browser-shot.sh
-          BROWSER_SHOT_PATH="$PWD/demos/46-bgp-fabric/output/screenshots/dashboard-vip-routed.png" \
+          BROWSER_SHOT_PATH="$PWD/demos/55-bgp-fabric-desktop/output/screenshots/dashboard-vip-routed.png" \
           BROWSER_SHOT_URL="http://127.0.0.1:8088/?router=spine" \
           BROWSER_SHOT_WIDTH=1200 BROWSER_SHOT_HEIGHT=700 \
           BROWSER_SHOT_VIRTUAL_TIME_MS=4000 \
-          BROWSER_SHOT_FILE_LABEL="demos/46-bgp-fabric/output/screenshots/dashboard-vip-routed.png" \
+          BROWSER_SHOT_FILE_LABEL="demos/55-bgp-fabric-desktop/output/screenshots/dashboard-vip-routed.png" \
           browser_shot
 
       - name: Check
         id: check
         run: |
           set -o pipefail
-          mkdir -p demos/46-bgp-fabric/output
-          demos/46-bgp-fabric/check.sh | tee demos/46-bgp-fabric/output/check.txt
+          mkdir -p demos/55-bgp-fabric-desktop/output
+          demos/55-bgp-fabric-desktop/check.sh | tee demos/55-bgp-fabric-desktop/output/check.txt
           {
-            echo "## demo 46 — check"
+            echo "## demo 55 — check"
             echo
             echo '```'
-            cat demos/46-bgp-fabric/output/check.txt
+            cat demos/55-bgp-fabric-desktop/output/check.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -222,11 +240,11 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          OUT=demos/46-bgp-fabric/output/screenshots
+          OUT=demos/55-bgp-fabric-desktop/output/screenshots
           ls "$OUT"/*.png >/dev/null 2>&1 || {
             echo "no captures to publish" | tee -a "$GITHUB_STEP_SUMMARY"
             echo "dir=" >> "$GITHUB_OUTPUT"; exit 0; }
-          DIR="$(date -u +%Y-%m-%dT%H%MZ)_demo46_run${{ github.run_id }}-${{ github.run_attempt }}"
+          DIR="$(date -u +%Y-%m-%dT%H%MZ)_demo55_run${{ github.run_id }}-${{ github.run_attempt }}"
           echo "dir=${DIR}" >> "$GITHUB_OUTPUT"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -251,7 +269,7 @@ jobs:
             fi
             mkdir -p ".tmp/cap/${DIR}"
             cp "$OUT"/*.png ".tmp/cap/${DIR}/"
-            cp demos/46-bgp-fabric/output/check.txt ".tmp/cap/${DIR}/" 2>/dev/null || true
+            cp demos/55-bgp-fabric-desktop/output/check.txt ".tmp/cap/${DIR}/" 2>/dev/null || true
             (cd .tmp/cap && git add -A \
               && { git diff --cached --quiet && { echo "captures: nothing staged for ${DIR}" >&2; exit 1; } || true; } \
               && git commit -qm "captures: ${DIR}" \
@@ -265,7 +283,7 @@ jobs:
           done
           [ "$pushed" = yes ] || { echo "could not publish the captures after 5 attempts" >&2; exit 1; }
           {
-            echo "## demo 46 — captures [\`${DIR}\`](https://github.com/${REPO}/tree/ci-captures/${DIR})"
+            echo "## demo 55 — captures [\`${DIR}\`](https://github.com/${REPO}/tree/ci-captures/${DIR})"
             echo
             for f in "$OUT"/*.png; do
               n=$(basename "$f" .png)
@@ -279,22 +297,22 @@ jobs:
       - name: Router and dashboard logs
         if: always()
         run: |
-          mkdir -p demos/46-bgp-fabric/output
+          mkdir -p demos/55-bgp-fabric-desktop/output
           docker compose -p bgp-fabric \
-            -f demos/46-bgp-fabric/fabric/compose.yaml \
-            -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
-            logs --no-color > demos/46-bgp-fabric/output/compose.log 2>&1 || true
+            -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+            -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
+            logs --no-color > demos/55-bgp-fabric-desktop/output/compose.log 2>&1 || true
 
       - name: Upload the run's output
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: demo46-ci
-          path: demos/46-bgp-fabric/output/
+          name: demo55-ci
+          path: demos/55-bgp-fabric-desktop/output/
           if-no-files-found: ignore
 
       - name: Clean up
         if: always()
         run: |
-          demos/46-bgp-fabric/cleanup.sh || true
+          demos/55-bgp-fabric-desktop/cleanup.sh || true
           kind delete cluster --name eg-poc1 || true

@@ -5,7 +5,7 @@
 # usage: bash tests/fabric-mgmt-oob.sh
 set -euo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
-FABRIC=$R/demos/46-bgp-fabric/fabric
+FABRIC=$R/demos/55-bgp-fabric-desktop/fabric
 # shellcheck disable=SC1091
 . "$R/scripts/bootstrap/versions-eg.env"
 export FRR_IMAGE="${FRR_IMAGE:-quay.io/frrouting/frr:10.7.1}"

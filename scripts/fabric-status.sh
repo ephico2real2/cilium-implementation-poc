@@ -4,7 +4,7 @@
 # Linux-runner safe. Reads running containers; does not start them.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-FABRIC=demos/46-bgp-fabric/fabric
+FABRIC=demos/55-bgp-fabric-desktop/fabric
 PROJECT="${FABRIC_PROJECT:-bgp-fabric}"
 COMPOSE_ARGS=(-p "$PROJECT" -f "$FABRIC/compose.yaml")
 

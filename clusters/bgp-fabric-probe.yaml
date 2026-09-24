@@ -9,7 +9,9 @@
 # image the dashboard is already built on. No new image enters the lab's
 # supply chain, and nothing is built (gotcha #118).
 #
-#   kubectl --context kind-eg-poc1 apply -f demos/46-bgp-fabric/probe/10-probe.yaml
+#   scripts/fabric-traffic.sh applies this; FABRIC_VIP rewrites the address
+#   and the pool together, so a fabric with a different block cannot end up
+#   advertising a pool for an address it is not announcing.
 ---
 apiVersion: v1
 kind: Namespace
@@ -28,7 +30,7 @@ metadata:
   name: kubevip
   namespace: kube-system
 data:
-  cidr-demo46: 10.98.0.46/32
+  cidr-demo46: 10.198.0.46/32
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -84,7 +86,7 @@ metadata:
   annotations:
     # The address is pinned, not allocated: it is the one the fabric's
     # prefix-list will accept from AS 65021 (EG-POC1-VIPS 10.98.0.0/26).
-    kube-vip.io/loadbalancerIPs: "10.98.0.46"
+    kube-vip.io/loadbalancerIPs: "10.198.0.46"
 spec:
   type: LoadBalancer
   # D11 — every Service that wants an address names its load balancer. kube-vip

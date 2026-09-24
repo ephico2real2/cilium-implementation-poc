@@ -2,7 +2,7 @@
 # check.sh — demo 46 PASS/FAIL/WARN rows (16). Exit = FAIL count. At most 16 rows.
 # A dead docker/vtysh is a FAIL, never a PASS. Session state is an exact
 # JSON field match (Established), never a substring of the blob.
-#   demos/46-bgp-fabric/check.sh
+#   demos/55-bgp-fabric-desktop/check.sh
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 fails=0
@@ -17,7 +17,7 @@ row() { # ok|fail|warn  what  measured  rule
   printf '  %-6s %-70s %-52s %s\n' "$st" "$2" "$3" "$4"
 }
 
-FABRIC=demos/46-bgp-fabric/fabric
+FABRIC=demos/55-bgp-fabric-desktop/fabric
 PROJECT=bgp-fabric
 COMPOSE=(docker compose -p "$PROJECT" -f "$FABRIC/compose.yaml" -f "$FABRIC/compose.lan-eg.yaml")
 

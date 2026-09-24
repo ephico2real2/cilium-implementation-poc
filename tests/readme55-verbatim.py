@@ -14,8 +14,8 @@ purpose: those are matched against the whole transcript.
 """
 import re, sys
 
-readme = open('demos/46-bgp-fabric/README.md').read()
-lines = open('demos/46-bgp-fabric/output/transcript.txt').read().split('\n')
+readme = open('demos/55-bgp-fabric-desktop/README.md').read()
+lines = open('demos/55-bgp-fabric-desktop/output/transcript.txt').read().split('\n')
 starts = [i for i, l in enumerate(lines) if l.rstrip().endswith('— demo 46 apply')]
 last_run = {l.rstrip() for l in lines[starts[-1] if starts else 0:]}
 whole = {l.rstrip() for l in lines}

@@ -68,7 +68,7 @@ L2_HTTP=172.19.255.100
 HTTP_HOST=api.eg-poc1.poc.local
 GRPC_HOST=grpc.eg-poc1.poc.local
 CLIENT=bgp-fabric-client0-1
-FABRIC=demos/46-bgp-fabric/fabric
+FABRIC=demos/55-bgp-fabric-desktop/fabric
 PROJECT=bgp-fabric
 COMPOSE=(docker compose -p "$PROJECT" -f "$FABRIC/compose.yaml" -f "$FABRIC/compose.lan-eg.yaml")
 

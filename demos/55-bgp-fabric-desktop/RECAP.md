@@ -1,4 +1,4 @@
-# Demo 46 — a four-router company fabric in docker compose
+# Demo 55 — a four-router company fabric in docker compose
 
 This page brings up four FRR routers — an edge, a spine, and two leaves
 — on their own docker bridges, with an outside-world client behind the
@@ -138,20 +138,20 @@ Every fabric session is Established at the first poll
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T edge vtysh -c 'show bgp summary json'
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T spine vtysh -c 'show bgp summary json'
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T leaf1 vtysh -c 'show bgp summary json'
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T leaf2 vtysh -c 'show bgp summary json'
 ```
 
@@ -192,16 +192,16 @@ converged after 0 s (1 polls)
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T spine vtysh -c 'show ip bgp'
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T edge vtysh -c 'show ip bgp'
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T edge vtysh -c 'show ip route'
 ```
 
@@ -226,12 +226,12 @@ From `client0` the path to leaf1's loopback is edge → spine → leaf1.
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T client0 traceroute -n 10.200.255.11
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T client0 ping -c 3 -W 2 10.200.255.11
 ```
 
@@ -253,8 +253,8 @@ touch BGP.
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T leaf1 ping -c 1 -W 2 172.19.0.3
 ```
 
@@ -272,16 +272,16 @@ The listen ranges, prefix-lists and route-maps are
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T leaf1 vtysh -c 'show bgp peer-group SERVERS'
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T leaf1 vtysh -c 'show ip prefix-list'
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T leaf1 vtysh -c 'show route-map'
 ```
 
@@ -337,7 +337,7 @@ The page is at `http://127.0.0.1:8088/`.
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
   --headless=new --disable-gpu --no-first-run --window-size=1200,700 \
   --user-data-dir=<tmp> --virtual-time-budget=4000 \
-  --screenshot=demos/46-bgp-fabric/output/screenshots/dashboard-steady.png \
+  --screenshot=demos/55-bgp-fabric-desktop/output/screenshots/dashboard-steady.png \
   http://127.0.0.1:8088/?router=spine
 ```
 
@@ -359,8 +359,8 @@ return on their own.
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T spine vtysh -c 'clear bgp *'
 ```
 
@@ -392,7 +392,7 @@ agent port on mgmt and `lo` and drops it everywhere else
 ([`fabric/entrypoint.sh`](fabric/entrypoint.sh)).
 
 ```bash
-demos/46-bgp-fabric/check.sh
+demos/55-bgp-fabric-desktop/check.sh
 ```
 
 Result: row 16 `client0_rc=28,28,28,28` (timed out on
@@ -400,44 +400,6 @@ Result: row 16 `client0_rc=28,28,28,28` (timed out on
 
 ```text
   PASS   agent on mgmt only, show-only                                          no ports; ;reboot=404 summary=200; client0_rc=28,28,28,28 D8 — agent on 10.200.200.0/24, show-only
-```
-
-### 11. Let a cluster dial in
-
-The leaves listen rather than name their peers, so a server arrives by
-connecting. kube-vip in BGP mode on `eg-poc1` peers both nodes with both
-leaves ([`docs/DEMO46_DATA_PATH.md`](../../docs/DEMO46_DATA_PATH.md)).
-
-```bash
-demos/46-bgp-fabric/servers-join.sh
-```
-
-Result: `the leaves are signing — the speaker sends the fabric password`,
-then `SERVERS sessions 4/4 Established after 4 s (172.19.0.2 172.19.0.3)`.
-The page moves from `server sessions 0/0` to `4/4` and draws the two nodes
-as dashed ellipses.
-
-### 12. Carry a packet to what the cluster announces
-
-Everything above is the fabric talking about itself. This announces
-`10.98.0.46/32` from AS 65021 and uses it from `client0`, four autonomous
-systems away.
-
-```bash
-demos/46-bgp-fabric/traffic.sh
-```
-
-Result: `demo 46 traffic: 0 FAIL` over eight claims — `SERVERS-IN seq 10
-did the accepting invoked=2`, `spine has two nexthops 10.200.1.10,10.200.1.2`,
-`the nodes can route back to the fabric 10.200.0.0/16 via 172.19.254.11`,
-`client0 reaches 10.98.0.46 answered by demo46-probe-859c56cff4-6xzw9`,
-`20/20 answered`. The path is five hops:
-
-```text
- 1  10.200.100.2   (edge)
- 2  10.200.1.18    (spine)
- 3  10.200.1.2     (leaf1)
- 4  172.19.0.2     (the node)
 ```
 
 ## Verify
@@ -457,15 +419,15 @@ Expect `routers=4/4 sessions=6/6 external=2`.
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T client0 traceroute -n 10.200.255.11
 ```
 
 Expect hops `10.200.100.2`, `10.200.1.18`, `10.200.255.11`.
 
 ```bash
-demos/46-bgp-fabric/check.sh
+demos/55-bgp-fabric-desktop/check.sh
 ```
 
 Recorded at `2026-09-20T19:29:40Z`: 16 rows, 15 PASS, 1 WARN, 0 FAIL.
@@ -564,12 +526,12 @@ start when another container publishes it and names the holder.
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   ps
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   logs spine
 ```
 
@@ -582,7 +544,7 @@ docker compose -p bgp-fabric \
 ## Clean up
 
 ```bash
-demos/46-bgp-fabric/cleanup.sh
+demos/55-bgp-fabric-desktop/cleanup.sh
 ```
 
 The fabric's own networks go; `kind` and `kind-eg` stay.

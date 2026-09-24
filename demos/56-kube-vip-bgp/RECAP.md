@@ -90,7 +90,7 @@ drops the agent port except on mgmt and `lo`
   the record`):
 
 ```bash
-demos/46-bgp-fabric/apply.sh
+demos/55-bgp-fabric-desktop/apply.sh
 demos/54-eg-poc1-kube-vip/apply.sh
 scripts/fabric-vm-route.sh --apply
 ```

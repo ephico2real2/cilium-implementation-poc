@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""test: every relative link on demo 46's pages resolves.
+"""test: every relative link on the two BGP-fabric demos' pages resolves.
 
 The fabric's dashboard and router agent moved to ephico2real2/bgp-fabric and
 their directories were deleted here. A row that still links `dashboard/` is
@@ -18,7 +18,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-DEMOS = ("demos/46-bgp-fabric", "demos/46-bgp-fabric-colima")
+DEMOS = ("demos/46-bgp-fabric-colima", "demos/55-bgp-fabric-desktop")
 bad = []
 
 
@@ -45,8 +45,8 @@ for demo in DEMOS:
             bad.append("%s links %s — it does not exist" % (page, target))
 
 if bad:
-    print("TEST FAIL: demo 46 pages link to things that are not there")
+    print("TEST FAIL: a BGP-fabric demo page links to something that is not there")
     for b in bad:
         print("  " + b)
     sys.exit(1)
-print("TEST PASS: every relative link on demo 46's pages resolves")
+print("TEST PASS: every relative link on both BGP-fabric demos' pages resolves")

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# run-demo46-gates.sh — every demo-46 gate that needs no running fabric.
+# run-bgp-fabric-gates.sh — every gate for the two BGP-fabric demos (46 on Colima,
+# 55 on a plain Docker engine) that needs no running fabric.
 #
 # The review records say "every test under tests/*46*, tests/fabric-*.sh,
 # tests/demo46-claims.py, readme46-verbatim.py", which is a list a person has
@@ -8,7 +9,7 @@
 # with the reason, so a reader can see what is NOT covered here rather than
 # assuming the set is complete.
 #
-#   usage: bash tests/run-demo46-gates.sh          (exit = number that failed)
+#   usage: bash tests/run-bgp-fabric-gates.sh          (exit = number that failed)
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
@@ -22,13 +23,14 @@ cd "$(dirname "$0")/.." || exit 1
 # /api/state, which read as "needs a live :8088" and kept it out of every
 # sweep. Fixing the stub put it back in reach of this one.
 SKIP="fabric-agent-mgmt-input.sh fabric-agent-allowlist.sh walk46-colima-signal.mjs"
-# And this file. `tests/*46*.sh` matches run-demo46-gates.sh itself — measured
+# And this file. `tests/*46*.sh` matches run-bgp-fabric-gates.sh itself — measured
 # the hard way: the first run of it forked itself until the machine was full.
 SKIP="$SKIP $(basename "$0")"
 
 fails=0
 ran=0
-for t in tests/*46*.sh tests/*46*.py tests/fabric-*.sh tests/bgp-fabric-*.sh tests/dashboard-*.sh; do
+for t in tests/*46*.sh tests/*46*.py tests/*55*.sh tests/*55*.py \
+         tests/fabric-*.sh tests/bgp-fabric-*.sh tests/dashboard-*.sh; do
   [ -f "$t" ] || continue
   case " $SKIP " in *" $(basename "$t") "*) continue ;; esac
   case "$t" in *.py) cmd=(python3 "$t") ;; *) cmd=(bash "$t") ;; esac

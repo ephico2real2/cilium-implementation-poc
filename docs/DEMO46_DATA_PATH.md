@@ -45,8 +45,15 @@ block — the cluster that announces it is eg-poc1, and AS 65021 is what
 `as-path EG-POC1` permits — clear of demo 56's two doors, with the demo's
 number as the last octet so nobody has to look it up twice.
 
-The Colima fabric's equivalent block is `10.198.0.0/26` and its probe is
-`10.198.0.46`. Same reasoning, different fabric.
+Two fabrics, two blocks, the same reasoning:
+
+| demo | engine | VIP block the leaves accept | this probe |
+|---|---|---|---|
+| [46](../demos/46-bgp-fabric-colima/) | Colima | `10.198.0.0/26` | `10.198.0.46` |
+| [55](../demos/55-bgp-fabric-desktop/) | plain Docker | `10.98.0.0/26` | `10.98.0.46` |
+
+`scripts/fabric-traffic.sh` defaults to demo 46's and takes demo 55's through
+`FABRIC_VIP`.
 
 ## The path, hop by hop
 
@@ -150,7 +157,7 @@ that is *enforced* depends on the kernel underneath them:
 Demo 56's manifest carries `bgp_peers=…::false` — no password — and is right
 for the VM it was measured on. Run 35942560154 put it on a runner whose kernel
 takes the option, and it behaved exactly as
-[NETWORK-TEAM-SHEET.md](../demos/46-bgp-fabric/NETWORK-TEAM-SHEET.md) row 3
+[NETWORK-TEAM-SHEET.md](../demos/46-bgp-fabric-colima/NETWORK-TEAM-SHEET.md) row 3
 predicts — *"on a real kernel the speaker signs"*:
 
 ```text
@@ -167,10 +174,10 @@ for that refusal rather than by assuming either kernel.
 
 | piece | why | where it comes from |
 |---|---|---|
-| a kind cluster on `kind-eg` | somewhere for a node to be | `scripts/eg-up.sh eg-poc1` |
-| the fabric with the overlay | leaves at `172.19.254.11/.12` | `demos/46-bgp-fabric/apply.sh` |
-| kube-vip in BGP mode, AS 65021 | the announcement | `servers-join.sh` |
-| a backend and a `LoadBalancer` Service at `10.98.0.46` | something to answer | this plan |
+| a kind cluster on the node LAN | somewhere for a node to be | `scripts/eg-up.sh eg-poc1` (demo 55) or `scripts/eg-colima-up.sh` (demo 46) |
+| the fabric with the overlay | leaves on the node LAN | demo 46's or demo 55's `apply.sh` |
+| kube-vip in BGP mode, AS 65021 | the announcement | `scripts/fabric-servers-join.sh` |
+| a backend and a `LoadBalancer` Service | something to answer | `clusters/bgp-fabric-probe.yaml` |
 
 The backend is deliberately the smallest thing that can answer an HTTP request
 and name itself, so that a reply proves *which* pod served it. No Gateway, no

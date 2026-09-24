@@ -11,7 +11,7 @@
 # bgp_peers format is address:AS:password:multihop. The password field is
 # EMPTY on this kernel (see the env comment below and sheet row 3); on a
 # real kernel it carries the fabric's one MD5 (FABRIC_BGP_PASSWORD in
-# demos/46-bgp-fabric/fabric/.env). 65101 / 65102 are the leaves' ASNs,
+# demos/55-bgp-fabric-desktop/fabric/.env). 65101 / 65102 are the leaves' ASNs,
 # not TCP ports (BGP is 179).
 #
 # bgp_routerid from the downward API (status.hostIP — kube-vip's docs:

@@ -5,7 +5,7 @@
 # Images stay unless --rmi (removes frr-agent:local and bgp-dashboard:local).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-FABRIC=demos/46-bgp-fabric/fabric
+FABRIC=demos/55-bgp-fabric-desktop/fabric
 PROJECT="${FABRIC_PROJECT:-bgp-fabric}"
 rmi=0
 if [ "${1:-}" = --rmi ]; then

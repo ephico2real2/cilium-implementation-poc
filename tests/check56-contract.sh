@@ -12,12 +12,12 @@ R=$(cd "$(dirname "$0")/.." && pwd)
 CHECK=$R/demos/56-kube-vip-bgp/check.sh
 APPLY=$R/demos/56-kube-vip-bgp/apply.sh
 T=$(mktemp -d) || { echo "TEST FAIL: mktemp -d failed"; exit 1; }; trap 'rm -rf "$T"' EXIT
-mkdir -p "$T/bin" "$T/repo/demos/56-kube-vip-bgp" "$T/repo/demos/46-bgp-fabric/fabric" "$T/repo/scripts"
+mkdir -p "$T/bin" "$T/repo/demos/56-kube-vip-bgp" "$T/repo/demos/55-bgp-fabric-desktop/fabric" "$T/repo/scripts"
 cp "$CHECK" "$T/repo/demos/56-kube-vip-bgp/check.sh"
 cp "$APPLY" "$T/repo/demos/56-kube-vip-bgp/apply.sh"
 cp "$R/scripts/fabric-bgp-summary.py" "$T/repo/scripts/fabric-bgp-summary.py"
-printf 'name: bgp-fabric\n' > "$T/repo/demos/46-bgp-fabric/fabric/compose.yaml"
-printf 'name: overlay\n' > "$T/repo/demos/46-bgp-fabric/fabric/compose.lan-eg.yaml"
+printf 'name: bgp-fabric\n' > "$T/repo/demos/55-bgp-fabric-desktop/fabric/compose.yaml"
+printf 'name: overlay\n' > "$T/repo/demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml"
 
 # (a) dead docker / kubectl / vtysh
 printf '#!/usr/bin/env bash\necho "The connection to the server 127.0.0.1:1 was refused" >&2; exit 1\n' > "$T/bin/kubectl"

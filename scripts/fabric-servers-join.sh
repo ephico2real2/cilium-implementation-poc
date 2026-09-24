@@ -12,7 +12,7 @@
 # no apps, no VIPs are announced. The claim here is only that a server can
 # arrive through a listen range, which is demo 46's claim about its own leaves.
 #
-#   demos/46-bgp-fabric/servers-join.sh            (the fabric must be up)
+#   demos/55-bgp-fabric-desktop/servers-join.sh            (the fabric must be up)
 #   FABRIC_SERVERS_DEADLINE=120 demos/.../servers-join.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -21,15 +21,15 @@ cd "$(dirname "$0")/../.."
 # which is the lesson this repository just spent fifteen thousand deleted
 # lines learning. demos/46-bgp-fabric-colima's values are passed by
 # scripts/demo46-colima-e2e.sh.
-HERE="${DEMO46_HERE:-demos/46-bgp-fabric}"
-CTX="${SERVERS_KUBE_CONTEXT:-kind-eg-poc1}"
-PROJECT="${FABRIC_PROJECT:-bgp-fabric}"
-DS="${DEMO46_KUBEVIP_DS:-demos/56-kube-vip-bgp/10b-kube-vip-ds-bgp-active-active.yaml}"
-NODE_LAN="${DEMO46_NODE_LAN:-kind-eg}"
-LEAF1_LAN="${DEMO46_LEAF1_LAN:-172.19.254.11}"
-LEAF2_LAN="${DEMO46_LEAF2_LAN:-172.19.254.12}"
+HERE="${FABRIC_DEMO_HERE:-demos/46-bgp-fabric-colima}"
+CTX="${SERVERS_KUBE_CONTEXT:-kind-eg-poc1-colima}"
+PROJECT="${FABRIC_PROJECT:-bgp-fabric-colima}"
+DS="${FABRIC_KUBEVIP_DS:-demos/54-eg-poc1-kube-vip-colima/10b-kube-vip-ds-bgp-active-active.yaml}"
+NODE_LAN="${FABRIC_NODE_LAN:-kind-eg-colima}"
+LEAF1_LAN="${FABRIC_LEAF1_LAN:-172.20.254.11}"
+LEAF2_LAN="${FABRIC_LEAF2_LAN:-172.20.254.12}"
 DOCKER_CTX_ARGS=()
-[ -n "${CTX_DOCKER:-}" ] && DOCKER_CTX_ARGS=(--context "$CTX_DOCKER")
+[ -n "${CTX_DOCKER:-colima-bgp-fabric}" ] && DOCKER_CTX_ARGS=(--context "${CTX_DOCKER:-colima-bgp-fabric}")
 DEADLINE="${FABRIC_SERVERS_DEADLINE:-120}"
 TRANSCRIPT="${FABRIC_TRANSCRIPT:-$HERE/output/transcript.txt}"
 export RECORD_STRICT=1
