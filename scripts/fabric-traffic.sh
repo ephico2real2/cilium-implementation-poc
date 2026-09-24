@@ -11,8 +11,8 @@
 # The plan, the address and what each hop's policy permits:
 #   docs/DEMO46_DATA_PATH.md
 #
-#   demos/55-bgp-fabric-desktop/traffic.sh     (the fabric, the cluster and
-#                                       servers-join.sh must have run)
+#   scripts/fabric-traffic.sh          (the fabric, the cluster and
+#                                       fabric-servers-join.sh must have run)
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
 # Desktop/CI defaults; scripts/demo46-colima-e2e.sh passes the Colima ones.
@@ -25,8 +25,14 @@ PROJECT="${FABRIC_PROJECT:-bgp-fabric-colima}"
 VIP="${FABRIC_VIP:-10.198.0.46}"
 PROBE="${FABRIC_PROBE_MANIFEST:-clusters/bgp-fabric-probe.yaml}"
 LEAF1_LAN="${FABRIC_LEAF1_LAN:-172.20.254.11}"
+# ${CTX_DOCKER-…} without the colon: UNSET means "this machine runs Colima",
+# and CTX_DOCKER= set-but-empty means "no --context at all", which is what a
+# CI runner with one daemon passes. With the colon, empty would have fallen
+# back to the Colima default and every docker call on the runner would have
+# named a context that does not exist there.
+DOCKER_CTX="${CTX_DOCKER-colima-bgp-fabric}"
 DOCKER_CTX_ARGS=()
-[ -n "${CTX_DOCKER:-colima-bgp-fabric}" ] && DOCKER_CTX_ARGS=(--context "${CTX_DOCKER:-colima-bgp-fabric}")
+[ -n "$DOCKER_CTX" ] && DOCKER_CTX_ARGS=(--context "$DOCKER_CTX")
 DEADLINE="${FABRIC_TRAFFIC_DEADLINE:-120}"
 TRANSCRIPT="${FABRIC_TRANSCRIPT:-$HERE/output/transcript.txt}"
 export RECORD_STRICT=1

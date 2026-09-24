@@ -30,7 +30,8 @@ SKIP="$SKIP $(basename "$0")"
 fails=0
 ran=0
 for t in tests/*46*.sh tests/*46*.py tests/*55*.sh tests/*55*.py \
-         tests/fabric-*.sh tests/bgp-fabric-*.sh tests/dashboard-*.sh; do
+         tests/fabric-*.sh tests/bgp-fabric-*.sh tests/bgp-fabric-*.py \
+         tests/dashboard-*.sh; do
   [ -f "$t" ] || continue
   case " $SKIP " in *" $(basename "$t") "*) continue ;; esac
   case "$t" in *.py) cmd=(python3 "$t") ;; *) cmd=(bash "$t") ;; esac

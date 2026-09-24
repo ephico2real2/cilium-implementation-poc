@@ -12,7 +12,7 @@
 # no apps, no VIPs are announced. The claim here is only that a server can
 # arrive through a listen range, which is demo 46's claim about its own leaves.
 #
-#   demos/55-bgp-fabric-desktop/servers-join.sh            (the fabric must be up)
+#   scripts/fabric-servers-join.sh                 (the fabric must be up)
 #   FABRIC_SERVERS_DEADLINE=120 demos/.../servers-join.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -28,8 +28,14 @@ DS="${FABRIC_KUBEVIP_DS:-demos/54-eg-poc1-kube-vip-colima/10b-kube-vip-ds-bgp-ac
 NODE_LAN="${FABRIC_NODE_LAN:-kind-eg-colima}"
 LEAF1_LAN="${FABRIC_LEAF1_LAN:-172.20.254.11}"
 LEAF2_LAN="${FABRIC_LEAF2_LAN:-172.20.254.12}"
+# ${CTX_DOCKER-…} without the colon: UNSET means "this machine runs Colima",
+# and CTX_DOCKER= set-but-empty means "no --context at all", which is what a
+# CI runner with one daemon passes. With the colon, empty would have fallen
+# back to the Colima default and every docker call on the runner would have
+# named a context that does not exist there.
+DOCKER_CTX="${CTX_DOCKER-colima-bgp-fabric}"
 DOCKER_CTX_ARGS=()
-[ -n "${CTX_DOCKER:-colima-bgp-fabric}" ] && DOCKER_CTX_ARGS=(--context "${CTX_DOCKER:-colima-bgp-fabric}")
+[ -n "$DOCKER_CTX" ] && DOCKER_CTX_ARGS=(--context "$DOCKER_CTX")
 DEADLINE="${FABRIC_SERVERS_DEADLINE:-120}"
 TRANSCRIPT="${FABRIC_TRANSCRIPT:-$HERE/output/transcript.txt}"
 export RECORD_STRICT=1
