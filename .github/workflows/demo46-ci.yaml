@@ -158,7 +158,6 @@ jobs:
         if: always() && steps.apply.outcome == 'success'
         run: |
           set -euo pipefail
-          bash tests/fabric-up-converge.sh
           bash tests/fabric-agent-mgmt-input.sh
           bash tests/fabric-agent-allowlist.sh
 

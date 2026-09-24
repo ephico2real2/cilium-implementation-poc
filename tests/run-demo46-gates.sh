@@ -13,11 +13,15 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
 # Needs a running fabric or a second daemon, so it belongs to a lab run:
-#   fabric-up-converge.sh        talks to a live :8088
 #   fabric-agent-mgmt-input.sh   execs into live containers
 #   fabric-agent-allowlist.sh    builds and runs a container
 #   walk46-colima-signal.mjs     drives the live page
-SKIP="fabric-up-converge.sh fabric-agent-mgmt-input.sh fabric-agent-allowlist.sh walk46-colima-signal.mjs"
+#
+# fabric-up-converge.sh is NOT in this list: it is stub-based and needs no
+# lab. It had been failing for months against a curl stub frozen at an older
+# /api/state, which read as "needs a live :8088" and kept it out of every
+# sweep. Fixing the stub put it back in reach of this one.
+SKIP="fabric-agent-mgmt-input.sh fabric-agent-allowlist.sh walk46-colima-signal.mjs"
 # And this file. `tests/*46*.sh` matches run-demo46-gates.sh itself — measured
 # the hard way: the first run of it forked itself until the machine was full.
 SKIP="$SKIP $(basename "$0")"
