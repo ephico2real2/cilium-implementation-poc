@@ -12,7 +12,7 @@ import subprocess
 from pathlib import Path
 import sys
 
-root = Path("demos/46-bgp-fabric")
+root = Path("demos/55-bgp-fabric-desktop")
 bad = []
 
 # A1 — no GTSM on SERVERS in leaf configs; no page promises hops 1
@@ -65,7 +65,7 @@ for leaf in ("leaf1", "leaf2"):
 
 # A8 — .env ignored, .env.example present
 gitignore = Path(".gitignore").read_text()
-if "demos/46-bgp-fabric/fabric/.env" not in gitignore:
+if "demos/55-bgp-fabric-desktop/fabric/.env" not in gitignore:
     bad.append(".gitignore does not ignore fabric/.env")
 if not (root / "fabric/.env.example").is_file():
     bad.append("fabric/.env.example missing")
@@ -91,7 +91,7 @@ if "10.200.200.0/24" not in sheet or "10.200.200.100" not in sheet:
 # phase 2 pages — numeric claims from the LAST recorded apply (never a
 # hardcoded timestamp: a re-record moves it, and a stale pin silently keeps
 # judging the old run — Grok, 2026-09-20)
-tx = Path("demos/46-bgp-fabric/output/transcript.txt").read_text()
+tx = Path("demos/55-bgp-fabric-desktop/output/transcript.txt").read_text()
 tx_lines = tx.split("\n")
 apply_starts = [i for i, l in enumerate(tx_lines) if l.endswith("— demo 46 apply")]
 if not apply_starts:
@@ -121,7 +121,7 @@ if "demo 46 check: 0 FAIL" not in final:
 # the final section can hold more than one recorded check (a re-record after a
 # fix): judge the LAST check block only, the same rule the verbatim tests use
 final_lines = final.splitlines()
-check_starts = [i for i, l in enumerate(final_lines) if l.startswith("$ demos/46-bgp-fabric/check.sh")]
+check_starts = [i for i, l in enumerate(final_lines) if l.startswith("$ demos/55-bgp-fabric-desktop/check.sh")]
 last_check = final_lines[check_starts[-1]:] if check_starts else final_lines
 check_rows = [
     l for l in last_check

@@ -1,6 +1,12 @@
-# Demo 46 — the BGP fabric as a lab of its own
+# Demo 55 — the BGP fabric on Docker Desktop
 
 For the reader in a hurry: [RECAP.md](RECAP.md) — the guide
+
+**The recorded output on this page names `demos/46-bgp-fabric/`.** That is where
+this lab lived when the run happened, and a transcript is not edited after the
+fact — the commands above it are current, the blocks below it are history.
+
+The same four-router fabric as [demo 46](../46-bgp-fabric-colima/), on a plain Docker engine instead of a Colima VM — Docker Desktop on a Mac, or the host's own engine on Linux. Demo 46 is the one to read first; this is the variant for a machine that has no Colima.
 
 The fabric, the dashboard and the router agent are not in this repository: they live in [ephico2real2/bgp-fabric](https://github.com/ephico2real2/bgp-fabric) and this lab builds them at a pinned commit ([`scripts/bgp-fabric.env`](../../scripts/bgp-fabric.env)).
 
@@ -37,11 +43,8 @@ does not know Kubernetes. The path a packet takes is in the
 | [`fabric/entrypoint.sh`](fabric/entrypoint.sh) | renders the password, FORWARD drop on mgmt, INPUT accept on mgmt/`lo` and drop elsewhere, then `docker-start` |
 | [`../../scripts/bgp-fabric.env`](../../scripts/bgp-fabric.env) | which bgp-fabric commit this lab builds against — the agent and the dashboard come from there |
 | [`../../scripts/bgp-fabric-fetch.sh`](../../scripts/bgp-fabric-fetch.sh) | puts that commit on disk under `vendor/`; `BGP_FABRIC_DIR` overrides it |
-| [`../../.github/workflows/demo46-ci.yaml`](../../.github/workflows/demo46-ci.yaml) | the same demo on a runner: node LAN, kind cluster, fabric, apply, screenshots, check |
-| [`../../tests/run-demo46-gates.sh`](../../tests/run-demo46-gates.sh) | every gate that needs no running fabric, in one command |
-| [`servers-join.sh`](servers-join.sh) | makes the cluster's nodes dial the leaves through the listen range, and waits for the sessions |
-| [`traffic.sh`](traffic.sh) | announces `10.98.0.46/32` and carries a packet to it from `client0`, four autonomous systems away |
-| [`probe/10-probe.yaml`](probe/10-probe.yaml) | two pods and a `LoadBalancer` Service — the smallest thing that can answer and name itself |
+| [`../../.github/workflows/demo55-ci.yaml`](../../.github/workflows/demo55-ci.yaml) | this demo on a runner: node LAN, kind cluster, fabric, apply, screenshots, check |
+| [`../../tests/run-bgp-fabric-gates.sh`](../../tests/run-bgp-fabric-gates.sh) | every gate that needs no running fabric, in one command |
 | [`../../docs/DEMO46_DATA_PATH.md`](../../docs/DEMO46_DATA_PATH.md) | the network plan: the address, each hop's policy, the return path, and what four CI failures taught |
 | [`../../scripts/fabric-up.sh`](../../scripts/fabric-up.sh) | builds `frr-agent:local` and `bgp-dashboard:local` if absent; compose up + convergence |
 | [`../../scripts/fabric-down.sh`](../../scripts/fabric-down.sh) | compose down; never removes `kind` / `kind-eg` |
@@ -69,22 +72,30 @@ is at `http://127.0.0.1:8088/`.
 
 ```bash
 scripts/fabric-up.sh eg
-demos/46-bgp-fabric/apply.sh
-demos/46-bgp-fabric/check.sh
+demos/55-bgp-fabric-desktop/apply.sh
+demos/55-bgp-fabric-desktop/check.sh
 ```
 
 Every command is recorded through `scripts/record.sh` into
 [`output/transcript.txt`](output/transcript.txt) (append, never truncate).
 
 A cluster dials in through the leaves' listen range, and then a packet is
-carried to what it announces:
+carried to what it announces. The two scripts are shared with demo 46 and take
+this fabric's values:
 
 ```bash
-demos/46-bgp-fabric/servers-join.sh
+FABRIC_DEMO_HERE=demos/55-bgp-fabric-desktop CTX_DOCKER= FABRIC_PROJECT=bgp-fabric \
+  FABRIC_NODE_LAN=kind-eg FABRIC_LEAF1_LAN=172.19.254.11 FABRIC_LEAF2_LAN=172.19.254.12 \
+  SERVERS_KUBE_CONTEXT=kind-eg-poc1 \
+  FABRIC_KUBEVIP_DS=demos/56-kube-vip-bgp/10b-kube-vip-ds-bgp-active-active.yaml \
+  scripts/fabric-servers-join.sh
 ```
 
 ```bash
-demos/46-bgp-fabric/traffic.sh
+FABRIC_DEMO_HERE=demos/55-bgp-fabric-desktop CTX_DOCKER= FABRIC_PROJECT=bgp-fabric \
+  FABRIC_VIP=10.98.0.46 FABRIC_LEAF1_LAN=172.19.254.11 \
+  SERVERS_KUBE_CONTEXT=kind-eg-poc1 FABRIC_DASHBOARD_PORT=8088 \
+  scripts/fabric-traffic.sh
 ```
 
 ## What was recorded
@@ -158,20 +169,20 @@ The four `show bgp summary json` at the first poll
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T edge vtysh -c 'show bgp summary json'
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T spine vtysh -c 'show bgp summary json'
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T leaf1 vtysh -c 'show bgp summary json'
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T leaf2 vtysh -c 'show bgp summary json'
 ```
 
@@ -529,16 +540,16 @@ Spine and edge BGP RIB (AS paths), then the edge FIB.
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T spine vtysh -c 'show ip bgp'
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T edge vtysh -c 'show ip bgp'
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T edge vtysh -c 'show ip route'
 ```
 
@@ -602,12 +613,12 @@ and the client's default route.
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T client0 traceroute -n 10.200.255.11
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T client0 ping -c 3 -W 2 10.200.255.11
 ```
 
@@ -645,8 +656,8 @@ leaf1 → `172.19.0.3` on-link through the overlay.
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T leaf1 ping -c 1 -W 2 172.19.0.3
 ```
 
@@ -667,16 +678,16 @@ prefix-lists, route-maps on both leaves.
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T leaf1 vtysh -c 'show bgp peer-group SERVERS'
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T leaf1 vtysh -c 'show ip prefix-list'
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T leaf1 vtysh -c 'show route-map'
 ```
 
@@ -854,7 +865,7 @@ The page is at `http://127.0.0.1:8088/?router=spine`.
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
   --headless=new --disable-gpu --no-first-run --window-size=1200,700 \
   --user-data-dir=<tmp> --virtual-time-budget=4000 \
-  --screenshot=demos/46-bgp-fabric/output/screenshots/dashboard-steady.png \
+  --screenshot=demos/55-bgp-fabric-desktop/output/screenshots/dashboard-steady.png \
   http://127.0.0.1:8088/?router=spine
 ```
 
@@ -873,8 +884,8 @@ the loopbacks, wan and the VIP /32s.](output/screenshots/dashboard-steady.png)
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T spine vtysh -c 'clear bgp *'
 ```
 
@@ -907,7 +918,7 @@ agent's port on mgmt and `lo`, and drops it everywhere else. Row 16
 probes all four management addresses.
 
 ```bash
-demos/46-bgp-fabric/check.sh
+demos/55-bgp-fabric-desktop/check.sh
 ```
 
 Recorded:
@@ -919,7 +930,7 @@ Recorded:
 ## Checks
 
 ```bash
-demos/46-bgp-fabric/check.sh
+demos/55-bgp-fabric-desktop/check.sh
 ```
 
 `check.sh` at `2026-09-20T19:29:40Z`: 16 rows, 15 PASS, 1 WARN, 0 FAIL.
@@ -965,7 +976,7 @@ demo 46 check: 0 FAIL
   REPLIES is its own network configuration — in a deployment its default
   gateway is the leaf; in this lab it is the Docker bridge, and Docker will
   not forward between two bridges, so
-  [traffic.sh](traffic.sh) installs `10.200.0.0/16` via a leaf on each node
+  [scripts/fabric-traffic.sh](../../scripts/fabric-traffic.sh) installs `10.200.0.0/16` via a leaf on each node
   exactly as demo 54c does. See
   [docs/DEMO46_DATA_PATH.md](../../docs/DEMO46_DATA_PATH.md).
 - No claim that ECMP balances. The spine has two nexthops; measuring the
@@ -1023,7 +1034,7 @@ everywhere else; check row 16 is `client0_rc=28,28,28,28`.
 ## Clean up
 
 ```bash
-demos/46-bgp-fabric/cleanup.sh
+demos/55-bgp-fabric-desktop/cleanup.sh
 ```
 
 cleanup.sh calls `scripts/fabric-down.sh`. The fabric's own networks

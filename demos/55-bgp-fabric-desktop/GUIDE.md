@@ -1,4 +1,4 @@
-# Demo 46 — six things to try
+# Demo 55 — six things to try
 
 Six exercises against the fabric once it is up. Exercises 1–5 only
 read. Exercise 6 clears the spine's sessions; they return on their
@@ -45,8 +45,8 @@ From `client0` the path to leaf1's loopback is edge → spine → leaf1.
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T client0 traceroute -n 10.200.255.11
 ```
 
@@ -66,8 +66,8 @@ members.
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T leaf1 vtysh -c 'show bgp peer-group SERVERS'
 ```
 
@@ -93,8 +93,8 @@ per-cluster `/26`s, exact `/32`s, matched with as-path.
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T leaf1 vtysh -c 'show ip prefix-list'
 ```
 
@@ -127,8 +127,8 @@ A cluster announced `10.98.0.46/32`. Ask each router how it learned it —
 the as-path grows by one AS at every hop.
 
 ```bash
-docker compose -p bgp-fabric -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+docker compose -p bgp-fabric -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T leaf1 vtysh -c 'show bgp ipv4 unicast 10.98.0.46/32'
 ```
 
@@ -145,8 +145,8 @@ Paths: (2 available, best #1, table default)
 ```
 
 ```bash
-docker compose -p bgp-fabric -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+docker compose -p bgp-fabric -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T spine ip route show 10.98.0.46
 ```
 
@@ -161,7 +161,7 @@ docker compose -p bgp-fabric -f demos/46-bgp-fabric/fabric/compose.yaml \
 ### 6. Run the check
 
 ```bash
-demos/46-bgp-fabric/check.sh
+demos/55-bgp-fabric-desktop/check.sh
 ```
 
 **Expect:** 16 rows, 15 PASS, 1 WARN, `demo 46 check: 0 FAIL`. Row 16
@@ -194,8 +194,8 @@ sessions return on their own.
 
 ```bash
 docker compose -p bgp-fabric \
-  -f demos/46-bgp-fabric/fabric/compose.yaml \
-  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+  -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
   exec -T spine vtysh -c 'clear bgp *'
 ```
 

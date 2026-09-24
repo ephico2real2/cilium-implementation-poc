@@ -3,7 +3,7 @@
 # usage: bash tests/fabric-compose-config.sh
 set -euo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
-FABRIC=$R/demos/46-bgp-fabric/fabric
+FABRIC=$R/demos/55-bgp-fabric-desktop/fabric
 # shellcheck disable=SC1091
 . "$R/scripts/bootstrap/versions-eg.env"
 export FRR_IMAGE="${FRR_IMAGE:-quay.io/frrouting/frr:10.7.1}"
@@ -38,7 +38,7 @@ for f in frr/leaf1/frr.conf frr/leaf2/frr.conf frr/edge/frr.conf frr/spine/frr.c
 done
 [ "$bad" -eq 0 ] || exit 1
 
-grep -qxF 'demos/46-bgp-fabric/fabric/.env' "$R/.gitignore" || { echo "FAIL: fabric/.env is not ignored"; exit 1; }
+grep -qxF 'demos/55-bgp-fabric-desktop/fabric/.env' "$R/.gitignore" || { echo "FAIL: fabric/.env is not ignored"; exit 1; }
 [ -f "$FABRIC/.env.example" ] || { echo "FAIL: fabric/.env.example missing"; exit 1; }
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT

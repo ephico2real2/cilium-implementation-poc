@@ -59,25 +59,25 @@ echo "== 4. apply — the tables, the events, the screenshots"
 "$HERE/apply.sh"
 
 if [ "$want_cluster" -eq 1 ]; then
-  # One implementation, two fabrics: the scripts live in demos/46-bgp-fabric
-  # and take every difference as a variable. The Colima values below are this
-  # fabric's own — its node LAN, its leaf addresses on it, its cluster, its
-  # port, and a VIP from ITS prefix-list block (10.198.0.0/26, not 10.98's).
+  # One implementation, two fabrics: the scripts live in scripts/ and take
+  # every difference as a variable. They already DEFAULT to this fabric, so
+  # these exports are the ones that differ from a bare run — the cluster, the
+  # kubeconfig, the project and the port — plus the kube-vip DaemonSet, which
+  # is demo 54c's on this fabric and demo 56's on demo 55's.
   echo "== 4b. servers dial in, and a packet crosses to what they announce"
-  export DEMO46_HERE="$HERE"
   export CTX_DOCKER="$CTX"
+  export FABRIC_DEMO_HERE="$HERE"
   export FABRIC_PROJECT="$FABRIC_COLIMA_PROJECT"
   export FABRIC_DASHBOARD_PORT="$FABRIC_COLIMA_DASHBOARD_PORT"
   export SERVERS_KUBE_CONTEXT="kind-${EG_COLIMA_CLUSTER}"
   export KUBECONFIG="${KUBECONFIG:-$EG_COLIMA_KUBECONFIG}"
-  export DEMO46_NODE_LAN="$KIND_EG_COLIMA_NET"
-  export DEMO46_LEAF1_LAN="$KIND_EG_COLIMA_LEAF1"
-  export DEMO46_LEAF2_LAN="$KIND_EG_COLIMA_LEAF2"
-  export DEMO46_KUBEVIP_DS=demos/54-eg-poc1-kube-vip-colima/10b-kube-vip-ds-bgp-active-active.yaml
-  export DEMO46_VIP=10.198.0.46
-  export DEMO46_PROBE_MANIFEST=demos/46-bgp-fabric/probe/10-probe.yaml
-  demos/46-bgp-fabric/servers-join.sh
-  demos/46-bgp-fabric/traffic.sh
+  export FABRIC_NODE_LAN="$KIND_EG_COLIMA_NET"
+  export FABRIC_LEAF1_LAN="$KIND_EG_COLIMA_LEAF1"
+  export FABRIC_LEAF2_LAN="$KIND_EG_COLIMA_LEAF2"
+  export FABRIC_KUBEVIP_DS=demos/54-eg-poc1-kube-vip-colima/10b-kube-vip-ds-bgp-active-active.yaml
+  export FABRIC_VIP=10.198.0.46
+  scripts/fabric-servers-join.sh
+  scripts/fabric-traffic.sh
 fi
 
 echo "== 5. check"
@@ -86,7 +86,7 @@ rc=0
 
 if [ "$want_gates" -eq 1 ]; then
   echo "== 6. the gates that need no lab"
-  bash tests/run-demo46-gates.sh || rc=$((rc + $?))
+  bash tests/run-bgp-fabric-gates.sh || rc=$((rc + $?))
   echo "== 7. the gates that need the running fabric"
   bash tests/fabric-agent-mgmt-input.sh || rc=$((rc + $?))
 fi

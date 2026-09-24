@@ -144,7 +144,7 @@ clusters: the leaves are two more containers on it, with fixed addresses in a bl
 | Peering | nodes → leaf1 `172.18.254.11:179` and leaf2 `172.18.254.12:179`, eBGP, TTL 1 (same segment), MD5 from Secret `kube-system/bgp-auth-secret`; FRR `neighbor CILIUM password` | `bgp-control-plane-configuration.rst:225-236,318-323` |
 | Timers | Cilium peer config `hold 9 / keepalive 3 / connectRetry 5`; leaf–spine–edge `timers 3 9`; graceful restart `enabled, restartTimeSeconds: 15` (measured on and off in demo 48) | docs' recommendation; FRR negotiates to the lower hold |
 
-### 3.2 The fabric in docker compose (`demos/46-bgp-fabric/fabric/`)
+### 3.2 The fabric in docker compose (`demos/55-bgp-fabric-desktop/fabric/`)
 
 - `compose.yaml`: networks `kind` (`external: true`), `link-leaf1-spine`, `link-leaf2-spine`, `link-spine-edge`, `wan`,
   `mgmt` `10.200.200.0/24` (each with `ipam.config.subnet`); services `edge`, `spine`, `leaf1`, `leaf2` from the lab's `frr-agent` image (§3.3),
@@ -167,7 +167,7 @@ clusters: the leaves are two more containers on it, with fixed addresses in a bl
   `docker exec <node> ip route replace 10.200.0.0/16 nexthop via 172.18.254.11 nexthop via 172.18.254.12`; idempotent,
   re-run after any node restart (the route does not survive one — same caveat enhancement 002 records for the egress
   addresses on `eth0`).
-- Optional Mac path (`demos/46-bgp-fabric/mac-route.sh`, prints the two commands, never runs `sudo`): in the VM
+- Optional Mac path (`demos/55-bgp-fabric-desktop/mac-route.sh`, prints the two commands, never runs `sudo`): in the VM
   `ip route add 10.99.0.0/24 via 172.18.254.11` (the parked plan's `nsenter` line), on the Mac
   `sudo route -n add -net 10.99.0.0/24 192.168.64.2`.
 
@@ -199,7 +199,7 @@ deployment stays optional later.
 | Phase | Demo | What it delivers | Scripts / files it adds | Reqs |
 |---|---|---|---|---|
 | 0 — verify the ground (no demo number) | — | The facts the design leans on, measured on this Docker before anything is written: a router container forwards between two compose bridges (client → edge → spine loopback) while the host drops the shortcut (node → `172.18.0.1` → `wan`: no reply); a static `ipv4_address` in `172.18.254.0/24` on the `kind` network is accepted alongside `--ip-range /17`; `fib_multipath_hash_policy` is settable from compose `sysctls` (namespaced) or must be set in the VM; the FRR 10.7.1 image starts with a wrapper `CMD`; `docker exec <kind-node> ip route replace … nexthop …` works and what a node restart does to it | a scratch `compose.yaml` under `/tmp`, results into §2 of this plan (revision 2) | R1, R2 |
-| 1 — the fabric and the dashboard | **46** | The four routers in compose, converged, the source's exercises re-cast (edge ↔ spine ↔ leaves), the `frr-agent` image and the dashboard image built and pushed to `ghcr.io/ephico2real2/`, the dashboard deployed in poc1 and served as `bgp.poc.local`, reading the four routers over the fabric; node routes applied; no Cilium BGP yet | `demos/46-bgp-fabric/{fabric/compose.yaml,fabric/frr/*/frr.conf,fabric/frr/*/daemons,frr-agent/,dashboard/,10-dashboard.yaml,20-route.yaml,apply.sh,check.sh,cleanup.sh,GUIDE.md}`, `scripts/fabric-up.sh`, `scripts/fabric-down.sh`, `scripts/fabric-node-routes.sh` | R1, R2, R7 |
+| 1 — the fabric and the dashboard | **46** | The four routers in compose, converged, the source's exercises re-cast (edge ↔ spine ↔ leaves), the `frr-agent` image and the dashboard image built and pushed to `ghcr.io/ephico2real2/`, the dashboard deployed in poc1 and served as `bgp.poc.local`, reading the four routers over the fabric; node routes applied; no Cilium BGP yet | `demos/55-bgp-fabric-desktop/{fabric/compose.yaml,fabric/frr/*/frr.conf,fabric/frr/*/daemons,frr-agent/,dashboard/,10-dashboard.yaml,20-route.yaml,apply.sh,check.sh,cleanup.sh,GUIDE.md}`, `scripts/fabric-up.sh`, `scripts/fabric-down.sh`, `scripts/fabric-node-routes.sh` | R1, R2, R7 |
 | 2 — the cluster joins the fabric | **47** | `bgpControlPlane.enabled: true` in `cilium/values-poc1.yaml` (helm upgrade + `rollout restart ds/cilium`, timed for no other demo — gotcha #42's outage), `CiliumBGPClusterConfig` (both leaves), `CiliumBGPPeerConfig` (MD5, timers, GR), `CiliumBGPAdvertisement` (`LoadBalancerIP`, selector `bgp=fabric`), `bgp-pool 10.99.0.0/26` (selector `bgp=fabric`), `kind-l2-announce` gains `bgp NotIn [fabric]`; the demo 09 web app exposed twice (`web-bgp` in the BGP pool, `web-l2` in the L2 pool); the client's `200` through the fabric, ECMP on leaf and spine, the L2 contrast, Hubble's view | `demos/47-cilium-joins-fabric/{10-bgp.yaml,20-pool.yaml,30-services.yaml,apply.sh,check.sh,client-probe.sh,cleanup.sh}`; edits to `cilium/values-poc1.yaml`, `cilium/lb-ippool-poc1.yaml` (the L2 exclusion + header table row) | R3, R4, R5 |
 | 3 — failures, measured | **48** | The scenario table (§4.1) from the client (`client0`, per-second) and the dashboard (event log screenshots); GR on vs off; timers default vs 9/3; `externalTrafficPolicy` both ways; the `FINDINGS.md` numbers and the gotchas that bit | `demos/48-bgp-failures/{scenario.sh <S1..S6>,watch.sh,README.md}` | R6 |
 | 4 — the second cluster and the hand-off | **49** | poc2 as AS 65002 (`values-poc2.yaml`, its CRs, `bgp-pool 10.99.0.64/26`), the leaves' policy admitting each cluster to its own block only, the negative test (poc2 announcing from poc1's block → rejected, `show bgp neighbors … json` counts it), the filled-in sheet (§8) as `docs/BGP-NETWORK-TEAM-SHEET.md`, `NETWORKING_DESIGN.md` §5.3 option B upgraded from "planned" to "measured" with §7's L3 rows; the regression row (leaf sessions `Established`, the BGP VIP answers from `client0`); optional: the anycast VIP | `demos/49-two-clusters-one-fabric/{10-bgp-poc2.yaml,20-pool-poc2.yaml,apply.sh,check.sh,negative.sh,cleanup.sh}`, `docs/BGP-NETWORK-TEAM-SHEET.md`, a row in `scripts/lab-regression.sh`, `.github/workflows/lab-regression.yaml` paths | R8, R9, R10 |
@@ -236,7 +236,7 @@ every PR (`docs/REVIEW_ENH-006.md`); the changelog skill per session. Demos 42�
 | D10 | **Timers 9/3/5 and graceful restart 15 s** on the Cilium side; both GR states and both timer sets measured | **Taken.** The docs recommend them; the tutorial's value is the measured difference, not the setting |
 | D11 | **Fabric runs in CI too** (the Linux runner): `fabric-up.sh` in `lab-up.sh` behind a flag, `client0` as the tester, a regression row | **Taken, phase 4.** Nothing in the design needs the Mac; the Mac route is a documented convenience |
 | D12 | The anycast shop VIP from both clusters (`10.99.0.192`) | **OPEN.** Cheap once phase 4 exists; it changes enhancement 002's DR story (S4 becomes automatic). Do it only if the operator wants the two plans to meet |
-| D13 | Where the fabric and dashboard code live: this repo under `demos/46-bgp-fabric/` (configs, compose, Go sources), images on `ghcr.io/ephico2real2/{frr-agent,bgp-dashboard}` | **Taken — OPEN if the operator prefers a separate repository** (the lab's forks live in their own repos; this is not a fork) |
+| D13 | Where the fabric and dashboard code live: this repo under `demos/55-bgp-fabric-desktop/` (configs, compose, Go sources), images on `ghcr.io/ephico2real2/{frr-agent,bgp-dashboard}` | **Taken — OPEN if the operator prefers a separate repository** (the lab's forks live in their own repos; this is not a fork) |
 | D14 | Name of the tutorial's namespace and host: `bgp-observer` / `bgp.poc.local` | **OPEN**, cosmetic |
 
 ## 6. Stack facts the plan relies on
@@ -389,7 +389,7 @@ all of them under `externalTrafficPolicy: Cluster`, only the ones with the Envoy
 
 ### 9.1 What "attachable" means
 
-The fabric (`demos/46-bgp-fabric/fabric/compose.yaml`) is edge, spine, leaf1, leaf2 and `client0` on their own docker
+The fabric (`demos/55-bgp-fabric-desktop/fabric/compose.yaml`) is edge, spine, leaf1, leaf2 and `client0` on their own docker
 bridges — it does not know any cluster. A cluster lab attaches by **one compose overlay** that puts the two leaves on
 that lab's node LAN at that LAN's network-devices block and sets the leaves' `bgp listen range` to that LAN's node half:
 

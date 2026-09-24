@@ -43,7 +43,7 @@ SHA_FABRIC=$(git -C "$T/fabric" rev-parse HEAD)
 
 # --- the stand-in for this repository --------------------------------------
 mkdir -p "$T/bin" "$T/home" "$T/repo/scripts/bootstrap" \
-  "$T/repo/demos/46-bgp-fabric/fabric" "$T/repo/demos/46-bgp-fabric-colima/fabric"
+  "$T/repo/demos/55-bgp-fabric-desktop/fabric" "$T/repo/demos/46-bgp-fabric-colima/fabric"
 for s in fabric-up.sh fabric-colima-up.sh fabric-colima-lib.sh record.sh \
          bgp-fabric-fetch.sh bgp-fabric.env bgp-fabric-images.sh; do
   cp "$R/scripts/$s" "$T/repo/scripts/$s" \
@@ -51,7 +51,7 @@ for s in fabric-up.sh fabric-colima-up.sh fabric-colima-lib.sh record.sh \
 done
 cp "$R/scripts/bootstrap/versions-eg.env" "$T/repo/scripts/bootstrap/versions-eg.env" \
   || { echo "TEST FAIL: scripts/bootstrap/versions-eg.env does not exist"; exit 1; }
-printf 'name: x\n' > "$T/repo/demos/46-bgp-fabric/fabric/compose.yaml"
+printf 'name: x\n' > "$T/repo/demos/55-bgp-fabric-desktop/fabric/compose.yaml"
 printf 'name: x\n' > "$T/repo/demos/46-bgp-fabric-colima/fabric/compose.yaml"
 printf 'lab fixture\n' > "$T/repo/README.md"
 git -C "$T/repo" init -q
@@ -105,7 +105,7 @@ fail=0
 # line for the tree's path is satisfied by the `-f .../Containerfile`
 # argument on its own, so a script that kept -f and built a different
 # directory would pass — measured: reverting only the context to
-# `demos/46-bgp-fabric/dashboard` left this gate green.
+# `demos/55-bgp-fabric-desktop/dashboard` left this gate green.
 context_of() { local line=$1; printf '%s' "${line##* }"; }
 
 want_arg() {
@@ -148,7 +148,7 @@ want_arg() {
 
 # The agent is built from the same repository and by the same two scripts, and
 # nothing else in this gate looks at it: without this, reverting the agent
-# build to the deleted `demos/46-bgp-fabric/frr-agent` passed.
+# build to the deleted `demos/55-bgp-fabric-desktop/frr-agent` passed.
 want_agent() {
   local log=$1 label=$2 line ctx
   line=$(grep -E '(^| )build .*-t frr-agent:' "$log" | head -1)

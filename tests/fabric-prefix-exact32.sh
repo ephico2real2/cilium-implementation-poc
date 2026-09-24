@@ -6,7 +6,7 @@ set -euo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
 bad=0
 for leaf in leaf1 leaf2; do
-  f=$R/demos/46-bgp-fabric/fabric/frr/$leaf/frr.conf
+  f=$R/demos/55-bgp-fabric-desktop/fabric/frr/$leaf/frr.conf
   for want in \
     'ip prefix-list EG-POC1-VIPS seq 10 permit 10.98.0.0/26 ge 32 le 32' \
     'ip prefix-list EG-POC2-VIPS seq 10 permit 10.98.0.64/26 ge 32 le 32' \
@@ -32,7 +32,7 @@ for leaf in leaf1 leaf2; do
     grep -qF "$want" "$f" || { echo "FAIL: $f lacks '$want'"; bad=1; }
   done
 done
-for f in "$R"/demos/46-bgp-fabric/fabric/frr/{leaf1,leaf2,spine,edge}/frr.conf; do
+for f in "$R"/demos/55-bgp-fabric-desktop/fabric/frr/{leaf1,leaf2,spine,edge}/frr.conf; do
   grep -E 'prefix-list EG-VIPS seq 10 permit 10\.98\.0\.0/24 ge 32 le 32' "$f" \
     || { echo "FAIL: $f EG-VIPS not exact /32"; bad=1; }
   grep -E 'prefix-list CILIUM-VIPS seq 10 permit 10\.99\.0\.0/24 ge 32 le 32' "$f" \

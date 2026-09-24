@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # apply.sh — demo 46: bring the fabric up with the Envoy overlay and record
 # the sessions, the routes, and the SERVERS policy. Idempotent.
-#   demos/46-bgp-fabric/apply.sh
+#   demos/55-bgp-fabric-desktop/apply.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 export RECORD_STRICT=1
-HERE=demos/46-bgp-fabric
+HERE=demos/55-bgp-fabric-desktop
 FABRIC=$HERE/fabric
 PROJECT=bgp-fabric
 TRANSCRIPT=$HERE/output/transcript.txt
@@ -119,8 +119,8 @@ clear_and_watch() {
   mark=$(curl -fsS --max-time 3 'http://127.0.0.1:8088/api/events?since=0' \
     | python3 -c 'import json,sys; ev=json.load(sys.stdin); print(ev[-1]["id"] if ev else 0)')
   echo "event mark before clear: id=$mark"
-  docker compose -p bgp-fabric -f demos/46-bgp-fabric/fabric/compose.yaml \
-    -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  docker compose -p bgp-fabric -f demos/55-bgp-fabric-desktop/fabric/compose.yaml \
+    -f demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml \
     exec -T spine vtysh -c 'clear bgp *'
   echo "clear bgp * issued on spine"
   drop_start=$(python3 -c 'import time; print("%.6f" % time.time())')

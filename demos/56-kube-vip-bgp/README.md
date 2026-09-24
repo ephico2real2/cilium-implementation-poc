@@ -51,7 +51,7 @@ From the repo root. poc1/poc2 stay paused. The fabric and demo 54 must
 already be up.
 
 ```bash
-demos/46-bgp-fabric/apply.sh
+demos/55-bgp-fabric-desktop/apply.sh
 demos/54-eg-poc1-kube-vip/apply.sh
 demos/56-kube-vip-bgp/apply.sh
 demos/56-kube-vip-bgp/check.sh

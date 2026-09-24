@@ -10,7 +10,7 @@
 set -uo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
 PROJECT="${FABRIC_PROJECT:-bgp-fabric}"
-COMPOSE=(docker compose -p "$PROJECT" -f "$R/demos/46-bgp-fabric/fabric/compose.yaml")
+COMPOSE=(docker compose -p "$PROJECT" -f "$R/demos/55-bgp-fabric-desktop/fabric/compose.yaml")
 fails=0
 for addr in 10.200.200.1 10.200.200.2 10.200.200.11 10.200.200.12; do
   rc=0

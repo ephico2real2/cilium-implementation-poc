@@ -30,8 +30,12 @@ leaf2 `10.200.200.12`, dashboard `10.200.200.100`, Docker bridge
 | [scripts/fabric-colima-lib.sh](../../scripts/fabric-colima-lib.sh) | `CTX` gate, `dk`, restore-context trap |
 | [scripts/bgp-fabric.env](../../scripts/bgp-fabric.env) | which bgp-fabric commit this lab builds against |
 | [scripts/bgp-fabric-fetch.sh](../../scripts/bgp-fabric-fetch.sh) | puts that commit on disk under `vendor/`; `BGP_FABRIC_DIR` overrides it |
+| [scripts/fabric-servers-join.sh](../../scripts/fabric-servers-join.sh) | kube-vip in BGP mode so the cluster's nodes dial the leaves; waits on the leaves' own summary |
+| [scripts/fabric-traffic.sh](../../scripts/fabric-traffic.sh) | announces a VIP and carries a packet to it from `client0`; eight ordered claims |
+| [clusters/bgp-fabric-probe.yaml](../../clusters/bgp-fabric-probe.yaml) | the probe: two pods, a pool, and a `LoadBalancer` Service |
+| [docs/DEMO46_DATA_PATH.md](../../docs/DEMO46_DATA_PATH.md) | the network plan: the address, each hop's policy, the return path, and what the CI failures taught |
 | [scripts/demo46-colima-e2e.sh](../../scripts/demo46-colima-e2e.sh) | the whole demo on this machine: the VM, the fabric, the node LAN, a kind cluster on it, apply, check, the gates |
-| [tests/run-demo46-gates.sh](../../tests/run-demo46-gates.sh) | every gate that needs no running fabric, in one command |
+| [tests/run-bgp-fabric-gates.sh](../../tests/run-bgp-fabric-gates.sh) | every gate that needs no running fabric, in one command |
 | [fabric/compose.yaml](fabric/compose.yaml) | project `bgp-fabric-colima`, port 8098, images `:colima` |
 | [fabric/.env.example](fabric/.env.example) | `FABRIC_BGP_PASSWORD` (copy to `.env`; gitignored) |
 | [check.sh](check.sh) | 17 rows; MD5 wire / mismatch / kernel FAIL if unsigned |
@@ -70,6 +74,17 @@ bash scripts/fabric-colima-status.sh
 ```
 
 The same lab runs on Linux with Colima or with plain Docker.
+
+A cluster dials in through the leaves' listen range, and then a packet is
+carried to what it announces:
+
+```bash
+scripts/fabric-servers-join.sh
+```
+
+```bash
+scripts/fabric-traffic.sh
+```
 
 ## What was recorded
 

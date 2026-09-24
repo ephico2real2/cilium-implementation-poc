@@ -218,6 +218,44 @@ curl -s -o /dev/null -w '%{http_code}' http://10.198.0.10/
 Result: `192.168.64.4`;
 `add net 10.198.0.0: gateway 192.168.64.4`; `200`.
 
+### 8. Let a cluster dial in
+
+The leaves listen rather than name their peers, so a server arrives by
+connecting. kube-vip in BGP mode peers both nodes with both leaves; the script
+decides whether the speaker must sign by reading the leaves' logs, because
+that depends on the kernel
+([`docs/DEMO46_DATA_PATH.md`](../../docs/DEMO46_DATA_PATH.md)).
+
+```bash
+scripts/fabric-servers-join.sh
+```
+
+Result: not yet recorded on this fabric. The same script against demo 55's
+fabric recorded `the leaves are signing — the speaker sends the fabric
+password`, then `SERVERS sessions 4/4 Established after 4 s (172.19.0.2
+172.19.0.3)` (run 35953641113). Colima's kernel signs too, so this fabric
+takes the same branch.
+
+### 9. Carry a packet to what the cluster announces
+
+Everything above is the fabric talking about itself — the routers originate
+their own loopbacks and their own WAN. This announces a service address from
+AS 65021 and uses it from `client0`, four autonomous systems away. On this
+fabric the address comes from its own block, `10.198.0.0/26`.
+
+```bash
+scripts/fabric-traffic.sh
+```
+
+Result: not yet recorded on this fabric. Against demo 55's fabric the same
+script recorded `demo 46 traffic: 0 FAIL` over eight claims — `SERVERS-IN seq
+10 did the accepting invoked=2`, `spine has two nexthops
+10.200.1.10,10.200.1.2`, `the nodes can route back to the fabric 10.200.0.0/16
+via 172.19.254.11`, `client0 reaches 10.98.0.46 answered by
+demo46-probe-859c56cff4-6xzw9`, `20/20 answered` (run 35953641113), and the
+path was four hops: edge `10.200.100.2`, spine `10.200.1.18`, leaf1
+`10.200.1.2`, the node `172.19.0.2`.
+
 ## Verify
 
 ```bash

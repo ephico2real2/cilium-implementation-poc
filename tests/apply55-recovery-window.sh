@@ -10,7 +10,7 @@
 set -uo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d) || exit 1; trap 'rm -rf "$T"' EXIT
-APPLY=$R/demos/46-bgp-fabric/apply.sh
+APPLY=$R/demos/55-bgp-fabric-desktop/apply.sh
 fails=0
 if grep -q 'echo "recovered after \${rec_elapsed} s"' "$APPLY"; then
   echo "FAIL: apply.sh still labels the loop's notice time as 'recovered after'"

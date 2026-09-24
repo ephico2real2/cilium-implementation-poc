@@ -13,7 +13,7 @@
 # usage: bash tests/fabric-servers-policy.sh
 set -uo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
-D=$R/demos/46-bgp-fabric
+D=$R/demos/55-bgp-fabric-desktop
 bad=0
 for leaf in leaf1 leaf2; do
   f=$D/fabric/frr/$leaf/frr.conf

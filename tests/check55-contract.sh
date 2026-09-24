@@ -6,25 +6,25 @@
 # usage: bash tests/check46-contract.sh
 set -uo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
-CHECK=$R/demos/46-bgp-fabric/check.sh
-APPLY=$R/demos/46-bgp-fabric/apply.sh
+CHECK=$R/demos/55-bgp-fabric-desktop/check.sh
+APPLY=$R/demos/55-bgp-fabric-desktop/apply.sh
 T=$(mktemp -d) || exit 1
 trap 'rm -rf "$T"' EXIT
-mkdir -p "$T/bin" "$T/repo/demos/46-bgp-fabric" "$T/repo/scripts"
-cp "$CHECK" "$T/repo/demos/46-bgp-fabric/check.sh"
-cp "$APPLY" "$T/repo/demos/46-bgp-fabric/apply.sh"
+mkdir -p "$T/bin" "$T/repo/demos/55-bgp-fabric-desktop" "$T/repo/scripts"
+cp "$CHECK" "$T/repo/demos/55-bgp-fabric-desktop/check.sh"
+cp "$APPLY" "$T/repo/demos/55-bgp-fabric-desktop/apply.sh"
 cp "$R/scripts/fabric-bgp-summary.py" "$T/repo/scripts/fabric-bgp-summary.py"
 # check.sh cds to repo root and reads fabric/compose.yaml paths; dummy files
-mkdir -p "$T/repo/demos/46-bgp-fabric/fabric"
-printf 'name: bgp-fabric\n' > "$T/repo/demos/46-bgp-fabric/fabric/compose.yaml"
-printf 'name: overlay\n' > "$T/repo/demos/46-bgp-fabric/fabric/compose.lan-eg.yaml"
+mkdir -p "$T/repo/demos/55-bgp-fabric-desktop/fabric"
+printf 'name: bgp-fabric\n' > "$T/repo/demos/55-bgp-fabric-desktop/fabric/compose.yaml"
+printf 'name: overlay\n' > "$T/repo/demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml"
 
 # (a) dead docker
 printf '#!/usr/bin/env bash\necho "Cannot connect to the Docker daemon" >&2; exit 1\n' > "$T/bin/docker"
 chmod +x "$T/bin/docker"
 
 rc=0
-out=$(cd "$T/repo" && PATH="$T/bin:/usr/bin:/bin" bash demos/46-bgp-fabric/check.sh 2>/dev/null
+out=$(cd "$T/repo" && PATH="$T/bin:/usr/bin:/bin" bash demos/55-bgp-fabric-desktop/check.sh 2>/dev/null
 ) || rc=$?
 
 if printf '%s\n' "$out" | grep -qE '^  PASS'; then
@@ -69,7 +69,7 @@ STUB
 chmod +x "$T/bin/docker"
 
 rc=0
-out=$(cd "$T/repo" && PATH="$T/bin:/usr/bin:/bin" bash demos/46-bgp-fabric/check.sh 2>/dev/null
+out=$(cd "$T/repo" && PATH="$T/bin:/usr/bin:/bin" bash demos/55-bgp-fabric-desktop/check.sh 2>/dev/null
 ) || rc=$?
 if printf '%s\n' "$out" | grep -Eq 'PASS[[:space:]]+six fabric sessions'; then
   echo "TEST FAIL: Active/Connect was accepted as Established"
@@ -123,7 +123,7 @@ esac
 STUB
 chmod +x "$T/bin/docker"
 rc=0
-out=$(cd "$T/repo" && PATH="$T/bin:/usr/bin:/bin" bash demos/46-bgp-fabric/check.sh 2>/dev/null
+out=$(cd "$T/repo" && PATH="$T/bin:/usr/bin:/bin" bash demos/55-bgp-fabric-desktop/check.sh 2>/dev/null
 ) || rc=$?
 printf '%s\n' "$out" | grep -Eq 'FAIL[[:space:]]+client0 ping' \
   || { echo "TEST FAIL: ping rc=0 without 1 received was PASS"; exit 1; }

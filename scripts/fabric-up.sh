@@ -5,7 +5,7 @@
 #   scripts/fabric-up.sh cilium          # + compose.lan-cilium.yaml (kind)
 #   scripts/fabric-up.sh eg,cilium       # both overlays
 # Idempotent. Linux-runner safe. Every step through scripts/record.sh
-# (RECORD_STRICT=1) into demos/46-bgp-fabric/output/transcript.txt.
+# (RECORD_STRICT=1) into demos/55-bgp-fabric-desktop/output/transcript.txt.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck disable=SC1091
@@ -15,9 +15,9 @@ export NETSHOOT_IMAGE="${NETSHOOT_IMAGE:-nicolaka/netshoot:v0.16}"
 export FABRIC_ROUTER_IMAGE="${FABRIC_ROUTER_IMAGE:-frr-agent:local}"
 export FABRIC_DASHBOARD_IMAGE="${FABRIC_DASHBOARD_IMAGE:-bgp-dashboard:local}"
 
-FABRIC=demos/46-bgp-fabric/fabric
+FABRIC=demos/55-bgp-fabric-desktop/fabric
 PROJECT="${FABRIC_PROJECT:-bgp-fabric}"
-TRANSCRIPT="${FABRIC_TRANSCRIPT:-demos/46-bgp-fabric/output/transcript.txt}"
+TRANSCRIPT="${FABRIC_TRANSCRIPT:-demos/55-bgp-fabric-desktop/output/transcript.txt}"
 DEADLINE="${FABRIC_CONVERGE_SECS:-60}"
 export RECORD_STRICT=1
 mkdir -p "$(dirname "$TRANSCRIPT")"

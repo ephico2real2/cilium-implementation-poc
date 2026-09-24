@@ -11,11 +11,11 @@ set -uo pipefail
 R=${R:-$(cd "$(dirname "$0")/.." && pwd)}
 CHECK=${CHECK:-$R/demos/56-kube-vip-bgp/check.sh}
 T=$(mktemp -d) || { echo "TEST FAIL: mktemp -d failed"; exit 1; }; trap 'rm -rf "$T"' EXIT
-mkdir -p "$T/bin" "$T/repo/demos/56-kube-vip-bgp" "$T/repo/demos/46-bgp-fabric/fabric" "$T/repo/scripts"
+mkdir -p "$T/bin" "$T/repo/demos/56-kube-vip-bgp" "$T/repo/demos/55-bgp-fabric-desktop/fabric" "$T/repo/scripts"
 cp "$CHECK" "$T/repo/demos/56-kube-vip-bgp/check.sh"
 cp "$R/scripts/fabric-bgp-summary.py" "$T/repo/scripts/fabric-bgp-summary.py"
-printf 'name: bgp-fabric\n' > "$T/repo/demos/46-bgp-fabric/fabric/compose.yaml"
-printf 'name: overlay\n' > "$T/repo/demos/46-bgp-fabric/fabric/compose.lan-eg.yaml"
+printf 'name: bgp-fabric\n' > "$T/repo/demos/55-bgp-fabric-desktop/fabric/compose.yaml"
+printf 'name: overlay\n' > "$T/repo/demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml"
 printf '#!/usr/bin/env bash\nprintf "eg-poc1-control-plane\\neg-poc1-worker\\n"\n' > "$T/bin/kind"
 
 # SHOPAPI_STATE: stuck | ok ; ARPING_MODE: daemon-timeout | ok ; RM_MODE: seq20-only | ok

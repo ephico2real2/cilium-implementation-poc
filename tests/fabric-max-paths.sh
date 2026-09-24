@@ -3,6 +3,6 @@
 # usage: bash tests/fabric-max-paths.sh
 set -euo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
-grep -E '^ maximum-paths 8$' "$R/demos/46-bgp-fabric/fabric/frr/leaf1/frr.conf"
-grep -E '^ maximum-paths 8$' "$R/demos/46-bgp-fabric/fabric/frr/leaf2/frr.conf"
+grep -E '^ maximum-paths 8$' "$R/demos/55-bgp-fabric-desktop/fabric/frr/leaf1/frr.conf"
+grep -E '^ maximum-paths 8$' "$R/demos/55-bgp-fabric-desktop/fabric/frr/leaf2/frr.conf"
 echo "TEST PASS: leaves have maximum-paths 8"

@@ -11,23 +11,29 @@
 # The plan, the address and what each hop's policy permits:
 #   docs/DEMO46_DATA_PATH.md
 #
-#   demos/46-bgp-fabric/traffic.sh     (the fabric, the cluster and
-#                                       servers-join.sh must have run)
+#   scripts/fabric-traffic.sh          (the fabric, the cluster and
+#                                       fabric-servers-join.sh must have run)
 set -uo pipefail
-cd "$(dirname "$0")/../.." || exit 1
+cd "$(dirname "$0")/.." || exit 1
 # Desktop/CI defaults; scripts/demo46-colima-e2e.sh passes the Colima ones.
 # The VIP differs between the two fabrics because their prefix-lists do:
 # 10.98.0.0/26 here, 10.198.0.0/26 there. An address is only reachable if a
 # prefix-list already names its block — see docs/DEMO46_DATA_PATH.md.
-HERE="${DEMO46_HERE:-demos/46-bgp-fabric}"
-CTX="${SERVERS_KUBE_CONTEXT:-kind-eg-poc1}"
-PROJECT="${FABRIC_PROJECT:-bgp-fabric}"
-VIP="${DEMO46_VIP:-10.98.0.46}"
-PROBE="${DEMO46_PROBE_MANIFEST:-$HERE/probe/10-probe.yaml}"
-LEAF1_LAN="${DEMO46_LEAF1_LAN:-172.19.254.11}"
+HERE="${FABRIC_DEMO_HERE:-demos/46-bgp-fabric-colima}"
+CTX="${SERVERS_KUBE_CONTEXT:-kind-eg-poc1-colima}"
+PROJECT="${FABRIC_PROJECT:-bgp-fabric-colima}"
+VIP="${FABRIC_VIP:-10.198.0.46}"
+PROBE="${FABRIC_PROBE_MANIFEST:-clusters/bgp-fabric-probe.yaml}"
+LEAF1_LAN="${FABRIC_LEAF1_LAN:-172.20.254.11}"
+# ${CTX_DOCKER-…} without the colon: UNSET means "this machine runs Colima",
+# and CTX_DOCKER= set-but-empty means "no --context at all", which is what a
+# CI runner with one daemon passes. With the colon, empty would have fallen
+# back to the Colima default and every docker call on the runner would have
+# named a context that does not exist there.
+DOCKER_CTX="${CTX_DOCKER-colima-bgp-fabric}"
 DOCKER_CTX_ARGS=()
-[ -n "${CTX_DOCKER:-}" ] && DOCKER_CTX_ARGS=(--context "$CTX_DOCKER")
-DEADLINE="${DEMO46_TRAFFIC_DEADLINE:-120}"
+[ -n "$DOCKER_CTX" ] && DOCKER_CTX_ARGS=(--context "$DOCKER_CTX")
+DEADLINE="${FABRIC_TRAFFIC_DEADLINE:-120}"
 TRANSCRIPT="${FABRIC_TRANSCRIPT:-$HERE/output/transcript.txt}"
 export RECORD_STRICT=1
 mkdir -p "$(dirname "$TRANSCRIPT")"
@@ -43,11 +49,11 @@ row() { # ok|fail  what  measured
 
 echo "== 1. the probe: two pods and a LoadBalancer Service at $VIP"
 # The address in the manifest is the default one; a different fabric passes
-# its own with DEMO46_VIP, and the annotation is rewritten to match.
+# its own with FABRIC_VIP, and the annotation is rewritten to match.
 rendered=$(mktemp) || exit 1
 trap 'rm -f "$rendered"' EXIT
-sed -e "s|kube-vip.io/loadbalancerIPs: \"10.98.0.46\"|kube-vip.io/loadbalancerIPs: \"$VIP\"|" \
-    -e "s|cidr-demo46: 10.98.0.46/32|cidr-demo46: $VIP/32|" "$PROBE" > "$rendered"
+sed -e "s|kube-vip.io/loadbalancerIPs: \"10.198.0.46\"|kube-vip.io/loadbalancerIPs: \"$VIP\"|" \
+    -e "s|cidr-demo46: 10.198.0.46/32|cidr-demo46: $VIP/32|" "$PROBE" > "$rendered"
 rec kubectl --context "$CTX" apply -f "$rendered"
 if ! kubectl --context "$CTX" -n demo46 rollout status deploy/demo46-probe --timeout=120s; then
   # A Service address is pointless if nothing can answer on it. The previous

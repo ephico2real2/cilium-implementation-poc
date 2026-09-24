@@ -6,7 +6,7 @@ pin as `.github/actions/browser-walk/action.yml`, Chromium at
 `deviceScaleFactor: 2`). `document.body.dataset.ready` was `"1"` and the
 WebSocket label was `live` on every shot.
 
-The Desktop lab's own capture is at `demos/46-bgp-fabric/output/ui/ui-notes.md`
+The Desktop lab's own capture is at `demos/55-bgp-fabric-desktop/output/ui/ui-notes.md`
 and covers the 375 px work. This one covers what the signal API put on the page.
 
 ## What the page reads

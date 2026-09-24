@@ -21,12 +21,12 @@
 set -uo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d) || exit 1; trap 'rm -rf "$T"' EXIT
-mkdir -p "$T/bin" "$T/repo/demos/46-bgp-fabric/fabric" "$T/repo/scripts"
-cp "$R/demos/46-bgp-fabric/check.sh" "$T/repo/demos/46-bgp-fabric/check.sh"
+mkdir -p "$T/bin" "$T/repo/demos/55-bgp-fabric-desktop/fabric" "$T/repo/scripts"
+cp "$R/demos/55-bgp-fabric-desktop/check.sh" "$T/repo/demos/55-bgp-fabric-desktop/check.sh"
 cp "$R/scripts/fabric-bgp-summary.py" "$T/repo/scripts/fabric-bgp-summary.py"
 cp "$R/scripts/fabric-dashboard-state.py" "$T/repo/scripts/fabric-dashboard-state.py"
-printf 'name: bgp-fabric\n' > "$T/repo/demos/46-bgp-fabric/fabric/compose.yaml"
-printf 'name: overlay\n' > "$T/repo/demos/46-bgp-fabric/fabric/compose.lan-eg.yaml"
+printf 'name: bgp-fabric\n' > "$T/repo/demos/55-bgp-fabric-desktop/fabric/compose.yaml"
+printf 'name: overlay\n' > "$T/repo/demos/55-bgp-fabric-desktop/fabric/compose.lan-eg.yaml"
 
 # A healthy fabric, with knobs: STUB_PROFILE, STUB_PL_ACTION, STUB_LOGS, STUB_LISTEN,
 # STUB_PORTS, STUB_AGENT_REBOOT, STUB_AGENT_REBOOT_TRAILER, STUB_AGENT_SUM,
@@ -170,7 +170,7 @@ esac
 exit 0
 STUB
 chmod +x "$T/bin/curl"
-run() { (cd "$T/repo" && env "$@" PATH="$T/bin:/usr/bin:/bin" STUB_MARK="$T/wget-no-timeout" bash demos/46-bgp-fabric/check.sh 2>/dev/null); }
+run() { (cd "$T/repo" && env "$@" PATH="$T/bin:/usr/bin:/bin" STUB_MARK="$T/wget-no-timeout" bash demos/55-bgp-fabric-desktop/check.sh 2>/dev/null); }
 
 out=$(run)
 printf '%s\n' "$out" | grep -Eq '^  PASS +RFC 8212' || { echo "TEST FAIL: baseline stub must PASS RFC 8212"; printf '%s\n' "$out"; exit 1; }
