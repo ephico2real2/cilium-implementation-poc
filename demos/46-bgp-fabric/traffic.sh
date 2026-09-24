@@ -45,7 +45,8 @@ echo "== 1. the probe: two pods and a LoadBalancer Service at $VIP"
 # its own with DEMO46_VIP, and the annotation is rewritten to match.
 rendered=$(mktemp) || exit 1
 trap 'rm -f "$rendered"' EXIT
-sed "s|kube-vip.io/loadbalancerIPs: \"10.98.0.46\"|kube-vip.io/loadbalancerIPs: \"$VIP\"|" "$PROBE" > "$rendered"
+sed -e "s|kube-vip.io/loadbalancerIPs: \"10.98.0.46\"|kube-vip.io/loadbalancerIPs: \"$VIP\"|" \
+    -e "s|cidr-demo46: 10.98.0.46/32|cidr-demo46: $VIP/32|" "$PROBE" > "$rendered"
 rec kubectl --context "$CTX" apply -f "$rendered"
 rec kubectl --context "$CTX" -n demo46 rollout status deploy/demo46-probe --timeout=120s
 
@@ -65,8 +66,15 @@ while :; do
 done
 if [ "$assigned" != "$VIP" ]; then
   echo "traffic: the Service has ingress '${assigned:-<none>}', want $VIP" >&2
-  rec kubectl --context "$CTX" -n demo46 get svc demo46-probe -o wide
-  rec kubectl --context "$CTX" -n kube-system logs deploy/kube-vip-cloud-provider --tail=30
+  # Everything that decides whether an address is assigned and announced. The
+  # first run of this printed the Service and the cloud-provider only, and the
+  # cloud-provider said "EnsuredLoadBalancer" while the Service stayed
+  # <pending> — so the answer was in neither.
+  rec kubectl --context "$CTX" -n demo46 get svc demo46-probe -o yaml
+  rec kubectl --context "$CTX" -n demo46 get events --sort-by=.lastTimestamp
+  rec kubectl --context "$CTX" -n kube-system get cm kubevip -o yaml
+  rec kubectl --context "$CTX" -n kube-system logs deploy/kube-vip-cloud-provider --tail=40
+  rec kubectl --context "$CTX" -n kube-system logs ds/kube-vip-ds --tail=60
   exit 1
 fi
 rec echo "Service demo46-probe ingress $assigned after $(( $(date +%s) - start )) s"

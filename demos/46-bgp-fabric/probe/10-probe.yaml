@@ -16,6 +16,20 @@ kind: Namespace
 metadata:
   name: demo46
 ---
+# The cloud-provider watches for this ConfigMap by name and namespace and says
+# so on startup ("Watching configMap for pool config with name: 'kubevip',
+# namespace: 'kube-system'"). The demos that work apply one; this is the same
+# file for demo46's namespace, holding exactly the one address the fabric will
+# accept. The annotation on the Service pins it; the pool is what makes the
+# address legitimate to allocate rather than merely requested.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubevip
+  namespace: kube-system
+data:
+  cidr-demo46: 10.98.0.46/32
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
