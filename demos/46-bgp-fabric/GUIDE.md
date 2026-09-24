@@ -121,7 +121,44 @@ BGP: ip prefix-list EG-VIPS: 1 entries
    seq 10 permit 10.98.0.0/24 ge 32 le 32
 ```
 
-### 5. Run the check
+### 5. Follow an announced address across the fabric
+
+A cluster announced `10.98.0.46/32`. Ask each router how it learned it —
+the as-path grows by one AS at every hop.
+
+```bash
+docker compose -p bgp-fabric -f demos/46-bgp-fabric/fabric/compose.yaml \
+  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  exec -T leaf1 vtysh -c 'show bgp ipv4 unicast 10.98.0.46/32'
+```
+
+**Expect:** two paths, both as-path `65021`, one from each node.
+
+```text
+BGP routing table entry for 10.98.0.46/32
+Paths: (2 available, best #1, table default)
+  65021
+    172.19.0.2 from 172.19.0.2 (172.19.0.2)
+      Origin IGP, valid, external, multipath, best (Router ID)
+  65021
+    172.19.0.3 from 172.19.0.3 (172.19.0.3)
+```
+
+```bash
+docker compose -p bgp-fabric -f demos/46-bgp-fabric/fabric/compose.yaml \
+  -f demos/46-bgp-fabric/fabric/compose.lan-eg.yaml \
+  exec -T spine ip route show 10.98.0.46
+```
+
+**Expect:** the kernel route, with a nexthop through each leaf.
+
+```text
+10.98.0.46 nhid 25 proto bgp metric 20
+ nexthop via 10.200.1.2 dev eth1 weight 1
+ nexthop via 10.200.1.10 dev eth2 weight 1
+```
+
+### 6. Run the check
 
 ```bash
 demos/46-bgp-fabric/check.sh
@@ -150,7 +187,7 @@ probes all four management addresses (`client0_rc=28,28,28,28`).
 demo 46 check: 0 FAIL
 ```
 
-### 6. Open the dashboard and clear the spine (changes state)
+### 7. Open the dashboard and clear the spine (changes state)
 
 The page is at `http://127.0.0.1:8088/`. Then clear the spine; the
 sessions return on their own.

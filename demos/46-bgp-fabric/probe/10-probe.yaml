@@ -1,0 +1,101 @@
+# demo46-probe — the smallest thing that can answer an HTTP request and say
+# which pod answered it, published at 10.98.0.46 by kube-vip over BGP.
+#
+# Why this and not a Gateway: demos 51–56 put Envoy Gateway, certificates and
+# an application behind their doors. Every one of those is another way for a
+# reachability test to fail for a reason that is not demo 46's. The claim here
+# is exactly one sentence — a packet from client0 crosses four autonomous
+# systems and is answered — so the responder is busybox httpd on the alpine
+# image the dashboard is already built on. No new image enters the lab's
+# supply chain, and nothing is built (gotcha #118).
+#
+#   kubectl --context kind-eg-poc1 apply -f demos/46-bgp-fabric/probe/10-probe.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo46
+---
+# The cloud-provider watches for this ConfigMap by name and namespace and says
+# so on startup ("Watching configMap for pool config with name: 'kubevip',
+# namespace: 'kube-system'"). The demos that work apply one; this is the same
+# file for demo46's namespace, holding exactly the one address the fabric will
+# accept. The annotation on the Service pins it; the pool is what makes the
+# address legitimate to allocate rather than merely requested.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubevip
+  namespace: kube-system
+data:
+  cidr-demo46: 10.98.0.46/32
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo46-probe
+  namespace: demo46
+spec:
+  # One replica per node, so a reply names which node served it and ECMP has
+  # somewhere to send either half.
+  replicas: 2
+  selector:
+    matchLabels: { app: demo46-probe }
+  template:
+    metadata:
+      labels: { app: demo46-probe }
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: demo46-probe }
+      containers:
+        - name: whoami
+          # traefik/whoami, 10.7 MB, pinned. It exists to answer "which backend
+          # served this?" — its reply carries the pod's hostname, which is the
+          # evidence a reachability test needs and the reason it is worth one
+          # image in the supply chain.
+          #
+          # The first attempt was busybox httpd on alpine:3.22, chosen to add
+          # no new image. It crash-looped: `busybox --list | grep -c httpd` is
+          # 0 on that image — httpd is not in Alpine's applet set, it lives in
+          # busybox-extras. Installing a package at container start would trade
+          # one image for a network dependency at runtime, which is worse.
+          image: traefik/whoami:v1.11
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+            periodSeconds: 2
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo46-probe
+  namespace: demo46
+  annotations:
+    # The address is pinned, not allocated: it is the one the fabric's
+    # prefix-list will accept from AS 65021 (EG-POC1-VIPS 10.98.0.0/26).
+    kube-vip.io/loadbalancerIPs: "10.98.0.46"
+spec:
+  type: LoadBalancer
+  # D11 — every Service that wants an address names its load balancer. kube-vip
+  # runs class-only, so without this the Service stays <pending> for ever.
+  loadBalancerClass: kube-vip.io/kube-vip-class
+  # Cluster, not Local: the claim is reachability, and Local would additionally
+  # require the announcing node to hold a ready pod. That is demo 56's
+  # measurement, not this one's.
+  externalTrafficPolicy: Cluster
+  selector: { app: demo46-probe }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80

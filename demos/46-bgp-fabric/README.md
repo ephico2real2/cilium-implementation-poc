@@ -40,6 +40,9 @@ does not know Kubernetes. The path a packet takes is in the
 | [`../../.github/workflows/demo46-ci.yaml`](../../.github/workflows/demo46-ci.yaml) | the same demo on a runner: node LAN, kind cluster, fabric, apply, screenshots, check |
 | [`../../tests/run-demo46-gates.sh`](../../tests/run-demo46-gates.sh) | every gate that needs no running fabric, in one command |
 | [`servers-join.sh`](servers-join.sh) | makes the cluster's nodes dial the leaves through the listen range, and waits for the sessions |
+| [`traffic.sh`](traffic.sh) | announces `10.98.0.46/32` and carries a packet to it from `client0`, four autonomous systems away |
+| [`probe/10-probe.yaml`](probe/10-probe.yaml) | two pods and a `LoadBalancer` Service — the smallest thing that can answer and name itself |
+| [`../../docs/DEMO46_DATA_PATH.md`](../../docs/DEMO46_DATA_PATH.md) | the network plan: the address, each hop's policy, the return path, and what four CI failures taught |
 | [`../../scripts/fabric-up.sh`](../../scripts/fabric-up.sh) | builds `frr-agent:local` and `bgp-dashboard:local` if absent; compose up + convergence |
 | [`../../scripts/fabric-down.sh`](../../scripts/fabric-down.sh) | compose down; never removes `kind` / `kind-eg` |
 | [`../../scripts/fabric-status.sh`](../../scripts/fabric-status.sh) | four summaries + topology + dashboard one-liner |
@@ -72,6 +75,17 @@ demos/46-bgp-fabric/check.sh
 
 Every command is recorded through `scripts/record.sh` into
 [`output/transcript.txt`](output/transcript.txt) (append, never truncate).
+
+A cluster dials in through the leaves' listen range, and then a packet is
+carried to what it announces:
+
+```bash
+demos/46-bgp-fabric/servers-join.sh
+```
+
+```bash
+demos/46-bgp-fabric/traffic.sh
+```
 
 ## What was recorded
 
@@ -945,6 +959,17 @@ demo 46 check: 0 FAIL
 - No Mac route applied. D18 prints two lines;
   [fabric-vm-route.sh](../../scripts/fabric-vm-route.sh) `--apply` is the
   VM only.
+- No route from the leaves to their server peers: `neighbor SERVERS
+  route-map NOTHING out`. A load-balancer speaker announces and does not
+  import, so BGP has no reason to send a node the fabric's table. How a node
+  REPLIES is its own network configuration — in a deployment its default
+  gateway is the leaf; in this lab it is the Docker bridge, and Docker will
+  not forward between two bridges, so
+  [traffic.sh](traffic.sh) installs `10.200.0.0/16` via a leaf on each node
+  exactly as demo 54c does. See
+  [docs/DEMO46_DATA_PATH.md](../../docs/DEMO46_DATA_PATH.md).
+- No claim that ECMP balances. The spine has two nexthops; measuring the
+  split needs per-nexthop counters, which is demo 56's work.
 - Cilium BGP and MetalLB FRR-K8s — demos 47–49, 57.
 - `compose.lan-cilium.yaml` is written; the Cilium clusters are paused.
 - One fabric per Docker host: the `/29` link subnets overlap with any
