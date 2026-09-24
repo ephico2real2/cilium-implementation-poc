@@ -97,27 +97,37 @@ jobs:
           tests/fabric-dashboard-unit.sh
           tests/dashboard-ui-unit.sh
 
-      # The node LAN the leaves attach to, and a cluster on it. Demo 46's
-      # claims are about the fabric and about the leaves' addresses on that
-      # LAN — not about what runs inside the cluster — so this is a bare kind
-      # cluster rather than the full Envoy Gateway install. It exists so the
-      # LAN has real nodes on it and the overlay attaches to something.
-      - name: The node LAN
-        run: scripts/eg-net.sh
+      # kind itself, at the version this repository pins. The cluster is then
+      # built by OUR script from OUR config, not by a third-party action: a
+      # cluster CI invented would not be the cluster anyone runs, and the first
+      # version of this workflow proved the point — its single-node cluster put
+      # the only node on 172.19.0.2, while clusters/eg-poc1.yaml is 1+1 and the
+      # recorded run's second node is the 172.19.0.3 that demo 46 probes.
+      - name: kind, at the pinned version
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          . scripts/bootstrap/versions.env
+          curl -fsSLo /tmp/kind \
+            "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+          kind version
 
-      - uses: helm/kind-action@v1
-        with:
-          cluster_name: eg-poc1
-          node_image: kindest/node:v1.36.4
-          wait: 120s
-        env:
-          KIND_EXPERIMENTAL_DOCKER_NETWORK: kind-eg
+      # scripts/eg-net.sh and scripts/eg-up.sh are the same two commands a
+      # person runs on a laptop — the node LAN with its reserved VIP range, the
+      # cluster from clusters/eg-poc1.yaml, and the lab's own assertion that no
+      # node landed outside 172.19.0.0/17.
+      - name: The node LAN and the cluster, by our own scripts
+        run: |
+          set -euo pipefail
+          scripts/eg-net.sh
+          scripts/eg-up.sh eg-poc1
 
       - name: What is on the node LAN
         run: |
           docker network inspect kind-eg \
             --format '{{range .Containers}}{{.Name}} {{.IPv4Address}}{{"\n"}}{{end}}'
-          kubectl get nodes -o wide
+          kubectl --context kind-eg-poc1 get nodes -o wide
 
       # apply.sh calls fabric-up.sh, which PULLS the published images for the
       # pinned commit. That is the chain this workflow exists to prove: a
@@ -242,4 +252,6 @@ jobs:
 
       - name: Clean up
         if: always()
-        run: demos/46-bgp-fabric/cleanup.sh || true
+        run: |
+          demos/46-bgp-fabric/cleanup.sh || true
+          kind delete cluster --name eg-poc1 || true
