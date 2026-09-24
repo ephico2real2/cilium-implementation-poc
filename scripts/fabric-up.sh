@@ -108,26 +108,18 @@ printf '\n### %s — fabric-up project=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$
 
 say() { echo "== $*"; }
 
-need_image() { # tag — 0 if we should build
-  if [ "${FABRIC_REBUILD:-0}" = 1 ]; then
-    return 0
-  fi
-  ! docker image inspect "$1" >/dev/null 2>&1
-}
-
-say "0. local images ($FABRIC_ROUTER_IMAGE, $FABRIC_DASHBOARD_IMAGE)"
-if need_image "$FABRIC_ROUTER_IMAGE"; then
-  rec docker build -t "$FABRIC_ROUTER_IMAGE" --build-arg FRR_IMAGE="$FRR_IMAGE" \
-    -f "$BGP_FABRIC/frr-agent/Containerfile" "$BGP_FABRIC/frr-agent"
-else
-  rec echo "image $FABRIC_ROUTER_IMAGE present"
-fi
-if need_image "$FABRIC_DASHBOARD_IMAGE"; then
-  rec docker build -t "$FABRIC_DASHBOARD_IMAGE" \
-    --build-arg REVISION="$REVISION" --build-arg BUILT="$BUILT" \
-    -f "$BGP_FABRIC/dashboard/Containerfile" "$BGP_FABRIC/dashboard"
-else
-  rec echo "image $FABRIC_DASHBOARD_IMAGE present"
+say "0. images ($FABRIC_ROUTER_IMAGE, $FABRIC_DASHBOARD_IMAGE)"
+# shellcheck disable=SC2034  # read by scripts/bgp-fabric-images.sh, sourced below
+FABRIC_DOCKER=(docker)
+# shellcheck disable=SC1091
+. scripts/bgp-fabric-images.sh
+fabric_get_images
+# The image must agree with the pin about which commit it is. A pulled tag can
+# be moved; a built one can lose its label to a missing per-stage ARG. Neither
+# is visible from the outside unless somebody reads it back.
+if ! fabric_verify_images; then
+  echo "fabric-up: the images do not match the pinned revision" >&2
+  exit 1
 fi
 
 say "1. docker compose up -d --wait (project $PROJECT)"

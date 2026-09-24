@@ -5,7 +5,8 @@
 #   (a) bgp-fabric's build-revision.sh prints ITS HEAD, and marks a dirty tree
 #   (b) scripts/fabric-up.sh passes that to `docker build` as --build-arg
 #   (c) scripts/fabric-colima-up.sh does the same
-#   (d) the build context is the bgp-fabric tree, not a path in this repo
+#   (d) the build CONTEXT — not only the -f path — is the bgp-fabric tree
+#   (e) the router agent is built from that tree too, by both scripts
 #
 # The distinction in (a) is the point. The dashboard source lives in
 # bgp-fabric now; a sha taken from THIS repository would name a commit whose
@@ -44,7 +45,7 @@ SHA_FABRIC=$(git -C "$T/fabric" rev-parse HEAD)
 mkdir -p "$T/bin" "$T/home" "$T/repo/scripts/bootstrap" \
   "$T/repo/demos/46-bgp-fabric/fabric" "$T/repo/demos/46-bgp-fabric-colima/fabric"
 for s in fabric-up.sh fabric-colima-up.sh fabric-colima-lib.sh record.sh \
-         bgp-fabric-fetch.sh bgp-fabric.env; do
+         bgp-fabric-fetch.sh bgp-fabric.env bgp-fabric-images.sh; do
   cp "$R/scripts/$s" "$T/repo/scripts/$s" \
     || { echo "TEST FAIL: scripts/$s does not exist"; exit 1; }
 done
@@ -61,11 +62,22 @@ SHA_LAB=$(git -C "$T/repo" rev-parse HEAD)
 # The whole test rests on being able to tell the two apart.
 [ "$SHA_LAB" != "$SHA_FABRIC" ] || { echo "TEST FAIL: both fixtures have the same HEAD"; exit 1; }
 
+# The stub records argv and answers the few questions the up-scripts ask.
+# `image inspect` says "absent" so a build always happens; `inspect -f
+# {{...revision}}` replays whatever the last build was stamped with, so
+# fabric_verify_images sees a coherent answer and the script runs to the end —
+# a stub that failed that check would stop the run before the second image.
 cat > "$T/bin/docker" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$DOCKER_LOG"
 case "$*" in
+  *"--build-arg REVISION="*)
+    printf '%s\n' "$*" | sed -n 's/.*--build-arg REVISION=\([^ ]*\).*/\1/p' > "${DOCKER_LOG}.rev"
+    exit 0 ;;
+esac
+case "$*" in
   *"image inspect"*)   exit 1 ;;
+  *"inspect -f"*revision*) cat "${DOCKER_LOG}.rev" 2>/dev/null; exit 0 ;;
   *compose*up*)        exit 1 ;;
   *"context inspect"*) echo 'unix:///dev/null'; exit 0 ;;
   *)                   exit 0 ;;
@@ -89,11 +101,21 @@ run() {
 }
 
 fail=0
+# The build CONTEXT is the LAST word of the command line. Testing the whole
+# line for the tree's path is satisfied by the `-f .../Containerfile`
+# argument on its own, so a script that kept -f and built a different
+# directory would pass — measured: reverting only the context to
+# `demos/46-bgp-fabric/dashboard` left this gate green.
+context_of() { local line=$1; printf '%s' "${line##* }"; }
+
 want_arg() {
-  local log=$1 label=$2 sha=$3 line
-  line=$(grep -E '(^| )build .*(dashboard|Containerfile)' "$log" | grep -- '--build-arg REVISION=' | head -1)
+  local log=$1 label=$2 sha=$3 line ctx
+  # Selected by the TAG it is built as. --build-arg REVISION no longer tells
+  # the two images apart (scripts/bgp-fabric-images.sh stamps both), and
+  # selecting on -f or on the context would pre-assume what is being asserted.
+  line=$(grep -E '(^| )build .*-t bgp-dashboard:' "$log" | head -1)
   if [ -z "$line" ]; then
-    echo "FAIL: $label built the dashboard image without --build-arg REVISION"
+    echo "FAIL: $label did not build the dashboard image at all"
     grep -E '(^| )build ' "$log" | sed 's/^/        /'
     fail=1
     return
@@ -111,9 +133,41 @@ want_arg() {
     *) echo "FAIL: $label passed no RFC-3339 BUILT:"; echo "      $line"; fail=1 ;;
   esac
   case "$line" in
-    *"$T/fabric/dashboard"*) ;;
-    *) echo "FAIL: $label did not build from the bgp-fabric tree:"; echo "      $line"; fail=1 ;;
+    *"-f $T/fabric/dashboard/Containerfile"*) ;;
+    *) echo "FAIL: $label did not use bgp-fabric's dashboard Containerfile:"
+       echo "      $line"; fail=1 ;;
   esac
+  ctx=$(context_of "$line")
+  if [ "$ctx" != "$T/fabric/dashboard" ]; then
+    echo "FAIL: $label built the dashboard from context $ctx,"
+    echo "      want $T/fabric/dashboard — the stamp would name a commit of a"
+    echo "      tree that is not what went into the image:"
+    echo "      $line"; fail=1
+  fi
+}
+
+# The agent is built from the same repository and by the same two scripts, and
+# nothing else in this gate looks at it: without this, reverting the agent
+# build to the deleted `demos/46-bgp-fabric/frr-agent` passed.
+want_agent() {
+  local log=$1 label=$2 line ctx
+  line=$(grep -E '(^| )build .*-t frr-agent:' "$log" | head -1)
+  if [ -z "$line" ]; then
+    echo "FAIL: $label never built the router agent"
+    grep -E '(^| )build ' "$log" | sed 's/^/        /'
+    fail=1
+    return
+  fi
+  case "$line" in
+    *"-f $T/fabric/frr-agent/Containerfile"*) ;;
+    *) echo "FAIL: $label did not use bgp-fabric's frr-agent Containerfile:"
+       echo "      $line"; fail=1 ;;
+  esac
+  ctx=$(context_of "$line")
+  if [ "$ctx" != "$T/fabric/frr-agent" ]; then
+    echo "FAIL: $label built the agent from context $ctx, want $T/fabric/frr-agent:"
+    echo "      $line"; fail=1
+  fi
 }
 
 IFS=$'\t' read -r rev built < <(cd "$T/fabric" && bash scripts/build-revision.sh)
@@ -125,8 +179,10 @@ esac
 
 run fabric-up.sh "$T/desktop.log"
 want_arg "$T/desktop.log" "fabric-up.sh" "$SHA_FABRIC"
+want_agent "$T/desktop.log" "fabric-up.sh"
 CTX=colima-bgp-fabric run fabric-colima-up.sh "$T/colima.log"
 want_arg "$T/colima.log" "fabric-colima-up.sh" "$SHA_FABRIC"
+want_agent "$T/colima.log" "fabric-colima-up.sh"
 
 # A dirty bgp-fabric tree must reach the label as -dirty; a dirty LAB tree
 # must not, because the lab's state says nothing about the code being built.

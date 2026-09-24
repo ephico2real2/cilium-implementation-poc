@@ -37,6 +37,8 @@ does not know Kubernetes. The path a packet takes is in the
 | [`fabric/entrypoint.sh`](fabric/entrypoint.sh) | renders the password, FORWARD drop on mgmt, INPUT accept on mgmt/`lo` and drop elsewhere, then `docker-start` |
 | [`../../scripts/bgp-fabric.env`](../../scripts/bgp-fabric.env) | which bgp-fabric commit this lab builds against — the agent and the dashboard come from there |
 | [`../../scripts/bgp-fabric-fetch.sh`](../../scripts/bgp-fabric-fetch.sh) | puts that commit on disk under `vendor/`; `BGP_FABRIC_DIR` overrides it |
+| [`../../.github/workflows/demo46-ci.yaml`](../../.github/workflows/demo46-ci.yaml) | the same demo on a runner: node LAN, kind cluster, fabric, apply, screenshots, check |
+| [`../../tests/run-demo46-gates.sh`](../../tests/run-demo46-gates.sh) | every gate that needs no running fabric, in one command |
 | [`../../scripts/fabric-up.sh`](../../scripts/fabric-up.sh) | builds `frr-agent:local` and `bgp-dashboard:local` if absent; compose up + convergence |
 | [`../../scripts/fabric-down.sh`](../../scripts/fabric-down.sh) | compose down; never removes `kind` / `kind-eg` |
 | [`../../scripts/fabric-status.sh`](../../scripts/fabric-status.sh) | four summaries + topology + dashboard one-liner |

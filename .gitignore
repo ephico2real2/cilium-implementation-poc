@@ -14,9 +14,8 @@ demos/40-shop-mesh-phase0/client/go/shopctl/bin/
 demos/46-bgp-fabric/fabric/.env
 demos/46-bgp-fabric-colima/fabric/.env
 
-# Go build artifacts: `go build ./...` in a dashboard or agent directory drops
-# the compiled binary beside the source, where it is invisible to `go test` and
-# easy to commit. tests/dashboard-copies-in-sync.sh catches it as drift.
-demos/*/dashboard/bgp-dashboard
-demos/*/frr-agent/frr-agent
-vendor/
+# The pinned bgp-fabric checkout (scripts/bgp-fabric-fetch.sh). Anchored, so
+# it ignores this one directory and not every `static/vendor/` a demo might
+# ever carry — bgp-fabric's dashboard ships one, and an un-anchored `vendor/`
+# would swallow it without a word.
+/vendor/

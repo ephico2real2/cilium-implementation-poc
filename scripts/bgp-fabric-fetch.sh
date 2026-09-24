@@ -12,6 +12,9 @@
 # because a lab built against an unpinned working tree is not a lab whose
 # result anyone can reproduce.
 set -euo pipefail
+# `cd` echoes the directory it landed on when the match came from CDPATH, and
+# that line would arrive on stdout beside the path the caller captures.
+unset CDPATH
 cd "$(dirname "$0")/.."
 # shellcheck disable=SC1091
 . scripts/bgp-fabric.env
@@ -30,33 +33,62 @@ if [ -n "${BGP_FABRIC_DIR:-}" ]; then
 fi
 
 DEST=vendor/bgp-fabric
+
+# Refuse an edited tree and say where to edit instead. `-d $DEST/dashboard`
+# guards the fast path against a run killed between the clone and the
+# checkout: `git clone --no-checkout` leaves an index in which every file
+# reads as deleted, and a bare cleanliness test would call that an edit and
+# never recover.
+refuse_if_edited() { # where — the sha the tree claims, for the message
+  [ -n "$(git -C "$DEST" status --porcelain)" ] || return 0
+  echo "bgp-fabric-fetch: $DEST has local modifications (tree is at $1)." >&2
+  echo "  It is a checkout of a pinned commit, not a place to edit." >&2
+  echo "  Edit the bgp-fabric repo and point at it with BGP_FABRIC_DIR," >&2
+  echo "  or discard the edit with: rm -rf $DEST" >&2
+  exit 1
+}
+
 if [ -d "$DEST/.git" ]; then
   have=$(git -C "$DEST" rev-parse HEAD 2>/dev/null || echo none)
-  if [ "$have" = "$BGP_FABRIC_COMMIT" ]; then
-    if [ -n "$(git -C "$DEST" status --porcelain)" ]; then
-      # Editing the vendored tree loses the edit on the next pin bump and makes
-      # the lab disagree with the commit it claims. Say so rather than fix it.
-      echo "bgp-fabric-fetch: $DEST has local modifications." >&2
-      echo "  It is a checkout of a pinned commit, not a place to edit." >&2
-      echo "  Edit the bgp-fabric repo and point at it with BGP_FABRIC_DIR." >&2
-      exit 1
-    fi
+  if [ "$have" = "$BGP_FABRIC_COMMIT" ] && [ -d "$DEST/dashboard" ]; then
+    refuse_if_edited "$have"
     echo "bgp-fabric-fetch: $DEST already at $BGP_FABRIC_COMMIT ($BGP_FABRIC_TAG)" >&2
     (cd "$DEST" && pwd)
     exit 0
   fi
+  # The remote URL is read from .git/config, written once at clone time: a
+  # repository that has moved in bgp-fabric.env would otherwise keep fetching
+  # from the old one while this script reports the new one.
+  git -C "$DEST" remote set-url origin "$BGP_FABRIC_REPO"
 else
   rm -rf "$DEST"
   mkdir -p "$(dirname "$DEST")"
   git clone -q --no-checkout "$BGP_FABRIC_REPO" "$DEST"
 fi
 
-git -C "$DEST" fetch -q --tags origin
-git -C "$DEST" checkout -q --detach "$BGP_FABRIC_COMMIT"
+# --force, because a tag MOVED upstream makes a plain `fetch --tags` exit 1
+# and `-q` swallows the reason: the lab would then die with no output at all,
+# over a tag the pin does not even use. Every git call here says what failed —
+# `set -e` alone aborts silently, and silence is what the pin is meant to end.
+if ! git -C "$DEST" fetch -q --force --tags origin; then
+  echo "bgp-fabric-fetch: cannot fetch $BGP_FABRIC_REPO into $DEST" >&2
+  exit 1
+fi
+if ! git -C "$DEST" checkout -q --detach "$BGP_FABRIC_COMMIT"; then
+  echo "bgp-fabric-fetch: cannot check out $BGP_FABRIC_COMMIT — force-pushed away," >&2
+  echo "  or a local edit is in the way. $DEST is a checkout, not a workspace." >&2
+  exit 1
+fi
 got=$(git -C "$DEST" rev-parse HEAD)
 if [ "$got" != "$BGP_FABRIC_COMMIT" ]; then
   echo "bgp-fabric-fetch: checked out $got, pinned $BGP_FABRIC_COMMIT" >&2
   exit 1
 fi
+# AFTER the checkout, not only before it: `git checkout` carries a modified
+# file across whenever the two commits hold it identically, and carries every
+# untracked file across unconditionally. The tree would then sit at the
+# pinned sha holding code that is not the pinned code — the one outcome a pin
+# exists to make impossible.
+refuse_if_edited "$BGP_FABRIC_COMMIT"
 echo "bgp-fabric-fetch: $DEST at $BGP_FABRIC_COMMIT ($BGP_FABRIC_TAG)" >&2
 (cd "$DEST" && pwd)

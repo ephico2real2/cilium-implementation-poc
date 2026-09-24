@@ -137,26 +137,15 @@ printf '\n### %s — fabric-colima-up project=%s ctx=%s\n' \
 
 say() { echo "== $*"; }
 
-need_image() {
-  if [ "${FABRIC_REBUILD:-0}" = 1 ]; then
-    return 0
-  fi
-  ! dk image inspect "$1" >/dev/null 2>&1
-}
-
-say "1. local images ($FABRIC_ROUTER_IMAGE, $FABRIC_DASHBOARD_IMAGE) via docker --context $CTX"
-if need_image "$FABRIC_ROUTER_IMAGE"; then
-  rec docker --context "$CTX" build -t "$FABRIC_ROUTER_IMAGE" --build-arg FRR_IMAGE="$FRR_IMAGE" \
-    -f "$BGP_FABRIC/frr-agent/Containerfile" "$BGP_FABRIC/frr-agent"
-else
-  rec echo "image $FABRIC_ROUTER_IMAGE present"
-fi
-if need_image "$FABRIC_DASHBOARD_IMAGE"; then
-  rec docker --context "$CTX" build -t "$FABRIC_DASHBOARD_IMAGE" \
-    --build-arg REVISION="$REVISION" --build-arg BUILT="$BUILT" \
-    -f "$BGP_FABRIC/dashboard/Containerfile" "$BGP_FABRIC/dashboard"
-else
-  rec echo "image $FABRIC_DASHBOARD_IMAGE present"
+say "1. images ($FABRIC_ROUTER_IMAGE, $FABRIC_DASHBOARD_IMAGE) via docker --context $CTX"
+# shellcheck disable=SC2034  # read by scripts/bgp-fabric-images.sh, sourced below
+FABRIC_DOCKER=(docker --context "$CTX")
+# shellcheck disable=SC1091
+. scripts/bgp-fabric-images.sh
+fabric_get_images
+if ! fabric_verify_images; then
+  echo "fabric-colima-up: the images do not match the pinned revision" >&2
+  exit 1
 fi
 
 say "2. docker --context $CTX compose up -d --wait (project $FABRIC_COLIMA_PROJECT)"

@@ -30,6 +30,8 @@ leaf2 `10.200.200.12`, dashboard `10.200.200.100`, Docker bridge
 | [scripts/fabric-colima-lib.sh](../../scripts/fabric-colima-lib.sh) | `CTX` gate, `dk`, restore-context trap |
 | [scripts/bgp-fabric.env](../../scripts/bgp-fabric.env) | which bgp-fabric commit this lab builds against |
 | [scripts/bgp-fabric-fetch.sh](../../scripts/bgp-fabric-fetch.sh) | puts that commit on disk under `vendor/`; `BGP_FABRIC_DIR` overrides it |
+| [scripts/demo46-colima-e2e.sh](../../scripts/demo46-colima-e2e.sh) | the whole demo on this machine: the VM, the fabric, the node LAN, a kind cluster on it, apply, check, the gates |
+| [tests/run-demo46-gates.sh](../../tests/run-demo46-gates.sh) | every gate that needs no running fabric, in one command |
 | [fabric/compose.yaml](fabric/compose.yaml) | project `bgp-fabric-colima`, port 8098, images `:colima` |
 | [fabric/.env.example](fabric/.env.example) | `FABRIC_BGP_PASSWORD` (copy to `.env`; gitignored) |
 | [check.sh](check.sh) | 17 rows; MD5 wire / mismatch / kernel FAIL if unsigned |
