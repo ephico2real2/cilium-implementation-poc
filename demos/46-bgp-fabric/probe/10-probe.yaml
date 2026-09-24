@@ -52,29 +52,28 @@ spec:
           labelSelector:
             matchLabels: { app: demo46-probe }
       containers:
-        - name: httpd
-          image: alpine:3.22
-          # The body IS the evidence: it names the pod and the node, so a 200
-          # proves which end answered rather than only that something did.
-          command: ["sh", "-c"]
-          args:
-            - |
-              mkdir -p /www
-              printf 'demo46-probe pod=%s node=%s\n' "$POD_NAME" "$NODE_NAME" > /www/index.html
-              exec httpd -f -p 8080 -h /www
-          env:
-            - name: POD_NAME
-              valueFrom: { fieldRef: { fieldPath: metadata.name } }
-            - name: NODE_NAME
-              valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+        - name: whoami
+          # traefik/whoami, 10.7 MB, pinned. It exists to answer "which backend
+          # served this?" — its reply carries the pod's hostname, which is the
+          # evidence a reachability test needs and the reason it is worth one
+          # image in the supply chain.
+          #
+          # The first attempt was busybox httpd on alpine:3.22, chosen to add
+          # no new image. It crash-looped: `busybox --list | grep -c httpd` is
+          # 0 on that image — httpd is not in Alpine's applet set, it lives in
+          # busybox-extras. Installing a package at container start would trade
+          # one image for a network dependency at runtime, which is worse.
+          image: traefik/whoami:v1.11
           ports:
-            - containerPort: 8080
+            - containerPort: 80
           readinessProbe:
-            httpGet: { path: /, port: 8080 }
+            httpGet: { path: /, port: 80 }
             periodSeconds: 2
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
           securityContext:
             allowPrivilegeEscalation: false
-            runAsNonRoot: false
             capabilities: { drop: [ALL] }
 ---
 apiVersion: v1
@@ -99,4 +98,4 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: 8080
+      targetPort: 80

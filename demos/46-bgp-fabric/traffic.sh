@@ -48,7 +48,17 @@ trap 'rm -f "$rendered"' EXIT
 sed -e "s|kube-vip.io/loadbalancerIPs: \"10.98.0.46\"|kube-vip.io/loadbalancerIPs: \"$VIP\"|" \
     -e "s|cidr-demo46: 10.98.0.46/32|cidr-demo46: $VIP/32|" "$PROBE" > "$rendered"
 rec kubectl --context "$CTX" apply -f "$rendered"
-rec kubectl --context "$CTX" -n demo46 rollout status deploy/demo46-probe --timeout=120s
+if ! kubectl --context "$CTX" -n demo46 rollout status deploy/demo46-probe --timeout=120s; then
+  # A Service address is pointless if nothing can answer on it. The previous
+  # run waited the full deadline for an address while both pods were in
+  # CrashLoopBackOff, and the reason was three screens further down.
+  echo "traffic: the probe pods never became ready" >&2
+  rec kubectl --context "$CTX" -n demo46 get pods -o wide
+  rec kubectl --context "$CTX" -n demo46 describe deploy/demo46-probe
+  rec kubectl --context "$CTX" -n demo46 logs -l app=demo46-probe --tail=40 --all-containers --prefix
+  exit 1
+fi
+rec kubectl --context "$CTX" -n demo46 get pods -o wide
 
 # kube-vip's cloud-provider is what writes status.loadBalancer.ingress; the
 # DaemonSet announces what it finds there. Waiting on the Service rather than
@@ -161,9 +171,13 @@ fi
 
 # (5) a packet arrives, and the body says which pod answered
 body=$("${COMPOSE[@]}" exec -T client0 curl -fsS --max-time 5 "http://$VIP/" 2>/dev/null) || body=""
-case "$body" in
-  demo46-probe*) row ok "client0 reaches $VIP" "$body" ;;
-  *)             row fail "client0 reaches $VIP" "body=[${body:-empty}]" ;;
+# whoami answers with "Hostname: <pod>", which in Kubernetes is the pod's own
+# name. That is the difference between "something answered" and "a pod behind
+# this Service answered"; `kubectl get pods -o wide` above maps it to a node.
+host=$(printf '%s' "$body" | sed -n 's/^Hostname: //p' | head -1)
+case "$host" in
+  demo46-probe-*) row ok "client0 reaches $VIP" "answered by $host" ;;
+  *)              row fail "client0 reaches $VIP" "body=[$(printf '%s' "${body:-empty}" | head -1)]" ;;
 esac
 
 # (6) repeatedly — one answer could be luck, and the count is reported
