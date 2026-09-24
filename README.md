@@ -12,10 +12,14 @@ every command with its recorded output:
    `iptables`, no Cilium — with **Envoy Gateway** as the Gateway API implementation and a software load balancer
    that has to be named on every door: **kube-vip** (`eg-poc1`, and the two-cluster `eg1`/`eg2`) or **MetalLB**
    (`eg-poc2`); the same sample app (HTTP + a real gRPC service) proved from the MacBook and the browser.
-3. **The BGP fabric** (demo 46, then 56): four FRR routers in docker compose — edge, spine, two leaves, each its own
-   AS — that any cluster lab attaches to by one compose overlay; the network team's sheet filled before the first
-   peer; then `eg-poc1` moves from L2 to BGP with kube-vip (demo 56), MetalLB's FRR-K8s BGP (57) and Cilium's
-   own BGP (47–49) are next.
+3. **The BGP fabric** — four FRR routers in docker compose (edge, spine, two leaves, each its own AS) that any
+   cluster lab attaches to by one compose overlay, with the network team's sheet filled before the first peer.
+   It exists twice, because the engine underneath decides whether the sessions are really signed: **demo 46** runs
+   it on a Colima Ubuntu VM, whose kernel has `CONFIG_TCP_MD5SIG`, and **demo 55** runs it on a plain Docker
+   engine — Docker Desktop on a Mac, or a Linux host's own engine, which is what CI uses. Each fabric comes
+   before the demos that peer into it: 46 before `eg-poc1-colima`/`eg-poc2-colima` (52c, 54c), 55 before demo 56,
+   where `eg-poc1` moves from L2 to BGP with kube-vip. MetalLB's FRR-K8s BGP (57) and Cilium's own BGP (47–49)
+   are next.
 
 ![Hubble / Policy Verdicts: the pos client forwarded by the generated policy, the stranger dropped 238 times, audit first](demos/26-cf2cnp-policy-from-flows/output/screenshots/grafana-policy-verdicts.png)
 
@@ -134,7 +138,7 @@ The pins the scripts install are in [`scripts/bootstrap/versions.env`](scripts/b
 | `eg1` / `eg2` (the two-cluster lab, demos 50–51) | 1 + 1 each | `10.50` / `10.60` | `10.51` / `10.61` | `172.19.255.192/26` / `.128/26`, the shared VIP `.0/26` |
 | `eg-poc1` (kube-vip, demos 54 and 56) | 1 + 1 | `10.70.0.0/16` | `10.71.0.0/16` | `172.19.255.64/26` (doors `.100`/`.101`); BGP block `10.98.0.0/26` |
 | `eg-poc2` (MetalLB, demo 52) | 1 + 1 | `10.80.0.0/16` | `10.81.0.0/16` | `172.19.255.128/26` (doors `.150`/`.151`); BGP block `10.98.0.64/26` |
-| the fabric `bgp-fabric` (demo 46) | edge AS 65000, spine 65100, leaf1 65101, leaf2 65102, `client0` | — | — | the leaves at `172.19.254.11`/`.12`; the fabric's own links in `10.200.0.0/16` |
+| the fabric `bgp-fabric` (demo 55, the engine CI runs) | edge AS 65000, spine 65100, leaf1 65101, leaf2 65102, `client0` | — | — | the leaves at `172.19.254.11`/`.12`; the fabric's own links in `10.200.0.0/16` |
 
 Docker allocates node addresses from the lower `/17` only, so the top `/24` and the network-devices `/24` are the
 lab's to carve (the reservation trick, [NETWORKING_DESIGN.md](NETWORKING_DESIGN.md)). The guide is one script per
@@ -211,9 +215,9 @@ on the one before.
 | 51 | [Envoy Gateway with kube-vip — alone](demos/51-eg-kube-vip/README.md) | kube-vip class-only on both EG clusters, doors that name their load balancer on the `EnvoyProxy`, the R7 silent-`externalIPs` experiment, the shared VIP moved delete-other-first (gap 10.486 s / 8.976 s), shopapi + gRPC `SERVING` on h2c and TLS; MetalLB is not here | [RECAP.md](demos/51-eg-kube-vip/RECAP.md) (plain English), [`output/transcript.txt`](demos/51-eg-kube-vip/output/transcript.txt), `check.sh` |
 | 52 | [One cluster, MetalLB, two Gateways](demos/52-eg-poc2-metallb/README.md) | one kind cluster `eg-poc2` (kindnet + kube-proxy iptables, no Cilium); MetalLB L2; two doors (`http-gw` `.150`, `grpc-gw` `.151`); the sample app plus a real gRPC service and the gRPC test matrix | [RECAP.md](demos/52-eg-poc2-metallb/RECAP.md) (plain English), [`output/transcript.txt`](demos/52-eg-poc2-metallb/output/transcript.txt), `check.sh` |
 | 54 | [One cluster, kube-vip, two Gateways](demos/54-eg-poc1-kube-vip/README.md) | one kind cluster `eg-poc1` (kindnet + kube-proxy iptables, no Cilium); two doors (`http-gw` `.100`, `grpc-gw` `.101`); kube-vip announces both from `eg-poc1-worker`; the Mac's curl, grpcurl and Chrome; `check.sh` 15 PASS | [RECAP.md](demos/54-eg-poc1-kube-vip/RECAP.md) (plain English), [`output/transcript.txt`](demos/54-eg-poc1-kube-vip/output/transcript.txt), `check.sh` |
-| | **The BGP fabric** — four FRR routers, attachable to any cluster lab | | |
-| 46 | [The company fabric on Colima, TCP MD5 enforced](demos/46-bgp-fabric-colima/README.md) | the demo 46 fabric on a Colima Ubuntu VM (`CONFIG_TCP_MD5SIG=y`): sessions signed on the wire (18 packets) and a wrong password tears one down (`Established→Idle`); fabric alone this phase (no kind overlay); dashboard `127.0.0.1:8098` | [RECAP.md](demos/46-bgp-fabric-colima/RECAP.md), [`output/transcript.txt`](demos/46-bgp-fabric-colima/output/transcript.txt), `check.sh` |
-| 55 | [The company fabric on Docker Desktop](demos/55-bgp-fabric-desktop/README.md) | four FRR routers in compose (edge 65000, spine 65100, leaf1 65101, leaf2 65102), eBGP, RFC 8212 on; leaves attach to `kind-eg` or `kind` by overlay; `client0` reaches every loopback through the fabric | [RECAP.md](demos/55-bgp-fabric-desktop/RECAP.md), [`output/transcript.txt`](demos/55-bgp-fabric-desktop/output/transcript.txt), `check.sh` |
+| | **The BGP fabric** — four FRR routers, attachable to any cluster lab. Twice: 46 on Colima (a kernel that signs), 55 on a plain Docker engine. Each precedes the demos that peer into it | | |
+| 46 | [The company fabric on Colima, TCP MD5 enforced](demos/46-bgp-fabric-colima/README.md) | the fabric on a Colima Ubuntu VM (`CONFIG_TCP_MD5SIG=y`): sessions signed on the wire (18 packets) and a wrong password tears one down (`Established→Idle`); fabric alone this phase (no kind overlay); dashboard `127.0.0.1:8098`. The fabric demos 52c and 54c peer into, and the one this MacBook runs (`scripts/demo46-colima-e2e.sh`) | [RECAP.md](demos/46-bgp-fabric-colima/RECAP.md), [`output/transcript.txt`](demos/46-bgp-fabric-colima/output/transcript.txt), `check.sh` |
+| 55 | [The company fabric on Docker Desktop](demos/55-bgp-fabric-desktop/README.md) | four FRR routers in compose (edge 65000, spine 65100, leaf1 65101, leaf2 65102), eBGP, RFC 8212 on; leaves attach to `kind-eg` or `kind` by overlay; `client0` reaches every loopback through the fabric. The fabric demo 56 peers into, and the one CI runs end to end — a Linux runner IS a plain Docker engine, and Colima cannot start on one | [RECAP.md](demos/55-bgp-fabric-desktop/RECAP.md), [`output/transcript.txt`](demos/55-bgp-fabric-desktop/output/transcript.txt), `check.sh` |
 | 56 | [kube-vip in BGP mode](demos/56-kube-vip-bgp/README.md) | eg-poc1 migrates from L2 to BGP: kube-vip AS 65021 peers with both leaves; doors `10.98.0.10` / `.11`; election then active-active (ECMP); demo 54's `.100`/`.101` stop answering; the gRPC matrix from `client0` | [RECAP.md](demos/56-kube-vip-bgp/RECAP.md), `check.sh` |
 | | **Observability** — hub on poc1, poc2 a spoke | | |
 | 10 | [Flow export → OpenTelemetry](demos/10-tracing/README.md) | Hubble's dynamic exporter per node tailed by a Collector into OTLP; every flow persistent and queryable — events, not spans (gotcha #30) | [pods + output](demos/10-tracing/README.md#evidence) |
