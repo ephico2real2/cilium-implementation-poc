@@ -43,10 +43,14 @@ jobs:
   demo46:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    env:
-      CTX: default
-      FABRIC_ANY_CONTEXT: "1"
-      CHROME: /usr/bin/google-chrome
+    # No job-level CTX or FABRIC_ANY_CONTEXT. The Desktop demo-46 path calls
+    # plain `docker` and needs neither — and setting them here changed what the
+    # colima-variant gates measured: check.sh sources fabric-colima-lib.sh,
+    # whose CTX defaults to the environment, so CTX=default made its context
+    # gate refuse and three gates failed on the runner while passing on a Mac.
+    # Reproduced locally with `CTX=default bash tests/check46-colima-*.sh`, and
+    # refuted the platform explanation by running them green in an ubuntu:24.04
+    # container. A per-step variable cannot do that to a step that ignores it.
     steps:
       - uses: actions/checkout@v5
         with:
@@ -111,6 +115,8 @@ jobs:
       # commit, and this lab running it.
       - name: Apply — the fabric, the tables, the events, the screenshots
         id: apply
+        env:
+          CHROME: /usr/bin/google-chrome
         run: demos/46-bgp-fabric/apply.sh
 
       - name: The running dashboard names the pinned commit

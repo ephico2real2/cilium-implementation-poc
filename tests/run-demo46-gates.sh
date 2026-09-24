@@ -29,7 +29,17 @@ for t in tests/*46*.sh tests/*46*.py tests/fabric-*.sh tests/bgp-fabric-*.sh tes
   case " $SKIP " in *" $(basename "$t") "*) continue ;; esac
   case "$t" in *.py) cmd=(python3 "$t") ;; *) cmd=(bash "$t") ;; esac
   ran=$((ran + 1))
-  if out=$("${cmd[@]}" 2>&1); then
+  # Each gate runs with the fabric variables cleared. They are inputs to the
+  # scripts under test — CTX picks the Docker context, FABRIC_PROJECT the
+  # compose project — so a caller that happens to have one set changes what the
+  # gate measures. Measured 2026-09-23: a CI job with CTX=default in its
+  # environment failed three colima gates that pass on a laptop, because
+  # check.sh's context gate then refused and the rows it produced were not the
+  # rows the gate was reading.
+  if out=$(env -u CTX -u FABRIC_ANY_CONTEXT -u FABRIC_PROJECT -u FABRIC_ROOT \
+             -u FABRIC_DASHBOARD_PORT -u FABRIC_IMAGE_SOURCE -u BGP_FABRIC_DIR \
+             -u FABRIC_ROUTER_IMAGE -u FABRIC_DASHBOARD_IMAGE -u FABRIC_REBUILD \
+             "${cmd[@]}" 2>&1); then
     printf '  PASS  %s\n' "$t"
   else
     printf '  FAIL  %s\n' "$t"
