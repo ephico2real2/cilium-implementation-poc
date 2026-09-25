@@ -121,7 +121,7 @@ if not apply_starts:
     bad.append("no '— demo 46-colima apply' header in the transcript")
 final = "\n".join(tx_lines[apply_starts[-1]:]) if apply_starts else tx
 last_apply_ts = tx_lines[apply_starts[-1]].split()[1] if apply_starts else ""
-for page in ("README.md", "RECAP.md"):
+for page in ("README.md", "RECAP.md", "NETWORK-TEAM-SHEET.md"):
     page_text = (root / page).read_text()
     if last_apply_ts and last_apply_ts not in page_text:
         bad.append("%s does not cite the last apply %s" % (page, last_apply_ts))
@@ -210,6 +210,72 @@ for p in (root / "RECAP.md", root / "README.md"):
     ):
         if stale in text:
             bad.append("%s still quotes a superseded run: %r" % (p, stale))
+
+# A world-state claim ("the cluster is not here yet") is wrong on EVERY page or
+# none, so it is checked on every page rather than on the two that happened to
+# be edited. Measured 2026-09-25: OB1's staleness assertions ran on README and
+# RECAP only, so NETWORK-TEAM-SHEET.md sat in this gate's page list for A1/A2
+# and was exempt from them — after both clusters peered it still cited apply
+# 2026-09-21T02:58:09Z, headed its table "this phase is the fabric alone" and
+# called attaching a cluster "the next phase".
+#
+# These are the specific superseded sentences, not the bare words "next phase":
+# REQUIRING that phrase is the bug this gate shipped before, and forbidding it
+# outright would be the same mistake mirrored — a demo may legitimately have a
+# next phase again. The positive assertions below are the real guard.
+for page in ("README.md", "RECAP.md", "GUIDE.md", "NETWORK-TEAM-SHEET.md", "KERNEL-EVIDENCE.md"):
+    text = (root / page).read_text()
+    for stale in (
+        "this phase is the fabric alone",
+        "Attaching a kind cluster is the next phase",
+        "Not attached on this Docker context",
+        "not this phase",
+        "not yet recorded on this fabric",
+        "2026-09-21T02:58:09Z",
+    ):
+        if stale in text:
+            bad.append("%s describes the fabric from before the clusters: %r" % (page, stale))
+
+# What the sheet must now say is READ FROM the last apply, not typed here. The
+# leaves' `show bgp summary json` in that block names every dynamic peer with
+# its address, hostname and AS, and the dashboard line names the session and
+# external-peer counts. A needle typed by hand pins the sheet to the run the
+# gate's author saw: the next apply moves a node and the sheet keeps the old
+# address while the gate still passes — the same drift this gate was extended
+# to catch.
+dyn_peer_re = re.compile(
+    r'"(?P<addr>\d+\.\d+\.\d+\.\d+)":\{\s*"dynamicPeer":true,\s*'
+    r'"hostname":"(?P<host>[^"]+)",\s*'
+    # softwareVersion is optional: FRR prints "n/a" here today, and a version
+    # that stops printing it should not make this gate fail for the wrong reason
+    r'(?:"softwareVersion":"[^"]*",\s*)?'
+    r'"remoteAs":(?P<asn>\d+),'
+)
+dyn_peers = {(m.group("addr"), m.group("host"), m.group("asn")) for m in dyn_peer_re.finditer(final)}
+if len(dyn_peers) != 4:
+    bad.append("final apply names %d distinct dynamic peers on the leaves, not 4" % len(dyn_peers))
+sheet_pg = (root / "NETWORK-TEAM-SHEET.md").read_text()
+for addr, host, asn in sorted(dyn_peers):
+    # the sheet names the cluster and abbreviates the node role ("-worker"),
+    # so the node's cluster name is required, not the whole hostname
+    cluster = re.sub(r"-(control-plane|worker\d*)$", "", host)
+    for needle in (addr, cluster, asn):
+        if needle not in sheet_pg:
+            bad.append("NETWORK-TEAM-SHEET.md does not name %r (peer %s in the last apply)" % (needle, addr))
+summary = re.search(
+    r"^routers=\d+/\d+ fabric=\d+/\d+ (?P<server>server=\d+/\d+) (?P<external>external=\d+)$",
+    final, flags=re.M,
+)
+if summary is None:
+    bad.append("final apply transcript lacks the dashboard summary line")
+else:
+    if summary.group("server") not in sheet_pg:
+        bad.append("NETWORK-TEAM-SHEET.md does not quote %r from the last apply" % summary.group("server"))
+    # KERNEL-EVIDENCE.md describes the dashboard in the present tense ("the
+    # cluster's nodes as external peers"); the count is its one world-state
+    # number, so it is the one thing that page must carry from the last apply.
+    if summary.group("external") not in (root / "KERNEL-EVIDENCE.md").read_text():
+        bad.append("KERNEL-EVIDENCE.md does not quote %r from the last apply" % summary.group("external"))
 
 guide = (root / "GUIDE.md").read_text()
 if "10.5.3" in guide:
