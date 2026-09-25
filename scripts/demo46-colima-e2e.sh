@@ -53,27 +53,26 @@ echo "== 3. apply — the tables, the events, the screenshots"
 "$HERE/apply.sh"
 
 if [ "$want_cluster" -eq 1 ]; then
-  # AFTER apply, not before. apply.sh calls fabric-colima-up.sh, which runs
-  # `compose up -d --wait` with the BASE file only — and compose reconciles a
-  # container to the spec it is given, so an overlay attached beforehand is
-  # removed again. Measured: leaf1 came back on link-leaf1-spine and mgmt
-  # alone, and servers-join refused because the leaves were not on the node
-  # LAN. --no-recreate so the four routers keep the sessions apply just
-  # recorded; the change only adds an interface.
-  # AFTER apply, so apply's transcript block is recorded before the leaves
-  # gain an interface. The overlay first, then `docker network connect` for
-  # whatever it did not attach: `--no-recreate` cannot add a network to a
-  # RUNNING container — compose would have to recreate it, which is the one
-  # thing that flag forbids — so the overlay alone is a no-op on an already
-  # converged fabric, and the leaves stayed on link-*-spine and mgmt only.
+  # AFTER apply, so apply's transcript block (fabric-colima-up.sh's base-file
+  # `compose up -d --wait` included) is recorded before the leaves gain an
+  # interface. The ordering is about the transcript, not about keeping the
+  # interface: mustRecreate (compose v5.5.1 pkg/compose/reconcile.go)
+  # recreates on a config-hash or image change, or on a MISSING expected
+  # network — never on an additional one — so a `connect` survives a later
+  # base-file `up` as long as nothing else about the service changed
+  # (measured on a throwaway project: same container id, extra network kept;
+  # a missing expected network is recreated; --no-recreate does neither).
+  # An earlier run's "leaf1 came back on link-leaf1-spine and mgmt alone" was
+  # not a removal — the overlay had never attached, see below.
   #
-  # What compose does NOT do is remove an extra network: mustRecreate
-  # (compose v5.5.1 pkg/compose/reconcile.go) recreates on a config-hash or
-  # image change, or on a MISSING expected network — never on an additional
-  # one — so a `connect` survives a later base-file `up`, and the ordering
-  # here is about the transcript, not about keeping the interface.
-  # demos/54-eg-poc1-kube-vip-colima/apply.sh has carried this fallback since
-  # it met the same wall.
+  # The overlay first, then `docker network connect` for whatever it did not
+  # attach: `--no-recreate` cannot add a network to a RUNNING container —
+  # compose would have to recreate it, which is the one thing that flag
+  # forbids — so the overlay alone is a no-op on an already converged fabric,
+  # and the leaves stayed on link-*-spine and mgmt only. --no-recreate so the
+  # four routers keep the sessions apply just recorded; the change only adds
+  # an interface. demos/54-eg-poc1-kube-vip-colima/apply.sh has carried this
+  # fallback since it met the same wall.
   echo "== 4. attach the leaves to the node LAN"
   fabric_colima_compose_lan up -d --no-recreate --no-build
   leaf_lan_ip() { # container — its address on the node LAN, or empty

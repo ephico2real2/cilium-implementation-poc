@@ -31,7 +31,7 @@ This is the sharpest difference, and it cost a phase-0 experiment to find
 
 | | Cilium | kube-vip | MetalLB |
 |---|---|---|---|
-| `Gateway.spec.addresses` alone | the address is taken **and announced** | `status.addresses` shows it, the Service gets `externalIPs`, **`arping` gets no reply** | the same — unannounced |
+| `Gateway.spec.addresses` alone | the address is taken **and announced** | `status.addresses` shows it, the Service gets `externalIPs`, **`arping` gets no reply** | **not tried alone here** — R0.5 step 3 created the MetalLB Gateway with its `EnvoyProxy` from the start, and demo 52 names the address in both places on the kube-vip result (`30-gateways.yaml`) |
 | what actually announces it | the pool's selector matching the Gateway | `envoyService.loadBalancerIP` + `loadBalancerClass` on the `EnvoyProxy` | `metallb.io/loadBalancerIPs` on the `EnvoyProxy` |
 | objects the address is named in | 1 | 2 | 2 |
 
@@ -113,7 +113,7 @@ Cilium underneath. Adding policy to them would mean adding a CNI that has it.
 |---|---|
 | ~40 ms lease move | `demos/40-shop-mesh-phase0/RECAP.md` |
 | `gap_s=9.368` / `9.377`, and `10.837 s` / `10.909 s` | `demos/51-eg-kube-vip/RECAP.md`; all four earlier gaps in `output/transcript.txt` |
-| `spec.addresses` alone is unannounced | `docs/EG-PHASE0.md` R0.5; demo 51 R7 |
+| `spec.addresses` alone is unannounced | `docs/EG-PHASE0.md` R0.5 step 1 and demo 51 R7 — both kube-vip; R0.5 step 3 created the MetalLB Gateway with its `EnvoyProxy` from the start, so MetalLB was never measured alone |
 | a class-less Service stays `<pending>` | `docs/EG-PHASE0.md` R0.4; demo 51 `15-probe-noclass.yaml` |
 | row counts | the LAST recorded `check.sh` block in each demo's `output/transcript.txt` — not a `grep` of the script, which counts mentions and not rows |
 | 7 + 5 `CiliumNetworkPolicy` | `demos/41-shop-mesh-phase1/policies/<cluster>/cnp-shop-intent.yaml` and `20-default-deny-ingress.yaml`; the RECAP's `7/7 exact names` |

@@ -249,10 +249,20 @@ rec "${COMPOSE[@]}" exec -T spine ip route show "$VIP"
 rec "${COMPOSE[@]}" exec -T leaf1 vtysh -c "show bgp ipv4 unicast $VIP/32"
 # Six replies, each recorded on its own line. Two pods behind the address and
 # ECMP across two leaves, so the node names in these six are the only place
-# the transcript says which end actually answered.
+# the transcript says which end actually answered. Each one is a claim, not a
+# diagnostic: rec returns curl's own rc (RECORD_STRICT=1 above), and without
+# this row a reply that failed here was written to the transcript as
+# "[exit code: 22]" under a footer that still said 0 FAIL (measured with a
+# stub: tests/fabric-traffic-recorded-replies.sh).
+replies=0
 for _ in 1 2 3 4 5 6; do
-  rec "${COMPOSE[@]}" exec -T client0 curl -fsS --max-time 3 "http://$VIP/"
+  rec "${COMPOSE[@]}" exec -T client0 curl -fsS --max-time 3 "http://$VIP/" && replies=$((replies + 1))
 done
+if [ "$replies" -eq 6 ]; then
+  row ok "6 recorded replies from client0" "6/6 answered"
+else
+  row fail "6 recorded replies from client0" "$replies/6 answered"
+fi
 
 echo
 echo "demo 46 traffic: $fails FAIL"
