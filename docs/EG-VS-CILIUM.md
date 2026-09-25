@@ -17,7 +17,7 @@ per stack, every number from a recorded transcript.
 | the address pool | `CiliumLoadBalancerIPPool` | a `kubevip` ConfigMap, ranges per namespace | `IPAddressPool` |
 | who announces | `CiliumL2AnnouncementPolicy` | the kube-vip DaemonSet | `L2Advertisement` |
 | the Gateway's proxy | shared — the cluster's Envoy | **per Gateway** (`infrastructure.parametersRef` → `EnvoyProxy`) | per Gateway |
-| objects to place one door | 3 (pool, announcement, Gateway) | 4 (ConfigMap, DaemonSet, `EnvoyProxy`, Gateway) | 4 (`IPAddressPool`, `L2Advertisement`, `EnvoyProxy`, Gateway) |
+| objects to place one door — the **installer** not counted, equally for all three (Cilium's agent and operator; kube-vip's DaemonSet, cloud-provider and RBAC; MetalLB's controller and speaker) | 3 (pool, announcement, Gateway) | 3 (ConfigMap, `EnvoyProxy`, Gateway) | 4 (`IPAddressPool`, `L2Advertisement`, `EnvoyProxy`, Gateway) |
 
 Cilium's pool **selects** the Gateway (`selector: owning-gateway In [shop-vip-gw]`),
 so the address follows the object. The other two hand the address to the
@@ -59,25 +59,27 @@ claimed anyway — measured in `EG-PHASE0.md` R0.4 *"First measurement
 
 **These two numbers answer different questions.** Demo 51's own RECAP says so:
 *"the probe gap is the new Envoy pod turning Ready"* — kube-vip elects among
-the nodes in well under a second, and the nine seconds is Kubernetes starting
-a Deployment. Cilium's ~40 ms is a lease changing hands between agents that
-are already running. Timing kube-vip's announcement alone against Cilium's
-lease would be the fair comparison, and this lab has not done it.
+the nodes **with a ready LOCAL endpoint** (`externalTrafficPolicy: Local`),
+and its log window with no announcer is 10.837 s / 10.909 s, which is the time
+Kubernetes took to start the Deployment. Cilium's ~40 ms is a lease changing
+hands between agents that are already running. **This lab has never timed
+kube-vip's election on its own**; that, against Cilium's lease, would be the
+fair comparison.
 
 The honest summary: **a shared Envoy Gateway VIP moves as fast as a new Envoy
 pod becomes Ready.** That is a property of per-Gateway proxies, not of
-kube-vip.
+kube-vip, and nothing here measures kube-vip itself.
 
 ## gRPC
 
 All three carry gRPC, and the route is load-balancer-independent — which is
 itself the finding.
 
-| | rows in `check.sh` | what was proved |
-|---|---|---|
-| Cilium (53) | 58 | poc1 `h2c` and TLS `SERVING`, reflection; poc2's first `GRPCRoute` on `shop-gw`, both listeners |
-| kube-vip (51) | 6 | `SERVING` plaintext on `:80` and TLS on `:443`, per door and on the shared VIP |
-| MetalLB (52) | 22 | the full matrix — `ListOrders v1`, `GetOrder v2`, `NotFound`, `Unimplemented`, `DeadlineExceeded`, an unrouted service, TLS |
+| | rows in the recorded check | of them, gRPC | what was proved |
+|---|---|---|---|
+| Cilium (53) | 11 | 9 | poc1 `h2c` and TLS `SERVING`, reflection; poc2's first `GRPCRoute` on `shop-gw`, both listeners |
+| kube-vip (51) | 39 | 6 | `SERVING` plaintext on `:80` and TLS on `:443`, per door and on the shared VIP |
+| MetalLB (52) | 21 | 10 | the full matrix — `ListOrders v1`, `GetOrder v2`, `WatchOrders`, `NotFound`, `Unimplemented`, `DeadlineExceeded`, an unrouted service, TLS |
 
 A `GRPCRoute` behaves the same behind all three. The differences above are in
 how much each demo chose to measure, not in what the stacks can do.
@@ -86,7 +88,7 @@ how much each demo chose to measure, not in what the stacks can do.
 
 | | Cilium | kube-vip | MetalLB |
 |---|---|---|---|
-| `CiliumNetworkPolicy` | **4 policies** (demo 41: `api-gateway`, `backend`, `catalog`, `orders`, `payment-gateway`) | none | none |
+| `CiliumNetworkPolicy` | **7 per cluster** (demo 41: `api-gateway`, `backend`, `catalog`, `payment-gateway`, `orders`, `reviews`, `merchant`) plus **5** `default-deny-ingress`, one per namespace | none | none |
 | why | Cilium is the CNI; identity-based policy is the same object that runs the door | kindnet — no network policy engine installed | kindnet |
 
 This is not a fair fight and should not be read as one. The Envoy Gateway labs
@@ -110,11 +112,11 @@ Cilium underneath. Adding policy to them would mean adding a CNI that has it.
 | claim | source |
 |---|---|
 | ~40 ms lease move | `demos/40-shop-mesh-phase0/RECAP.md` |
-| `gap_s=9.368` / `9.377` | `demos/51-eg-kube-vip/RECAP.md`, from `output/transcript.txt` |
+| `gap_s=9.368` / `9.377`, and `10.837 s` / `10.909 s` | `demos/51-eg-kube-vip/RECAP.md`; all four earlier gaps in `output/transcript.txt` |
 | `spec.addresses` alone is unannounced | `docs/EG-PHASE0.md` R0.5; demo 51 R7 |
 | a class-less Service stays `<pending>` | `docs/EG-PHASE0.md` R0.4; demo 51 `15-probe-noclass.yaml` |
-| gRPC row counts | each demo's `check.sh` |
-| 4 `CiliumNetworkPolicy` | `demos/41-shop-mesh-phase1/` |
+| row counts | the LAST recorded `check.sh` block in each demo's `output/transcript.txt` — not a `grep` of the script, which counts mentions and not rows |
+| 7 + 5 `CiliumNetworkPolicy` | `demos/41-shop-mesh-phase1/policies/<cluster>/cnp-shop-intent.yaml` and `20-default-deny-ingress.yaml`; the RECAP's `7/7 exact names` |
 
 Nothing here is estimated. Where a number does not exist — MetalLB's failover
 — the row says so rather than borrowing one.
