@@ -45,18 +45,52 @@ if [ "$want_cluster" -eq 1 ]; then
   echo "== 2. the node LAN and a kind cluster on it"
   scripts/eg-colima-up.sh
 
-  echo "== 3. attach the leaves to the node LAN"
-  # --no-recreate: the four routers are already up and converged from step 1;
-  # recreating them would restart BGP for a change that only adds an interface.
-  fabric_colima_compose_lan up -d --no-recreate --wait
-  fabric_colima_compose_lan exec -T leaf1 ip -brief addr show
-  fabric_colima_compose_lan exec -T leaf2 ip -brief addr show
 else
-  echo "== 2-3. skipped (--no-cluster): the fabric alone, no node LAN"
+  echo "== 2. skipped (--no-cluster): the fabric alone, no node LAN"
 fi
 
-echo "== 4. apply — the tables, the events, the screenshots"
+echo "== 3. apply — the tables, the events, the screenshots"
 "$HERE/apply.sh"
+
+if [ "$want_cluster" -eq 1 ]; then
+  # AFTER apply, so apply's transcript block (fabric-colima-up.sh's base-file
+  # `compose up -d --wait` included) is recorded before the leaves gain an
+  # interface. The ordering is about the transcript, not about keeping the
+  # interface: mustRecreate (compose v5.5.1 pkg/compose/reconcile.go)
+  # recreates on a config-hash or image change, or on a MISSING expected
+  # network — never on an additional one — so a `connect` survives a later
+  # base-file `up` as long as nothing else about the service changed
+  # (measured on a throwaway project: same container id, extra network kept;
+  # a missing expected network is recreated; --no-recreate does neither).
+  # An earlier run's "leaf1 came back on link-leaf1-spine and mgmt alone" was
+  # not a removal — the overlay had never attached, see below.
+  #
+  # The overlay first, then `docker network connect` for whatever it did not
+  # attach: `--no-recreate` cannot add a network to a RUNNING container —
+  # compose would have to recreate it, which is the one thing that flag
+  # forbids — so the overlay alone is a no-op on an already converged fabric,
+  # and the leaves stayed on link-*-spine and mgmt only. --no-recreate so the
+  # four routers keep the sessions apply just recorded; the change only adds
+  # an interface. demos/54-eg-poc1-kube-vip-colima/apply.sh has carried this
+  # fallback since it met the same wall.
+  echo "== 4. attach the leaves to the node LAN"
+  fabric_colima_compose_lan up -d --no-recreate --no-build
+  leaf_lan_ip() { # container — its address on the node LAN, or empty
+    dk inspect -f "{{(index .NetworkSettings.Networks \"$KIND_EG_COLIMA_NET\").IPAddress}}" "$1" 2>/dev/null || true
+  }
+  for pair in "leaf1 $KIND_EG_COLIMA_LEAF1" "leaf2 $KIND_EG_COLIMA_LEAF2"; do
+    leaf=${pair%% *}; want=${pair##* }
+    c="${FABRIC_COLIMA_PROJECT}-${leaf}-1"
+    got=$(leaf_lan_ip "$c")
+    if [ "$got" != "$want" ]; then
+      echo "  $leaf not at $want (got ${got:-absent}) — docker network connect"
+      dk network connect --ip "$want" "$KIND_EG_COLIMA_NET" "$c" 2>/dev/null || true
+      got=$(leaf_lan_ip "$c")
+    fi
+    echo "  $leaf $KIND_EG_COLIMA_NET=$got"
+    [ "$got" = "$want" ] || { echo "demo46-colima-e2e: $leaf is not at $want" >&2; exit 1; }
+  done
+fi
 
 if [ "$want_cluster" -eq 1 ]; then
   # One implementation, two fabrics: the scripts live in scripts/ and take
@@ -64,7 +98,7 @@ if [ "$want_cluster" -eq 1 ]; then
   # these exports are the ones that differ from a bare run — the cluster, the
   # kubeconfig, the project and the port — plus the kube-vip DaemonSet, which
   # is demo 54c's on this fabric and demo 56's on demo 55's.
-  echo "== 4b. servers dial in, and a packet crosses to what they announce"
+  echo "== 5. servers dial in, and a packet crosses to what they announce"
   export CTX_DOCKER="$CTX"
   export FABRIC_DEMO_HERE="$HERE"
   export FABRIC_PROJECT="$FABRIC_COLIMA_PROJECT"
@@ -80,15 +114,26 @@ if [ "$want_cluster" -eq 1 ]; then
   scripts/fabric-traffic.sh
 fi
 
-echo "== 5. check"
+# Through record.sh, into the same transcript apply.sh just appended to. The
+# claims gate reads the LAST apply block and wants the check's own footer in
+# it ("demo 46-colima check: 0 FAIL") and its seventeen rows; a check that
+# only reached the terminal leaves the record saying the run was never judged.
+#
+# RECORD_STRICT=1 because record.sh exits 0 unless asked — demos here prove
+# things by failing, so it must not abort a caller by default. This script's
+# exit code IS the verdict, and without the flag a failing check was recorded
+# and then reported as a clean run (measured: rc=0 with a check that exits 1).
+echo "== 6. check"
 rc=0
-"$HERE/check.sh" || rc=$?
+TRANSCRIPT="${FABRIC_TRANSCRIPT:-$HERE/output/transcript.txt}"
+RECORD_STRICT=1 scripts/record.sh "$TRANSCRIPT" "$HERE/check.sh" || rc=$?
 
 if [ "$want_gates" -eq 1 ]; then
-  echo "== 6. the gates that need no lab"
+  echo "== 7. the gates that need no lab"
   bash tests/run-bgp-fabric-gates.sh || rc=$((rc + $?))
-  echo "== 7. the gates that need the running fabric"
-  bash tests/fabric-agent-mgmt-input.sh || rc=$((rc + $?))
+  echo "== 8. the gates that need the running fabric"
+  FABRIC_DEMO_HERE="$HERE" FABRIC_PROJECT="$FABRIC_COLIMA_PROJECT" CTX_DOCKER="$CTX" \
+    bash tests/fabric-agent-mgmt-input.sh || rc=$((rc + $?))
 fi
 
 echo

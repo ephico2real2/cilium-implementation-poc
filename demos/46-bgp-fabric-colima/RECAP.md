@@ -17,7 +17,7 @@ control, and the Mac path is in
 
 ## What you get
 
-- Apply `2026-09-21T02:58:09Z`. Four routers on
+- Apply `2026-09-25T00:01:03Z`. Four routers on
   `frr-agent:colima` / `quay.io/frrouting/frr:10.7.1` (AS 65000 /
   65100 / 65101 / 65102). Six sessions;
   `converged after 1 s (1 polls)`.
@@ -30,9 +30,12 @@ control, and the Mac path is in
 - Mgmt `10.200.200.0/24` (`10.200.200.1`, `10.200.200.2`,
   `10.200.200.11`, `10.200.200.12`, `10.200.200.100`,
   `10.200.200.254`); not in BGP. Dashboard `127.0.0.1:8098`,
-  `external=2`. Check `2026-09-21T02:58:46Z`: 17 rows, 0 FAIL;
+  `external=4`. Check `2026-09-25T00:01:47Z`: 17 rows, 0 FAIL;
   `client0_rc=28,28,28,28`. Mac path `192.168.64.4`;
   `http://10.198.0.10/` → `200`.
+- `SERVERS sessions 4/4 Established after 0 s`;
+  `Service demo46-probe ingress 10.198.0.46 after 0 s`; `client0`
+  answered by `demo46-probe-859c56cff4-x6s97` and `-7f6qb`.
 
 ## Architecture
 
@@ -64,7 +67,7 @@ lines are enforcement on this kernel, not intent.
                                 │   │ lo ..11  │      │ lo ..12  │                          │
                                 │   └────┬─────┘      └─────┬────┘                          │
                                 │        └── SERVERS listen 172.20.0.0/17 ──┘                │
-                                │            (no members in this demo — 54c brings them)     │
+                                │            (members 172.20.0.3–.6: AS 65021 and 65022)     │
                                 └───────────────────────────────────────────────────────────┘
 ```
 
@@ -139,7 +142,7 @@ RECORD_STRICT=1 bash demos/46-bgp-fabric-colima/apply.sh
 Result: `image frr-agent:colima present`;
 `image bgp-dashboard:colima present`;
 `converged after 1 s (1 polls)`; `dashboard ready after 0 s
-(routers=4/4 sessions=6/6 external=2)`.
+(routers=4/4 sessions=6/6 external=4)`.
 
 ### 2. Read the routes on spine and edge
 
@@ -152,7 +155,8 @@ docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
   exec -T edge vtysh -c 'show ip bgp'
 ```
 
-Result: `Displayed 5 routes and 5 total paths` on both.
+Result: `Displayed 8 routes and 11 total paths` on spine;
+`Displayed 8 routes and 8 total paths` on edge.
 
 ### 3. Walk the path from the outside world
 
@@ -166,12 +170,12 @@ docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
 ```
 
 Result: hops `10.200.100.2`, `10.200.1.18`, `10.200.255.11`;
-`0% packet loss, time 2073ms`; `ttl=62`.
+`0% packet loss, time 2053ms`; `ttl=62`.
 
 ### 4. Read the servers' policy
 
-The leaves listen on `172.20.0.0/17` only. Prefix-lists wait
-for the next phase.
+The leaves listen on `172.20.0.0/17` only; the per-cluster
+prefix-lists are on both leaves (check row 10).
 
 ```bash
 docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
@@ -179,8 +183,9 @@ docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
   exec -T leaf1 vtysh -c 'show bgp peer-group SERVERS'
 ```
 
-Result: `1 IPv4 listen range(s)` — `172.20.0.0/17`; no members;
-no `ttl-security`.
+Result: `1 IPv4 listen range(s)` — `172.20.0.0/17`; four members,
+`172.20.0.3 (dynamic) Established` through `172.20.0.6`; no
+`ttl-security`.
 
 ### 5. Prove TCP MD5 is on the wire
 
@@ -199,10 +204,10 @@ curl -fsS --max-time 5 'http://127.0.0.1:8098/api/state' \
   | python3 scripts/fabric-dashboard-state.py
 ```
 
-Result: `routers=4/4 sessions=6/6 external=2`. Apply clear:
-`dashboard showed the drop after 0.62 s`; `dashboard confirmed
-recovery after 0.68 s (polled after the screenshots)`;
-`window=2.001 s`.
+Result: `routers=4/4 sessions=6/6 external=4`. Apply clear:
+`dashboard showed the drop after 0.99 s`; `dashboard confirmed
+recovery after 0.42 s (polled after the screenshots)`;
+`window=1.999 s`.
 
 ### 7. Route the VIP block from the Mac
 
@@ -230,11 +235,13 @@ that depends on the kernel
 scripts/fabric-servers-join.sh
 ```
 
-Result: not yet recorded on this fabric. The same script against demo 55's
-fabric recorded `the leaves are signing — the speaker sends the fabric
-password`, then `SERVERS sessions 4/4 Established after 4 s (172.19.0.2
-172.19.0.3)` (run 35953641113). Colima's kernel signs too, so this fabric
-takes the same branch.
+Result: `SERVERS sessions 4/4 Established after 0 s (172.20.0.3
+172.20.0.4 )` — the sessions were already up when this apply began, from the
+join earlier in the same run. leaf1 then lists `4 dynamic neighbor(s), limit
+16`: `172.20.0.3` and `.4` in AS `65021`
+([demo 54-colima](../54-eg-poc1-kube-vip-colima/RECAP.md)), `.5` and `.6` in
+AS `65022` ([demo 52-colima](../52-eg-poc2-metallb-colima/RECAP.md)). The page
+reports `routers=4/4 fabric=6/6 server=8/8 external=4`.
 
 ### 9. Carry a packet to what the cluster announces
 
@@ -247,14 +254,19 @@ fabric the address comes from its own block, `10.198.0.0/26`.
 scripts/fabric-traffic.sh
 ```
 
-Result: not yet recorded on this fabric. Against demo 55's fabric the same
-script recorded `demo 46 traffic: 0 FAIL` over eight claims — `SERVERS-IN seq
-10 did the accepting invoked=2`, `spine has two nexthops
-10.200.1.10,10.200.1.2`, `the nodes can route back to the fabric 10.200.0.0/16
-via 172.19.254.11`, `client0 reaches 10.98.0.46 answered by
-demo46-probe-859c56cff4-6xzw9`, `20/20 answered` (run 35953641113), and the
-path was four hops: edge `10.200.100.2`, spine `10.200.1.18`, leaf1
-`10.200.1.2`, the node `172.19.0.2`.
+Result: `Service demo46-probe ingress 10.198.0.46 after 0 s`; the nodes route
+back `10.200.0.0/16 via 172.20.254.11 dev eth0`; the spine holds the `/32`
+with a nexthop through each leaf; six replies from `client0`, answered by
+`demo46-probe-859c56cff4-x6s97` and `demo46-probe-859c56cff4-7f6qb`. The path
+is four hops:
+
+```text
+traceroute to 10.198.0.46 (10.198.0.46), 6 hops max, 46 byte packets
+ 1  10.200.100.2  0.005 ms  0.005 ms  0.004 ms
+ 2  10.200.1.18  0.002 ms  0.002 ms  0.001 ms
+ 3  10.200.1.2  0.001 ms  0.002 ms  0.005 ms
+ 4  172.20.0.3  0.003 ms  0.002 ms  0.003 ms
+```
 
 ## Verify
 
@@ -283,8 +295,8 @@ Result: `CONFIG_TCP_MD5SIG=y`; 17 rows, 0 FAIL;
 | images | `frr-agent:colima`, `bgp-dashboard:colima` |
 | dashboard | `127.0.0.1:8098` (`FABRIC_COLIMA_DASHBOARD_PORT`) |
 | password | `FABRIC_BGP_PASSWORD` in `fabric/.env` (default `lab-bgp`) |
-| last apply | `2026-09-21T02:58:09Z` |
-| last check | `2026-09-21T02:58:46Z` |
+| last apply | `2026-09-25T00:01:03Z` |
+| last check | `2026-09-25T00:01:47Z` |
 | files | [README.md](README.md), [GUIDE.md](GUIDE.md), [NETWORK-TEAM-SHEET.md](NETWORK-TEAM-SHEET.md), [KERNEL-EVIDENCE.md](KERNEL-EVIDENCE.md) |
 
 ## Clean up
@@ -295,6 +307,7 @@ bash scripts/fabric-colima-down.sh
 
 ## What's next
 
-- Next phase: attach a kind cluster —
-  [demo 54-colima](../54-eg-poc1-kube-vip-colima/RECAP.md).
+- The clusters that dialled in, on their own pages:
+  [demo 54-colima](../54-eg-poc1-kube-vip-colima/RECAP.md) (AS 65021) and
+  [demo 52-colima](../52-eg-poc2-metallb-colima/RECAP.md) (AS 65022).
 - [GUIDE.md](GUIDE.md). [NETWORK-TEAM-SHEET.md](NETWORK-TEAM-SHEET.md).

@@ -9,8 +9,16 @@
 #   usage: bash tests/fabric-agent-mgmt-input.sh   (the fabric must be up)
 set -uo pipefail
 R=$(cd "$(dirname "$0")/.." && pwd)
+# Either fabric: demo 55 on a plain engine by default, demo 46 on Colima when
+# the caller passes its values. Hardcoding one of them made this gate probe a
+# fabric that was not running and report rc=1 — "the probe itself failed",
+# which its own comment says proves nothing.
 PROJECT="${FABRIC_PROJECT:-bgp-fabric}"
-COMPOSE=(docker compose -p "$PROJECT" -f "$R/demos/55-bgp-fabric-desktop/fabric/compose.yaml")
+FABRIC_DEMO_HERE="${FABRIC_DEMO_HERE:-demos/55-bgp-fabric-desktop}"
+DOCKER_CTX="${CTX_DOCKER-}"
+DOCKER_CTX_ARGS=()
+[ -n "$DOCKER_CTX" ] && DOCKER_CTX_ARGS=(--context "$DOCKER_CTX")
+COMPOSE=(docker "${DOCKER_CTX_ARGS[@]}" compose -p "$PROJECT" -f "$R/$FABRIC_DEMO_HERE/fabric/compose.yaml")
 fails=0
 for addr in 10.200.200.1 10.200.200.2 10.200.200.11 10.200.200.12; do
   rc=0

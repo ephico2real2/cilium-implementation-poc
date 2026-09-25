@@ -3029,3 +3029,243 @@ $ bash demos/54-eg-poc1-kube-vip-colima/check.sh
 
 demo 54c check: 0 FAIL
 
+
+=== eg-colima-up.sh start 2026-09-24T23:48:10Z cluster=eg-poc1-colima ctx=colima-bgp-fabric ===
+=== kindnet + kube-proxy iptables; no Cilium; no Envoy Gateway ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima ===
+=== kubeconfig=/Users/olasumbo/.kube/config-eg-poc1-colima ===
+### 2026-09-24T23:48:11Z
+$ echo fs.inotify.max_user_instances=512 already >= 512
+fs.inotify.max_user_instances=512 already >= 512
+
+network kind-eg-colima exists with 172.20.0.0/16, kept
+### 2026-09-24T23:48:11Z
+$ docker --context colima-bgp-fabric network inspect kind-eg-colima --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+subnet=172.20.0.0/16 ip-range=172.20.0.0/17 gateway=172.20.0.1
+
+
+### 2026-09-24T23:48:11Z
+$ scripts/colima-registry.sh up
+network kind-eg-colima exists with 172.20.0.0/16, kept
+registry kind-registry present
+registry kind-registry already on kind-eg-colima at 172.20.0.2
+catalog (in-container): {"repositories":["door","kube-vip","kube-vip-cloud-provider"]}
+
+colima-registry: up (kind-registry on kind-eg-colima at 172.20.0.2, published 127.0.0.1:5001)
+
+### 2026-09-24T23:48:11Z
+$ kubectl --context kind-eg-poc1-colima wait --for=condition=Ready nodes --all --timeout=180s
+node/eg-poc1-colima-control-plane condition met
+node/eg-poc1-colima-worker condition met
+
+### 2026-09-24T23:48:12Z
+$ kubectl --context kind-eg-poc1-colima get nodes -o wide
+NAME                           STATUS   ROLES           AGE     VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+eg-poc1-colima-control-plane   Ready    control-plane   3d23h   v1.36.4   172.20.0.3    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+eg-poc1-colima-worker          Ready    <none>          3d23h   v1.36.4   172.20.0.4    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+
+node IPv4 InternalIPs (must be in 172.20.0.0/17, none in 172.20.254.0/24 or 172.20.255.0/24):
+eg-poc1-colima-control-plane 172.20.0.3
+eg-poc1-colima-worker 172.20.0.4
+eg-poc1-colima-worker docker kind-eg-colima=172.20.0.4
+eg-poc1-colima-control-plane docker kind-eg-colima=172.20.0.3
+### 2026-09-24T23:48:12Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system get ds kindnet kube-proxy
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   3d23h
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   3d23h
+
+### 2026-09-24T23:48:12Z
+$ bash -c kubectl --context kind-eg-poc1-colima -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+    mode: iptables
+
+### 2026-09-24T23:48:12Z
+$ bash -c registry_hosts
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-worker
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-control-plane
+
+### 2026-09-24T23:48:12Z
+$ bash -c kubectl --context kind-eg-poc1-colima apply -f -
+configmap/local-registry-hosting unchanged
+
+eg-colima-up: done. cluster eg-poc1-colima on kind-eg-colima; kubeconfig /Users/olasumbo/.kube/config-eg-poc1-colima
+
+=== eg-colima-up.sh start 2026-09-24T23:50:09Z cluster=eg-poc1-colima ctx=colima-bgp-fabric ===
+=== kindnet + kube-proxy iptables; no Cilium; no Envoy Gateway ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima ===
+=== kubeconfig=/Users/olasumbo/.kube/config-eg-poc1-colima ===
+### 2026-09-24T23:50:09Z
+$ echo fs.inotify.max_user_instances=512 already >= 512
+fs.inotify.max_user_instances=512 already >= 512
+
+network kind-eg-colima exists with 172.20.0.0/16, kept
+### 2026-09-24T23:50:09Z
+$ docker --context colima-bgp-fabric network inspect kind-eg-colima --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+subnet=172.20.0.0/16 ip-range=172.20.0.0/17 gateway=172.20.0.1
+
+
+### 2026-09-24T23:50:09Z
+$ scripts/colima-registry.sh up
+network kind-eg-colima exists with 172.20.0.0/16, kept
+registry kind-registry present
+registry kind-registry already on kind-eg-colima at 172.20.0.2
+catalog (in-container): {"repositories":["door","kube-vip","kube-vip-cloud-provider"]}
+
+colima-registry: up (kind-registry on kind-eg-colima at 172.20.0.2, published 127.0.0.1:5001)
+
+### 2026-09-24T23:50:10Z
+$ kubectl --context kind-eg-poc1-colima wait --for=condition=Ready nodes --all --timeout=180s
+node/eg-poc1-colima-control-plane condition met
+node/eg-poc1-colima-worker condition met
+
+### 2026-09-24T23:50:10Z
+$ kubectl --context kind-eg-poc1-colima get nodes -o wide
+NAME                           STATUS   ROLES           AGE     VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+eg-poc1-colima-control-plane   Ready    control-plane   3d23h   v1.36.4   172.20.0.3    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+eg-poc1-colima-worker          Ready    <none>          3d23h   v1.36.4   172.20.0.4    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+
+node IPv4 InternalIPs (must be in 172.20.0.0/17, none in 172.20.254.0/24 or 172.20.255.0/24):
+eg-poc1-colima-control-plane 172.20.0.3
+eg-poc1-colima-worker 172.20.0.4
+eg-poc1-colima-worker docker kind-eg-colima=172.20.0.4
+eg-poc1-colima-control-plane docker kind-eg-colima=172.20.0.3
+### 2026-09-24T23:50:10Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system get ds kindnet kube-proxy
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   3d23h
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   3d23h
+
+### 2026-09-24T23:50:10Z
+$ bash -c kubectl --context kind-eg-poc1-colima -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+    mode: iptables
+
+### 2026-09-24T23:50:10Z
+$ bash -c registry_hosts
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-worker
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-control-plane
+
+### 2026-09-24T23:50:11Z
+$ bash -c kubectl --context kind-eg-poc1-colima apply -f -
+configmap/local-registry-hosting unchanged
+
+eg-colima-up: done. cluster eg-poc1-colima on kind-eg-colima; kubeconfig /Users/olasumbo/.kube/config-eg-poc1-colima
+
+=== eg-colima-up.sh start 2026-09-24T23:55:30Z cluster=eg-poc1-colima ctx=colima-bgp-fabric ===
+=== kindnet + kube-proxy iptables; no Cilium; no Envoy Gateway ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima ===
+=== kubeconfig=/Users/olasumbo/.kube/config-eg-poc1-colima ===
+### 2026-09-24T23:55:31Z
+$ echo fs.inotify.max_user_instances=512 already >= 512
+fs.inotify.max_user_instances=512 already >= 512
+
+network kind-eg-colima exists with 172.20.0.0/16, kept
+### 2026-09-24T23:55:31Z
+$ docker --context colima-bgp-fabric network inspect kind-eg-colima --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+subnet=172.20.0.0/16 ip-range=172.20.0.0/17 gateway=172.20.0.1
+
+
+### 2026-09-24T23:55:31Z
+$ scripts/colima-registry.sh up
+network kind-eg-colima exists with 172.20.0.0/16, kept
+registry kind-registry present
+registry kind-registry already on kind-eg-colima at 172.20.0.2
+catalog (in-container): {"repositories":["door","kube-vip","kube-vip-cloud-provider"]}
+
+colima-registry: up (kind-registry on kind-eg-colima at 172.20.0.2, published 127.0.0.1:5001)
+
+### 2026-09-24T23:55:31Z
+$ kubectl --context kind-eg-poc1-colima wait --for=condition=Ready nodes --all --timeout=180s
+node/eg-poc1-colima-control-plane condition met
+node/eg-poc1-colima-worker condition met
+
+### 2026-09-24T23:55:32Z
+$ kubectl --context kind-eg-poc1-colima get nodes -o wide
+NAME                           STATUS   ROLES           AGE     VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+eg-poc1-colima-control-plane   Ready    control-plane   3d23h   v1.36.4   172.20.0.3    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+eg-poc1-colima-worker          Ready    <none>          3d23h   v1.36.4   172.20.0.4    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+
+node IPv4 InternalIPs (must be in 172.20.0.0/17, none in 172.20.254.0/24 or 172.20.255.0/24):
+eg-poc1-colima-control-plane 172.20.0.3
+eg-poc1-colima-worker 172.20.0.4
+eg-poc1-colima-worker docker kind-eg-colima=172.20.0.4
+eg-poc1-colima-control-plane docker kind-eg-colima=172.20.0.3
+### 2026-09-24T23:55:32Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system get ds kindnet kube-proxy
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   3d23h
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   3d23h
+
+### 2026-09-24T23:55:32Z
+$ bash -c kubectl --context kind-eg-poc1-colima -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+    mode: iptables
+
+### 2026-09-24T23:55:32Z
+$ bash -c registry_hosts
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-worker
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-control-plane
+
+### 2026-09-24T23:55:32Z
+$ bash -c kubectl --context kind-eg-poc1-colima apply -f -
+configmap/local-registry-hosting unchanged
+
+eg-colima-up: done. cluster eg-poc1-colima on kind-eg-colima; kubeconfig /Users/olasumbo/.kube/config-eg-poc1-colima
+
+=== eg-colima-up.sh start 2026-09-25T00:01:01Z cluster=eg-poc1-colima ctx=colima-bgp-fabric ===
+=== kindnet + kube-proxy iptables; no Cilium; no Envoy Gateway ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/bgp-fabric/docker.sock KIND_EXPERIMENTAL_DOCKER_NETWORK=kind-eg-colima ===
+=== kubeconfig=/Users/olasumbo/.kube/config-eg-poc1-colima ===
+### 2026-09-25T00:01:01Z
+$ echo fs.inotify.max_user_instances=512 already >= 512
+fs.inotify.max_user_instances=512 already >= 512
+
+network kind-eg-colima exists with 172.20.0.0/16, kept
+### 2026-09-25T00:01:01Z
+$ docker --context colima-bgp-fabric network inspect kind-eg-colima --format {{range .IPAM.Config}}subnet={{.Subnet}} ip-range={{.IPRange}} gateway={{.Gateway}}{{"\n"}}{{end}}
+subnet=172.20.0.0/16 ip-range=172.20.0.0/17 gateway=172.20.0.1
+
+
+### 2026-09-25T00:01:01Z
+$ scripts/colima-registry.sh up
+network kind-eg-colima exists with 172.20.0.0/16, kept
+registry kind-registry present
+registry kind-registry already on kind-eg-colima at 172.20.0.2
+catalog (in-container): {"repositories":["door","kube-vip","kube-vip-cloud-provider"]}
+
+colima-registry: up (kind-registry on kind-eg-colima at 172.20.0.2, published 127.0.0.1:5001)
+
+### 2026-09-25T00:01:01Z
+$ kubectl --context kind-eg-poc1-colima wait --for=condition=Ready nodes --all --timeout=180s
+node/eg-poc1-colima-control-plane condition met
+node/eg-poc1-colima-worker condition met
+
+### 2026-09-25T00:01:02Z
+$ kubectl --context kind-eg-poc1-colima get nodes -o wide
+NAME                           STATUS   ROLES           AGE     VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+eg-poc1-colima-control-plane   Ready    control-plane   3d23h   v1.36.4   172.20.0.3    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+eg-poc1-colima-worker          Ready    <none>          3d23h   v1.36.4   172.20.0.4    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+
+node IPv4 InternalIPs (must be in 172.20.0.0/17, none in 172.20.254.0/24 or 172.20.255.0/24):
+eg-poc1-colima-control-plane 172.20.0.3
+eg-poc1-colima-worker 172.20.0.4
+eg-poc1-colima-worker docker kind-eg-colima=172.20.0.4
+eg-poc1-colima-control-plane docker kind-eg-colima=172.20.0.3
+### 2026-09-25T00:01:02Z
+$ kubectl --context kind-eg-poc1-colima -n kube-system get ds kindnet kube-proxy
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kindnet      2         2         2       2            2           kubernetes.io/os=linux   3d23h
+kube-proxy   2         2         2       2            2           kubernetes.io/os=linux   3d23h
+
+### 2026-09-25T00:01:02Z
+$ bash -c kubectl --context kind-eg-poc1-colima -n kube-system get cm kube-proxy -o yaml | grep -E '^[[:space:]]*mode:'
+    mode: iptables
+
+### 2026-09-25T00:01:02Z
+$ bash -c registry_hosts
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-worker
+wrote /etc/containerd/certs.d/localhost:5001/hosts.toml on eg-poc1-colima-control-plane
+
+### 2026-09-25T00:01:02Z
+$ bash -c kubectl --context kind-eg-poc1-colima apply -f -
+configmap/local-registry-hosting unchanged
+
+eg-colima-up: done. cluster eg-poc1-colima on kind-eg-colima; kubeconfig /Users/olasumbo/.kube/config-eg-poc1-colima
