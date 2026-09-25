@@ -121,7 +121,7 @@ if not apply_starts:
     bad.append("no '— demo 46-colima apply' header in the transcript")
 final = "\n".join(tx_lines[apply_starts[-1]:]) if apply_starts else tx
 last_apply_ts = tx_lines[apply_starts[-1]].split()[1] if apply_starts else ""
-for page in ("README.md", "RECAP.md"):
+for page in ("README.md", "RECAP.md", "NETWORK-TEAM-SHEET.md"):
     page_text = (root / page).read_text()
     if last_apply_ts and last_apply_ts not in page_text:
         bad.append("%s does not cite the last apply %s" % (page, last_apply_ts))
@@ -210,6 +210,46 @@ for p in (root / "RECAP.md", root / "README.md"):
     ):
         if stale in text:
             bad.append("%s still quotes a superseded run: %r" % (p, stale))
+
+# A world-state claim ("the cluster is not here yet") is wrong on EVERY page or
+# none, so it is checked on every page rather than on the two that happened to
+# be edited. Measured 2026-09-25: OB1's staleness assertions ran on README and
+# RECAP only, so NETWORK-TEAM-SHEET.md sat in this gate's page list for A1/A2
+# and was exempt from them — after both clusters peered it still cited apply
+# 2026-09-21T02:58:09Z, headed its table "this phase is the fabric alone" and
+# called attaching a cluster "the next phase".
+#
+# These are the specific superseded sentences, not the bare words "next phase":
+# REQUIRING that phrase is the bug this gate shipped before, and forbidding it
+# outright would be the same mistake mirrored — a demo may legitimately have a
+# next phase again. The positive assertions below are the real guard.
+for page in ("README.md", "RECAP.md", "GUIDE.md", "NETWORK-TEAM-SHEET.md", "KERNEL-EVIDENCE.md"):
+    text = (root / page).read_text()
+    for stale in (
+        "this phase is the fabric alone",
+        "Attaching a kind cluster is the next phase",
+        "Not attached on this Docker context",
+        "not this phase",
+        "not yet recorded on this fabric",
+        "2026-09-21T02:58:09Z",
+    ):
+        if stale in text:
+            bad.append("%s describes the fabric from before the clusters: %r" % (page, stale))
+
+# What the sheet must now say, keyed to what the last apply actually recorded:
+# both clusters, their ASNs, and the session count the dashboard agreed with.
+sheet_pg = (root / "NETWORK-TEAM-SHEET.md").read_text()
+for needle in (
+    "eg-poc1-colima",
+    "eg-poc2-colima",
+    "65021",
+    "65022",
+    "server=8/8",
+    "172.20.0.3",
+    "172.20.0.6",
+):
+    if needle not in sheet_pg:
+        bad.append("NETWORK-TEAM-SHEET.md does not name %r from the last apply" % needle)
 
 guide = (root / "GUIDE.md").read_text()
 if "10.5.3" in guide:
