@@ -91,7 +91,7 @@ Two URLs work from the Mac browser once that route exists:
 | URL | What it serves |
 |---|---|
 | <http://10.198.0.10/> | the door — a LoadBalancer address announced into the fabric by kube-vip over a **signed** BGP session, routed Mac → `192.168.64.4` → leaf → node |
-| <http://127.0.0.1:8098/> | the fabric's dashboard: four routers, six fabric sessions, and the cluster's nodes as external peers |
+| <http://127.0.0.1:8098/> | the fabric's dashboard: four routers, six fabric sessions, and the two clusters' four nodes as external peers (`external=4`) |
 
 Retiring the old block is one line, since a prefix can point at one VM only:
 
