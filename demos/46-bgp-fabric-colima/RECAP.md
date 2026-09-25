@@ -17,7 +17,7 @@ control, and the Mac path is in
 
 ## What you get
 
-- Apply `2026-09-21T02:58:09Z`. Four routers on
+- Apply `2026-09-25T00:01:03Z`. Four routers on
   `frr-agent:colima` / `quay.io/frrouting/frr:10.7.1` (AS 65000 /
   65100 / 65101 / 65102). Six sessions;
   `converged after 1 s (1 polls)`.
@@ -30,7 +30,7 @@ control, and the Mac path is in
 - Mgmt `10.200.200.0/24` (`10.200.200.1`, `10.200.200.2`,
   `10.200.200.11`, `10.200.200.12`, `10.200.200.100`,
   `10.200.200.254`); not in BGP. Dashboard `127.0.0.1:8098`,
-  `external=2`. Check `2026-09-21T02:58:46Z`: 17 rows, 0 FAIL;
+  `external=4`. Check `2026-09-25T00:01:47Z`: 17 rows, 0 FAIL;
   `client0_rc=28,28,28,28`. Mac path `192.168.64.4`;
   `http://10.198.0.10/` → `200`.
 
@@ -200,9 +200,9 @@ curl -fsS --max-time 5 'http://127.0.0.1:8098/api/state' \
 ```
 
 Result: `routers=4/4 sessions=6/6 external=2`. Apply clear:
-`dashboard showed the drop after 0.62 s`; `dashboard confirmed
-recovery after 0.68 s (polled after the screenshots)`;
-`window=2.001 s`.
+`dashboard showed the drop after 0.99 s`; `dashboard confirmed
+recovery after 0.42 s (polled after the screenshots)`;
+`window=1.999 s`.
 
 ### 7. Route the VIP block from the Mac
 
@@ -283,8 +283,8 @@ Result: `CONFIG_TCP_MD5SIG=y`; 17 rows, 0 FAIL;
 | images | `frr-agent:colima`, `bgp-dashboard:colima` |
 | dashboard | `127.0.0.1:8098` (`FABRIC_COLIMA_DASHBOARD_PORT`) |
 | password | `FABRIC_BGP_PASSWORD` in `fabric/.env` (default `lab-bgp`) |
-| last apply | `2026-09-21T02:58:09Z` |
-| last check | `2026-09-21T02:58:46Z` |
+| last apply | `2026-09-25T00:01:03Z` |
+| last check | `2026-09-25T00:01:47Z` |
 | files | [README.md](README.md), [GUIDE.md](GUIDE.md), [NETWORK-TEAM-SHEET.md](NETWORK-TEAM-SHEET.md), [KERNEL-EVIDENCE.md](KERNEL-EVIDENCE.md) |
 
 ## Clean up

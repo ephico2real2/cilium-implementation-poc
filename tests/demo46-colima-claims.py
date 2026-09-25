@@ -125,9 +125,9 @@ for page in ("README.md", "RECAP.md"):
     if last_apply_ts and last_apply_ts not in page_text:
         bad.append("%s does not cite the last apply %s" % (page, last_apply_ts))
 for needle in (
-    "dashboard showed the drop after 0.62 s",
-    "dashboard confirmed recovery after 0.68 s (polled after the screenshots)",
-    "recovered=yes window=2.001 s",
+    "dashboard showed the drop after 0.99 s",
+    "dashboard confirmed recovery after 0.42 s (polled after the screenshots)",
+    "recovered=yes window=1.999 s",
     "client0_rc=28,28,28,28",
     "10.200.200.1",
     "10.200.200.11",
@@ -171,9 +171,9 @@ for p in (root / "RECAP.md", root / "README.md"):
     if "10.5.3" in text:
         bad.append("%s still has 10.5.3" % p)
     for needle in (
-        "0.62 s",
-        "0.68 s",
-        "window=2.001",
+        "0.99 s",
+        "0.42 s",
+        "window=1.999",
         "client0_rc=28,28,28,28",
         "17 rows",
         "17 rows, 0 FAIL",   # how the pages state it: the row count and the verdict together
@@ -189,7 +189,7 @@ for p in (root / "RECAP.md", root / "README.md"):
         "6.8.0-117-generic",
         "md5-option packets=10/10 on 10.200.1.3",
         "Established→Idle",
-        "external=2",
+        "external=4",
     ):
         if needle not in text:
             bad.append("%s lacks %r" % (p, needle))
@@ -218,13 +218,13 @@ if "10.5.3" in guide:
     bad.append("GUIDE.md still has 10.5.3")
 if "Print the status table" not in guide:
     bad.append("GUIDE.md did not name exercise 1")
-if "0.62 s" not in guide or "window=2.001" not in guide:
+if "0.99 s" not in guide or "window=1.999" not in guide:
     bad.append("GUIDE.md lacks the drop/recovery timings")
 if "client0_rc=28,28,28,28" not in guide:
     bad.append("GUIDE.md lacks the four-address client0_rc row")
 if "md5-option packets=10/10 on 10.200.1.3" not in guide or "Established→Idle" not in guide:
     bad.append("GUIDE.md lacks the MD5 wire count or the mismatch")
-if "1.49 s" in guide or "recovered after 0.68 s" in guide:
+if "1.49 s" in guide or "recovered after 0.42 s" in guide:
     bad.append("GUIDE.md still quotes a superseded drop/recovery clock")
 
 for b in bad:

@@ -4,7 +4,7 @@ Four read-only exercises against the fabric once it is up — the
 recorded check is 17 rows, 0 FAIL (`md5-option packets=10/10 on 10.200.1.3`,
 `Established→Idle, down in 15/15 samples; restored Established`,
 `client0_rc=28,28,28,28`) and apply recorded the spine clear
-(`dashboard showed the drop after 0.62 s`, `window=2.001 s`).
+(`dashboard showed the drop after 0.99 s`, `window=1.999 s`).
 
 ## Prerequisites
 
