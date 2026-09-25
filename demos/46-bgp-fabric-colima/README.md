@@ -287,6 +287,63 @@ add net 10.198.0.0: gateway 192.168.64.4
 200
 ```
 
+### 8. Let a cluster dial in
+
+```bash
+scripts/fabric-servers-join.sh
+```
+
+Recorded:
+
+```text
+SERVERS sessions 4/4 Established after 0 s (172.20.0.3 172.20.0.4 )
+```
+
+```text
+Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
+*172.20.0.3     4      65021       105       104       45    0    0 00:05:04            2        0 N/A
+*172.20.0.4     4      65021       103       102       45    0    0 00:04:57            2        0 N/A
+*172.20.0.5     4      65022        69        68       45    0    0 00:03:16            1        0 N/A
+*172.20.0.6     4      65022       101       101       45    0    0 00:04:55            0        0 N/A
+10.200.1.3      4      65100       298       295       45    0    0 00:03:57            6        8 spine
+```
+
+```text
+routers=4/4 fabric=6/6 server=8/8 external=4
+```
+
+### 9. Carry a packet to what the cluster announces
+
+```bash
+scripts/fabric-traffic.sh
+```
+
+Recorded:
+
+```text
+Service demo46-probe ingress 10.198.0.46 after 0 s
+```
+
+```text
+10.200.0.0/16 via 172.20.254.11 dev eth0
+```
+
+```text
+traceroute to 10.198.0.46 (10.198.0.46), 6 hops max, 46 byte packets
+ 1  10.200.100.2  0.005 ms  0.005 ms  0.004 ms
+ 2  10.200.1.18  0.002 ms  0.002 ms  0.001 ms
+ 3  10.200.1.2  0.001 ms  0.002 ms  0.005 ms
+ 4  172.20.0.3  0.003 ms  0.002 ms  0.003 ms
+```
+
+```text
+Hostname: demo46-probe-859c56cff4-x6s97
+```
+
+```text
+Hostname: demo46-probe-859c56cff4-7f6qb
+```
+
 ## Checks
 
 Recorded `check.sh` at `2026-09-25T00:01:47Z`:
@@ -317,11 +374,13 @@ demo 46-colima check: 0 FAIL
 
 ## What is deliberately not here
 
-- A kind cluster in this apply. Attaching a cluster is the next phase
-  ([demo 54-colima](../54-eg-poc1-kube-vip-colima/RECAP.md));
-  [`compose.lan-eg.yaml`](fabric/compose.lan-eg.yaml) pins the
-  leaves on the cluster LAN at `172.20.254.11` / `.12` when that
-  overlay is used.
+- Creating the clusters. `scripts/demo46-colima-e2e.sh` brings up
+  `eg-poc1-colima` (AS 65021,
+  [demo 54-colima](../54-eg-poc1-kube-vip-colima/RECAP.md)) and attaches the
+  leaves with [`compose.lan-eg.yaml`](fabric/compose.lan-eg.yaml) at
+  `172.20.254.11` / `.12`; `eg-poc2-colima` (AS 65022,
+  [demo 52-colima](../52-eg-poc2-metallb-colima/RECAP.md)) was already peered
+  when this apply ran, and nothing here manages it.
 - GTSM (`ttl-security`) on SERVERS. kube-vip and FRR-K8s send TTL 1
   and cannot pass it.
 - The Desktop project `bgp-fabric` (port 8088), `eg-poc1`,

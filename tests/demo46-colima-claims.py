@@ -9,6 +9,7 @@
   - last apply timestamp and this-run numbers on the pages
 usage: python3 tests/demo46-colima-claims.py   (exit 0 = pass)
 """
+import re
 import subprocess
 from pathlib import Path
 import sys
@@ -209,9 +210,6 @@ for p in (root / "RECAP.md", root / "README.md"):
     ):
         if stale in text:
             bad.append("%s still quotes a superseded run: %r" % (p, stale))
-    if "next phase" not in text.lower() and "next phase" not in text:
-        if "next phase" not in text:
-            bad.append("%s does not say attaching a cluster is the next phase" % p)
 
 guide = (root / "GUIDE.md").read_text()
 if "10.5.3" in guide:
@@ -226,6 +224,53 @@ if "md5-option packets=10/10 on 10.200.1.3" not in guide or "Established→Idle"
     bad.append("GUIDE.md lacks the MD5 wire count or the mismatch")
 if "1.49 s" in guide or "recovered after 0.42 s" in guide:
     bad.append("GUIDE.md still quotes a superseded drop/recovery clock")
+
+# The last apply peers two clusters and carries a packet — fabric-servers-join
+# and fabric-traffic record into the same block — so no page may still describe
+# the fabric alone, quote a dashboard line from before the clusters peered, or
+# cite another fabric's run for the data path. Measured 2026-09-25: the pages
+# said "not yet recorded on this fabric" and cited demo 55's run 35953641113
+# while this transcript held the answer, and the gate passed because it
+# REQUIRED the sentence "next phase" that the clusters had already overtaken.
+for needle in (
+    "SERVERS sessions 4/4 Established after 0 s (172.20.0.3 172.20.0.4 )",
+    "Service demo46-probe ingress 10.198.0.46 after 0 s",
+    "Hostname: demo46-probe-859c56cff4-x6s97",
+    "routers=4/4 fabric=6/6 server=8/8 external=4",
+):
+    if needle not in final:
+        bad.append("final apply transcript lacks %r" % needle)
+for p in (root / "README.md", root / "RECAP.md"):
+    text = p.read_text()
+    for needle in (
+        "SERVERS sessions 4/4 Established after 0 s",
+        "Service demo46-probe ingress 10.198.0.46 after 0 s",
+        "demo46-probe-859c56cff4-x6s97",
+    ):
+        if needle not in text:
+            bad.append("%s lacks the data-path result %r" % (p, needle))
+for p in (root / "README.md", root / "RECAP.md", root / "GUIDE.md"):
+    text = p.read_text()
+    for stale in (
+        "external=2",
+        "not yet recorded on this fabric",
+        "35953641113",
+        "no members",
+        "next phase",
+        "Displayed 5 routes and 5 total paths",
+        "time 2073ms",
+    ):
+        if stale.lower() in text.lower():
+            bad.append("%s describes the fabric before the clusters peered: %r" % (p, stale))
+
+# GUIDE.md's blocks are "the recorded tables" and "the recorded hops", and
+# readme46-colima-verbatim.py reads README.md only — so GUIDE quoted an apply
+# three runs old without any gate noticing.
+guide_lines = {l.rstrip() for l in final.splitlines()}
+for fence in re.finditer(r"```text\n(.*?)```", guide, flags=re.S):
+    for l in fence.group(1).splitlines():
+        if l.strip() and l.rstrip() not in guide_lines:
+            bad.append("GUIDE.md quotes a line that is not in the last apply: %r" % l.rstrip())
 
 for b in bad:
     print("CLAIM FAIL:", b)

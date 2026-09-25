@@ -28,19 +28,19 @@ tables).
 
 ```text
 Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
-10.200.1.18     4      65100         9        10        5    0    0 00:00:09            3        5 spine
+10.200.1.18     4      65100       299       290       29    0    0 00:05:08            6        5 spine
 Total number of neighbors 1
 Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
-10.200.1.2      4      65101         9         9        5    0    0 00:00:09            1        5 leaf1
-10.200.1.10     4      65102         9         9        5    0    0 00:00:09            1        5 leaf2
-10.200.1.19     4      65000         9         9        5    0    0 00:00:09            2        5 edge
+10.200.1.2      4      65101       295       295       38    0    0 00:03:57            4        8 leaf1
+10.200.1.10     4      65102       292       296       38    0    0 00:05:08            4        8 leaf2
+10.200.1.19     4      65000       289       296       38    0    0 00:05:08            2        8 edge
 Total number of neighbors 3
 ```
 
 The same apply's dashboard line:
 
 ```text
-routers=4/4 sessions=6/6 external=2
+routers=4/4 sessions=6/6 external=4
 ```
 
 ### 2. Traceroute from the outside world
@@ -58,9 +58,9 @@ docker --context colima-bgp-fabric compose -p bgp-fabric-colima \
 
 ```text
 traceroute to 10.200.255.11 (10.200.255.11), 30 hops max, 46 byte packets
- 1  10.200.100.2  0.004 ms  0.001 ms  0.001 ms
- 2  10.200.1.18  0.002 ms  0.000 ms  0.002 ms
- 3  10.200.255.11  0.001 ms  0.003 ms  0.001 ms
+ 1  10.200.100.2  0.020 ms  0.003 ms  0.003 ms
+ 2  10.200.1.18  0.002 ms  0.002 ms  0.008 ms
+ 3  10.200.255.11  0.002 ms  0.002 ms  0.013 ms
 ```
 
 ### 3. Read the kernel MD5 flag
@@ -100,7 +100,7 @@ curl -fsS --max-time 5 'http://127.0.0.1:8098/api/state' \
 **Expect:** the recorded one-liner.
 
 ```text
-routers=4/4 sessions=6/6 external=2
+routers=4/4 sessions=6/6 external=4
 ```
 
 ## Clean up
