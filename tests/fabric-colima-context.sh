@@ -19,6 +19,8 @@ for f in \
   "$R/scripts/fabric-colima-lib.sh" \
   "$R/scripts/colima-registry.sh" \
   "$R/scripts/eg-colima-up.sh" \
+  "$R/scripts/poc1-colima-up.sh" \
+  "$R/scripts/poc1-colima-down.sh" \
   "$R/demos/46-bgp-fabric-colima/apply.sh" \
   "$R/demos/46-bgp-fabric-colima/check.sh" \
   "$R/demos/46-bgp-fabric-colima/cleanup.sh" \
@@ -108,6 +110,8 @@ for script in \
   scripts/fabric-colima-status.sh \
   scripts/colima-registry.sh \
   scripts/eg-colima-up.sh \
+  scripts/poc1-colima-up.sh \
+  scripts/poc1-colima-down.sh \
   demos/46-bgp-fabric-colima/check.sh \
   demos/46-bgp-fabric-colima/apply.sh \
   demos/46-bgp-fabric-colima/cleanup.sh \

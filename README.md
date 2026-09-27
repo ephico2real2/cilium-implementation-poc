@@ -82,6 +82,43 @@ The plan and every run's measurements: [enhancements/004-lab-in-ci.md](enhanceme
 A run's page holds the report and the captures; its artifact every log, the raw flows and the generated policies. What the
 runner refused (netkit before its kernel, BIG TCP under VXLAN, the bandwidth manager in kind) is in the gotchas, #92 onward.
 
+### poc1 alone on Colima
+
+The same `poc1`, built by the same unchanged `scripts/lab-up.sh`, on the Colima profile `cilium-poc1` instead of
+Docker Desktop, and alone: no `poc2`, no ClusterMesh, no BGP fabric (issue
+[#86](https://github.com/ephico2real2/cilium-implementation-poc/issues/86)). It follows the rules of the Colima family in
+[enhancement 008](enhancements/008-colima-lab.md) (demos 46, 52c, 54c): every docker call names its context, `kind`
+and `lab-up.sh` reach the VM through `DOCKER_HOST`, the kubeconfig is its own file (`~/.kube/poc1-colima.config`),
+the active Docker context is never switched, and no script runs `sudo` on the Mac.
+
+| Script | What it does |
+|---|---|
+| `scripts/poc1-colima-up.sh` | refuses every context except `colima-cilium-poc1` (with profile `cilium-poc1`); raises the VM's inotify limits if they are low; runs `LAB_CLUSTERS_DIR=clusters scripts/lab-up.sh poc1` against the VM (3 control planes + 2 workers, Cilium, Hubble, cert-manager, Tetragon); reads back the nodes, `cilium status`, the absent kube-proxy, the relay and Hubble UI's address; adds a `DOCKER-USER` accept for `172.18.255.0/24` in the VM; prints the Mac's `sudo` route. Safe to re-run. Transcript: [`output/poc1-colima/transcript.txt`](output/poc1-colima/transcript.txt) |
+| `scripts/poc1-colima-down.sh` | deletes `poc1` and the VM's `DOCKER-USER` accept; the VM, the `kind` network and the images stay. `colima stop --profile cilium-poc1` stops the VM |
+
+Create the profile once, with the flags that cannot be changed later (enhancement 008 §3.1), then run the up script.
+Measured 2026-09-26 on this Mac: 317 s from a clean VM, image pulls included, and 71 s for a re-run. `docker stats`
+summed the six containers at 6.5 GiB just after the bring-up and 7.3 GiB after Cilium's connectivity test (83/83,
+863 s) and the re-run. At that point the VM's `free` still reported 5.9 GiB available of 11.7 GiB.
+
+```bash
+colima start --profile cilium-poc1 --vm-type vz --runtime docker --network-address --activate=false \
+  --cpu 6 --memory 12 --disk 60
+scripts/poc1-colima-up.sh
+```
+
+The operator runs the `sudo` step; the script prints it with the VM's live address (`192.168.64.5` here). The Mac
+routes the pools to the VM, and the VM forwards them to the `kind` bridge, where Cilium's L2 announcement answers:
+
+```bash
+sudo route -n add -net 172.18.255.0/24 192.168.64.5    # once per VM start; undo: sudo route -n delete -net 172.18.255.0/24
+```
+
+If the script reports a name missing from `/etc/hosts`, it also prints
+`KUBECONFIG=~/.kube/poc1-colima.config scripts/hosts-entries.sh | sudo tee -a /etc/hosts`. These pools are the
+same `172.18.255.x` addresses the Desktop lab uses, so the Mac can route them to only one VM at a time. If the
+Desktop lab's `/16` route is also present, the `/24` above wins because it is more specific.
+
 ### The pages
 
 Once the names are in `/etc/hosts` (`scripts/lab-route.sh kind-poc1` prints the live addresses and
@@ -106,6 +143,7 @@ The certificate is the lab's wildcard `*.poc.local`, issued by cert-manager from
 |---|---|---|---|---|
 | `poc1` | 3 control-plane + 2 worker | `10.10.0.0/16` | `10.11.0.0/16` | 1 |
 | `poc2` | 1 control-plane + 1 worker | `10.20.0.0/16` | `10.21.0.0/16` | 2 |
+| `poc1` on Colima (profile `cilium-poc1`, [alone](#poc1-alone-on-colima)) | 3 control-plane + 2 worker | `10.10.0.0/16` | `10.11.0.0/16` | 1 |
 
 The kind definitions are in [`clusters/`](clusters/) ([`poc1.yaml`](clusters/poc1.yaml): `disableDefaultCNI: true`,
 `kubeProxyMode: none`, the node image `kindest/node:v1.36.4` pinned by digest), the Cilium Helm values and the LB IPAM pool in

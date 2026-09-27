@@ -1,0 +1,361 @@
+
+=== poc1-colima-up.sh start 2026-09-26T23:39:56Z cluster=poc1 ctx=colima-cilium-poc1 profile=cilium-poc1 ===
+=== Cilium, no kube-proxy, no poc2, no mesh, no BGP; clusters/poc1.yaml (3 control planes + 2 workers) ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/cilium-poc1/docker.sock kubeconfig=/Users/olasumbo/.kube/poc1-colima.config ===
+### 2026-09-26T23:39:56Z
+$ echo fs.inotify.max_user_instances=512 already >= 512
+fs.inotify.max_user_instances=512 already >= 512
+
+### 2026-09-26T23:39:56Z
+$ scripts/lab-up.sh poc1
+
+== SETUP Step 0–1 — the toolchain, as the guide inventories it  (18:39:56)
+kind 0.33.0 | kubectl v1.37.0 | helm v4.3.0+gbec5b06 | cilium-cli v0.20.0
+1.27.0 | docker 29.5.2 | kernel 25.5.0
+
+== lab preflight on Darwin arm64 — measured, every row (rules: docs/SETUP.md Steps 0–2, Cilium 1.20.2 system requirements)
+  STATUS        WHAT                       MEASURED                                     RULE
+  ok            host                       macOS 26.5.2 on arm64, 18 CPUs, 64 GiB       the nodes run in Docker's Linux VM, not on this kernel
+  ok            bash (env bash)            5.3.20(1)-release at /opt/homebrew/bin/bash  ≥ 4.4 for the lab's scripts (the runner: 5.2)
+  ok            Colima                     profile cilium-poc1, engine 29.5.2           DOCKER_HOST=unix:///Users/olasumbo/.colima/cilium-poc1/docker.sock (enhancement 008; Desktop's settings do not apply)
+  warn          memory for the nodes       11 GiB                                       enough for clusters/ci (the runner: 5 GB used, meshed); the full-size poc1 wants 16 (SETUP 2.3)
+  warn          CPUs for the nodes         6                                            the measured floor for clusters/ci (the runner: 4 vCPU, connectivity test 15–23 min); the full-size clusters want 8
+  no            netkit (kernel 6.8.0-117-generic) ≥ 6.8 but no CONFIG_NETKIT exported and 'ip link add … type netkit' failed the kernel lacks CONFIG_NETKIT; the veth datapath stays (demo 06 Part 4)
+  ok            Tetragon base sensor       security_bprm_committing_creds exported      demo 17 blocker 1 (CONFIG_SECURITY); blocker 2, /procHost, is in clusters/ci/*.yaml
+  no            bandwidth manager + BBR    off inside kind nodes (host default_qdisc=?) net.core.default_qdisc is host-netns only; a kind node is a container — any kernel (gotcha #103)
+  no            BIG TCP                    not with the lab's VXLAN tunnel              needs native routing (the agent: 'BIG TCP in tunneling mode requires pending kernel support', gotcha #103)
+  ok            net.ipv4.ip_forward        1 (the kernel the nodes egress through)      Docker sets it at start (--ip-forward, default true); nothing for the lab to set
+  ok            node image for arm64       kindest/node:v1.36.4 index: amd64 arm64      the pinned digest is the OCI index, so it is the same line on amd64 and arm64
+  ok            route to the LB blocks     the Colima VM has 192.168.64.5 (--network-address) 'sudo route -n add -net 172.18.0.0/16 192.168.64.5' (scripts/poc1-colima-up.sh prints it)
+  ok            IPv6 on a docker network   a container got fd00:1ab:9:9::/64            LAB_IPFAMILY=dual is possible (cilium/values-ci-features.yaml)
+  ok            kind network               none yet                                     lab-up.sh creates it with the lab's subnet and --ip-range (gotcha #95)
+
+
+== the kind docker network: 172.18.0.0/16 (containers from 172.18.0.0/17, the pools above it), IPv6 fc00:f853:ccd:e793::/64  (18:40:01)
+created: 172.18.0.0/16 fc00:f853:ccd:e793::/64 
+
+== SETUP Step 3 — create poc1 (kind, no CNI, no kube-proxy, the lab's CIDRs)  (18:40:01)
+Creating cluster "poc1" ...
+ • Ensuring node image (kindest/node:v1.36.4) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.36.4) 🖼️
+ • Preparing nodes 📦 📦 📦 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 📦 📦 📦 
+ • Configuring the external load balancer ⚖️  ...
+ ✓ Configuring the external load balancer ⚖️
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining more control-plane nodes 🎮  ...
+ ✓ Joining more control-plane nodes 🎮
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-poc1"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-poc1
+
+Not sure what to do next? 😅  Check out https://kind.sigs.k8s.io/docs/user/quick-start/
+
+== demo 05 — Gateway API v1.6.1 CRDs on poc1 (vendored: crds/gateway-api)  (18:41:09)
+kind-poc1: Gateway API v1.6.1 — 10 CRDs established: backendtlspolicies gatewayclasses gateways grpcroutes httproutes listenersets referencegrants tcproutes tlsroutes udproutes
+SETUP Step 4 — k8sServiceHost=poc1-external-load-balancer
+
+== SETUP Step 5 — Cilium 1.20.2 core on poc1 (cilium/values-poc1.yaml + values-ci.yaml)  (18:41:11)
+  agent image: ghcr.io/ephico2real2/cilium-dev:1.20.2-remote-workload-1d3a02ab (the lab's own build; the release chart 1.20.2 around it)
+
+== SETUP Step 6 — verify poc1: Cilium's own status, the nodes Ready, kube-proxy replaced  (18:41:12)
+[36m /¯¯[33m\__/[32m¯¯\[0m    Cilium:             [32mOK[0m
+[36m \__[31m/¯¯\[32m__/[0m    Operator:           [32mOK[0m
+Cluster Pods:          3/3 managed by Cilium
+Step 6.2 — nodes Ready
+Step 6.3 — KubeProxyReplacement:    True   [eth0    172.18.0.5 fc00:f853:ccd:e793::5 fe80::703c:e2ff:fe24:16e (Direct Routing)]
+Step 6.3 — no kube-proxy DaemonSet
+
+== CoreDNS on poc1 — explicit upstream resolvers  (18:42:29)
+external name resolved (probe 1): Address: 1.1.1.1
+
+== SETUP Step 8 — poc1's OWN LB block and its L2 announcement policy (cilium/lb-ippool-poc1.yaml)  (18:42:34)
+gateway-pool       172.18.255.240   172.18.255.250
+kind-docker-pool   172.18.255.200   172.18.255.239
+
+== metrics-server 3.14.0 on poc1 (kind's kubelets: --kubelet-insecure-tls)  (18:42:35)
+
+== SETUP Step 9.3a / demo 08 — cert-manager v1.21.1 on poc1, the root, ClusterIssuer/ca-issuer  (18:42:57)
+root CA 39:87:AA:16:F1:60:5C:8F… issuer Ready
+  (the Bundle applied at attempt 2: trust-manager's webhook was not reachable yet)
+kind-poc1: trust-manager v0.25.0, Bundle enterprise-root Synced → ConfigMap enterprise-root/ca.crt in 7 namespaces: 151 certificates (the public roots + ours, 39:87:AA:16:F1:60:5C:8F…)
+the issuer's root from kind-poc1 → .tmp/root-ca.crt: subject=CN=clustermesh-root-ca sha256 Fingerprint=39:87:AA:16:F1:60:5C:8F:35:AE:62:F4:72:E3:B7:E5:D7:31:1A:30:9D:A4:EF:F3:61:D6:73:69:D2:F3:B9:AA 
+  the host's trust store untouched (LAB_TRUST_ROOT=1 to add the root; the checks use ROOT_CA=.tmp/root-ca.crt)
+
+== Hubble on poc1 — one upgrade on the verified core; certificates from ClusterIssuer/ca-issuer  (18:43:34)
+  agents: the DaemonSet template changed (generation 1 → 2), Helm is rolling it
+[32m \__[34m/¯¯\[35m__/[0m    Hubble Relay:       [32mOK[0m
+
+== the lab build's CRD on poc1 — https://raw.githubusercontent.com/ephico2real2/cilium/hubble/remote-workload-via-cep/pkg/k8s/apis/cilium.io/client/crds/v2/ciliumendpoints.yaml at schema version 1.33.13  (18:44:16)
+Warning: resource customresourcedefinitions/ciliumendpoints.cilium.io is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
+  CRD ciliumendpoints.cilium.io: label 1.33.13, status.workloads=array
+hubble-ui LoadBalancer: 172.18.255.201 (SETUP Step 8: give Hubble UI a real address, from poc1's own block)
+hubble-relay-client-certs   True   ca-issuer
+hubble-relay-server-certs   True   ca-issuer
+hubble-server-certs         True   ca-issuer
+hubble-ui-client-certs      True   ca-issuer
+
+== demo 17 — Tetragon 1.7.1 on poc1  (18:44:54)
+Health Status: running
+
+== poc1 is complete and independent — Cilium, DNS, its own LB block, metrics-server, its issuer, Hubble, Tetragon; no mesh yet  (18:45:11)
+
+== lab up: poc1  (18:45:11)
+
+### 2026-09-26T23:45:11Z
+$ kubectl config get-contexts
+CURRENT   NAME        CLUSTER     AUTHINFO    NAMESPACE
+*         kind-poc1   kind-poc1   kind-poc1   
+
+### 2026-09-26T23:45:11Z
+$ docker --context colima-cilium-poc1 ps --format table {{.Names}}\t{{.Image}}\t{{.Status}}
+NAMES                         IMAGE                      STATUS
+poc1-external-load-balancer   envoyproxy/envoy:v1.36.2   Up 4 minutes
+poc1-control-plane2           kindest/node:v1.36.4       Up 4 minutes
+poc1-control-plane3           kindest/node:v1.36.4       Up 4 minutes
+poc1-worker2                  kindest/node:v1.36.4       Up 4 minutes
+poc1-worker                   kindest/node:v1.36.4       Up 4 minutes
+poc1-control-plane            kindest/node:v1.36.4       Up 4 minutes
+
+### 2026-09-26T23:45:11Z
+$ kubectl --context kind-poc1 get nodes -o wide
+NAME                  STATUS   ROLES           AGE     VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+poc1-control-plane    Ready    control-plane   4m54s   v1.36.4   172.18.0.2    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+poc1-control-plane2   Ready    control-plane   4m18s   v1.36.4   172.18.0.5    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+poc1-control-plane3   Ready    control-plane   4m4s    v1.36.4   172.18.0.4    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+poc1-worker           Ready    <none>          4m3s    v1.36.4   172.18.0.3    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+poc1-worker2          Ready    <none>          4m3s    v1.36.4   172.18.0.6    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+
+### 2026-09-26T23:45:11Z
+$ cilium status --context kind-poc1 --wait --wait-duration 5m --interactive=false
+[33m    /¯¯\
+[36m /¯¯[33m\__/[32m¯¯\[0m    Cilium:             [32mOK[0m
+[36m \__[31m/¯¯\[32m__/[0m    Operator:           [32mOK[0m
+[32m /¯¯[31m\__/[35m¯¯\[0m    Envoy DaemonSet:    [32mOK[0m
+[32m \__[34m/¯¯\[35m__/[0m    Hubble Relay:       [32mOK[0m
+[34m[34m[34m    \__/[0m       ClusterMesh:        [36mdisabled[0m
+
+DaemonSet              cilium                   Desired: 5, Ready: [32m5/5[0m, Available: [32m5/5[0m
+DaemonSet              cilium-envoy             Desired: 5, Ready: [32m5/5[0m, Available: [32m5/5[0m
+Deployment             cilium-operator          Desired: 1, Ready: [32m1/1[0m, Available: [32m1/1[0m
+Deployment             hubble-relay             Desired: 1, Ready: [32m1/1[0m, Available: [32m1/1[0m
+Deployment             hubble-ui                Desired: 1, Ready: [32m1/1[0m, Available: [32m1/1[0m
+Containers:            cilium                   Running: [32m5[0m
+                       cilium-envoy             Running: [32m5[0m
+                       cilium-operator          Running: [32m1[0m
+                       clustermesh-apiserver    
+                       hubble-relay             Running: [32m1[0m
+                       hubble-ui                Running: [32m1[0m
+Cluster Pods:          11/11 managed by Cilium
+Helm chart version:    1.20.2
+Image versions         cilium             ghcr.io/ephico2real2/cilium-dev:1.20.2-remote-workload-1d3a02ab: 5
+                       cilium-envoy       quay.io/cilium/cilium-envoy:v1.37.6-1789133542-cbec91f666af0bf742da986d43832932dbb26b82@sha256:af7382699576b9e65e9184efa52eeca0b58aea70ad6e511bf260c91d9f740463: 5
+                       cilium-operator    quay.io/cilium/operator-generic:v1.20.2@sha256:64d8798350e8569b8e7622563fed6e44dce2625f311e4651b774816516c744fc: 1
+                       hubble-relay       quay.io/cilium/hubble-relay:v1.20.2@sha256:d309c977870e9dbede7122a10eee09a4c9d66685e8d52af62d9c3c113f815b0f: 1
+                       hubble-ui          quay.io/cilium/hubble-ui-backend:v0.13.6@sha256:83b3fc763f3d49948c306bf49b08277383e195904b9ca5c0c0022b2112628787: 1
+                       hubble-ui          quay.io/cilium/hubble-ui:v0.13.6@sha256:049a80a03585c043d0c3121bdc518c72b0fd42bae07e4bcce0fdb8f1e88041d0: 1
+
+### 2026-09-26T23:45:12Z
+$ kubectl --context kind-poc1 -n kube-system get ds
+NAME           DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+cilium         5         5         5       5            5           kubernetes.io/os=linux   4m
+cilium-envoy   5         5         5       5            5           kubernetes.io/os=linux   4m
+tetragon       5         5         5       5            5           <none>                   17s
+
+kube-proxy: no DaemonSet in kube-system
+### 2026-09-26T23:45:12Z
+$ kubectl --context kind-poc1 -n kube-system rollout status deploy/hubble-relay --timeout=2m
+deployment "hubble-relay" successfully rolled out
+
+### 2026-09-26T23:45:12Z
+$ kubectl --context kind-poc1 -n kube-system get svc hubble-ui hubble-relay
+NAME           TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE
+hubble-ui      LoadBalancer   10.11.215.182   172.18.255.201   80:31077/TCP   97s
+hubble-relay   ClusterIP      10.11.107.227   <none>           443/TCP        97s
+
+### 2026-09-26T23:45:12Z
+$ colima ssh --profile cilium-poc1 -- sudo sh -c iptables -C DOCKER-USER -d 172.18.255.0/24 -o br-bd4f02401669 -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER -d 172.18.255.0/24 -o br-bd4f02401669 -j ACCEPT; iptables -S DOCKER-USER
+-N DOCKER-USER
+-A DOCKER-USER -d 172.18.255.0/24 -o br-bd4f02401669 -j ACCEPT
+
+Mac route absent (the kernel would use 192.168.166.1 for 172.18.255.201). The operator runs, once per VM start:
+  sudo route -n add -net 172.18.255.0/24 192.168.64.5
+/etc/hosts: every name poc1 serves is already there, at its live address
+poc1-colima-up: done in 317 s. poc1 on colima-cilium-poc1; kubeconfig /Users/olasumbo/.kube/poc1-colima.config; hubble-ui 172.18.255.201
+
+=== poc1-colima-up.sh start 2026-09-27T00:11:16Z cluster=poc1 ctx=colima-cilium-poc1 profile=cilium-poc1 ===
+=== Cilium, no kube-proxy, no poc2, no mesh, no BGP; clusters/poc1.yaml (3 control planes + 2 workers) ===
+=== DOCKER_HOST=unix:///Users/olasumbo/.colima/cilium-poc1/docker.sock kubeconfig=/Users/olasumbo/.kube/poc1-colima.config ===
+### 2026-09-27T00:11:16Z
+$ echo fs.inotify.max_user_instances=512 already >= 512
+fs.inotify.max_user_instances=512 already >= 512
+
+### 2026-09-27T00:11:16Z
+$ scripts/lab-up.sh poc1
+
+== SETUP Step 0–1 — the toolchain, as the guide inventories it  (19:11:16)
+kind 0.33.0 | kubectl v1.37.0 | helm v4.3.0+gbec5b06 | cilium-cli v0.20.0
+1.27.0 | docker 29.5.2 | kernel 25.5.0
+
+== lab preflight on Darwin arm64 — measured, every row (rules: docs/SETUP.md Steps 0–2, Cilium 1.20.2 system requirements)
+  STATUS        WHAT                       MEASURED                                     RULE
+  ok            host                       macOS 26.5.2 on arm64, 18 CPUs, 64 GiB       the nodes run in Docker's Linux VM, not on this kernel
+  ok            bash (env bash)            5.3.20(1)-release at /opt/homebrew/bin/bash  ≥ 4.4 for the lab's scripts (the runner: 5.2)
+  ok            Colima                     profile cilium-poc1, engine 29.5.2           DOCKER_HOST=unix:///Users/olasumbo/.colima/cilium-poc1/docker.sock (enhancement 008; Desktop's settings do not apply)
+  warn          memory for the nodes       11 GiB                                       enough for clusters/ci (the runner: 5 GB used, meshed); the full-size poc1 wants 16 (SETUP 2.3)
+  warn          CPUs for the nodes         6                                            the measured floor for clusters/ci (the runner: 4 vCPU, connectivity test 15–23 min); the full-size clusters want 8
+  no            netkit (kernel 6.8.0-117-generic) ≥ 6.8 but no CONFIG_NETKIT exported and 'ip link add … type netkit' failed the kernel lacks CONFIG_NETKIT; the veth datapath stays (demo 06 Part 4)
+  ok            Tetragon base sensor       security_bprm_committing_creds exported      demo 17 blocker 1 (CONFIG_SECURITY); blocker 2, /procHost, is in clusters/ci/*.yaml
+  no            bandwidth manager + BBR    off inside kind nodes (host default_qdisc=?) net.core.default_qdisc is host-netns only; a kind node is a container — any kernel (gotcha #103)
+  no            BIG TCP                    not with the lab's VXLAN tunnel              needs native routing (the agent: 'BIG TCP in tunneling mode requires pending kernel support', gotcha #103)
+  ok            net.ipv4.ip_forward        1 (the kernel the nodes egress through)      Docker sets it at start (--ip-forward, default true); nothing for the lab to set
+  ok            node image for arm64       kindest/node:v1.36.4 index: amd64 arm64      the pinned digest is the OCI index, so it is the same line on amd64 and arm64
+  ok            route to the LB blocks     the Colima VM has 192.168.64.5 (--network-address) 'sudo route -n add -net 172.18.255.0/24 192.168.64.5', the pools (scripts/poc1-colima-up.sh prints it)
+  ok            IPv6 on a docker network   a container got fd00:1ab:9:9::/64            LAB_IPFAMILY=dual is possible (cilium/values-ci-features.yaml)
+  ok            existing kind network      172.18.0.0/16 fc00:f853:ccd:e793::/64        the lab's subnet (NETWORKING_DESIGN §4.2)
+
+
+== the kind docker network: 172.18.0.0/16 (containers from 172.18.0.0/17, the pools above it), IPv6 fc00:f853:ccd:e793::/64  (19:11:21)
+exists with 172.18.0.0/16, kept
+
+== SETUP Step 3 — create poc1 (kind, no CNI, no kube-proxy, the lab's CIDRs)  (19:11:21)
+kind cluster poc1 exists, kept
+
+== demo 05 — Gateway API v1.6.1 CRDs on poc1 (vendored: crds/gateway-api)  (19:11:21)
+kind-poc1: Gateway API v1.6.1 — 10 CRDs established: backendtlspolicies gatewayclasses gateways grpcroutes httproutes listenersets referencegrants tcproutes tlsroutes udproutes
+SETUP Step 4 — k8sServiceHost=poc1-external-load-balancer
+
+== SETUP Step 5 — Cilium 1.20.2 core on poc1 (cilium/values-poc1.yaml + values-ci.yaml)  (19:11:22)
+Cilium release exists on poc1 (revision 2), the core install is skipped; every later step upgrades with --reuse-values
+  agent image: ghcr.io/ephico2real2/cilium-dev:1.20.2-remote-workload-1d3a02ab (the lab's own build; the release chart 1.20.2 around it)
+
+== SETUP Step 6 — verify poc1: Cilium's own status, the nodes Ready, kube-proxy replaced  (19:11:23)
+[36m /¯¯[33m\__/[32m¯¯\[0m    Cilium:             [32mOK[0m
+[36m \__[31m/¯¯\[32m__/[0m    Operator:           [32mOK[0m
+Cluster Pods:          11/11 managed by Cilium
+Step 6.2 — nodes Ready
+Step 6.3 — KubeProxyReplacement:    True   [eth0    172.18.0.6 fc00:f853:ccd:e793::6 fe80::876:eeff:feb2:dc4a (Direct Routing)]
+Step 6.3 — no kube-proxy DaemonSet
+
+== CoreDNS on poc1 — explicit upstream resolvers  (19:11:24)
+external name resolved (probe 2): Address: 2606:4700:4700::1001
+
+== SETUP Step 8 — poc1's OWN LB block and its L2 announcement policy (cilium/lb-ippool-poc1.yaml)  (19:11:34)
+gateway-pool       172.18.255.240   172.18.255.250
+kind-docker-pool   172.18.255.200   172.18.255.239
+
+== metrics-server 3.14.0 on poc1 (kind's kubelets: --kubelet-insecure-tls)  (19:11:35)
+
+== SETUP Step 9.3a / demo 08 — cert-manager v1.21.1 on poc1, the root, ClusterIssuer/ca-issuer  (19:11:35)
+root CA 39:87:AA:16:F1:60:5C:8F… issuer Ready
+kind-poc1: trust-manager v0.25.0, Bundle enterprise-root Synced → ConfigMap enterprise-root/ca.crt in 7 namespaces: 151 certificates (the public roots + ours, 39:87:AA:16:F1:60:5C:8F…)
+the issuer's root from kind-poc1 → .tmp/root-ca.crt: subject=CN=clustermesh-root-ca sha256 Fingerprint=39:87:AA:16:F1:60:5C:8F:35:AE:62:F4:72:E3:B7:E5:D7:31:1A:30:9D:A4:EF:F3:61:D6:73:69:D2:F3:B9:AA 
+  the host's trust store untouched (LAB_TRUST_ROOT=1 to add the root; the checks use ROOT_CA=.tmp/root-ca.crt)
+
+== Hubble on poc1 — one upgrade on the verified core; certificates from ClusterIssuer/ca-issuer  (19:11:38)
+  agents: cilium-config and the DaemonSet unchanged, no restart
+[32m \__[34m/¯¯\[35m__/[0m    Hubble Relay:       [32mOK[0m
+
+== the lab build's CRD on poc1 — https://raw.githubusercontent.com/ephico2real2/cilium/hubble/remote-workload-via-cep/pkg/k8s/apis/cilium.io/client/crds/v2/ciliumendpoints.yaml at schema version 1.33.13  (19:11:40)
+  CRD ciliumendpoints.cilium.io: label 1.33.13, status.workloads=array
+hubble-ui LoadBalancer: 172.18.255.201 (SETUP Step 8: give Hubble UI a real address, from poc1's own block)
+hubble-relay-client-certs   True   ca-issuer
+hubble-relay-server-certs   True   ca-issuer
+hubble-server-certs         True   ca-issuer
+hubble-ui-client-certs      True   ca-issuer
+
+== demo 17 — Tetragon 1.7.1 on poc1  (19:12:14)
+Health Status: running
+
+== poc1 is complete and independent — Cilium, DNS, its own LB block, metrics-server, its issuer, Hubble, Tetragon; no mesh yet  (19:12:15)
+
+== lab up: poc1  (19:12:15)
+
+### 2026-09-27T00:12:15Z
+$ kubectl config get-contexts
+CURRENT   NAME        CLUSTER     AUTHINFO    NAMESPACE
+*         kind-poc1   kind-poc1   kind-poc1   
+
+### 2026-09-27T00:12:15Z
+$ docker --context colima-cilium-poc1 ps --format table {{.Names}}\t{{.Image}}\t{{.Status}}
+NAMES                         IMAGE                      STATUS
+poc1-external-load-balancer   envoyproxy/envoy:v1.36.2   Up 32 minutes
+poc1-control-plane2           kindest/node:v1.36.4       Up 32 minutes
+poc1-control-plane3           kindest/node:v1.36.4       Up 32 minutes
+poc1-worker2                  kindest/node:v1.36.4       Up 32 minutes
+poc1-worker                   kindest/node:v1.36.4       Up 32 minutes
+poc1-control-plane            kindest/node:v1.36.4       Up 32 minutes
+
+### 2026-09-27T00:12:15Z
+$ kubectl --context kind-poc1 get nodes -o wide
+NAME                  STATUS   ROLES           AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE                       KERNEL-VERSION              CONTAINER-RUNTIME
+poc1-control-plane    Ready    control-plane   31m   v1.36.4   172.18.0.2    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+poc1-control-plane2   Ready    control-plane   31m   v1.36.4   172.18.0.5    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+poc1-control-plane3   Ready    control-plane   31m   v1.36.4   172.18.0.4    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+poc1-worker           Ready    <none>          31m   v1.36.4   172.18.0.3    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+poc1-worker2          Ready    <none>          31m   v1.36.4   172.18.0.6    <none>        Debian GNU/Linux 13 (trixie)   6.8.0-117-generic (arm64)   containerd://2.3.4
+
+### 2026-09-27T00:12:15Z
+$ cilium status --context kind-poc1 --wait --wait-duration 5m --interactive=false
+[33m    /¯¯\
+[36m /¯¯[33m\__/[32m¯¯\[0m    Cilium:             [32mOK[0m
+[36m \__[31m/¯¯\[32m__/[0m    Operator:           [32mOK[0m
+[32m /¯¯[31m\__/[35m¯¯\[0m    Envoy DaemonSet:    [32mOK[0m
+[32m \__[34m/¯¯\[35m__/[0m    Hubble Relay:       [32mOK[0m
+[34m[34m[34m    \__/[0m       ClusterMesh:        [36mdisabled[0m
+
+DaemonSet              cilium                   Desired: 5, Ready: [32m5/5[0m, Available: [32m5/5[0m
+DaemonSet              cilium-envoy             Desired: 5, Ready: [32m5/5[0m, Available: [32m5/5[0m
+Deployment             cilium-operator          Desired: 1, Ready: [32m1/1[0m, Available: [32m1/1[0m
+Deployment             hubble-relay             Desired: 1, Ready: [32m1/1[0m, Available: [32m1/1[0m
+Deployment             hubble-ui                Desired: 1, Ready: [32m1/1[0m, Available: [32m1/1[0m
+Containers:            cilium                   Running: [32m5[0m
+                       cilium-envoy             Running: [32m5[0m
+                       cilium-operator          Running: [32m1[0m
+                       clustermesh-apiserver    
+                       hubble-relay             Running: [32m1[0m
+                       hubble-ui                Running: [32m1[0m
+Cluster Pods:          11/11 managed by Cilium
+Helm chart version:    1.20.2
+Image versions         cilium             ghcr.io/ephico2real2/cilium-dev:1.20.2-remote-workload-1d3a02ab: 5
+                       cilium-envoy       quay.io/cilium/cilium-envoy:v1.37.6-1789133542-cbec91f666af0bf742da986d43832932dbb26b82@sha256:af7382699576b9e65e9184efa52eeca0b58aea70ad6e511bf260c91d9f740463: 5
+                       cilium-operator    quay.io/cilium/operator-generic:v1.20.2@sha256:64d8798350e8569b8e7622563fed6e44dce2625f311e4651b774816516c744fc: 1
+                       hubble-relay       quay.io/cilium/hubble-relay:v1.20.2@sha256:d309c977870e9dbede7122a10eee09a4c9d66685e8d52af62d9c3c113f815b0f: 1
+                       hubble-ui          quay.io/cilium/hubble-ui-backend:v0.13.6@sha256:83b3fc763f3d49948c306bf49b08277383e195904b9ca5c0c0022b2112628787: 1
+                       hubble-ui          quay.io/cilium/hubble-ui:v0.13.6@sha256:049a80a03585c043d0c3121bdc518c72b0fd42bae07e4bcce0fdb8f1e88041d0: 1
+
+### 2026-09-27T00:12:26Z
+$ kubectl --context kind-poc1 -n kube-system get ds
+NAME           DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+cilium         5         5         5       5            5           kubernetes.io/os=linux   31m
+cilium-envoy   5         5         5       5            5           kubernetes.io/os=linux   31m
+tetragon       5         5         5       5            5           <none>                   27m
+
+kube-proxy: no DaemonSet in kube-system
+### 2026-09-27T00:12:26Z
+$ kubectl --context kind-poc1 -n kube-system rollout status deploy/hubble-relay --timeout=2m
+deployment "hubble-relay" successfully rolled out
+
+### 2026-09-27T00:12:26Z
+$ kubectl --context kind-poc1 -n kube-system get svc hubble-ui hubble-relay
+NAME           TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE
+hubble-ui      LoadBalancer   10.11.215.182   172.18.255.201   80:31077/TCP   28m
+hubble-relay   ClusterIP      10.11.107.227   <none>           443/TCP        28m
+
+### 2026-09-27T00:12:27Z
+$ colima ssh --profile cilium-poc1 -- sudo sh -c iptables -C DOCKER-USER -d 172.18.255.0/24 -o br-bd4f02401669 -j ACCEPT 2>/dev/null || iptables -I DOCKER-USER -d 172.18.255.0/24 -o br-bd4f02401669 -j ACCEPT; iptables -S DOCKER-USER
+-N DOCKER-USER
+-A DOCKER-USER -d 172.18.255.0/24 -o br-bd4f02401669 -j ACCEPT
+
+Mac route absent (the kernel would use 192.168.166.1 for 172.18.255.201). The operator runs, once per VM start:
+  sudo route -n add -net 172.18.255.0/24 192.168.64.5
+/etc/hosts: every name poc1 serves is already there, at its live address
+poc1-colima-up: done in 71 s. poc1 on colima-cilium-poc1; kubeconfig /Users/olasumbo/.kube/poc1-colima.config; hubble-ui 172.18.255.201
