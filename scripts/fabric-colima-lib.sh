@@ -8,13 +8,18 @@
 # other lab — measured 2026-09-20 — so callers that might switch (colima start
 # --activate) restore the previous context in an EXIT trap.
 #
-#   CTX                         docker context (must be colima-bgp-fabric)
+#   CTX                         docker context (must be FABRIC_COLIMA_EXPECT_CTX)
 #   FABRIC_COLIMA_PROFILE       Colima profile (bgp-fabric)
+#   FABRIC_COLIMA_EXPECT_CTX    the one context the gate accepts: colima-bgp-fabric,
+#                               assigned here and NOT read from the environment; a
+#                               lab in its own VM (poc1-colima-up.sh) sets it after
+#                               sourcing, so no env var can widen the fabric's gate
 #   FABRIC_COLIMA_PROJECT       compose project (bgp-fabric-colima)
 #   FABRIC_COLIMA_DASHBOARD_PORT  published on 127.0.0.1 (default 8098)
 set -uo pipefail
 
 CTX="${CTX:-colima-bgp-fabric}"
+FABRIC_COLIMA_EXPECT_CTX=colima-bgp-fabric
 FABRIC_COLIMA_PROFILE="${FABRIC_COLIMA_PROFILE:-bgp-fabric}"
 FABRIC_COLIMA_PROJECT="${FABRIC_COLIMA_PROJECT:-bgp-fabric-colima}"
 FABRIC_COLIMA_DASHBOARD_PORT="${FABRIC_COLIMA_DASHBOARD_PORT:-8098}"
@@ -50,7 +55,7 @@ fabric_colima_refuse_wrong_ctx() {
   case "$CTX" in
     desktop-linux|default)
       echo "fabric-colima: refusing to run against Docker Desktop (CTX=$CTX)." >&2
-      echo "This demo talks only to docker --context colima-bgp-fabric (Colima profile bgp-fabric)." >&2
+      echo "This demo talks only to docker --context $FABRIC_COLIMA_EXPECT_CTX (Colima profile ${FABRIC_COLIMA_EXPECT_CTX#colima-})." >&2
       echo "The Desktop fabric (project bgp-fabric, port 8088) and the kind clusters are off-limits." >&2
       return 1
       ;;
@@ -58,9 +63,9 @@ fabric_colima_refuse_wrong_ctx() {
       echo "fabric-colima: refusing to touch the md5lab profile (CTX=$CTX)." >&2
       return 1
       ;;
-    colima-bgp-fabric) ;;
+    "$FABRIC_COLIMA_EXPECT_CTX") ;;
     *)
-      echo "fabric-colima: refusing CTX=$CTX (expected colima-bgp-fabric)." >&2
+      echo "fabric-colima: refusing CTX=$CTX (expected $FABRIC_COLIMA_EXPECT_CTX)." >&2
       echo "The Desktop fabric (bgp-fabric:8088), md5lab, kind and CRC are off-limits." >&2
       return 1
       ;;

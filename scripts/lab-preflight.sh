@@ -49,7 +49,11 @@ dver=$(docker version --format '{{.Server.Version}}' 2>/dev/null); kern=$(docker
 # arithmetic abort the table half-way (review of 004, C7)
 raw_mem=$(docker info --format '{{.MemTotal}}' 2>/dev/null); raw_mem=${raw_mem:-0}; dmem=$(( raw_mem / 1073741824 ))
 dcpu=$(docker info --format '{{.NCPU}}' 2>/dev/null); dcpu=${dcpu:-0}
-if [ "$os" = Darwin ]; then
+if [ "$os" = Darwin ] && [ -n "${LAB_COLIMA_PROFILE:-}" ]; then
+  # the engine is a Colima VM (scripts/poc1-colima-up.sh sets the profile and DOCKER_HOST): Docker Desktop's app and
+  # settings describe a VM the lab is not on, so they are not read (Desktop can be installed and stopped)
+  row ok "Colima" "profile $LAB_COLIMA_PROFILE, engine $dver" "DOCKER_HOST=${DOCKER_HOST:-unset} (enhancement 008; Desktop's settings do not apply)"
+elif [ "$os" = Darwin ]; then
   app=$(defaults read /Applications/Docker.app/Contents/Info.plist CFBundleShortVersionString 2>/dev/null || echo "?")
   row ok "Docker Desktop" "app $app, engine $dver" "4.89.0 ships Linux kernel v7.0.12 (release notes); 4.27.2 shipped 6.6.12"
   # the VM's shape and the two settings the lab depends on — whichever settings file this Desktop version writes
@@ -126,8 +130,13 @@ case " ${plat:-} " in
 esac
 
 # ---------------------------------------------------------------- reaching the LB blocks from THIS host (SETUP Step 3.5)
-case "$os" in
+case "$os${LAB_COLIMA_PROFILE:+/colima}" in
   Linux) row ok "route to the LB blocks" "the docker bridge is on this host: on-link" "scripts/lab-route.sh verifies Docker's connected route" ;;
+  Darwin/colima)
+    # Colima's host bridge is the vzNAT interface `colima start --network-address` adds (the lib reads `colima list`)
+    vm_ip=$(FABRIC_COLIMA_PROFILE="$LAB_COLIMA_PROFILE" bash -c '. scripts/fabric-colima-lib.sh; fabric_colima_vm_address' 2>/dev/null)
+    if [ -n "$vm_ip" ]; then row ok "route to the LB blocks" "the Colima VM has $vm_ip (--network-address)" "'sudo route -n add -net 172.18.255.0/24 $vm_ip', the pools (scripts/poc1-colima-up.sh prints it)"
+    else row warn "route to the LB blocks" "profile $LAB_COLIMA_PROFILE has no address" "no Mac route can reach it: colima start --profile $LAB_COLIMA_PROFILE --network-address (enhancement 008 D5)"; fi ;;
   Darwin)
     vm_ip=$(docker run --rm --net=host --privileged busybox:1.36 sh -c "ip -4 addr show eth1 2>/dev/null | grep -o 'inet [0-9.]*'" 2>/dev/null | awk '{print $2}')
     if [ -n "$vm_ip" ]; then row ok "route to the LB blocks" "the VM has eth1 $vm_ip on a host bridge" "SETUP Step 3.5: 'sudo route -n add -net 172.18.0.0/16 $vm_ip' (scripts/lab-route.sh derives it)"
