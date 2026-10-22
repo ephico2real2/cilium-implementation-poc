@@ -105,6 +105,12 @@ if "--window-ready" in sys.argv:
 if os.environ.get("SCEN_DEMO"):
     with open(Path(os.environ["SCEN_DEMO"]) / "order", "a", encoding="utf-8") as order:
         order.write("parity\n")
+# band: a disagreement that lasts until the gate is passed again (an outage at a window's edge).
+gate_reads = Path(os.environ.get("SCEN_DEMO", "/nonexistent")) / "window-attempts"
+if (os.environ.get("SCEN_PARITY") == "band"
+        and int(gate_reads.read_text() if gate_reads.exists() else "0") < 2):
+    print("10 queries, 1 disagreements")
+    raise SystemExit(1)
 if os.environ.get("SCEN_PARITY") == "fail":
     path = Path(os.environ["SCEN_DEMO"]) / "parity-attempts"
     count = int(path.read_text()) + 1 if path.exists() else 1
@@ -140,7 +146,9 @@ PY
     verdict=MISMATCH; mismatches=$((mismatches + 1))
   fi
   order="$(paste -sd '|' "${demo}/order" 2>/dev/null || true)"
-  if [ "${got}" = pass ] && [ "${order}" != "verify phase1 phase2 phase3|verify phase6|parity|verify phase5" ]; then
+  want_order="verify phase1 phase2 phase3|verify phase6|parity|verify phase5"
+  [ "$7" != band ] || want_order="verify phase1 phase2 phase3|verify phase6|parity|parity|verify phase5"
+  if [ "${got}" = pass ] && [ "${order}" != "${want_order}" ]; then
     verdict=MISMATCH; mismatches=$((mismatches + 1)); echo "          order: ${order}"
   fi
   printf '%-9s %-52s exit=%s (%s, want %s), verify runs=%s, recreated=[%s]\n' \
@@ -156,6 +164,7 @@ scenario "new file in bind-mounted directory"                ""        0 pass di
 scenario "file deleted from bind-mounted directory"          ""        0 pass deleted "grafana" pass pass
 scenario "two persistent parity disagreements"               ""        0 stop none "" fail pass
 scenario "rate comparison never becomes ready"               ""        0 stop none "" pass fail
+scenario "parity disagrees until the gate passes again"      ""        0 pass none "" band pass
 
 # The transcript must hold no --random value, and still print the public lab values.
 leaks=0

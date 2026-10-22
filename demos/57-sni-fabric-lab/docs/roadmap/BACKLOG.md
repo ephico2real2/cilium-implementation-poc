@@ -110,7 +110,8 @@ VictoriaTraces, fed the same data and compared, so that the choice rests on meas
 - **Seats:** Codex builds (Podman through the machine socket); OB3 and OB1-lite review, and a
   second pass on the fixed head.
 - **Pictures:** the parity table and the dashboard on each datasource, added to chapter 1.
-- **Status (2026-10-22): built in two rounds, measured on the live lab, first review pass applied.**
+- **Status (2026-10-22): built in two rounds, measured on the live lab, first and second review
+  passes applied.**
   - AC 5: with two scrapers, Prometheus's MQ scrape fell from 136 samples to 108 and lost all
     28 `ibmmq_qmgr_*` publication gauges; two back-to-back reads returned the recovery-log
     latency gauge once, then not at all. In `github.com/ibm-messaging/mq-container` under
@@ -126,8 +127,8 @@ VictoriaTraces, fed the same data and compared, so that the choice rests on meas
     MetricsQL value for the same regular samples. Values from T − s or T + s are different
     windows and cannot excuse a stale or damaged copy. It runs before phase 5's outages, after a
     complete `up` window and once every selected rate is exactly comparable. On the recorded
-    fresh run the older sample-count gate waited for MQ's counter and all ten then agreed
-    (`output/transcript.txt`).
+    fresh run the gate refused 39 reads, the last ones for the unknown-SNI resets, and all ten
+    then agreed (`output/transcript.txt`).
   - AC 2: live trace `1763fe65af3432a70272b596b16f4eac` had two spans in each store. Tempo
     returned them under `trace.resourceSpans[].scopeSpans[].spans[]`; VictoriaTraces returned
     them under `data[].spans[]`. Phase 6 now requires 2 and 2, not merely equal counts.
@@ -141,9 +142,10 @@ VictoriaTraces, fed the same data and compared, so that the choice rests on meas
     parity until every selected rate is comparable and fails a disagreement seen twice; it also recreates any running
     service whose bind-mounted source is newer than its container.
   - Measured after the second review pass (exact comparison): `scripts/run.sh --fresh` 11 min
-    3 s, 87 checks, 0 failures, `84 before, 87 after`; parity waited 3 min 20 s for the two
-    counters that first appear during phases 1-3 to hold a full window, then 10 of 10. The
-    upgrade path passed every phase in 5 min 19 s, parity 10 of 10 on its first check.
+    3 s, 87 checks, 0 failures, `84 before, 87 after`; parity waited 3 min 20 s until the two
+    counters that sat at zero until phases 1-3 had no zero sample left in the window, then 10
+    of 10. The upgrade path passed every phase in 5 min 19 s, parity 10 of 10 on its first
+    check.
   - Measured after the first review pass: `scripts/run.sh --fresh` 8 min 54 s, 87 checks, 0
     failures; checks kept `84 before, 87 after`; the route test 0 mismatches. The upgrade path
     over the running lab passed every phase in 5 min 18 s, parity 10 of 10 on the first read.

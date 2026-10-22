@@ -18,9 +18,15 @@ MetricsQL result from the same regular samples: MetricsQL includes the last samp
 the left edge, while Prometheus's widened range includes that sample and extrapolates its sampled
 interval over W+s. The values at T-s and T+s belong to different windows and are not an
 allowance: accepting either would hide a store one scrape behind. ``--window-ready`` waits until
-this exact cross-engine comparison is defined and succeeds for every selected rate, rather than
-requiring every matching label set to be W old; a legitimately new or churning label set cannot
-hold the run closed merely because it has fewer samples.
+this exact cross-engine comparison succeeds for every selected rate. It is not defined while a
+series is younger than the window, while a counter's window starts at zero before its first
+increase (Prometheus stops extrapolating at the zero point), or while a target's outage crosses
+the window's edge; a label set that keeps changing would therefore hold the gate until it times
+out.
+
+A rate reads only each series' first and last sample, so for every selected rate the number of
+raw samples in (T-W-s, T] must also match per label set: a copy that lost or repeated an
+interior sample, or renamed a label the query aggregates away, would otherwise pass.
 
 Only the dashboard's Prometheus-scraped metrics are selected. OTLP-ingested metrics in
 VictoriaMetrics retain dotted resource labels such as ``service.name``; they have no Prometheus
@@ -180,6 +186,18 @@ def widened_expression(expression: str) -> str:
                        + match.group("suffix")), expression)
 
 
+def raw_samples_differ(prometheus_base: str, victoria_base: str, expression: str,
+                       timestamp: float) -> list[str]:
+    """Name each rate selector whose raw samples in (T-W-s, T] differ in count or label set."""
+    differ = []
+    for selector in rate_selectors(expression):
+        counts = f"count_over_time({selector}{WIDE_RANGE})"
+        if not series_match(instant_query(prometheus_base, counts, timestamp),
+                            instant_query(victoria_base, counts, timestamp)):
+            differ.append(selector)
+    return differ
+
+
 def incomplete_windows(prometheus_base: str, victoria_base: str,
                        expressions: list[str], timestamp: float) -> list[str]:
     """Name rates whose exact cross-engine equivalent is not ready at T."""
@@ -219,8 +237,11 @@ def selected_queries(path: Path) -> list[tuple[str, str]]:
 
 def instant_query(base: str, expression: str, timestamp: float) -> Series:
     """Evaluate one expression, rejecting warnings and dotted-label OTLP series."""
+    # nocache=1: VictoriaMetrics otherwise evaluates any time within -search.latencyOffset (30 s)
+    # of its clock at now - 30 s instead (app/vmselect/prometheus/prometheus.go:861), so the T+s
+    # read would be one of T. Prometheus ignores the argument.
     url = f"{base.rstrip('/')}/api/v1/query?" + urllib.parse.urlencode(
-        {"query": expression, "time": f"{timestamp:.3f}"})
+        {"query": expression, "time": f"{timestamp:.3f}", "nocache": "1"})
     with urllib.request.urlopen(url, timeout=30) as response:
         payload = json.load(response)
     if payload.get("status") != "success":
@@ -301,7 +322,8 @@ def main() -> int:
                         default="http://victoriametrics.fabric.localtest.me:8080")
     parser.add_argument("--markdown", action="store_true", help="print the result table as Markdown")
     parser.add_argument("--window-ready", action="store_true",
-                        help="only require both stores to hold a complete five-minute up window")
+                        help="only check readiness: a complete five-minute up window in both "
+                             "stores and every selected rate exactly comparable")
     args = parser.parse_args()
 
     evaluation_time = time.time() - EVALUATION_MARGIN_SECONDS
@@ -350,6 +372,13 @@ def main() -> int:
             result = compare_series(previous, prometheus, following, victoria,
                                     is_rate_query(expression), widened,
                                     (victoria_previous, victoria_following))
+            differ = (raw_samples_differ(args.prometheus, args.victoriametrics, expression,
+                                         evaluation_time)
+                      if result.agrees and is_rate_query(expression) else [])
+            if differ:
+                result = Comparison(False, result.prometheus_series, result.victoria_series,
+                                    result.max_difference, result.max_tolerance,
+                                    f"raw samples in {WIDE_RANGE} differ: {', '.join(differ)}")
         except Exception as error:  # Keep all ten rows visible when one endpoint or query fails.
             result = Comparison(False, 0, 0, None, None, f"query error: {error}")
         rows.append((title, result))

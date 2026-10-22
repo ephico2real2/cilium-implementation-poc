@@ -92,17 +92,18 @@ The steps, in order:
 3. Recreate any running service whose bind-mounted file, directory, or a file below that
    directory is newer than its container, then wait for every health check
 4. `verify.sh` phases 1–3 and phase 6
-5. Wait until both metric stores hold every scrape of each compared rate's window, compare the
-   stores (one retry only for ingestion lag), and run every dashboard query on VictoriaMetrics;
-   before phase 5, whose outages leave gaps the two engines bridge differently
+5. Wait until every compared rate is exactly comparable in both metric stores, compare the
+   stores (one retry, once that wait passes again), and run every dashboard query on
+   VictoriaMetrics; before phase 5, whose outages leave gaps the two engines bridge differently
 6. `verify.sh` phase 5, then `tests/r1-2/test_store_routes.sh` (Envoy refuses admin and
    unapproved write paths) and the Prometheus dashboard tests
 7. Print the memory in use, and the URLs with their logins
 
 Everything is also written to `output/transcript.txt`. It stops at the first failed step.
 Measured on 2026-10-22: 11 min 3 s from nothing, 87 checks, 0 failures. Parity waited 3 min
-20 s: a counter that first appears during phases 1-3 (orders created, unknown-SNI resets) is
-exactly comparable only once its first sample has left the 310 s window.
+20 s: a counter that sat at zero until phases 1-3 (orders created, unknown-SNI resets) is
+exactly comparable only once its last zero sample has left the 310 s window, because Prometheus
+stops extrapolating at a counter's zero point and VictoriaMetrics never extrapolates.
 
 ### 4.2 `scripts/gen-certs.sh`: the CA and certificates
 
@@ -329,7 +330,7 @@ python3 tests/test_dashboard.py
 | Test | Arguments | Checks |
 |---|---|---|
 | `tests/dashboard_queries.py` | `[dashboard.json] [--prometheus URL] [--minutes N]` | Every dashboard query returns without error or warning; lists each series' latest value; flags empty ones |
-| `tests/parity.py` | `[dashboard.json] [--prometheus URL] [--victoriametrics URL] [--markdown] [--window-ready]` | Ten exact dashboard queries at one timestamp have identical label sets. Gauges match at T; rates match Prometheus at T with only `rate`'s range widened to `[310s]`, the exact MetricsQL value for the same regular samples. A shared gauge hole at T passes only when both stores agree at T−s and T+s. Empty queries fail, OTLP-only dotted labels are excluded, and `--window-ready` requires a complete `up` window plus every selected rate's exact cross-engine comparison to be ready |
+| `tests/parity.py` | `[dashboard.json] [--prometheus URL] [--victoriametrics URL] [--markdown] [--window-ready]` | Ten exact dashboard queries at one timestamp have identical label sets. Gauges match at T; rates match Prometheus at T with only `rate`'s range widened to `[310s]`, the exact MetricsQL value for the same regular samples. Each rate's raw samples in `[310s]` must also match in count per label set, which an interior lost or repeated sample, or a label renamed under `sum()`, would break. A shared gauge hole at T passes only when both stores agree at T−s and T+s. Empty queries fail, OTLP-only dotted labels are excluded, and `--window-ready` requires a complete `up` window plus every selected rate's exact cross-engine comparison to be ready |
 | `tests/test_dashboard.py` | `[grafana.json] [perses.json]` | Sections, charts, colours, line styles, units, legends and `[5m]` windows, in both dashboard forms |
 | `tests/r1-3/test_prometheus_config.sh` | none | `promtool` accepts the committed scrape-and-remote-write config; a malformed `remote_write` copy is a failing negative control |
 | `tests/r1-3/test_parity.py` | none | Lab-free controls for all measured value pairs, exact gauge copies and cross-engine rates, dropped/stale/duplicated samples, shared one-scrape gauge holes, one-sided and empty comparisons |

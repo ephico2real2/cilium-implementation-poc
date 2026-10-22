@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """Lab-free controls for parity.py's envelopes and its complete-window gate."""
+import contextlib
+import http.server
 import importlib.util
+import io
+import json
 import sys
+import threading
+import time
+import urllib.parse
 from pathlib import Path
 
 PARITY = Path(__file__).resolve().parents[1] / "parity.py"
@@ -205,6 +212,71 @@ gate_cases.extend([
     ("shared one-scrape gauge hole agrees in both stores", shared_gap.agrees),
     ("a copy that lost the gauge does not use Prometheus's neighbours", not lost_copy.agrees),
 ])
+
+# Both stores over HTTP, with VictoriaMetrics' latency offset (app/vmselect/prometheus/prometheus.go
+# :861): without nocache=1 it evaluates a time within 30 s of its clock at now - 30 s instead.
+# Each answer's value is the time it was evaluated at; count_over_time answers as the store holds.
+class Stores(http.server.BaseHTTPRequestHandler):
+    victoria_counts: dict[str, int] = {}
+
+    def do_GET(self):
+        url = urllib.parse.urlsplit(self.path)
+        args = dict(urllib.parse.parse_qsl(url.query))
+        at, store = float(args["time"]), url.path.split("/")[1]
+        if store == "victoria" and args.get("nocache") != "1" and time.time() - at < 30:
+            at = time.time() - 30
+        series = [({"job": "api"}, at)]
+        if args["query"].startswith("count_over_time("):
+            series = [({"job": "api"}, 31.0)]
+            if store == "victoria":
+                series = [(labels_, float(n)) for labels_, n in
+                          ((json.loads(k), v) for k, v in Stores.victoria_counts.items())]
+        elif args["query"].startswith("max by (job) (up)") or "(up[5m])" in args["query"]:
+            series = [({"job": "api"}, 30.0 if "count_over_time" in args["query"] else 1.0)]
+        elif "rate(" in args["query"]:
+            series = [({}, 1.0)]
+        body = json.dumps({"status": "success", "data": {"resultType": "vector", "result": [
+            {"metric": m, "value": [at, repr(v)]} for m, v in series]}}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_):
+        pass
+
+
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Stores)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+stores = f"http://127.0.0.1:{server.server_port}"
+asked = time.time() - 20
+got = next(iter(parity.instant_query(f"{stores}/victoria", "x", asked).values()))
+gate_cases.append(("a VictoriaMetrics read at T+s is evaluated at T+s, not at now - 30 s",
+                   abs(got - asked) < 0.01))
+
+
+def parity_run(victoria_counts):
+    """Exit status of parity.py's own main() against the two stores."""
+    Stores.victoria_counts = victoria_counts
+    argv, sys.argv = sys.argv, ["parity.py", "--prometheus", f"{stores}/prometheus",
+                                "--victoriametrics", f"{stores}/victoria"]
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            return parity.main()
+    finally:
+        sys.argv = argv
+
+
+api = json.dumps({"job": "api"})
+gate_cases.extend([
+    ("every rate's raw samples the same in both stores agree", parity_run({api: 31}) == 0),
+    ("a copy that lost an interior sample is refused", parity_run({api: 30}) == 1),
+    ("a copy that repeated an interior sample is refused", parity_run({api: 32}) == 1),
+    ("a copy with a label renamed under sum() is refused",
+     parity_run({json.dumps({"job": "api-renamed"}): 31}) == 1),
+])
+server.shutdown()
+
 for name, ok in gate_cases:
     if ok:
         print(f"ok        {name}")

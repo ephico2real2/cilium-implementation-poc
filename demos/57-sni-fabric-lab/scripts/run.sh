@@ -156,8 +156,11 @@ parity_with_ingestion_retry() {
     status=$?
   fi
   printf '%s\n' "${out}"
-  echo "parity disagreement: waiting 5s once for remote-write ingestion lag"
-  sleep 5
+  # One retry, after the gate passes again: it outlasts remote-write lag, and a target outage
+  # still crossing a window edge (a rerun soon after the last run's phase 5, 6-70 s measured)
+  # holds the gate instead of failing parity twice in five seconds.
+  echo "parity disagreement: retrying once, when every rate is comparable again"
+  wait_for_rate_window 72 5 || return "${status}"
   python3 tests/parity.py || return "${status}"
 }
 
@@ -198,8 +201,8 @@ scripts/verify.sh phase6
 
 step "Compare Prometheus and VictoriaMetrics, then run every dashboard query on VictoriaMetrics"
 # Before phase 5: across a target's outage the engines can differ by design, so the gate waits
-# until every selected rate matches its exact cross-engine equivalent. Parity then gets only one
-# retry for ingestion lag.
+# until every selected rate matches its exact cross-engine equivalent. Parity then gets one
+# retry, after the gate passes again.
 wait_for_rate_window 72 5
 parity_with_ingestion_retry
 bounded_retry 12 5 python3 tests/dashboard_queries.py \
