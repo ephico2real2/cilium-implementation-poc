@@ -91,4 +91,25 @@ if missing:
     sys.exit(1)
 PY
 check "README text blocks are exact recorded slices" "$?"
+# The fresh run's duration, from its first to its last step, is the one RECAP and run.sh state.
+python3 - "${t}" "$1/RECAP.md" "$1/scripts/run.sh" <<'PY'
+import re
+import sys
+from datetime import datetime
+from pathlib import Path
+
+stamps = re.findall(r"^==== .*\((\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)\)$",
+                    Path(sys.argv[1]).read_text(), re.MULTILINE)
+first, last = (datetime.fromisoformat(stamp.replace("Z", "+00:00")) for stamp in (stamps[0], stamps[-1]))
+seconds = int((last - first).total_seconds())
+want = f"{seconds // 60} min {seconds % 60} s"
+recap = re.search(r"^Result: (\d+ min \d+ s);", Path(sys.argv[2]).read_text(), re.MULTILINE)
+header = re.search(r"^# Takes about \d+ minutes \((\d+ min \d+ s) recorded\)",
+                   Path(sys.argv[3]).read_text(), re.MULTILINE)
+got = (recap.group(1) if recap else None, header.group(1) if header else None)
+if got != (want, want):
+    print(f"duration: transcript {want}; RECAP {got[0]}; run.sh {got[1]}", file=sys.stderr)
+    sys.exit(1)
+PY
+check "duration: the transcript's, in RECAP and run.sh's header" "$?"
 echo "mismatches: ${bad}"; exit "${bad}"

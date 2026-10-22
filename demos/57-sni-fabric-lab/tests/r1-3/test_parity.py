@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lab-free controls for parity.py's three-point series-envelope comparison."""
+"""Lab-free controls for parity.py's envelopes and its complete-window gate."""
 import importlib.util
 import sys
 from pathlib import Path
@@ -62,6 +62,36 @@ cases = [
     ("series only on one side", {job: 1.0}, {job: 1.0}, {job: 1.0},
      {}, True, False),
     ("empty on both sides", {}, {}, {}, {}, True, False),
+    # Measured 08:21:07Z: MQ's latency gauge missed one scrape, so both stores lacked it at T only.
+    ("gauge absent at T in both, present at T-s and T+s", {job: 0.000282}, {}, {job: 0.000282},
+     {}, False, True),
+    ("gauge absent at T in both and at T-s and T+s", {}, {}, {}, {}, False, False),
+]
+
+# The same, with the rate one interval wider, [310s], at T-s, T and T+s. The first two are live
+# lab reads (2026-10-22, T = 1792656829 and 1792656831) that the [5m] envelope alone failed: an
+# event in the interval before the window and one in its last interval, nothing between.
+steady = {job: 3.372414}
+steady_wide = ({job: 3.38}, {job: 3.38}, {job: 3.38})
+widened_cases = [
+    # name, P(T-s), P(T), P(T+s), V(T), is rate, P[310s] at T-s/T/T+s, want
+    ("measured tcp-svc 9/290 thrice, V 10/300", {job: 0.031034482758620693},
+     {job: 0.031034482758620693}, {job: 0.031034482758620693}, {job: 0.03333333333333333}, True,
+     ({job: 0.03333333333333333}, {job: 0.03333333333333333}, {job: 0.030000000000000002}), True),
+    ("measured new connections, V 11/300", {job: 0.03448275862068966},
+     {job: 0.024137931034482762}, {job: 0.024137931034482762}, {job: 0.03666666666666667}, True,
+     ({job: 0.03666666666666667}, {job: 0.03666666666666667}, {job: 0.023333333333333334}), True),
+    ("the wider window rescues no wrong value", steady, steady, steady, {job: 3.6}, True,
+     steady_wide, False),
+    ("a gauge gets no wider window", {job: 1.0}, {job: 1.0}, {job: 1.0}, {job: 1.2}, False,
+     ({job: 1.2}, {job: 1.2}, {job: 1.2}), False),
+    ("the wider window needs all three reads", steady, steady, steady, {job: 3.6}, True,
+     ({job: 3.6}, {}, {job: 3.6}), False),
+    # The resolution the docstring states: within about s/W of a steady rate passes, beyond fails.
+    ("resolution: 3.2 % above a steady rate passes", steady, steady, steady, {job: 3.48}, True,
+     steady_wide, True),
+    ("resolution: 4.4 % above a steady rate fails", steady, steady, steady, {job: 3.52}, True,
+     steady_wide, False),
 ]
 
 failures = 0
@@ -72,6 +102,52 @@ for name, previous, prometheus, following, victoria, rate_query, want in cases:
     else:
         failures += 1
         print(f"MISMATCH  {name}: got {result.agrees}, want {want} ({result.detail})")
+for name, previous, prometheus, following, victoria, rate_query, widened, want in widened_cases:
+    try:
+        result = parity.compare_series(previous, prometheus, following, victoria, rate_query,
+                                       widened)
+        got, detail = result.agrees, result.detail
+    except TypeError as error:  # a compare_series without the wider window
+        got, detail = None, str(error)
+    if got == want:
+        print(f"ok        {name}")
+    else:
+        failures += 1
+        print(f"MISMATCH  {name}: got {got}, want {want} ({detail})")
+
+# The window gate: every rate selector is read, and one with a gap is named. The MQ count is the
+# live one at T = 1792656830, 60 s after MQ stopped, when min(count_over_time(up[5m])) was 30.
+selectors = [parity.rate_selectors(expression)
+             for _, expression in parity.selected_queries(parity.DEFAULT_DASHBOARD)]
+gate_cases = [("eight rate queries, one selector each, two gauges with none",
+               sorted(len(found) for found in selectors) == [0, 0] + [1] * 8)]
+for shape in ("sum(rate(x[1m]))", "rate(sum(x)[5m:])"):
+    try:
+        parity.rate_selectors(shape)
+        gate_cases.append((f"a rate it cannot read is refused: {shape}", False))
+    except ValueError:
+        gate_cases.append((f"a rate it cannot read is refused: {shape}", True))
+
+
+def fake_counts(_base: str, expression: str, _timestamp: float):
+    return {(): 26.0 if "ibmmq_qmgr_mqput_mqput1_total" in expression else 32.0}
+
+
+real_query = parity.instant_query
+parity.instant_query = fake_counts
+try:
+    gaps = parity.incomplete_windows("http://unused", [e for found in selectors for e in found
+                                                       for e in [f"sum(rate({e}[5m]))"]], 0.0)
+finally:
+    parity.instant_query = real_query
+gate_cases.append(("a gap in MQ's counter is named, nothing else",
+                   gaps == ["ibmmq_qmgr_mqput_mqput1_total: 26 of 32 samples"]))
+for name, ok in gate_cases:
+    if ok:
+        print(f"ok        {name}")
+    else:
+        failures += 1
+        print(f"MISMATCH  {name}")
 
 print(f"mismatches: {failures}")
 raise SystemExit(failures)

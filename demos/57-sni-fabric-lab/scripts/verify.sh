@@ -331,19 +331,22 @@ metric_value() {  # metric_value <prometheus|victoriametrics> <PromQL> -> the on
     | python3 -c 'import json,sys; r=json.load(sys.stdin).get("data", {}).get("result", []); print(r[0]["value"][1]) if len(r) == 1 else sys.exit(1)'
 }
 
-mq_metrics_verdict() {  # mq_metrics_verdict <fresh gauge count> <Prometheus samples> <VictoriaMetrics samples>
-  local gauge_count="${1:-}" prometheus_samples="${2:-}" victoria_samples="${3:-}"
-  # A positive fresh gauge count catches MQ's consume-on-read exporter; equal sample counts catch a second scraper.
-  if awk -v gauge="${gauge_count}" -v prometheus="${prometheus_samples}" \
+mq_metrics_verdict() {  # mq_metrics_verdict <fresh gauges> <Prometheus samples> <VictoriaMetrics samples> <its fresh gauges>
+  local gauge_count="${1:-}" prometheus_samples="${2:-}" victoria_samples="${3:-}" victoria_gauges="${4:-}"
+  # A positive fresh gauge count catches MQ's consume-on-read exporter; the same count in
+  # VictoriaMetrics catches a copy without the gauge (scrape_samples_scraped is Prometheus's own
+  # series, copied either way); equal sample counts catch a second scraper.
+  if awk -v gauge="${gauge_count}" -v copied="${victoria_gauges}" -v prometheus="${prometheus_samples}" \
       -v victoria="${victoria_samples}" 'BEGIN {
         number = "^[0-9]+([.][0-9]+)?$"
-        exit !(gauge ~ number && gauge > 0 && prometheus ~ number && victoria ~ number && prometheus == victoria)
+        exit !(gauge ~ number && gauge > 0 && copied ~ number && copied == gauge &&
+               prometheus ~ number && victoria ~ number && prometheus == victoria)
       }'; then
     pass "stores: MQ gauge and sample count copied" \
-      "fresh gauges=${gauge_count}; scrape_samples_scraped=${prometheus_samples} in both"
+      "fresh gauges=${gauge_count} in both; scrape_samples_scraped=${prometheus_samples} in both"
   else
     fail "stores: MQ gauge and sample count copied" \
-      "fresh gauges=${gauge_count:-no answer}; scrape_samples_scraped Prometheus=${prometheus_samples:-no answer}, VictoriaMetrics=${victoria_samples:-no answer}"
+      "fresh gauges Prometheus=${gauge_count:-no answer}, VictoriaMetrics=${victoria_gauges:-no answer}; scrape_samples_scraped Prometheus=${prometheus_samples:-no answer}, VictoriaMetrics=${victoria_samples:-no answer}"
   fi
 }
 
@@ -355,7 +358,7 @@ phase6() {
   local traces=5 out before after before_status generator_status after_status export_errors \
     isolated collector_networks peers internal entry store network url want i uid run tempo vtraces \
     tempo_list first log_trace_id value tempo_spans vtraces_spans expected_jobs prometheus_jobs \
-    victoria_jobs mq_gauges prometheus_mq_samples victoria_mq_samples
+    victoria_jobs mq_gauges prometheus_mq_samples victoria_mq_samples victoria_mq_gauges
   local sent=$((traces * 2))
   # <service> <its network> <readiness URL through Envoy> <the answer when ready>
   local stores=(
@@ -436,10 +439,14 @@ phase6() {
       'last_over_time(scrape_samples_scraped{job="mq"}[1m])' 2>/dev/null)"
     victoria_mq_samples="$(metric_value victoriametrics \
       'last_over_time(scrape_samples_scraped{job="mq"}[1m])' 2>/dev/null)"
-    [ -n "${mq_gauges}" ] && [ "${prometheus_mq_samples}" = "${victoria_mq_samples}" ] && break
+    victoria_mq_gauges="$(metric_value victoriametrics \
+      'count(last_over_time(ibmmq_qmgr_log_write_latency_seconds[1m]))' 2>/dev/null)"
+    [ -n "${mq_gauges}" ] && [ "${mq_gauges}" = "${victoria_mq_gauges}" ] && \
+      [ "${prometheus_mq_samples}" = "${victoria_mq_samples}" ] && break
     sleep 3
   done
-  mq_metrics_verdict "${mq_gauges}" "${prometheus_mq_samples}" "${victoria_mq_samples}"
+  mq_metrics_verdict "${mq_gauges}" "${prometheus_mq_samples}" "${victoria_mq_samples}" \
+    "${victoria_mq_gauges}"
 
   # Grafana's own test of each datasource, the one its "Save & test" button runs.
   # Bounded, and the status must be exactly OK; no -f, because an unhealthy datasource's reason

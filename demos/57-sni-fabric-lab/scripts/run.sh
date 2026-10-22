@@ -6,12 +6,12 @@
 #                a rebuild from nothing; Postgres, MQ, Prometheus, Grafana and the telemetry
 #                stores' data are lost
 #   -h, --help   print this help
-# Fresh-run duration is to be measured after R1.3: MQ takes about 2 minutes under amd64
-# emulation, phase 6 waits for stores, and parity requires a complete five-minute window.
-# Exits non-zero at the first failed step.
+# Takes about 8 minutes (7 min 57 s recorded): MQ starts in about 2 under amd64 emulation,
+# phase 6 waits up to 90 s for the stores to show new data, and parity waits for a complete
+# window of every rate it compares. Exits non-zero at the first failed step.
 # Steps: certificates, secrets, images and containers, wait for every health check, then
-# scripts/verify.sh (phases 1-3), phase 6, phase 5 (failure and recovery), store parity and
-# routes, and the dashboard tests.
+# scripts/verify.sh (phases 1-3), phase 6, store parity, phase 5 (failure and recovery), the
+# store routes, and the dashboard tests.
 set -euo pipefail
 
 DEMO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -139,7 +139,7 @@ wait_for_rate_window() {  # wait_for_rate_window <attempts> <delay seconds>
     fi
     printf '%s\n' "${out}"
     [ "${attempt}" -lt "${attempts}" ] || return "${status}"
-    echo "window ${attempt}/${attempts}: waiting ${delay}s for five complete minutes of samples"
+    echo "window ${attempt}/${attempts}: waiting ${delay}s for every rate's complete window"
     sleep "${delay}"
   done
 }
@@ -193,16 +193,17 @@ scripts/verify.sh phase1 phase2 phase3
 step "Check the collector and the telemetry stores (phase 6)"
 scripts/verify.sh phase6
 
-step "Check failures and recovery (phase 5)"
-scripts/verify.sh phase5
-
 step "Compare Prometheus and VictoriaMetrics, then run every dashboard query on VictoriaMetrics"
-# Phase 5's counter resets reach both engines as the same remote-written samples. The explicit
-# sample-count gate proves W + margin exists; parity then gets only one retry for ingestion lag.
+# Before phase 5: across a target's outage the engines differ by design (Prometheus adds a reset,
+# VictoriaMetrics restarts after the gap), so parity needs every rate's window complete, and the
+# gate waits for that; parity then gets only one retry for ingestion lag.
 wait_for_rate_window 72 5
 parity_with_ingestion_retry
 bounded_retry 12 5 python3 tests/dashboard_queries.py \
   --prometheus http://victoriametrics.fabric.localtest.me:8080 --minutes 5
+
+step "Check failures and recovery (phase 5)"
+scripts/verify.sh phase5
 
 step "Check the stores' allowed routes and refused admin or host-write paths"
 bash tests/r1-2/test_store_routes.sh

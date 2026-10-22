@@ -166,8 +166,11 @@ phase6_case "span count missing" trace_span_verdict "stores: one trace has two s
 jobs='envoy mq orders-api otel-collector postgres tcp-svc tempo victoria-logs victoria-metrics victoria-traces worker'
 phase6_case "healthy metric job sets equal" metric_jobs_verdict "stores: same healthy metric jobs" PASS 11 "${jobs}" "${jobs}"
 phase6_case "VictoriaMetrics misses one job" metric_jobs_verdict "stores: same healthy metric jobs" FAIL 11 "${jobs}" "${jobs% worker}"
-phase6_case "MQ gauge present and counts equal" mq_metrics_verdict "stores: MQ gauge and sample count copied" PASS 1 136 136
-phase6_case "MQ gauge missing" mq_metrics_verdict "stores: MQ gauge and sample count copied" FAIL 0 136 136
-phase6_case "MQ scrape counts differ" mq_metrics_verdict "stores: MQ gauge and sample count copied" FAIL 1 136 108
-phase6_case "MQ query has no answer" mq_metrics_verdict "stores: MQ gauge and sample count copied" FAIL "" "" ""
+phase6_case "MQ gauge present and counts equal" mq_metrics_verdict "stores: MQ gauge and sample count copied" PASS 1 136 136 1
+phase6_case "MQ gauge missing" mq_metrics_verdict "stores: MQ gauge and sample count copied" FAIL 0 136 136 0
+phase6_case "MQ scrape counts differ" mq_metrics_verdict "stores: MQ gauge and sample count copied" FAIL 1 136 108 1
+phase6_case "MQ query has no answer" mq_metrics_verdict "stores: MQ gauge and sample count copied" FAIL "" "" "" ""
+# scrape_samples_scraped is Prometheus's own series: equal in a copy that lost the gauge itself.
+phase6_case "MQ gauge missing from the copy" mq_metrics_verdict "stores: MQ gauge and sample count copied" FAIL 1 136 136 0
+phase6_case "MQ gauge copy has no answer" mq_metrics_verdict "stores: MQ gauge and sample count copied" FAIL 1 136 136 ""
 echo "mismatches: ${mismatches}"; exit "${mismatches}"

@@ -8,6 +8,8 @@
 #   - a healthy run must pass;
 #   - a bind-mounted file newer than its containers recreates exactly those services;
 #   - a newer file below a bind-mounted directory recreates that service, while old sources do not;
+#   - a file deleted from a bind-mounted directory recreates that service (the directory's mtime);
+#   - parity runs after phase 6 and before phase 5, whose outages leave gaps it cannot compare;
 #   - with --random secrets, the committed transcript must not hold them (the public lab
 #     values it prints by design).
 set -u
@@ -68,6 +70,7 @@ scenario() {  # scenario <name> <run.sh args> <up fail> <want> <mount mode> <rec
   case "$5" in
     file) touch -t 202701010000 "${demo}/mounted.yml" ;;
     directory) touch -t 202701010000 "${demo}/mounted-dir/value" ;;
+    deleted) rm "${demo}/mounted-dir/value" ;;
     none) ;;
     *) echo "test_run_sh: unknown mount mode: $5" >&2; exit 2 ;;
   esac
@@ -83,7 +86,8 @@ scenario() {  # scenario <name> <run.sh args> <up fail> <want> <mount mode> <rec
   printf '#!/usr/bin/env bash\necho gen-certs.sh\n' > "${demo}/scripts/gen-certs.sh"
   # The real gen-secrets.sh: it keeps the files below and is where the lab values are listed.
   cp "$(dirname "${RUN_SH}")/gen-secrets.sh" "${demo}/scripts/gen-secrets.sh"
-  printf '#!/usr/bin/env bash\necho "verify $*" >> "%s/checks"\n' "${demo}" > "${demo}/scripts/verify.sh"
+  printf '#!/usr/bin/env bash\necho "verify $*" >> "%s/checks"\necho "verify $*" >> "%s/order"\n' \
+    "${demo}" "${demo}" > "${demo}/scripts/verify.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' > "${demo}/tests/r1-2/test_store_routes.sh"
   cat > "${demo}/tests/parity.py" <<'PY'
 import os
@@ -92,7 +96,12 @@ import sys
 
 if "--window-ready" in sys.argv:
     print("rate window samples at T: Prometheus=30, VictoriaMetrics=30; need at least 30")
-elif os.environ.get("SCEN_PARITY") == "fail":
+    raise SystemExit(0)
+# The rerun below the scenarios sets no SCEN_DEMO; only the scenarios record the step order.
+if os.environ.get("SCEN_DEMO"):
+    with open(Path(os.environ["SCEN_DEMO"]) / "order", "a", encoding="utf-8") as order:
+        order.write("parity\n")
+if os.environ.get("SCEN_PARITY") == "fail":
     path = Path(os.environ["SCEN_DEMO"]) / "parity-attempts"
     count = int(path.read_text()) + 1 if path.exists() else 1
     path.write_text(str(count))
@@ -121,6 +130,10 @@ PY
   if [ "$7" = fail ] && [ "${parity_attempts}" != 2 ]; then
     verdict=MISMATCH; mismatches=$((mismatches + 1))
   fi
+  order="$(paste -sd '|' "${demo}/order" 2>/dev/null || true)"
+  if [ "${got}" = pass ] && [ "${order}" != "verify phase1 phase2 phase3|verify phase6|parity|verify phase5" ]; then
+    verdict=MISMATCH; mismatches=$((mismatches + 1)); echo "          order: ${order}"
+  fi
   printf '%-9s %-52s exit=%s (%s, want %s), verify runs=%s, recreated=[%s]\n' \
     "${verdict}" "$1" "${status}" "${got}" "$4" "${checks// /}" "${recreated}"
   [ "${verdict}" = ok ] || grep -E '^(objects removed|Error|timed out)' <<<"${out}" | sed 's/^/          /'
@@ -131,6 +144,7 @@ scenario "--fresh on a lab that never ran"                   "--fresh" 0 pass no
 scenario "healthy run; old bind sources"                     ""        0 pass none "" pass
 scenario "new bind-mounted file"                             ""        0 pass file "envoy web" pass
 scenario "new file in bind-mounted directory"                ""        0 pass directory "grafana" pass
+scenario "file deleted from bind-mounted directory"          ""        0 pass deleted "grafana" pass
 scenario "two persistent parity disagreements"               ""        0 stop none "" fail
 
 # The transcript must hold no --random value, and still print the public lab values.
