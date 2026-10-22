@@ -184,7 +184,8 @@ podman compose up -d --build
 
 Result: every health check passes; Envoy after 0 s, Postgres after 7 s, MQ after 143 s and
 Grafana after 144 s. Watch them with `podman ps --format '{{.Names}} {{.Status}}'` until every one reads
-`healthy` (the telemetry stores without a health check read `Up`).
+`healthy`; the five without a health check (`otel-collector`, `postgres-exporter`, `tempo`,
+`victoria-traces`, `victoria-logs`) read `Up`.
 
 ### 4. Check the shared port and the services
 

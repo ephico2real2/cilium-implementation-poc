@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Usage: test_recap_counts.sh <demo dir>
 # The check counts, retry count, secret list and readiness times in RECAP.md must come from the
-# recorded run (output/transcript.txt); the diagram source must name the published TLS port.
+# recorded run (output/transcript.txt), and the containers it says read `Up` from compose.yaml;
+# the diagram source must name the published TLS port and no store as still to come.
 set -u
 t="$1/output/transcript.txt"
 phases="$(awk '/^==== Check phases 1-3/{on=1; next} /^==== /{on=0} on' "${t}" | grep -c '^PASS')"
@@ -27,13 +28,54 @@ check() {  # check <description> <command status: 0 means match>
   "counts: phases 1-3 ${phases}, whole run ${total}" "$?"
 grep -Fq "processed, after ${retries} Envoy retries." "$1/RECAP.md"; check \
   "retry delta: ${retry_before} -> ${retry_after} is ${retries}" "$?"
-# shellcheck disable=SC2016  # the backticks are Markdown, searched for literally
-grep -Fq '`grafana-admin-password` and `worker-token`' "$1/RECAP.md"; check \
-  "secret list includes worker-token" "$?"
+# The secrets the run wrote or kept, each named in step 2's result, and no other.
+python3 - "${t}" "$1/RECAP.md" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+section = Path(sys.argv[1]).read_text().split("==== Create the secrets", 1)[1].split("\n====", 1)[0]
+recorded = set(re.findall(r"^(?:kept|created) +(\S+)", section, re.MULTILINE))
+recap = " ".join(Path(sys.argv[2]).read_text().split())
+sentence = recap.split("Result: `secrets/` holds", 1)[1].split("with the lab values", 1)[0]
+named = set(re.findall(r"`([a-z-]+)`", sentence))
+if not recorded or named != recorded:
+    print(f"secrets: recorded {sorted(recorded)}, RECAP {sorted(named)}", file=sys.stderr)
+    sys.exit(1)
+PY
+check "secret list: the run's own" "$?"
 tr '\n' ' ' < "$1/RECAP.md" | grep -Fq "Envoy after ${envoy_s} s, Postgres after ${postgres_s} s, MQ after ${mq_s} s and Grafana after ${grafana_s} s."; check \
   "readiness: Envoy ${envoy_s}s, Postgres ${postgres_s}s, MQ ${mq_s}s, Grafana ${grafana_s}s" "$?"
 grep -Fq 'connect to one port, 8443.' "$1/docs/diagrams/layers/source.html"; check \
   "edge diagram accessibility text uses port 8443" "$?"
+! grep -Fq 'being added in R1.2' "$1/docs/diagrams/layers/source.html"; check \
+  "high-level diagram text: the R1.2 stores are built" "$?"
+# Every long-running service without a health check (no profile, not a one-shot) is named in the
+# step that says which ones read `Up` rather than `healthy`.
+python3 - "$1/compose.yaml" "$1/RECAP.md" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+services, name = {}, None
+for line in Path(sys.argv[1]).read_text().splitlines():
+    if re.match(r"^\S", line):
+        name = None
+        in_services = line.startswith("services:")
+    elif in_services and (m := re.match(r"^  ([a-z0-9-]+):\s*$", line)):
+        name = m.group(1)
+        services[name] = set()
+    elif name and (m := re.match(r'^    (healthcheck:|profiles:|restart: "no")', line)):
+        services[name].add(m.group(1))
+without = sorted(n for n, keys in services.items() if not keys)
+recap = " ".join(Path(sys.argv[2]).read_text().split())
+sentence = recap.split("without a health check", 1)[1].split("read `Up`", 1)[0] if "without a health check" in recap else ""
+missing = [n for n in without if f"`{n}`" not in sentence]
+if not without or missing:
+    print(f"no health check in compose.yaml: {without}; not named in RECAP: {missing}", file=sys.stderr)
+    sys.exit(1)
+PY
+check "containers that read Up: compose.yaml's own" "$?"
 python3 - "$1" <<'PY'
 import re
 import sys

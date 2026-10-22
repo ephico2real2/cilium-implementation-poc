@@ -54,6 +54,35 @@ for name, path in [("empty worker file", "/s/empty-worker-token"),
     verdict = "ok" if got == "refused" else "MISMATCH"
     bad += verdict != "ok"
     print(f"{verdict:9} {name:19} -> {got} (want refused)")
+
+# The worker's main() itself must read both secrets before its first MQ get, so with an empty
+# token it stops before any MQ client exists. A sentinel client turns a get into an error seen here.
+class MQGetAttempted(BaseException):
+    pass
+
+class SentinelClient:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def delete(self, *args, **kwargs):
+        raise MQGetAttempted()
+
+    post = delete
+
+worker.MQ_PASSWORD_FILE = "/s/postgres-password"
+worker.WORKER_TOKEN_FILE = "/s/empty-worker-token"
+worker.start_http_server = lambda *args, **kwargs: None
+worker.httpx.Client = SentinelClient
+try:
+    worker.main()
+    got = "returned"
+except RuntimeError:
+    got = "refused at start"
+except MQGetAttempted:
+    got = "took an MQ get"
+verdict = "ok" if got == "refused at start" else "MISMATCH"
+bad += verdict != "ok"
+print(f"{verdict:9} {'main, empty token':19} -> {got} (want refused at start)")
 print(f"mismatches: {bad}")
 sys.exit(bad)
 PY

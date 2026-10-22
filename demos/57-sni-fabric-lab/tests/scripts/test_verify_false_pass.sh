@@ -43,7 +43,8 @@ STUB
 cat > "${work}/stub/curl" <<'STUB'
 #!/usr/bin/env bash
 # Fake curl: the API, web and MQ console answers verify.sh reads, by URL and method.
-# Prometheus with no fresh sample at all answers an empty result.
+# Prometheus with a fresh sample answers it; with no fresh sample at all, an empty result.
+if [ -n "${SCEN_PROM_VALUE:-}" ]; then printf '{"data":{"result":[{"metric":{},"value":[0,"%s"]}]}}' "${SCEN_PROM_VALUE}"; exit 0; fi
 if [ "${SCEN_PROM_EMPTY:-0}" = 1 ]; then printf '{"data":{"result":[]}}'; exit 0; fi
 method=GET; fmt=""; headers=0; url=""
 while [ $# -gt 0 ]; do
@@ -119,11 +120,20 @@ out="$(PATH="${work}/stub:${PATH}" bash "${work}/demo/scripts/verify.sh" phase4 
 if [ "${status}" -ne 0 ]; then verdict=ok; else verdict=MISMATCH; mismatches=$((mismatches + 1)); fi
 printf '%-9s %-46s exit %s (want non-zero): %s\n' "${verdict}" "unknown phase name phase4" "${status}" "$(tail -1 <<<"${out}")"
 
-# An empty answer from Prometheus (no fresh scrape) must fail the baseline, not become a zero
-# the next cumulative sample would look past. Runs verify.sh's own prometheus_value.
+# verify.sh's own prometheus_value against the fake curl: a fresh sample is read as it is, and an
+# empty answer (no fresh scrape) fails rather than become a zero the next cumulative sample would
+# look past. The first case also proves the function was found and runs, so a missing or always
+# failing function cannot pass the second.
 prometheus_function="$(awk '/^prometheus_value\(\)/ { on=1 } on { print } on && /^}/ { exit }' "${work}/demo/scripts/verify.sh")"
-PATH="${work}/stub:${PATH}" SCEN_PROM_EMPTY=1 bash -o pipefail -c "${prometheus_function}; prometheus_value" >/dev/null 2>&1
-status=$?
-if [ "${status}" -ne 0 ]; then verdict=ok; else verdict=MISMATCH; mismatches=$((mismatches + 1)); fi
-printf '%-9s %-46s exit %s (want non-zero)\n' "${verdict}" "Prometheus answers empty: no zero invented" "${status}"
+prometheus_case() {  # prometheus_case <name> <want: a value, or "fail"> [VAR=value ...]
+  local name="$1" want="$2" out status got verdict=ok
+  shift 2
+  out="$(env PATH="${work}/stub:${PATH}" "$@" bash -o pipefail -c "${prometheus_function}
+prometheus_value" 2>/dev/null)"; status=$?
+  if [ "${status}" -eq 0 ]; then got="${out}"; else got=fail; fi
+  if [ -z "${prometheus_function}" ] || [ "${got}" != "${want}" ]; then verdict=MISMATCH; mismatches=$((mismatches + 1)); fi
+  printf '%-9s %-46s %s (want %s)\n' "${verdict}" "${name}" "${got}" "${want}"
+}
+prometheus_case "Prometheus answers 20: read as 20"          20   SCEN_PROM_VALUE=20
+prometheus_case "Prometheus answers empty: no zero invented" fail SCEN_PROM_EMPTY=1
 echo "mismatches: ${mismatches}"; exit "${mismatches}"

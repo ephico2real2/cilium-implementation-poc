@@ -172,10 +172,12 @@ mesh_get() {  # mesh_get <url>  -> body, fetched from inside orders-api through 
 
 # Only samples from the last three scrapes (10 s apart): a plain query would return a restarted
 # collector's old last value for 5 minutes. A restarted collector has no series until its first
-# span, so a fresh `up` sample stands for zero then; with no fresh scrape at all the answer is
-# empty and this fails, rather than invent a zero the next cumulative sample would look past.
-prometheus_value() {  # prometheus_value -> sum of accepted spans; exits 1 without a fresh scrape
-  curl -fsS --get --data-urlencode 'query=sum(last_over_time(otelcol_receiver_accepted_spans_total[30s])) or on() (0 * sum(last_over_time(up{job="otel-collector"}[30s])))' \
+# span, so a fresh successful scrape (`up` 1) stands for zero then. A failed scrape writes a fresh
+# `up` too (0) and says nothing of the counter, so it does not count: with no fresh successful
+# scrape the answer is empty and this fails, rather than invent a zero the next cumulative sample
+# would look past.
+prometheus_value() {  # prometheus_value -> sum of accepted spans; exits 1 without a fresh successful scrape
+  curl -fsS --get --data-urlencode 'query=sum(last_over_time(otelcol_receiver_accepted_spans_total[30s])) or on() (0 * sum(last_over_time(up{job="otel-collector"}[30s]) == 1))' \
     "http://prometheus.fabric.localtest.me:8080/api/v1/query" \
     | python3 -c 'import json,sys; d=json.load(sys.stdin); r=d["data"]["result"]; print(r[0]["value"][1]) if r else sys.exit(1)'
 }
