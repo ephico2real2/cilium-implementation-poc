@@ -16,10 +16,10 @@
 # container-tests uses podman, because the tests it runs call podman.
 #
 # Not in CI: the checks that need the running lab (scripts/run.sh --fresh builds four images and
-# starts the 16 services, 11 min 7 s recorded on the Mac), which this workflow does not bring up.
+# starts the 16 services, 11 min 6 s recorded on the Mac), which this workflow does not bring up.
 # Each runs on the lab's machine, from the demo directory, once the lab is up:
 #   scripts/verify.sh                          phases 1-3, 57 checks
-#   scripts/verify.sh phase6                   the collector and the four stores, 22 checks
+#   scripts/verify.sh phase6                   the collector, the four stores and the services' traces, 25 checks
 #   scripts/verify.sh phase5                   failure and recovery, 7 checks; stops and restarts containers on purpose
 #   bash tests/r1-2/test_store_routes.sh       the stores' mesh routes (admin and other writes refused) and
 #                                              VictoriaMetrics' whole app on the host

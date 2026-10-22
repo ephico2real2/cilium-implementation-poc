@@ -61,7 +61,7 @@ a { color: var(--remote); }
 <div class="page">
   <header>
     <div class="eyebrow">sni fabric lab · release 1 mock · 2026-10-21</div>
-    <h1>What one order's trace should look like after Release 1</h1>
+    <h1>What one order's trace should look like after Release 1, and what R1.4 built</h1>
     <p class="lede">The span tree Release 1 must produce for one order, drawn before any of it is built, to be
       compared with the real trace at the end of sprint 2. Timings follow the hops <code>scripts/trace_order.py</code>
       measured on 2026-10-21 (API call, event put, status update within about 45 ms).</p>
@@ -70,7 +70,7 @@ a { color: var(--remote); }
   <section>
     <figure>
       <div class="fig-scroll">
-        <svg viewBox="0 0 980 572" role="img" aria-label="Proposed. One trace for one order: orders-api's POST /orders with its Postgres insert, its MQ put through Envoy and a Postgres update; then, linked by a traceparent carried in the MQ message, the worker's processing span with its status update through Envoy to orders-api and Postgres. The browser's request has no span because Envoy passes its TLS through. The trace's logs come from VictoriaLogs and a duration exemplar leads to it.">
+        <svg viewBox="0 0 980 572" role="img" aria-label="One trace for one order. Built since R1.4: orders-api's POST /orders with its Postgres insert, its MQ put and a Postgres update. Proposed: Envoy's hop for the MQ put; then, linked by a traceparent carried in the MQ message, the worker's processing span with its status update through Envoy to orders-api and Postgres. The browser's request has no span because Envoy passes its TLS through. The trace's logs come from VictoriaLogs and a duration exemplar leads to it.">
           <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
           <g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
             <text x="40" y="32" font-weight="600">trace for order 516 · stored in Tempo (standard) and VictoriaTraces (compared)</text>
@@ -90,15 +90,15 @@ a { color: var(--remote); }
             <line x1="940.0" y1="92" x2="940.0" y2="444" stroke="var(--rule)" stroke-width="1"/>
             <text x="940.0" y="86" text-anchor="middle" fill="var(--muted)" font-size="11.5">60 ms</text>
             <text x="40" y="122" fill="var(--remote)" font-family="IBM Plex Mono, monospace" font-size="11.5">POST /orders  (server)</text>
-            <rect x="430.0" y="109" width="119.0" height="18" rx="3" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.4" stroke-dasharray="4 3"/>
+            <rect x="430.0" y="109" width="119.0" height="18" rx="3" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.4"/>
             <text x="58" y="156" fill="var(--none)" font-family="IBM Plex Mono, monospace" font-size="11.5">psycopg  INSERT INTO orders</text>
-            <rect x="438.5" y="143" width="17.0" height="18" rx="3" fill="var(--none-wash)" stroke="var(--none)" stroke-width="1.4" stroke-dasharray="4 3"/>
+            <rect x="438.5" y="143" width="17.0" height="18" rx="3" fill="var(--none-wash)" stroke="var(--none)" stroke-width="1.4"/>
             <text x="58" y="190" fill="var(--remote)" font-family="IBM Plex Mono, monospace" font-size="11.5">httpx  POST mqrest.mesh …/message  (client)</text>
-            <rect x="472.5" y="177" width="34.0" height="18" rx="3" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.4" stroke-dasharray="4 3"/>
+            <rect x="472.5" y="177" width="34.0" height="18" rx="3" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.4"/>
             <text x="76" y="224" fill="currentColor" font-family="IBM Plex Mono, monospace" font-size="11.5">envoy mesh_http → mq_web</text>
             <rect x="476.8" y="211" width="25.5" height="18" rx="3" fill="var(--surface)" stroke="currentColor" stroke-width="1.4" stroke-dasharray="4 3"/>
             <text x="58" y="258" fill="var(--none)" font-family="IBM Plex Mono, monospace" font-size="11.5">psycopg  UPDATE orders (events_sent)</text>
-            <rect x="515.0" y="245" width="8.5" height="18" rx="3" fill="var(--none-wash)" stroke="var(--none)" stroke-width="1.4" stroke-dasharray="4 3"/>
+            <rect x="515.0" y="245" width="8.5" height="18" rx="3" fill="var(--none-wash)" stroke="var(--none)" stroke-width="1.4"/>
             <text x="40" y="292" fill="var(--host)" font-family="IBM Plex Mono, monospace" font-size="11.5">process order.created  (consumer)</text>
             <rect x="795.5" y="279" width="59.5" height="18" rx="3" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.4" stroke-dasharray="4 3"/>
             <text x="58" y="326" fill="var(--host)" font-family="IBM Plex Mono, monospace" font-size="11.5">httpx  PUT api.mesh/orders/{id}/status</text>
@@ -114,12 +114,17 @@ a { color: var(--remote); }
             <text x="40" y="462">Logs: every line orders-api and the worker wrote in these spans, from VictoriaLogs by trace id (R1.7).</text>
             <text x="40" y="484">Metrics: a duration exemplar in Prometheus opens this trace; VictoriaMetrics correlates by labels (R1.8).</text>
             <text x="40" y="510" fill="var(--muted)">Colour by service: <tspan fill="var(--remote)" font-weight="600">teal orders-api</tspan>, <tspan fill="var(--host)" font-weight="600">amber worker</tspan>, ink Envoy, <tspan fill="var(--none)" font-weight="600">grey Postgres</tspan>. Indent = parent and child.</text>
-            <text x="40" y="534" fill="var(--host)" font-weight="600">Dashed = proposed: Release 1 builds this; none of these spans exist yet.</text>
+            <text x="40" y="526" fill="var(--host)" font-weight="600">Solid = built (R1.4), four of the measured trace's 12 spans: 1 server, 1 HTTP, 6 database, 4 ASGI internal.</text>
+            <text x="40" y="548" fill="var(--host)" font-weight="600">Dashed = proposed: R1.5, R1.6.</text>
           </g>
         </svg>
       </div>
-      <figcaption>Proposed. Release 1 is done when the real trace of one order matches this tree: the API's spans, the
-        MQ hand-off by traceparent, the worker's spans and Envoy's mesh hops, with its logs and an exemplar linked.</figcaption>
+      <figcaption>The mock draws the order's business path, not every span instrumentation makes. Since R1.4 the
+        API's part of it exists (solid): phase 6 found one order's trace of 12 spans, its server span, one HTTP client
+        span, six database spans (its statements and the connection pool's checks) and four ASGI internal spans.
+        Still proposed (dashed): the MQ hand-off by traceparent and the worker's spans in the same trace (R1.5),
+        Envoy's mesh hops (R1.6). Release 1 is done when the real trace matches this tree, with its logs and an
+        exemplar linked. Bar lengths are the mock's, from the hops measured on 2026-10-21.</figcaption>
     </figure>
   </section>
 </div>

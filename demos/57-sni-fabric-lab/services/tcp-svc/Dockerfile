@@ -11,4 +11,6 @@ COPY tcp_svc.py .
 RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin app
 USER 10001
 EXPOSE 9000 9100
-CMD ["python", "tcp_svc.py"]
+# opentelemetry-instrument (R1.4) configures OpenTelemetry from the OTEL_* variables compose.yaml
+# sets, then execs the same command. No library here has an instrumentation, so no spans yet.
+CMD ["opentelemetry-instrument", "python", "tcp_svc.py"]

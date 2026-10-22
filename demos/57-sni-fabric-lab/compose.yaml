@@ -13,6 +13,22 @@ x-hardening: &hardening
 x-after-init: &after-init
   init: {condition: service_completed_successfully}
 
+# OpenTelemetry for the three Python services (R1.4): each image starts its process under
+# opentelemetry-instrument, and these variables are the whole configuration. Traces only: the
+# services' metrics stay on Prometheus's scrape until R1.8, their logs on stdout until R1.7.
+x-otel-env: &otel-env
+  # OTLP over HTTP to Envoy's otlp.mesh alias, which routes /v1/* on mesh_http to the collector.
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otlp.mesh:18080
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_TRACES_EXPORTER: otlp
+  OTEL_METRICS_EXPORTER: none
+  OTEL_LOGS_EXPORTER: none
+  # W3C trace context, the header Envoy's tracer reads (R1.6); every trace is kept at a lab's volume.
+  OTEL_PROPAGATORS: tracecontext,baggage
+  OTEL_TRACES_SAMPLER: parentbased_always_on
+  # service.version is the images' tag (:dev below) until R5 versions both.
+  OTEL_RESOURCE_ATTRIBUTES: service.version=dev,deployment.environment=lab
+
 services:
   # One-shot: gives each component its own copy of its key and secrets, owned by its UID
   # (scripts/init-volumes.sh). Everything else waits for it. It runs as root with only the
@@ -119,6 +135,9 @@ services:
     <<: *hardening
     build: ./services/tcp-svc
     image: localhost/fabric-tcp-svc:dev
+    environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: tcp-svc
     volumes:
       - tls:/tls:ro
     depends_on: *after-init
@@ -134,6 +153,10 @@ services:
     build: ./services/orders-api
     image: localhost/fabric-orders-api:dev
     environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: orders-api
+      # Prometheus's scrape (every 10 s) and the health check (every 5 s) would be a trace each.
+      OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: /metrics$$,/healthz$$,/readyz$$
       ENVOY_READY_URL: http://envoy.mesh:18080/ready
       MQ_REST_URL: http://mqrest.mesh:18080/ibmmq/rest/v3
       WORKER_METRICS_URL: http://metrics.mesh:18080/metrics/worker
@@ -204,6 +227,9 @@ services:
     <<: *hardening
     build: ./services/worker
     image: localhost/fabric-worker:dev
+    environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: worker
     volumes:
       - secrets:/secrets:ro
     depends_on: *after-init

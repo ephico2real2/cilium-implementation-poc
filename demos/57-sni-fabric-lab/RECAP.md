@@ -18,7 +18,7 @@ shared-SNI design for exposing IBM MQ through Envoy.
   with no certificate are both refused.
 - An order saved in Postgres, announced on MQ and marked processed by the worker in 1 s.
 - Retries that rescue what they safely can: under 50% injected failures all 10 orders were
-  processed, after 11 Envoy retries.
+  processed, after 5 Envoy retries.
 - Recovery without a restart by hand: from a Postgres restart, from MQ stopped and started,
   and from the TCP service stopped and started.
 - Metrics from every component scraped through Envoy (11 scrape jobs), on a Grafana dashboard
@@ -42,6 +42,8 @@ shared-SNI design for exposing IBM MQ through Envoy.
 | Retry | Envoy trying a request again. It does so only where repeating it cannot do harm twice. |
 | Sweeper | A loop in orders-api that re-sends the MQ event of any order still `created` after 60 s. |
 | Destructive get | Reading a message from MQ's REST API removes it from the queue; repeating the read would lose a different message, so Envoy never retries it once sent. |
+| Span, trace | A span is one timed operation (a request served, an HTTP call, an SQL statement); a trace is the spans of one piece of work, linked by a shared trace id. |
+| `opentelemetry-instrument` | The command each service starts under: it reads the `OTEL_*` variables, sets up the exporter and patches FastAPI, httpx and psycopg before the service's own code runs. |
 
 ## Architecture
 
@@ -66,7 +68,7 @@ The same, layer by layer (source: `docs/diagrams/layers/source.html`, drawn with
 
 ![Eight layers from clients to Grafana: clients reach Envoy's edge on 8443 and 8080; the services sit behind it; Envoy's mesh carries every call between services and to Postgres and IBM MQ; the collector and Prometheus form the telemetry layer; four stores; Grafana reads them all.](docs/diagrams/layers/high-level.light.png)
 
-*Every arrow between layers is a hop through Envoy. Dashed: auto-instrumentation, sprint 2.*
+*Every arrow between layers is a hop through Envoy. Dashed: the rest of sprint 2 (R1.5–R1.8).*
 
 ![Clients on this Mac reach Envoy's edge_sni listener on 127.0.0.1:8443, which reads the SNI and passes the TLS through to web, orders-api, tcp-svc or the MQ queue manager; an unknown or missing SNI is reset. Grafana, Prometheus and VictoriaMetrics are on 127.0.0.1:8080; VictoriaMetrics is its whole app from this Mac and only its read API from a container.](docs/diagrams/layers/edge.light.png)
 
@@ -190,8 +192,8 @@ emulation; about two minutes is normal.
 podman compose up -d --build
 ```
 
-Result: every health check passes; Envoy after 0 s, Postgres after 6 s, MQ after 139 s and
-Grafana after 140 s. Watch them with `podman ps --format '{{.Names}} {{.Status}}'` until every one reads
+Result: every health check passes; Envoy after 0 s, Postgres after 6 s, MQ after 130 s and
+Grafana after 130 s. Watch them with `podman ps --format '{{.Names}} {{.Status}}'` until every one reads
 `healthy`; the five without a health check (`otel-collector`, `postgres-exporter`, `tempo`,
 `victoria-traces`, `victoria-logs`) read `Up`.
 
@@ -236,8 +238,8 @@ service, and checks that every order still ends `processed`, with no restart by 
 scripts/verify.sh phase5
 ```
 
-Result: 7 checks, `failures: 0`; under 50% chaos `processed=10 of 10 after 3s`, and the order
-taken while MQ was down `processed=1 of 1 after 0s` once the sweeper re-sent it.
+Result: 7 checks, `failures: 0`; under 50% chaos `processed=10 of 10 after 0s`, and the order
+taken while MQ was down `processed=1 of 1 after 9s` once the sweeper re-sent it.
 
 ## Verify
 
@@ -247,7 +249,7 @@ Rebuild from nothing and run every check, recorded to `output/transcript.txt`:
 scripts/run.sh --fresh
 ```
 
-Result: 11 min 7 s; 87 checks pass, `31 queries, 0 with errors or warnings`, and
+Result: 11 min 6 s; 90 checks pass, `31 queries, 0 with errors or warnings`, and
 `PASS  14 charts in 7 sections; both forms agree on colours, styles, units, legends`.
 
 Then open <https://web.fabric.localtest.me:8443/admin> with the token `fabric-admin`, and
@@ -305,6 +307,9 @@ choices: `docs/metrics/dashboard-choices.md`.
   reload and log in again.
 - Grafana shows an old dashboard after `build_dashboard.py` → Grafana 12.4.12 did not reload
   the file while running → restart Grafana.
+- Tempo has no trace from orders-api or the worker → OpenTelemetry did not start, or cannot reach
+  `otlp.mesh` → `podman logs fabric-orders-api-1 2>&1 | grep -E 'Failed to (auto initialize|export)'`
+  names the cause; the service itself keeps running either way.
 
 ## Clean up
 

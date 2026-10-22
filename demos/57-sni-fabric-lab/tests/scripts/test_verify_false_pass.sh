@@ -177,4 +177,127 @@ phase6_case "MQ query has no answer" mq_metrics_verdict "stores: MQ gauge and sa
 phase6_case "MQ gauge missing from the copy" mq_metrics_verdict "stores: MQ gauge and sample count copied" FAIL 1 136 136 0
 phase6_case "MQ gauge copy has no answer" mq_metrics_verdict "stores: MQ gauge and sample count copied" FAIL 1 136 136 ""
 phase6_case "MQ scrape counts are zero" mq_metrics_verdict "stores: MQ gauge and sample count copied" FAIL 1 0 0 1
+
+# R1.4's verdicts. Each takes the output of a summary function, so the bash logic is tested here
+# with plain strings; the summaries themselves are tested below on Tempo-shaped JSON.
+three=(orders-api:orders-api:instrumented worker:worker:instrumented tcp-svc:tcp-svc:instrumented)
+phase6_case "three services instrumented" instrumented_verdict "otel: the three services run instrumented" PASS "${three[@]}"
+phase6_case "tcp-svc started plain" instrumented_verdict "otel: the three services run instrumented" FAIL \
+  orders-api:orders-api:instrumented worker:worker:instrumented tcp-svc:none:plain
+phase6_case "worker named as orders-api" instrumented_verdict "otel: the three services run instrumented" FAIL \
+  orders-api:orders-api:instrumented worker:orders-api:instrumented tcp-svc:tcp-svc:instrumented
+phase6_case "no container answered" instrumented_verdict "otel: the three services run instrumented" FAIL
+order='otel: one order.s trace has server, client and'
+phase6_case "server, client and database spans" order_trace_verdict "${order}" PASS "HTTP 201" "server=1 client=1 database=6 traces=1 spans=12"
+phase6_case "no database span" order_trace_verdict "${order}" FAIL "HTTP 201" "server=1 client=1 database=0 traces=1 spans=6"
+phase6_case "no HTTP client span" order_trace_verdict "${order}" FAIL "HTTP 201" "server=1 client=0 database=6 traces=1 spans=11"
+phase6_case "ten HTTP client spans still pass" order_trace_verdict "${order}" PASS "HTTP 201" "server=1 client=10 database=6 traces=1 spans=21"
+phase6_case "two server spans" order_trace_verdict "${order}" FAIL "HTTP 201" "server=2 client=1 database=6 traces=1 spans=24"
+phase6_case "spans from two traces" order_trace_verdict "${order}" FAIL "HTTP 201" "server=1 client=1 database=6 traces=2 spans=13"
+phase6_case "order refused" order_trace_verdict "${order}" FAIL "HTTP 422" "server=1 client=1 database=6 traces=1 spans=12"
+phase6_case "Tempo never answered" order_trace_verdict "${order}" FAIL "HTTP 201" ""
+resource='otel: resource has service, version, env=lab'
+phase6_case "both services, version, lab" resource_verdict "${resource}" PASS "orders-api=dev/lab worker=dev/lab spans=13 missing=0"
+phase6_case "worker without an environment" resource_verdict "${resource}" FAIL "orders-api=dev/lab worker=dev/none spans=13 missing=1"
+phase6_case "environment prod" resource_verdict "${resource}" FAIL "orders-api=dev/prod worker=dev/prod spans=13 missing=0"
+phase6_case "no worker trace" resource_verdict "${resource}" FAIL "orders-api=dev/lab spans=12 missing=0"
+phase6_case "no spans at all" resource_verdict "${resource}" FAIL "spans=0 missing=0"
+
+# The summaries, on JSON shaped as Tempo's /api/v2/traces answers (ids in base64, kinds as
+# SPAN_KIND_*). Spec per span: service|span id|parent id or -|kind|key=value,...|trace id (16 hex,
+# 16 hex, 32 hex). The check's own span is 0123456789abcdef; it is in no document, as in the lab.
+tempo_trace() {  # tempo_trace <spec>...  -> one Tempo trace document
+  python3 -c 'import base64, json, sys
+b64 = lambda h: base64.b64encode(bytes.fromhex(h)).decode()
+resources = {}
+for spec in sys.argv[1:]:
+    service, span_id, parent, kind, attrs, trace = spec.split("|")
+    span = {"traceId": b64(trace), "spanId": b64(span_id), "kind": "SPAN_KIND_" + kind, "name": kind.lower(),
+            "attributes": [{"key": k, "value": {"stringValue": v}} for k, v in (a.split("=", 1) for a in attrs.split(",") if a)]}
+    if parent != "-":
+        span["parentSpanId"] = b64(parent)
+    resources.setdefault(service, []).append(span)
+print(json.dumps({"trace": {"resourceSpans": [
+    {"resource": {"attributes": [{"key": "service.name", "value": {"stringValue": s}},
+                                 {"key": "service.version", "value": {"stringValue": "dev"}},
+                                 {"key": "deployment.environment", "value": {"stringValue": "lab"}}]},
+     "scopeSpans": [{"spans": spans}]} for s, spans in resources.items()]}}))' "$@"
+}
+summary_case() {  # summary_case <name> <function> <want output> <arguments...>
+  local name="$1" function_name="$2" want="$3" function_text got verdict=ok
+  shift 3
+  function_text="$(verdict_function "${function_name}")"
+  got="$(bash -c "${function_text}
+${function_name} \"\$@\"" _ "$@" 2>&1)"
+  if [ -z "${function_text}" ] || [ "${got}" != "${want}" ]; then verdict=MISMATCH; mismatches=$((mismatches + 1)); fi
+  printf '%-9s %-46s %s (want %s)\n' "${verdict}" "${name}" "${got:-none}" "${want}"
+}
+t=0af7651916cd43dd8448eb211c80319c; u=4bf92f3577b34da6a3ce929d0e0e4736; check_span=0123456789abcdef
+server="orders-api|00000000000000a1|${check_span}|SERVER|http.route=/orders,http.method=POST|${t}"
+client="orders-api|00000000000000a2|00000000000000a1|CLIENT|http.method=POST|${t}"
+database="orders-api|00000000000000a3|00000000000000a1|CLIENT|db.system=postgresql|${t}"
+summary_case "the order's three kinds of span" order_trace_summary "server=1 client=1 database=1 traces=1 spans=3" \
+  "$(tempo_trace "${server}" "${client}" "${database}")" "${t}" "${check_span}"
+summary_case "stable semantic-convention names" order_trace_summary "server=1 client=1 database=1 traces=1 spans=3" \
+  "$(tempo_trace "${server}" "${client/http.method/http.request.method}" "${database/db.system/db.system.name}")" "${t}" "${check_span}"
+summary_case "the server span is another request's" order_trace_summary "server=0 client=0 database=0 traces=1 spans=3" \
+  "$(tempo_trace "${server/${check_span}/fedcba9876543210}" "${client}" "${database}")" "${t}" "${check_span}"
+# A sweeper's query in the same document, not under the order's server span, is not the order's.
+summary_case "a database span outside the order" order_trace_summary "server=1 client=1 database=0 traces=1 spans=3" \
+  "$(tempo_trace "${server}" "${client}" "orders-api|00000000000000b1|-|CLIENT|db.system=postgresql|${t}")" "${t}" "${check_span}"
+summary_case "a span of another trace" order_trace_summary "server=1 client=1 database=0 traces=2 spans=3" \
+  "$(tempo_trace "${server}" "${client}" "${database/%${t}/${u}}")" "${t}" "${check_span}"
+summary_case "Tempo answered nothing" order_trace_summary "server=0 client=0 database=0 traces=0 spans=0" "" "${t}" "${check_span}"
+summary_case "resources of the order and a worker poll" resource_summary "orders-api=dev/lab worker=dev/lab spans=4 missing=0" \
+  "$(tempo_trace "${server}" "${client}" "${database}")" \
+  "$(tempo_trace "worker|00000000000000c1|-|CLIENT|http.method=DELETE|${u}")"
+summary_case "Envoy's resource is not this story's" resource_summary "orders-api=dev/lab spans=1 missing=0" \
+  "$(tempo_trace "${server}" "envoy|00000000000000d1|00000000000000a1|CLIENT||${t}" | sed 's/"service.version"/"x"/2')"
+summary_case "a worker span without its environment" resource_summary "orders-api=dev/lab worker=dev/none spans=2 missing=1" \
+  "$(tempo_trace "${server}")" "$(tempo_trace "worker|00000000000000c1|-|CLIENT|http.method=DELETE|${u}" | sed 's/deployment.environment/x/')"
+
+summary_case "other services cannot supply the order's clients" order_trace_summary \
+  "server=1 client=0 database=0 traces=1 spans=3" \
+  "$(tempo_trace "${server}" \
+      "envoy|00000000000000a2|00000000000000a1|CLIENT|http.method=POST|${t}" \
+      "worker|00000000000000a3|00000000000000a1|CLIENT|db.system=postgresql|${t}")" \
+  "${t}" "${check_span}"
+summary_case "Tempo answered a different trace" order_trace_summary \
+  "server=0 client=0 database=0 traces=1 spans=3" \
+  "$(tempo_trace "${server/%${t}/${u}}" "${client/%${t}/${u}}" "${database/%${t}/${u}}")" \
+  "${t}" "${check_span}"
+unnamed="$(tempo_trace "worker|00000000000000d1|-|CLIENT|http.method=GET|${u}" | sed 's/"service.name"/"x"/')"
+summary_case "a resource without service.name is missing" resource_summary \
+  "orders-api=dev/lab unknown=none/none worker=dev/lab spans=3 missing=1" \
+  "$(tempo_trace "${server}")" \
+  "$(tempo_trace "worker|00000000000000c1|-|CLIENT|http.method=DELETE|${u}")" \
+  "${unnamed}"
+
+# instrumented_process against a fake PID 1: an environ file stands for /proc/1/environ, a package
+# tree for the image's OpenTelemetry install, a log file for `podman logs`.
+site="${work}/site"; hook="${site}/opentelemetry/instrumentation/auto_instrumentation"
+mkdir -p "${hook}"; : > "${hook}/__init__.py"
+process_case() {  # process_case <name> <want output> <PID 1's PYTHONPATH> <a line of its log> [lines after it]
+  local name="$1" want="$2" function_text got verdict=ok
+  printf 'PYTHONPATH=%s\0OTEL_SERVICE_NAME=tcp-svc\0' "$3" > "${work}/environ"
+  { printf '%s\n' "$4"; [ -z "${5:-}" ] || seq 1 "$5"; } > "${work}/log"
+  function_text="$(verdict_function instrumented_process)"
+  got="$(SITE="${site}" ENVIRON="${work}/environ" LOG="${work}/log" bash -c 'set -o pipefail
+in_container() { PYTHONPATH="${SITE}" python3 -c "${4//\/proc\/1\/environ/${ENVIRON}}" "${@:5}"; }
+podman() { cat "${LOG}"; }
+'"${function_text}"'
+instrumented_process tcp-svc' 2>&1)"
+  if [ -z "${function_text}" ] || [ "${got}" != "${want}" ]; then verdict=MISMATCH; mismatches=$((mismatches + 1)); fi
+  printf '%-9s %-46s %s (want %s)\n' "${verdict}" "${name}" "${got:-none}" "${want}"
+}
+process_case "started by opentelemetry-instrument" tcp-svc:tcp-svc:instrumented "${hook}:/app" '{"msg": "listening"}'
+process_case "no hook on PYTHONPATH" tcp-svc:tcp-svc:plain "/app" '{"msg": "listening"}'
+process_case "PYTHONPATH names a look-alike directory" tcp-svc:tcp-svc:plain \
+  "/nowhere/opentelemetry/instrumentation/auto_instrumentation:/app" '{"msg": "listening"}'
+process_case "hook loaded, initialisation failed" tcp-svc:tcp-svc:failed "${hook}:/app" \
+  'Failed to auto initialize OpenTelemetry'
+# verify.sh runs under pipefail: a reader that stops at the first match must not hide the failure.
+process_case "initialisation failed, long log after it" tcp-svc:tcp-svc:failed "${hook}:/app" \
+  'Failed to auto initialize OpenTelemetry' 200000
+
 echo "mismatches: ${mismatches}"; exit "${mismatches}"

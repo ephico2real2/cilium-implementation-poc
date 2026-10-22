@@ -11,7 +11,8 @@ recorded run.
 2. [All commands at a glance](#2-all-commands-at-a-glance)
 3. [URLs and logins](#3-urls-and-logins)
 4. [Build and run](#4-build-and-run): `run.sh`, `gen-certs.sh`, `gen-secrets.sh`
-5. [Use the lab](#5-use-the-lab): traffic, the MQ client, the chaos switch, tracing an order, telemetry generation
+5. [Use the lab](#5-use-the-lab): traffic, the MQ client, the chaos switch, tracing an order, telemetry generation,
+   the services' own traces
 6. [Check the lab](#6-check-the-lab): `verify.sh` and the tests
 7. [Operate the lab](#7-operate-the-lab): containers, the dashboard, the telemetry stores
 8. [Reference](#8-reference): environment variables, files written, exit codes
@@ -100,8 +101,8 @@ The steps, in order:
 7. Print the memory in use, and the URLs with their logins
 
 Everything is also written to `output/transcript.txt`. It stops at the first failed step.
-Measured on 2026-10-22: 11 min 7 s from nothing, 87 checks, 0 failures. The comparison step
-took 3 min 16 s, nearly all of it waiting: a counter that sat at zero until phases 1-3 (orders created, unknown-SNI resets) is
+Measured on 2026-10-22: 11 min 6 s from nothing, 90 checks, 0 failures. The comparison step
+took 3 min 12 s, nearly all of it waiting: a counter that sat at zero until phases 1-3 (orders created, unknown-SNI resets) is
 exactly comparable only once its last zero sample has left the 310 s window, because Prometheus
 stops extrapolating at a counter's zero point and VictoriaMetrics never extrapolates.
 
@@ -292,6 +293,35 @@ In Grafana's Explore: Tempo `{resource.service.name="my-run"}`, VictoriaTraces s
 `service.name:="my-run"`. VictoriaTraces and VictoriaMetrics show new data about 30 s after it
 arrives (their `-search.latencyOffset`).
 
+### 5.6 The services' own traces
+
+orders-api, worker and tcp-svc start under `opentelemetry-instrument` (each Dockerfile's `CMD`), and
+the `x-otel-env` block of `compose.yaml` is their whole configuration: no service file changed. They
+send traces only, over OTLP/HTTP to Envoy's `otlp.mesh`, which the collector fans out to Tempo and
+VictoriaTraces. Their metrics stay on Prometheus's scrape and their logs on stdout.
+
+| Service | Instrumented | Its spans |
+|---|---|---|
+| orders-api | FastAPI, httpx, psycopg | a server span per request (both servers), a client span per MQ REST, Prometheus or health call, a client span per SQL statement and per pool check (an empty statement named after the database) |
+| worker | httpx | a client span per MQ REST get (one every 5 s while the queue is empty) and per status update |
+| tcp-svc | nothing | none: no library it uses has an instrumentation, so it exports no span |
+
+Not traced: `/metrics`, `/healthz` and `/readyz` on orders-api (`OTEL_PYTHON_FASTAPI_EXCLUDED_URLS`),
+because Prometheus's scrape and the health check would be a trace every few seconds. Until R1.5,
+the worker's status update and orders-api's handling of it are one trace, and the order's own
+request is another.
+
+To see one order's trace, place the order with a trace id of your own and open that id in
+Grafana's Explore (Tempo):
+
+```bash
+trace="$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]')"
+curl -s --cacert certs/ca/ca.crt -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $(uuidgen)" -H "traceparent: 00-${trace}-00f067aa0ba902b7-01" \
+  -d '{"item":"flat white","quantity":1}' https://api.fabric.localtest.me:8443/orders
+echo "${trace}"
+```
+
 ## 6. Check the lab
 
 ### 6.1 `scripts/verify.sh`: the checks
@@ -309,7 +339,7 @@ scripts/verify.sh phase1 phase5   # several, in that order
 | `phase2` | 20 | Swagger; idempotent orders; validation; the admin token; CORS; Postgres only through `mesh_pg` |
 | `phase3` | 19 | The native MQ client in all three SNI modes; an order from created to processed; every `/metrics` through Envoy; Envoy's verified TLS to the MQ REST API |
 | `phase5` | 7 | 50% chaos, a Postgres restart, MQ stopped and started, tcp-svc stopped and started: everything recovers by itself. **Stops and restarts containers on purpose** |
-| `phase6` | 22 | Five synthetic traces (ten spans) reach the collector through Envoy with no export error; the collector shares only the internal `net-otel` with Envoy; its internal metrics return through `mesh_http`. Each store is ready when read through Envoy, sits on an internal network shared with Envoy alone, and its own metrics return through `mesh_http`. Both metric stores have the same complete set of healthy jobs, the same positive MQ scrape sample count, and the same positive count of fresh MQ recovery-log gauges. Grafana's test of each datasource answers OK. One named run: its five trace ids are the same in Tempo and VictoriaTraces, one trace has exactly two spans in both, its five metric samples are in VictoriaMetrics, and its five log lines (carrying one of those trace ids) are in VictoriaLogs |
+| `phase6` | 25 | Five synthetic traces (ten spans) reach the collector through Envoy with no export error; the collector shares only the internal `net-otel` with Envoy; its internal metrics return through `mesh_http`. Each store is ready when read through Envoy, sits on an internal network shared with Envoy alone, and its own metrics return through `mesh_http`. Both metric stores have the same complete set of healthy jobs, the same positive MQ scrape sample count, and the same positive count of fresh MQ recovery-log gauges. Grafana's test of each datasource answers OK. One named run: its five trace ids are the same in Tempo and VictoriaTraces, one trace has exactly two spans in both, its five metric samples are in VictoriaMetrics, and its five log lines (carrying one of those trace ids) are in VictoriaLogs. orders-api, worker and tcp-svc run under `opentelemetry-instrument`; one order placed with the check's own trace context has, in Tempo, its server span with an HTTP and a database client span under it; the orders-api and worker spans carry `service.name`, `service.version` and `deployment.environment=lab` |
 | (none) | 57 | `phase1 phase2 phase3` |
 
 Each check prints `PASS` or `FAIL` with what it saw. Phase 4 (metrics) is checked by the
@@ -429,6 +459,7 @@ plugin is allowed.
 | `FABRIC_TLS_PORT` | 8443 | compose (Envoy's published TLS port), `verify.sh`, `load.py` |
 | `FABRIC_OPS_PORT` | 8080 | compose (Envoy's published port for Grafana, Prometheus and VictoriaMetrics) |
 | `OPENSSL` | `openssl` | `gen-certs.sh`, `verify.sh` |
+| `OTEL_*` | `x-otel-env` in `compose.yaml` | orders-api, worker and tcp-svc, through `opentelemetry-instrument` (section 5.6) |
 
 Only the defaults are tested. Another TLS port also needs orders-api's `CORS_ORIGINS`
 (default `https://web.fabric.localtest.me:8443`), and another operations port needs Grafana's
