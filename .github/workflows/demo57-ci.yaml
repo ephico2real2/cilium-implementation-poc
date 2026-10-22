@@ -102,7 +102,12 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Install markdownlint-cli2
+        run: npm install --global --no-audit --no-fund "markdownlint-cli2@${MARKDOWNLINT_CLI2_VERSION}"
+
+      # Every check runs even when one before it failed, so a red run names all that failed.
       - name: shellcheck, every shell script of the demo
+        if: ${{ !cancelled() }}
         run: |
           # Found by their shebang, so a new script is checked without a list to keep up to date.
           mapfile -t scripts < <(git ls-files | while read -r f; do
@@ -110,20 +115,20 @@ jobs:
           echo "${#scripts[@]} scripts"
           docker run --rm -v "${PWD}:/mnt:ro" -w /mnt "${SHELLCHECK_IMAGE}" "${scripts[@]}"
 
-      - name: Install markdownlint-cli2
-        run: npm install --global --no-audit --no-fund "markdownlint-cli2@${MARKDOWNLINT_CLI2_VERSION}"
-
       # From the repository root: mdfmt reads .markdownlint-cli2.yaml there.
       - name: mdfmt check, the demo's Markdown
+        if: ${{ !cancelled() }}
         working-directory: ${{ github.workspace }}
         run: |
           mapfile -t pages < <(git ls-files "${DEMO}/*.md")
           scripts/mdfmt check "${pages[@]}"
 
       - name: docker compose config
+        if: ${{ !cancelled() }}
         run: docker compose -f compose.yaml --profile tools config --quiet
 
       - name: Envoy --mode validate, envoy/envoy.yaml
+        if: ${{ !cancelled() }}
         run: |
           # Envoy loads the trusted_ca file the config names even to validate it: the demo's own CA.
           scripts/gen-certs.sh >/dev/null
@@ -134,6 +139,7 @@ jobs:
             --mode validate -c /etc/envoy/envoy.yaml
 
       - name: otelcol validate, observability/otel-collector.yaml
+        if: ${{ !cancelled() }}
         run: |
           config="$(docker compose -f compose.yaml config --format json)"
           docker run --rm --user "$(jq -r '.services["otel-collector"].user' <<<"${config}")" \
@@ -142,34 +148,58 @@ jobs:
             validate --config=/etc/otelcol-contrib/config.yaml
 
       - name: test_verify_false_pass.sh, no verify.sh check passes on a substring or a missing value
+        if: ${{ !cancelled() }}
         run: bash tests/scripts/test_verify_false_pass.sh scripts/verify.sh
 
       - name: test_run_sh.sh, run.sh stops on a failed build and keeps random secrets out of the transcript
+        if: ${{ !cancelled() }}
         run: bash tests/scripts/test_run_sh.sh scripts/run.sh
 
       - name: test_recap_counts.sh, RECAP's numbers come from the recorded run
+        if: ${{ !cancelled() }}
         run: bash tests/scripts/test_recap_counts.sh .
 
       - name: test_checks_kept.sh, every check the base's transcript passed still passes
+        if: ${{ !cancelled() }}
         env:
           # The pull request's base, the previous tip of main on a push, or main when run by hand.
           BASE: ${{ github.event.pull_request.base.sha || github.event.before || github.event.repository.default_branch }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          # A push that creates the branch has no previous tip: GitHub sends forty zeros as `before`.
+          if [[ "${BASE}" =~ ^0{40}$ ]]; then BASE="${DEFAULT_BRANCH}"; fi
           git fetch --no-tags --depth=1 origin "${BASE}"
           git show "FETCH_HEAD:${DEMO}/output/transcript.txt" > "${RUNNER_TEMP}/base-transcript.txt"
           bash tests/scripts/test_checks_kept.sh "${RUNNER_TEMP}/base-transcript.txt" output/transcript.txt
 
       - name: test_collector_ports.sh, every collector port is routed by Envoy
+        if: ${{ !cancelled() }}
         run: bash tests/r1-1/test_collector_ports.sh observability/otel-collector.yaml envoy/envoy.yaml
 
       - name: test_phase6.sh, phase6's verdicts against fake podman and curl
+        if: ${{ !cancelled() }}
         run: bash tests/r1-1/test_phase6.sh scripts/verify.sh
 
       - name: test_usage_docs.sh, usage.md's span count and ports match the code
+        if: ${{ !cancelled() }}
         run: bash tests/r1-1/test_usage_docs.sh docs/usage.md envoy/envoy.yaml observability/otel-collector.yaml
 
       - name: test_dashboard.py, both dashboard forms
+        if: ${{ !cancelled() }}
         run: python3 tests/test_dashboard.py
+
+      - name: every test of the demo is a step here or listed in this file's header
+        if: ${{ !cancelled() }}
+        run: |
+          # A test added without either would never run in CI, and nothing would say so.
+          tests="$(git ls-files 'tests/*.py' 'tests/*.sh')"
+          missing=0
+          while read -r t; do
+            grep -qF -- "${t}" "${GITHUB_WORKSPACE}/.github/workflows/demo57-ci.yaml" ||
+              { echo "not in demo57-ci.yaml: ${t}"; missing=$((missing + 1)); }
+          done <<<"${tests}"
+          echo "tests the workflow does not name: ${missing}"
+          [ "${missing}" -eq 0 ]
 
   diagrams:
     uses: ephico2real2/diagram-kit/.github/workflows/check-diagrams.yml@26b7c19791159929c76a264ea3d5274bef72e9f6 # v0.2.5

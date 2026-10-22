@@ -324,9 +324,14 @@ python3 tests/test_dashboard.py
 
 The two browser tests need Playwright and Chromium, from diagram-kit's environment.
 
-CI runs the tests that need nothing of the lab running, with shellcheck, mdfmt, compose config
-and the Envoy and collector validations, on every pull request that touches this demo:
-[`.github/workflows/demo57-ci.yaml`](../../../.github/workflows/demo57-ci.yaml).
+CI runs on every pull request that touches this demo
+([`.github/workflows/demo57-ci.yaml`](../../../.github/workflows/demo57-ci.yaml)): shellcheck,
+mdfmt, compose config, the Envoy and collector validations and the tests that need nothing of
+the lab running; the five tests that need Podman and the lab's images but start nothing
+(`test_compose_collector.sh`, `test_key_isolation.py`, `test_status_auth.sh`,
+`test_prometheus_baseline.sh`, `test_plugin_checksum.sh`); and diagram-kit's check of the
+diagram pages. The tests that need the running lab are listed in the workflow's header, each
+with its command.
 
 ## 7. Operate the lab
 

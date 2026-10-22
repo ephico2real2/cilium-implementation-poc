@@ -158,15 +158,21 @@ that the regressions two reviews kept finding are caught by a machine on every c
     at v0.2.5's commit, the kit pin set for every repository, though tagged 2026-10-14 (eight
     days old). ShellCheck 0.11.0 (image), markdownlint-cli2 0.23.3, Node 24.21.0, Python
     3.12.14. `actionlint` 1.7.12: no finding.
-  - AC 4: `git diff --stat main -- .github/` is empty, so no existing workflow changed;
-    `git status --short -- .github/` lists the new workflow as the one file added.
+  - AC 4: `git diff --name-status main...HEAD -- .github/` lists one line,
+    `A .github/workflows/demo57-ci.yaml`, so no existing workflow changed; on the head's run
+    (39741706181) `demo57-ci` was the only workflow that ran.
   - On GitHub (run 39741285766, pull request #90): `lab-free` 1 min 14 s, `diagrams` 1 min 2 s,
     and the spike 1 min 31 s, in which all five container tests passed on the runner
-    (`test_status_auth.sh` 9 of 9, `test_prometheus_baseline.sh` 2 of 2,
+    (`test_status_auth.sh` 10 of 10, `test_prometheus_baseline.sh` 2 of 2,
     `test_plugin_checksum.sh` refused at `sha256`); so the spike became the required job
     `container-tests`, every step without `continue-on-error`. Kubernetes (kind) was not
     needed: rootless Podman runs all five once Ubuntu 24.04's user-namespace restriction is
     lifted.
+  - On GitHub, the head `ce85cf1` (run 39741706181): `lab-free` 1 min 9 s, `container-tests`
+    1 min 37 s, `diagrams` 2 min 18 s, all passed. The regression on a throwaway pull request
+    (run 39741725523, `check_exact` put back to `check` at `verify.sh:119`): `lab-free` red at
+    the step `test_verify_false_pass.sh, …` on `MISMATCH  title merely contains orders-api
+    PASS (want FAIL)`, in 49 s; the other two jobs passed.
 
 ## Closing sprint 1
 
