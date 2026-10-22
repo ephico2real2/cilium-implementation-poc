@@ -46,12 +46,13 @@ shared-SNI design for exposing IBM MQ through Envoy.
 ## Architecture
 
 ```text
-browser, openssl, MQ client                 grafana.*, prometheus.* (browser)
+browser, openssl, MQ client                 grafana.*, prometheus.*, victoriametrics.*
         │ TLS, SNI = <name>.fabric.localtest.me    │ HTTP, Host header
         ▼ 127.0.0.1:8443                           ▼ 127.0.0.1:8080
 ┌──────────────────────────── Envoy v1.36.11 ────────────────────────────┐
 │ edge_sni :10443  reads the SNI, passes TLS through, resets the rest    │
-│ ops_http :10080  Grafana and Prometheus                                │
+│ ops_http :10080  Grafana, Prometheus; VictoriaMetrics: the whole app   │
+│                  from this Mac, the read API from a container          │
 │ mesh_http :18080 east-west HTTP, retries, /metrics/<component>         │
 │ mesh_pg  :15432  Postgres, 3 connect attempts                          │
 │ stats    :9902   /stats/prometheus only                                │
@@ -67,9 +68,14 @@ The same, layer by layer (source: `docs/diagrams/layers/source.html`, drawn with
 
 *Every arrow between layers is a hop through Envoy. Dashed: auto-instrumentation, sprint 2.*
 
-![Clients on this Mac reach Envoy's edge_sni listener on 127.0.0.1:8443, which reads the SNI and passes the TLS through to web, orders-api, tcp-svc or the MQ queue manager; an unknown or missing SNI is reset. Grafana and Prometheus are on 127.0.0.1:8080.](docs/diagrams/layers/edge.light.png)
+![Clients on this Mac reach Envoy's edge_sni listener on 127.0.0.1:8443, which reads the SNI and passes the TLS through to web, orders-api, tcp-svc or the MQ queue manager; an unknown or missing SNI is reset. Grafana, Prometheus and VictoriaMetrics are on 127.0.0.1:8080; VictoriaMetrics is its whole app from this Mac and only its read API from a container.](docs/diagrams/layers/edge.light.png)
 
-*Into the lab: one TLS port, routed on the hostname each client sends. Envoy decrypts nothing.*
+*Into the lab: one TLS port, routed on the hostname each client sends. Envoy decrypts nothing.
+On 8080, ops_http tells the Mac from a container by the connection's source: Podman's forwarder
+connects from Envoy's own address (`10.89.18.3` to `10.89.18.3` when R1.10 was verified; the
+addresses change when the lab is rebuilt) and gets VictoriaMetrics' whole app; a container
+connects from its own (`10.89.17.2` to `10.89.17.3`) and gets the read API only. The route test
+checks both: 12 checks from this Mac, 4 refusals from a container.*
 
 ![Inside the lab every call goes through an Envoy listener: Postgres through mesh_pg, the MQ REST API, the API and every metrics endpoint through mesh_http, Envoy's own metrics through stats.](docs/diagrams/layers/mesh.light.png)
 
@@ -116,6 +122,7 @@ retry panels are flat: nothing failed. Step 7 below makes them move.*
 | `mqconsole.fabric.localtest.me` | `127.0.0.1:8443` | MQ web console | MQ web server |
 | `grafana.fabric.localtest.me` | `127.0.0.1:8080` | Dashboard | Grafana |
 | `prometheus.fabric.localtest.me` | `127.0.0.1:8080` | Metrics | Prometheus |
+| `victoriametrics.fabric.localtest.me` | `127.0.0.1:8080` | Metrics, vmui at `/vmui/`; the whole app from this Mac, the read API from a container | VictoriaMetrics |
 
 ## Prerequisites
 
@@ -263,7 +270,7 @@ in Keychain Access.
 | `edge_sni` | 10443 (8443) | SNI | 3 connect attempts |
 | `mesh_http` | 18080 | `Host` and path | `PUT`: 5xx, reset, connect failure, 3 times; `POST` and MQ's destructive `DELETE`: only if the request never left |
 | `mesh_pg` | 15432 | port | 3 connect attempts |
-| `ops_http` | 10080 (8080) | `Host` | none |
+| `ops_http` | 10080 (8080) | `Host`, and the source: this Mac or a container | VictoriaMetrics `GET`: 5xx, reset, connect failure, 3 times; its other methods: only if the request never left; Grafana and Prometheus: none |
 | `stats` | 9902 | path | none |
 
 | Login | User | Lab value |
