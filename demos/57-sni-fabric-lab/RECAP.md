@@ -18,12 +18,12 @@ shared-SNI design for exposing IBM MQ through Envoy.
   with no certificate are both refused.
 - An order saved in Postgres, announced on MQ and marked processed by the worker in 1 s.
 - Retries that rescue what they safely can: under 50% injected failures all 10 orders were
-  processed, after 9 Envoy retries.
+  processed, after 10 Envoy retries.
 - Recovery without a restart by hand: from a Postgres restart, from MQ stopped and started,
   and from the TCP service stopped and started.
 - Metrics from every component scraped through Envoy (11 scrape jobs), on a Grafana dashboard
   of 14 charts. Prometheus is the one scraper and copies every sample to VictoriaMetrics by
-  remote write; ten dashboard queries agree in both stores, and the dashboard opens on either.
+  remote write ([why and how](docs/remote-write.md)); ten dashboard queries agree in both stores, and the dashboard opens on either.
 - Release 1 so far: an OpenTelemetry Collector and four telemetry stores (Tempo,
   VictoriaTraces, VictoriaMetrics, VictoriaLogs), also reached only through Envoy. The story so
   far, with screenshots: `docs/story/01-turn-the-lights-on.md`.
@@ -183,8 +183,8 @@ emulation; about two minutes is normal.
 podman compose up -d --build
 ```
 
-Result: every health check passes; Envoy after 6 s, Postgres after 12 s, MQ after 133 s and
-Grafana after 134 s. Watch them with `podman ps --format '{{.Names}} {{.Status}}'` until every one reads
+Result: every health check passes; Envoy after 0 s, Postgres after 6 s, MQ after 121 s and
+Grafana after 121 s. Watch them with `podman ps --format '{{.Names}} {{.Status}}'` until every one reads
 `healthy`; the five without a health check (`otel-collector`, `postgres-exporter`, `tempo`,
 `victoria-traces`, `victoria-logs`) read `Up`.
 
@@ -230,7 +230,7 @@ scripts/verify.sh phase5
 ```
 
 Result: 7 checks, `failures: 0`; under 50% chaos `processed=10 of 10 after 3s`, and the order
-taken while MQ was down `processed=1 of 1 after 3s` once the sweeper re-sent it.
+taken while MQ was down `processed=1 of 1 after 12s` once the sweeper re-sent it.
 
 ## Verify
 
@@ -240,7 +240,7 @@ Rebuild from nothing and run every check, recorded to `output/transcript.txt`:
 scripts/run.sh --fresh
 ```
 
-Result: 11 min 22 s; 87 checks pass, `31 queries, 0 with errors or warnings`, and
+Result: 11 min 1 s; 87 checks pass, `31 queries, 0 with errors or warnings`, and
 `PASS  14 charts in 7 sections; both forms agree on colours, styles, units, legends`.
 
 Then open <https://web.fabric.localtest.me:8443/admin> with the token `fabric-admin`, and

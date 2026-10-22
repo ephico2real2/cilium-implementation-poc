@@ -141,6 +141,10 @@ VictoriaTraces, fed the same data and compared, so that the choice rests on meas
     fresh MQ recovery-log gauges and the same positive MQ scrape sample count. `run.sh` gates
     parity until every selected rate is comparable and fails a disagreement seen twice; it also recreates any running
     service whose bind-mounted source is newer than its container.
+  - Measured after the verification pass (the gate checks raw-sample counts too), on the
+    recorded run: `scripts/run.sh --fresh` 11 min 1 s, 87 checks, 0 failures,
+    `84 before, 87 after` against main with E1; the gate made 39 reads, then 10 of 10. The
+    design is explained in [../remote-write.md](../remote-write.md).
   - Measured after the third review pass (VictoriaMetrics read uncached, raw-sample counts
     compared): `scripts/run.sh --fresh` 11 min 22 s, 87 checks, 0 failures,
     `84 before, 87 after`; the gate made 40 reads (3 min 20 s), then 10 of 10.

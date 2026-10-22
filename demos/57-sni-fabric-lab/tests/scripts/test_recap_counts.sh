@@ -38,12 +38,14 @@ grep -Fq "On VictoriaMetrics: \`${vm_dashboard}\`" "$1/docs/roadmap/BACKLOG.md";
   "VictoriaMetrics dashboard: ${vm_dashboard}" "$?"
 # The readiness gate's reads, and the chapter's parity table: the transcript's own.
 gate_reads="$(grep -c '^rate window samples at T' "${t}")"
+# Only the record's "The recorded run" section describes this transcript; earlier sections keep
+# the numbers of the runs they describe. Exactly one gate count there, and it is the transcript's.
+# The section is joined into one line first: Markdown wraps a sentence wherever it likes.
+recorded="$(awk '/^## The recorded run/{on=1; next} /^## /{on=0} on' "$1/docs/reviews/R1.3.md" | tr '\n' ' ')"
+gate_counts="$(grep -oE 'the gate made [0-9]+ reads' <<<"${recorded}" || true)"
 gate_ok=1
-if grep -Fq "fresh run (${gate_reads} checks)" "$1/docs/reviews/R1.3.md" \
-    && grep -Fq "gate's (${gate_reads} checks)" "$1/docs/reviews/R1.3.md"; then
-  gate_ok=0
-fi
-check "readiness gate: ${gate_reads} reads in the transcript, named in both review results" \
+[ "${gate_counts}" != "the gate made ${gate_reads} reads" ] || gate_ok=0
+check "readiness gate: ${gate_reads} reads in the transcript, named in the review's recorded run" \
   "${gate_ok}"
 transcript_rows="$(awk '
   /^Evaluation timestamp/ { on=1; current=""; next }
