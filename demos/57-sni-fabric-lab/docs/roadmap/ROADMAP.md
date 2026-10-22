@@ -147,16 +147,27 @@ that time.
 - **Definition of Done (story):**
   1. Code, config and docs in one change; no placeholder or dead code; lint and shellcheck
      clean; pins at least two weeks old.
-  2. Its acceptance tests in `scripts/verify.sh` pass, and `scripts/run.sh --fresh` passes from
-     nothing.
+  2. Its acceptance tests in `scripts/verify.sh` pass; `scripts/run.sh --fresh` passes from
+     nothing, and `scripts/run.sh` over the existing lab (the upgrade path) passes too.
+     **Nothing existing stops:** no check is removed, skipped or weakened.
   3. It emits traces, metrics and JSON logs with trace ids; every new query is run against the
-     real stores (dashboard skill §1 and §9); screenshots in both themes.
+     real stores (dashboard skill §1 and §9).
   4. Envoy is still the only path: the isolation checks pass for every new component.
   5. Security unchanged or better: loopback-only ports, own UID, keys and secrets, no company
      identifiers, lab credentials documented.
-  6. Docs updated (usage, README record, RECAP, the chapter page), numbers from the transcript.
-  7. Reviewed by Codex and Cursor; `main` is protected, so it goes in through a pull request
-     the operator merges.
+  6. Docs updated (usage, README record, RECAP, the chapter page), numbers from the transcript;
+     `tests/scripts/test_recap_counts.sh` passes.
+  7. Reviewed in two passes by two seats that did not write it (Codex and OB3 by default): every
+     finding comes with its full fix and a test that fails before and passes after, every
+     decision is written in `docs/reviews/`, and the second pass runs on the fixed head. `main`
+     is protected, so it goes in through a pull request the operator merges.
+  8. Anything a user can see is walked in the browser by a script (`tests/browser_flows.py`,
+     `tests/sprint1_walk.py` and their successors), captured in both themes; the documents
+     embed the light capture, each with a caption saying what it shows. The walk is part of the
+     test: in sprint 1 it found an Envoy route that no check and no review had.
+  9. A newcomer can follow it: RECAP's glossary, prerequisites and troubleshooting cover what
+     the story adds, and every command added to a document has been run as written.
+  10. Once E1 lands: CI is green on the pull request.
 - **Definition of Done (release):** all its stories done; the chapter demoed; memory measured.
 
 ## Risks and spikes

@@ -11,8 +11,16 @@ Given / When / Then, the test that proves it (a check in a new `scripts/verify.s
 
 | Sprint | Goal | Stories |
 |---|---|---|
-| 1 | "The pipeline and the stores": every store up behind Envoy, fed by the collector, compared side by side | R1.1, R1.2, R1.3 |
+| 1 | "The pipeline and the stores": every store up behind Envoy, fed by the collector, compared side by side | R1.1 (done), R1.2 (done), R1.3, E1 |
 | 2 | "One order, one story": an order's trace, logs and metrics, linked | R1.4, R1.5, R1.6, R1.7, R1.8, R1.9 |
+
+**Every story is an enhancement: nothing that works today stops.** Each one carries the
+acceptance criterion "Nothing existing stops" below, on top of its own, and the Definition of
+Done in [ROADMAP.md](ROADMAP.md) ("Ways of working") applies to all of them.
+
+| Given | When | Then |
+|---|---|---|
+| the lab as it was before the story | the story's change is applied | `scripts/run.sh --fresh` passes, `scripts/run.sh` over the existing lab (the upgrade path) passes, and no existing check is removed, skipped or weakened: the count of checks only grows |
 
 Before sprint 2, both mocks approved by the operator:
 
@@ -57,7 +65,10 @@ the same way as everything else, so that the telemetry stack obeys the lab's own
 - **Test:** `phase6` checks one per store and one per datasource.
 - **Spike first:** the smallest Tempo 3.1 monolithic configuration with local storage,
   measured (memory, start time).
-- **Status (2026-10-22): built, awaiting review.** Measured on the running lab:
+- **Status (2026-10-22): done.** Reviewed in two passes by Codex and OB3 with the whole demo
+  (decisions: [../reviews/R1.2.md](../reviews/R1.2.md) and
+  [../reviews/PR88.md](../reviews/PR88.md)); `scripts/run.sh --fresh` passes, 8 min 6 s, 84
+  checks. As first measured, on the running lab:
   - Spike: `observability/tempo.yaml` (OTLP HTTP in, query API on 3200, local storage, usage
     report off) starts in 25 ms from container start to "Tempo started", read-only root, as
     UID 10004; 31.7 MB idle, 52.5 MB after six spans and a few queries; a trace id sent is
@@ -78,8 +89,8 @@ the same way as everything else, so that the telemetry stack obeys the lab's own
     Tempo 68 to 157 MB, VictoriaMetrics 37 to 44 MB, VictoriaTraces 14 to 19 MB,
     VictoriaLogs 13 to 17 MB; Grafana grew from 110 MB to 200 to 310 MB with the plugin's
     backend. Above the 500 MB floor: no resize needed.
-  - Not yet run: `scripts/run.sh --fresh` (it removes the data volumes); it runs once at the
-    end of sprint 1, as for R1.1.
+  - `scripts/run.sh --fresh` ran after the review fixes: 84 checks, 0 failures
+    (`output/transcript.txt`).
 
 ## R1.3 Side by side, compared
 
@@ -91,8 +102,42 @@ VictoriaTraces, fed the same data and compared, so that the choice rests on meas
 | 1 | Prometheus and VictoriaMetrics with the same scrape config | ten of the dashboard's queries run on both | each pair agrees within one scrape interval's movement (recorded table) |
 | 2 | one trace sent through the collector | it is looked up by id | it is found in Tempo and in VictoriaTraces with the same span count |
 | 3 | the existing dashboard | its datasource is switched to VictoriaMetrics | every panel still draws (`tests/dashboard_queries.py --prometheus <vm>` passes) |
+| 4 | Prometheus feeds the dashboard today | R1.3 lands | Prometheus stays the dashboard's default; VictoriaMetrics is a choice beside it, nothing is replaced |
+| 5 | VictoriaMetrics scrapes the same targets | it does so | it reads the same `observability/prometheus.yml`, through Envoy's `metrics.mesh` like Prometheus, and stays on its own internal network |
+| 6 | metrics that arrive over OTLP keep OpenTelemetry's dotted label names in VictoriaMetrics (`service.name`, measured in R1.2) | the parity table is written | it compares the scraped series, which share Prometheus's names, and states what was left out and why |
 
 - **Test:** `tests/parity.py` (new), and `phase6` checks for the trace lookup.
+- **Seats:** Codex builds (Podman through the machine socket), OB3 reviews; a second pass on
+  the fixed head.
+- **Pictures:** the parity table and the dashboard on each datasource, added to chapter 1.
+- **Open:** whether VictoriaMetrics scrapes with its own `-promscrape.config` or a vmagent; the
+  smaller change that meets AC 5 wins, measured.
+
+## E1 CI checks demo 57 on every pull request
+
+An enhancement to the way the lab is built, not to the shop. As the operator who merges every
+change, I want each pull request that touches demo 57 checked by CI before I look at it, so
+that the regressions two reviews kept finding are caught by a machine on every change.
+
+| # | Given | When | Then |
+|---|---|---|---|
+| 1 | a pull request that changes `demos/57-sni-fabric-lab/**` | it is opened or updated | a workflow runs shellcheck on every script, `mdfmt check` on the demo's Markdown, `compose config`, Envoy's `--mode validate`, the collector's `validate`, and the tests that need no running lab: `test_verify_false_pass.sh`, `test_run_sh.sh`, `test_recap_counts.sh`, and the diagram-kit check of the demo's diagram pages |
+| 2 | any of them fails | the workflow finishes | the pull request's check is red and its log names the failing step |
+| 3 | the tests that need the running lab (the `verify.sh` phases, `test_store_routes.sh`, `test_key_isolation.py`, `test_status_auth.sh`, `test_plugin_checksum.sh`) | the workflow is read | its header lists them as run locally, with the command for each; a spike measures which of them a GitHub runner can run (Podman, image builds, the plugin download) |
+| 4 | the repository's other workflows | E1 lands | they are unchanged; the new one runs only on demo 57's paths |
+| 5 | the actions it uses | they are pinned | by the release tag's commit, the repository's rule; it needs no secret |
+
+- **Test:** the workflow on this story's pull request is green; on a throwaway branch that
+  breaks one check on purpose (a substring comparison put back in `verify.sh`), it is red and
+  names the step. Run time recorded.
+- **Seats:** OB3 builds, Codex reviews.
+
+## Closing sprint 1
+
+When R1.3 and E1 are done: the chapter 1 page gets the sprint's review (what changed, the
+measured numbers, the pictures), a short retro (what helped, what hurt, one change for sprint
+2), memory measured with everything running, and `scripts/run.sh --fresh` once more. Then
+sprint 2 starts only on the operator's go, with its two mocks approved.
 
 ## R1.4 Zero-code auto-instrumentation
 
