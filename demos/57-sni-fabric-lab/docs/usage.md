@@ -100,7 +100,7 @@ The steps, in order:
 7. Print the memory in use, and the URLs with their logins
 
 Everything is also written to `output/transcript.txt`. It stops at the first failed step.
-Measured on 2026-10-22: 11 min 31 s from nothing, 87 checks, 0 failures. Parity waited 3 min
+Measured on 2026-10-22: 11 min 3 s from nothing, 87 checks, 0 failures. Parity waited 3 min
 20 s: a counter that first appears during phases 1-3 (orders created, unknown-SNI resets) is
 exactly comparable only once its first sample has left the 310 s window.
 

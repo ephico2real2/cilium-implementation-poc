@@ -41,7 +41,7 @@ starting again from zero.*
 | Envoy and the stores' admin and delete APIs | 29 of 29 route checks: refused with Envoy's own 404, reads allowed |
 | Tempo 3.1 single binary | 25 ms to start, 32 MB idle, no Kafka |
 | Memory in the 3887 MB Podman VM | 1255 MB still available with all four stores running |
-| `scripts/run.sh --fresh`, everything from nothing | 11 min 31 s, 87 checks, 0 failures (`output/transcript.txt`, 2026-10-22, with R1.3) |
+| `scripts/run.sh --fresh`, everything from nothing | 11 min 3 s, 87 checks, 0 failures (`output/transcript.txt`, 2026-10-22, with R1.3) |
 
 ## The walk: one run, followed through every store
 

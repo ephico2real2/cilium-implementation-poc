@@ -141,7 +141,7 @@ VictoriaTraces, fed the same data and compared, so that the choice rests on meas
     parity until every selected rate is comparable and fails a disagreement seen twice; it also recreates any running
     service whose bind-mounted source is newer than its container.
   - Measured after the second review pass (exact comparison): `scripts/run.sh --fresh` 11 min
-    31 s, 87 checks, 0 failures, `84 before, 87 after`; parity waited 3 min 20 s for the two
+    3 s, 87 checks, 0 failures, `84 before, 87 after`; parity waited 3 min 20 s for the two
     counters that first appear during phases 1-3 to hold a full window, then 10 of 10. The
     upgrade path passed every phase in 5 min 19 s, parity 10 of 10 on its first check.
   - Measured after the first review pass: `scripts/run.sh --fresh` 8 min 54 s, 87 checks, 0
