@@ -23,6 +23,6 @@ $ podman logs --since 10m fabric-tcp-svc-1 | grep -c trace_id
 ## 4. The services emitting traces (VictoriaTraces Jaeger API, /api/services)
 ['orders-api', 'telemetrygen', 'worker']
 
-## 5. A trace started by a caller's traceparent, in Tempo's search (measured 2026-10-22T23:20:47Z)
-$ q={trace:id="fd54cc7b01db4b0ab40e0fcdde5c0870"} start=now-3600 end=now (order 50, output/trace-capture.txt)
+## 5. A trace started by a caller's traceparent, in Tempo's search (measured 2026-10-22T23:29:40Z)
+$ q={trace:id="36542d26329f497993fcb2b548edb6ea"} start=now-3600 end=now (order 53, output/trace-capture.txt)
 rootServiceName '<root span not yet received>' spans matched 12

@@ -1,27 +1,27 @@
-order   50 placed, HTTP 201, traceparent 00-fd54cc7b01db4b0ab40e0fcdde5c0870-297c6a4785f04003-01
-tempo   order trace fd54cc7b01db4b0ab40e0fcdde5c0870: 12 spans, client=7 internal=4 server=1
+order   53 placed, HTTP 201, traceparent 00-36542d26329f497993fcb2b548edb6ea-5edb5814d7a1431f-01
+tempo   order trace 36542d26329f497993fcb2b548edb6ea: 12 spans, client=7 internal=4 server=1
      0.00 ms  orders-api SERVER   POST /orders                       https://api.fabric.localtest.me:8443/orders
-     0.18 ms  orders-api INTERNAL POST /orders http receive          http.request
-     1.06 ms  orders-api CLIENT   fabric                             
-     1.44 ms  orders-api CLIENT   INSERT                             INSERT INTO orders (item, quantity, idempotency_key) VALUES (%s, %s, %
-     2.90 ms  orders-api CLIENT   POST                               http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QU
-    22.37 ms  orders-api CLIENT   fabric                             
-    22.67 ms  orders-api CLIENT   UPDATE                             UPDATE orders SET events_sent = events_sent + 1, last_event_at = now()
-    23.80 ms  orders-api CLIENT   fabric                             
-    24.06 ms  orders-api CLIENT   SELECT                             SELECT id, item, quantity, status, created_at, processed_at, events_se
-    25.80 ms  orders-api INTERNAL POST /orders http send             http.response.start
-    26.14 ms  orders-api INTERNAL POST /orders http send             http.response.body
-    26.21 ms  orders-api INTERNAL POST /orders http send             http.response.body
-vtraces order trace fd54cc7b01db4b0ab40e0fcdde5c0870: the same 12 span ids
-tempo   worker trace 9e44a6fa8b95f8ae8a42d43108b863c2: 8 spans, client=3 internal=4 server=1
-     0.00 ms  worker     CLIENT   PUT                                http://api.mesh:18080/orders/50/status
-     1.21 ms  orders-api SERVER   PUT /orders/{order_id}/status      http://api.mesh:18080/orders/50/status
-     1.36 ms  orders-api INTERNAL PUT /orders/{order_id}/status http receive http.request
-     3.60 ms  orders-api CLIENT   fabric                             
-     4.00 ms  orders-api CLIENT   UPDATE                             UPDATE orders SET status = %s, processed_at = COALESCE(processed_at, n
-     5.08 ms  orders-api INTERNAL PUT /orders/{order_id}/status http send http.response.start
-     5.24 ms  orders-api INTERNAL PUT /orders/{order_id}/status http send http.response.body
-     5.27 ms  orders-api INTERNAL PUT /orders/{order_id}/status http send http.response.body
+     0.17 ms  orders-api INTERNAL POST /orders http receive          http.request
+     0.69 ms  orders-api CLIENT   fabric                             
+     1.00 ms  orders-api CLIENT   INSERT                             INSERT INTO orders (item, quantity, idempotency_key) VALUES (%s, %s, %
+     5.55 ms  orders-api CLIENT   POST                               http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QU
+    29.52 ms  orders-api CLIENT   fabric                             
+    29.81 ms  orders-api CLIENT   UPDATE                             UPDATE orders SET events_sent = events_sent + 1, last_event_at = now()
+    30.91 ms  orders-api CLIENT   fabric                             
+    31.12 ms  orders-api CLIENT   SELECT                             SELECT id, item, quantity, status, created_at, processed_at, events_se
+    32.35 ms  orders-api INTERNAL POST /orders http send             http.response.start
+    32.57 ms  orders-api INTERNAL POST /orders http send             http.response.body
+    32.61 ms  orders-api INTERNAL POST /orders http send             http.response.body
+vtraces order trace 36542d26329f497993fcb2b548edb6ea: the same 12 span ids
+tempo   worker trace cacbbeac3e1e083216b3605afff45d3d: 8 spans, client=3 internal=4 server=1
+     0.00 ms  worker     CLIENT   PUT                                http://api.mesh:18080/orders/53/status
+     0.98 ms  orders-api SERVER   PUT /orders/{order_id}/status      http://api.mesh:18080/orders/53/status
+     1.34 ms  orders-api INTERNAL PUT /orders/{order_id}/status http receive http.request
+     2.81 ms  orders-api CLIENT   fabric                             
+     3.07 ms  orders-api CLIENT   UPDATE                             UPDATE orders SET status = %s, processed_at = COALESCE(processed_at, n
+     4.56 ms  orders-api INTERNAL PUT /orders/{order_id}/status http send http.response.start
+     4.73 ms  orders-api INTERNAL PUT /orders/{order_id}/status http send http.response.body
+     4.77 ms  orders-api INTERNAL PUT /orders/{order_id}/status http send http.response.body
 picture trace-order-tempo.light.png
 picture trace-order-victoriatraces.light.png
 picture trace-worker-tempo.light.png

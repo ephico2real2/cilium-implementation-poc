@@ -165,6 +165,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash tests/scripts/test_verify_false_pass.sh scripts/verify.sh
 
+      - name: test_trace_capture.py, the tracing page's pictures are taken only of a whole trace
+        if: ${{ !cancelled() }}
+        run: python3 tests/scripts/test_trace_capture.py tests/trace_capture.py
+
       - name: test_run_sh.sh, run.sh stops on a failed build and keeps random secrets out of the transcript
         if: ${{ !cancelled() }}
         run: bash tests/scripts/test_run_sh.sh scripts/run.sh

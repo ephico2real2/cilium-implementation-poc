@@ -5,12 +5,12 @@ Needs Playwright with Chromium (diagram-kit's environment).
 
 The order goes through Envoy's edge with a W3C traceparent made here, so its trace id is known
 before any store is asked, as phase6 does. Three traces are then read through Grafana's datasource
-proxy, and each must be whole before any picture is taken:
+proxy, and each must hold the spans the tracing page discusses before any picture is taken:
   - the order's trace in Tempo: orders-api's POST /orders, whose parent is the span id sent in the
-    traceparent, and the spans under it;
+    traceparent, with INSERT, the POST to MQ, UPDATE and SELECT under it;
   - the same trace in VictoriaTraces: the same span ids;
   - the worker's trace for that order: its PUT /orders/<id>/status with orders-api's server span
-    as its child (a trace of its own until R1.5 carries the trace through MQ).
+    as its child and UPDATE under that (a trace of its own until R1.5 carries the trace through MQ).
 Each is then opened in Explore, light and dark, and must show its span count and span names. The
 six pictures replace the previous set only when all six were taken. Prints every span and writes
 the same lines to output/trace-capture.txt.
@@ -89,12 +89,28 @@ def tempo_spans(document: dict | None) -> list[dict]:
 
 
 def server_span(spans: list[dict], service: str, name: str, parent: str) -> dict | None:
-    """The one server span of that service and name whose parent is the given span id. A server span
-    ends after every span under it, and they share one process and one export queue, so once it is
-    in the store the spans under it are too."""
+    """The one server span of that service and name whose parent is the given span id."""
     found = [s for s in spans if s["service"] == service and s["kind"] == "SERVER"
              and s["name"] == name and s["parent"] == parent]
     return found[0] if len(found) == 1 else None
+
+
+def has_under(spans: list[dict], root: dict, names: list[str]) -> bool:
+    """Whether each of the names is a span somewhere under root. The server span ends last, but its
+    arrival alone does not prove its children's: the SDK drops a batch whose export failed and sends
+    the next. So the spans this page discusses are required by name; library spans (the ASGI send
+    and receive spans, the pool's checks) are not, so a library adding one does not fail the run."""
+    children: dict[str, list[dict]] = {}
+    for span in spans:
+        children.setdefault(span["parent"], []).append(span)
+    seen, under, todo = {root["id"]}, set(), [root["id"]]
+    while todo:
+        for child in children.get(todo.pop(), []):
+            if child["id"] not in seen:
+                seen.add(child["id"])
+                under.add(child["name"])
+                todo.append(child["id"])
+    return all(name in under for name in names)
 
 
 def wait_for(what: str, read, ready, seconds: int = 90):
@@ -148,9 +164,12 @@ def main(out_dir: Path) -> int:
     order_id = place_order(trace_id, parent)
 
     tempo = "/api/datasources/proxy/uid/tempo"
-    order = wait_for("orders-api's POST /orders under this traceparent, in Tempo",
-                     lambda: tempo_spans(grafana(f"{tempo}/api/v2/traces/{trace_id}", password)),
-                     lambda spans: server_span(spans, "orders-api", "POST /orders", parent) is not None)
+    def whole_order(spans: list[dict]) -> bool:
+        server = server_span(spans, "orders-api", "POST /orders", parent)
+        return server is not None and has_under(spans, server, ["INSERT", "POST", "UPDATE", "SELECT"])
+
+    order = wait_for("orders-api's POST /orders under this traceparent, with INSERT, POST, UPDATE and SELECT, in Tempo",
+                     lambda: tempo_spans(grafana(f"{tempo}/api/v2/traces/{trace_id}", password)), whole_order)
     if {s["trace"] for s in order} != {trace_id}:
         raise SystemExit(f"FAIL  the order's trace holds spans of other traces: {sorted({s['trace'] for s in order})}")
     show(f"tempo   order trace {trace_id}", order)
@@ -174,11 +193,12 @@ def main(out_dir: Path) -> int:
             worker_id = match["traceID"].rjust(32, "0")
             spans = tempo_spans(grafana(f"{tempo}/api/v2/traces/{worker_id}", password))
             puts = [s for s in spans if s["service"] == "worker" and s["kind"] == "CLIENT" and s["name"] == "PUT"]
-            if len(puts) == 1 and server_span(spans, "orders-api", "PUT /orders/{order_id}/status", puts[0]["id"]):
+            server = server_span(spans, "orders-api", "PUT /orders/{order_id}/status", puts[0]["id"]) if len(puts) == 1 else None
+            if server is not None and has_under(spans, server, ["UPDATE"]):
                 return worker_id, spans
         return None
 
-    worker_id, worker = wait_for("the worker's PUT with orders-api's server span under it, in Tempo",
+    worker_id, worker = wait_for("the worker's PUT with orders-api's server span and its UPDATE under it, in Tempo",
                                  worker_trace, lambda found: found is not None)
     show(f"tempo   worker trace {worker_id}", worker)
 
