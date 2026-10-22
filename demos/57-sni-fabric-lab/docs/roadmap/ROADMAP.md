@@ -116,7 +116,7 @@ that time.
 |---|---|---|---|
 | I Codebase | one repo, one demo folder | — | — |
 | II Dependencies | hash-locked Python, pinned images | Grafana plugin pinned at build | R1 |
-| III Config | env vars and secrets files | some names fixed in code (`QM1`, queues); `OTEL_*` to add | R1, R5 |
+| III Config | env vars and secrets files; tracing set by `OTEL_*` variables only (R1.4, [tracing.md](../tracing.md)) | some names fixed in code (`QM1`, queues) | R5 |
 | IV Backing services | Postgres and MQ as attached resources through Envoy aliases | Valkey and gateways the same way; gateway swap by config | R2, R3 |
 | V Build, release, run | `compose up --build`, `:dev` tags | versioned release tags and a release manifest | R5 |
 | VI Processes | stateless except orders-api's chaos switch in memory | cart in Valkey; chaos state in a backing service | R2, R5 |

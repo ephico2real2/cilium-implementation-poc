@@ -1,0 +1,30 @@
+order   43 placed, HTTP 201, traceparent 00-7945020a9c8a42a3832fee834b539648-a55f642024a3439f-01
+tempo   order trace 7945020a9c8a42a3832fee834b539648: 12 spans, client=7 internal=4 server=1
+     0.00 ms  orders-api SERVER   POST /orders                       https://api.fabric.localtest.me:8443/orders
+     0.16 ms  orders-api INTERNAL POST /orders http receive          http.request
+     0.67 ms  orders-api CLIENT   fabric                             
+     0.99 ms  orders-api CLIENT   INSERT                             INSERT INTO orders (item, quantity, idempotency_key) VALUES (%s, %s, %
+     2.29 ms  orders-api CLIENT   POST                               http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QU
+    26.37 ms  orders-api CLIENT   fabric                             
+    26.68 ms  orders-api CLIENT   UPDATE                             UPDATE orders SET events_sent = events_sent + 1, last_event_at = now()
+    27.70 ms  orders-api CLIENT   fabric                             
+    28.19 ms  orders-api CLIENT   SELECT                             SELECT id, item, quantity, status, created_at, processed_at, events_se
+    29.50 ms  orders-api INTERNAL POST /orders http send             http.response.start
+    29.70 ms  orders-api INTERNAL POST /orders http send             http.response.body
+    29.75 ms  orders-api INTERNAL POST /orders http send             http.response.body
+vtraces order trace 7945020a9c8a42a3832fee834b539648: 12 spans
+tempo   worker trace d3cc7be687fc14478770de511a899209: 8 spans, client=3 internal=4 server=1
+     0.00 ms  worker     CLIENT   PUT                                http://api.mesh:18080/orders/43/status
+     0.80 ms  orders-api SERVER   PUT /orders/{order_id}/status      http://api.mesh:18080/orders/43/status
+     0.93 ms  orders-api INTERNAL PUT /orders/{order_id}/status http receive http.request
+     1.90 ms  orders-api CLIENT   fabric                             
+     2.10 ms  orders-api CLIENT   UPDATE                             UPDATE orders SET status = %s, processed_at = COALESCE(processed_at, n
+     4.08 ms  orders-api INTERNAL PUT /orders/{order_id}/status http send http.response.start
+     4.24 ms  orders-api INTERNAL PUT /orders/{order_id}/status http send http.response.body
+     4.27 ms  orders-api INTERNAL PUT /orders/{order_id}/status http send http.response.body
+picture trace-order-tempo.light.png
+picture trace-order-victoriatraces.light.png
+picture trace-worker-tempo.light.png
+picture trace-order-tempo.dark.png
+picture trace-order-victoriatraces.dark.png
+picture trace-worker-tempo.dark.png

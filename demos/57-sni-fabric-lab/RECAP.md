@@ -27,6 +27,9 @@ shared-SNI design for exposing IBM MQ through Envoy.
 - Release 1 so far: an OpenTelemetry Collector and four telemetry stores (Tempo,
   VictoriaTraces, VictoriaMetrics, VictoriaLogs), also reached only through Envoy. The story so
   far, with screenshots: `docs/story/01-turn-the-lights-on.md`.
+- Traces with no tracing code: orders-api, the worker and tcp-svc start under
+  `opentelemetry-instrument`, and one order is a trace of 12 spans in Tempo and VictoriaTraces
+  ([how it works](docs/tracing.md)).
 
 ## Words used here
 
