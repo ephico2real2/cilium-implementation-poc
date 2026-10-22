@@ -10,8 +10,8 @@
 # and phase 6 waits up to 90 s for the stores to show new data. Exits non-zero at the first
 # failed step.
 # Steps: certificates, secrets, images and containers, wait for every health check, then
-# scripts/verify.sh (phases 1-3), phase 6, the store route test, the dashboard tests, and phase 5
-# (failure and recovery).
+# scripts/verify.sh (phases 1-3), phase 6, store parity and routes, the dashboard tests, and
+# phase 5 (failure and recovery).
 set -euo pipefail
 
 DEMO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,6 +35,22 @@ cd "${DEMO_DIR}"
 step() { printf '\n==== %s  (%s)\n' "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
 # The filter only drops noise and may select nothing; the pipeline's status is podman's own.
 compose() { podman compose "$@" 2>&1 | { grep -v -E '>>>>|Executing external compose provider|^\s*$|^\[0m$' || true; }; }
+bounded_retry() {  # bounded_retry <attempts> <delay seconds> <command...>
+  local attempts="$1" delay="$2" attempt out status
+  shift 2
+  for attempt in $(seq 1 "${attempts}"); do
+    if out="$("$@" 2>&1)"; then
+      printf '%s\n' "${out}"
+      return 0
+    else
+      status=$?
+    fi
+    printf '%s\n' "${out}"
+    [ "${attempt}" -lt "${attempts}" ] || return "${status}"
+    echo "retry ${attempt}/${attempts}: waiting ${delay}s for both scrapers to ingest the rate window"
+    sleep "${delay}"
+  done
+}
 
 if [ "${1:-}" = "--fresh" ]; then
   step "Remove the lab's containers and volumes"
@@ -68,6 +84,12 @@ scripts/verify.sh phase1 phase2 phase3
 step "Check the collector and the telemetry stores (phase 6)"
 scripts/verify.sh phase6
 
+step "Compare Prometheus and VictoriaMetrics, then run every dashboard query on VictoriaMetrics"
+# A fresh VictoriaMetrics needs at least two 10 s scrapes before [5m] rate() has two samples.
+bounded_retry 12 5 python3 tests/parity.py
+bounded_retry 12 5 python3 tests/dashboard_queries.py \
+  --prometheus http://victoriametrics.fabric.localtest.me:8080 --minutes 5
+
 step "Check that Envoy refuses the stores' admin and write paths"
 bash tests/r1-2/test_store_routes.sh
 
@@ -98,6 +120,7 @@ MQ console      https://mqconsole.fabric.localtest.me:8443/ibmmq/console  admin 
 MQ app user     (REST API, MQ clients)                                app / $(cred mq-app-password)
 Grafana         http://grafana.fabric.localtest.me:8080              anonymous viewer; admin / $(cred grafana-admin-password)
 Prometheus      http://prometheus.fabric.localtest.me:8080
+VictoriaMetrics http://victoriametrics.fabric.localtest.me:8080       read API only
 Postgres        (through Envoy only)                                  fabric / $(cred postgres-password)
 EOF
 

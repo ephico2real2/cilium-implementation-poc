@@ -136,4 +136,34 @@ prometheus_value" 2>/dev/null)"; status=$?
 }
 prometheus_case "Prometheus answers 20: read as 20"          20   SCEN_PROM_VALUE=20
 prometheus_case "Prometheus answers empty: no zero invented" fail SCEN_PROM_EMPTY=1
+
+# Exercise the two phase6 verdict functions directly. Positive controls prove each function was
+# found and can pass; unequal, zero and missing inputs prove it cannot pass vacuously.
+# The single quotes intentionally preserve $1, $2 and arithmetic for the nested test shell.
+# shellcheck disable=SC2016
+verdict_prelude='FAILURES=0
+pass() { printf "PASS  %-46s %s\\n" "$1" "$2"; }
+fail() { printf "FAIL  %-46s %s\\n" "$1" "$2"; FAILURES=$((FAILURES + 1)); }'
+verdict_function() {  # verdict_function <function name>
+  awk -v function_name="$1" '$0 ~ "^" function_name "\\(\\)" { on=1 } on { print } on && /^}/ { exit }' \
+    "${work}/demo/scripts/verify.sh"
+}
+phase6_case() {  # phase6_case <name> <function> <check name> <want> <arguments...>
+  local name="$1" function_name="$2" check_name="$3" want="$4" function_text out got verdict=ok
+  shift 4
+  function_text="$(verdict_function "${function_name}")"
+  out="$(bash -c "${verdict_prelude}
+${function_text}
+${function_name} \"\$@\"" _ "$@" 2>&1)"
+  got="$(grep -E "^(PASS|FAIL)  ${check_name}" <<<"${out}" | head -1 | cut -c1-4)"
+  if [ -z "${function_text}" ] || [ "${got}" != "${want}" ]; then verdict=MISMATCH; mismatches=$((mismatches + 1)); fi
+  printf '%-9s %-46s %s (want %s)\n' "${verdict}" "${name}" "${got:-none}" "${want}"
+}
+phase6_case "span counts 2 and 2" trace_span_verdict "stores: one trace has two spans" PASS 2 2
+phase6_case "span counts 2 and 1" trace_span_verdict "stores: one trace has two spans" FAIL 2 1
+phase6_case "span counts 0 and 0" trace_span_verdict "stores: one trace has two spans" FAIL 0 0
+phase6_case "span count missing" trace_span_verdict "stores: one trace has two spans" FAIL "" 2
+jobs='envoy mq orders-api otel-collector postgres tcp-svc tempo victoria-logs victoria-metrics victoria-traces worker'
+phase6_case "healthy job sets equal" scrape_jobs_verdict "stores: same healthy scrape jobs" PASS 11 "${jobs}" "${jobs}"
+phase6_case "VictoriaMetrics misses one job" scrape_jobs_verdict "stores: same healthy scrape jobs" FAIL 11 "${jobs}" "${jobs% worker}"
 echo "mismatches: ${mismatches}"; exit "${mismatches}"

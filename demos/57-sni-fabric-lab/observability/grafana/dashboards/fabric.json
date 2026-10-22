@@ -19,7 +19,23 @@
     "to": "now"
   },
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "regex": "",
+        "refresh": 1,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": "Prometheus",
+          "value": "prometheus"
+        },
+        "options": []
+      }
+    ]
   },
   "annotations": {
     "list": []
@@ -46,7 +62,7 @@
       "id": 2,
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "h": 9,
@@ -59,7 +75,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "max by (job) (up)",
           "legendFormat": "",
@@ -133,7 +149,7 @@
       "id": 3,
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "h": 9,
@@ -146,7 +162,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "max by (job) (up)",
           "legendFormat": "{{job}}",
@@ -228,7 +244,7 @@
       "id": 6,
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "h": 8,
@@ -241,7 +257,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(envoy_tcp_downstream_cx_total{envoy_tcp_prefix=\"web\"}[5m]))",
           "legendFormat": "web",
@@ -251,7 +267,7 @@
           "refId": "B",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(envoy_tcp_downstream_cx_total{envoy_tcp_prefix=\"orders_api\"}[5m]))",
           "legendFormat": "orders-api",
@@ -261,7 +277,7 @@
           "refId": "C",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(envoy_tcp_downstream_cx_total{envoy_tcp_prefix=\"tcp_svc\"}[5m]))",
           "legendFormat": "tcp-svc",
@@ -271,7 +287,7 @@
           "refId": "D",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(envoy_tcp_downstream_cx_total{envoy_tcp_prefix=\"mq_qm1\"}[5m]))",
           "legendFormat": "MQ listener",
@@ -281,7 +297,7 @@
           "refId": "E",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(envoy_tcp_downstream_cx_total{envoy_tcp_prefix=\"mq_console\"}[5m]))",
           "legendFormat": "MQ console",
@@ -449,7 +465,7 @@
       "id": 7,
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "h": 8,
@@ -462,7 +478,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(envoy_listener_no_filter_chain_match_total{envoy_listener_address=\"0.0.0.0_10443\"}[5m]))",
           "legendFormat": "reset, no tenant matched",
@@ -549,7 +565,7 @@
       "id": 10,
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "h": 8,
@@ -562,7 +578,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(orders_api_http_requests_total{server=\"internal\",route=\"/orders/{order_id}/status\",status=~\"5..\"}[5m]))",
           "legendFormat": "5xx answered by orders-api (every attempt)",
@@ -572,7 +588,7 @@
           "refId": "B",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(envoy_cluster_upstream_rq_xx_total{envoy_cluster_name=\"orders_api_internal\",envoy_response_code_class=\"5\"}[5m]))",
           "legendFormat": "5xx that reached the worker (after retries)",
@@ -659,7 +675,7 @@
       "id": 11,
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "h": 8,
@@ -672,7 +688,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(envoy_cluster_upstream_rq_retry_total{envoy_cluster_name=\"orders_api_internal\"}[5m]))",
           "legendFormat": "retries",
@@ -682,7 +698,7 @@
           "refId": "B",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(envoy_cluster_upstream_rq_retry_success_total{envoy_cluster_name=\"orders_api_internal\"}[5m]))",
           "legendFormat": "retried and succeeded",
@@ -798,7 +814,7 @@
       "id": 14,
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "h": 8,
@@ -811,7 +827,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(orders_api_orders_created_total[5m]))",
           "legendFormat": "created",
@@ -821,7 +837,7 @@
           "refId": "B",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(worker_messages_total{result=\"processed\"}[5m]))",
           "legendFormat": "processed",
@@ -831,7 +847,7 @@
           "refId": "C",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(orders_api_orders_replayed_total[5m]))",
           "legendFormat": "replayed (same key)",
@@ -947,7 +963,7 @@
       "id": 15,
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "h": 8,
@@ -960,7 +976,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(worker_messages_total{result=\"requeued\"}[5m]))",
           "legendFormat": "requeued by the worker",
@@ -970,7 +986,7 @@
           "refId": "B",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(worker_messages_total{result=\"dead_lettered\"}[5m]))",
           "legendFormat": "dead-lettered",
@@ -980,7 +996,7 @@
           "refId": "C",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(orders_api_sweep_republish_total[5m]))",
           "legendFormat": "re-sent by the sweeper",
@@ -1125,7 +1141,7 @@
       "id": 18,
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "h": 8,
@@ -1138,7 +1154,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "histogram_quantile(0.95, sum by (le) (rate(orders_api_http_request_seconds_bucket{server=\"public\"}[5m])))",
           "legendFormat": "public (TLS)",
@@ -1148,7 +1164,7 @@
           "refId": "B",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "histogram_quantile(0.95, sum by (le) (rate(orders_api_http_request_seconds_bucket{server=\"internal\"}[5m])))",
           "legendFormat": "internal (mesh)",
@@ -1235,7 +1251,7 @@
       "id": 19,
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "h": 8,
@@ -1248,7 +1264,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "histogram_quantile(0.5, sum by (le) (rate(worker_status_update_seconds_bucket[5m])))",
           "legendFormat": "50th percentile",
@@ -1258,7 +1274,7 @@
           "refId": "B",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "histogram_quantile(0.95, sum by (le) (rate(worker_status_update_seconds_bucket[5m])))",
           "legendFormat": "95th percentile",
@@ -1374,7 +1390,7 @@
       "id": 22,
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "h": 8,
@@ -1387,7 +1403,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(ibmmq_qmgr_mqput_mqput1_total[5m]))",
           "legendFormat": "put",
@@ -1397,7 +1413,7 @@
           "refId": "B",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(ibmmq_qmgr_destructive_get_total[5m]))",
           "legendFormat": "got",
@@ -1484,7 +1500,7 @@
       "id": 23,
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "h": 8,
@@ -1497,7 +1513,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "max(ibmmq_qmgr_log_write_latency_seconds)",
           "legendFormat": "",
@@ -1580,7 +1596,7 @@
       "id": 26,
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "h": 8,
@@ -1593,7 +1609,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(pg_stat_database_xact_commit_total{datname=\"fabric\"}[5m]))",
           "legendFormat": "commits",
@@ -1603,7 +1619,7 @@
           "refId": "B",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(pg_stat_database_xact_rollback_total{datname=\"fabric\"}[5m]))",
           "legendFormat": "rollbacks",
@@ -1690,7 +1706,7 @@
       "id": 27,
       "datasource": {
         "type": "prometheus",
-        "uid": "prometheus"
+        "uid": "${datasource}"
       },
       "gridPos": {
         "h": 8,
@@ -1703,7 +1719,7 @@
           "refId": "A",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(tcp_svc_commands_total{command=\"ping\"}[5m]))",
           "legendFormat": "PING",
@@ -1713,7 +1729,7 @@
           "refId": "B",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(tcp_svc_commands_total{command=\"echo\"}[5m]))",
           "legendFormat": "ECHO",
@@ -1723,7 +1739,7 @@
           "refId": "C",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(tcp_svc_commands_total{command=\"time\"}[5m]))",
           "legendFormat": "TIME",
@@ -1733,7 +1749,7 @@
           "refId": "D",
           "datasource": {
             "type": "prometheus",
-            "uid": "prometheus"
+            "uid": "${datasource}"
           },
           "expr": "sum(rate(tcp_svc_commands_total{command=\"unknown\"}[5m]))",
           "legendFormat": "UNKNOWN",

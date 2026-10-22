@@ -90,7 +90,8 @@ services:
         aliases: [qm1.fabric.localtest.me]
       net-tempo: {}
       net-vtraces: {}
-      net-vmetrics: {}
+      net-vmetrics:
+        aliases: [metrics.mesh]
       net-vlogs: {}
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9901 && printf 'GET /ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q LIVE <&3"]
@@ -351,9 +352,12 @@ services:
     <<: *hardening
     image: docker.io/victoriametrics/victoria-metrics:v1.153.0
     user: "10006:10006"
-    command: ["-storageDataPath=/storage/data"]
+    # Its built-in scraper is the smallest way to share Prometheus's exact target config; a
+    # separate vmagent would add a service and network without changing what this lab measures.
+    command: ["-storageDataPath=/storage/data", "-promscrape.config=/etc/prometheus/prometheus.yml"]
     volumes:
       - vmetricsdata:/storage
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on: *after-init
     networks: [net-vmetrics]
     healthcheck:

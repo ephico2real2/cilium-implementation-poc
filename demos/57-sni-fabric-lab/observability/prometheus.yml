@@ -4,7 +4,7 @@
 global:
   scrape_interval: 10s
   scrape_timeout: 8s
-  evaluation_interval: 10s
+  # There are no rules; VictoriaMetrics' strict Prometheus parser refuses evaluation_interval.
 
 scrape_configs:
   - job_name: envoy

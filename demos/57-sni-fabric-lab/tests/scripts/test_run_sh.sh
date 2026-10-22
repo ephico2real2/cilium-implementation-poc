@@ -49,6 +49,7 @@ scenario() {  # scenario <name> <run.sh args> <SCEN_UP_FAIL> <want: pass|stop>
   cp "$(dirname "${RUN_SH}")/gen-secrets.sh" "${demo}/scripts/gen-secrets.sh"
   printf '#!/usr/bin/env bash\necho "verify $*" >> "%s/checks"\n' "${demo}" > "${demo}/scripts/verify.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' > "${demo}/tests/r1-2/test_store_routes.sh"
+  printf 'print("10 queries, 0 disagreements")\n' > "${demo}/tests/parity.py"
   printf 'print("31 queries, 0 with errors or warnings, 0 empty")\n' > "${demo}/tests/dashboard_queries.py"
   printf 'pass\n' > "${demo}/tests/test_dashboard.py"
   chmod +x "${demo}"/scripts/*.sh

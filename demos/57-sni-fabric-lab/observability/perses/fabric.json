@@ -2,6 +2,7 @@
   "display": {
     "name": "SNI Fabric Lab"
   },
+  "variables": [],
   "panels": {
     "0_0": {
       "kind": "Panel",
@@ -1529,6 +1530,5 @@
       }
     }
   ],
-  "duration": "1h",
-  "variables": []
+  "duration": "1h"
 }

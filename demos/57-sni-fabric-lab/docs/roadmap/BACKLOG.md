@@ -113,6 +113,28 @@ VictoriaTraces, fed the same data and compared, so that the choice rests on meas
 - **Open:** whether VictoriaMetrics scrapes with its own `-promscrape.config` or a vmagent; the
   smaller change that meets AC 5 wins, measured. Either way the scraper's network needs Envoy's
   `metrics.mesh` alias: today Envoy has it on `net-api` and `net-obs` only (`podman inspect`).
+- **Status (2026-10-22): implemented; fresh and upgrade runs to be measured by the
+  orchestrator.**
+  - AC 5: VictoriaMetrics v1.153.0's strict dry run refused the old file with exit 255 and
+    `field evaluation_interval not found`; after removing that unused rule key it exited 0,
+    and Prometheus v3.15.0's `promtool check config` also passed. The built-in scraper won the
+    open choice: it needs one flag and the existing read-only mount, while vmagent would add a
+    service and network. `net-vmetrics` remains internal and shared with Envoy alone.
+  - AC 1 and AC 6: `tests/parity.py` selects ten queries by exact panel title and compares both
+    stores at one timestamp, excluding OTLP-only dotted labels. On the live Prometheus, nine
+    selections changed by 0 over one 10 s scrape and tcp-svc PING changed by
+    `2.37809e-07`; the two-store table is to be measured by the orchestrator after applying
+    the new scraper.
+  - AC 2: live trace `1763fe65af3432a70272b596b16f4eac` had two spans in each store. Tempo
+    returned them under `trace.resourceSpans[].scopeSpans[].spans[]`; VictoriaTraces returned
+    them under `data[].spans[]`. Phase 6 now requires 2 and 2, not merely equal counts.
+  - AC 3 and AC 4: Grafana has one Prometheus datasource variable, defaults to uid
+    `prometheus`, and every panel follows it. The Perses converter degraded the variable to an
+    empty `variables` list and its supplied fixed `prometheus` datasource; its JSON was not
+    hand-edited. VictoriaMetrics dashboard results are to be measured by the orchestrator.
+  - The new host route, all 11 healthy scrape jobs in both stores, bounded fresh-start wait,
+    `scripts/run.sh --fresh`, the upgrade run and kept-check comparison are to be measured by
+    the orchestrator.
 
 ## E1 CI checks demo 57 on every pull request
 

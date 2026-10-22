@@ -369,6 +369,21 @@ static_resources:
               routes:
               - match: {prefix: /}
                 route: {cluster: prometheus, timeout: 60s}
+            - name: victoria_metrics
+              domains: ["victoriametrics.fabric.localtest.me", "victoriametrics.fabric.localtest.me:*"]
+              routes:
+              # The host-facing endpoint is query-only, with the same GET and POST methods Grafana
+              # gets on the mesh; imports, writes, reloads and admin calls stop at Envoy.
+              - match:
+                  safe_regex: *vm_read_api
+                  headers: [{name: ":method", string_match: {exact: GET}}]
+                route: {cluster: victoria_metrics, timeout: 60s, retry_policy: *idempotent_retry}
+              - match:
+                  safe_regex: *vm_read_api
+                  headers: [{name: ":method", string_match: {exact: POST}}]
+                route: {cluster: victoria_metrics, timeout: 60s, retry_policy: *safe_retry}
+              - match: {prefix: /}
+                direct_response: {status: 404, body: {inline_string: "not routed on victoriametrics.fabric.localtest.me\n"}}
           http_filters:
           - name: envoy.filters.http.router
             typed_config:
