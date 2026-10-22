@@ -144,8 +144,8 @@ of them from Prometheus, emptying the dashboard's MQ latency panel (measured, th
 Datasource menu at the top offers VictoriaMetrics beside it.*
 
 `python3 tests/parity.py --markdown`, on the lab from the fresh run (2026-10-22, evaluated at
-09:34:23 UTC, once every rate it compares held a complete window). The allowance and the second
-envelope are explained in the script. The MQ latency gauge missed one scrape at that instant, in
+09:34:23 UTC, once every rate was exactly comparable). The cross-engine rate calculation is
+explained in the script. The MQ latency gauge missed one scrape at that instant, in
 both stores alike, so it agrees by its neighbours (present at T − s and T + s):
 
 | Query | Prometheus series | VictoriaMetrics series | Max difference | Verdict |

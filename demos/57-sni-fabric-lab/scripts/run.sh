@@ -7,8 +7,8 @@
 #                stores' data are lost
 #   -h, --help   print this help
 # Takes about 9 minutes (8 min 54 s recorded): MQ starts in about 2 under amd64 emulation,
-# phase 6 waits up to 90 s for the stores to show new data, and parity waits for a complete
-# window of every rate it compares. Exits non-zero at the first failed step.
+# phase 6 waits up to 90 s for the stores to show new data, and parity waits until every selected
+# rate's exact cross-engine value is comparable. Exits non-zero at the first failed step.
 # Steps: certificates, secrets, images and containers, wait for every health check, then
 # scripts/verify.sh (phases 1-3), phase 6, store parity, phase 5 (failure and recovery), the
 # store routes, and the dashboard tests.
@@ -138,8 +138,11 @@ wait_for_rate_window() {  # wait_for_rate_window <attempts> <delay seconds>
       status=$?
     fi
     printf '%s\n' "${out}"
-    [ "${attempt}" -lt "${attempts}" ] || return "${status}"
-    echo "window ${attempt}/${attempts}: waiting ${delay}s for every rate's complete window"
+    if [ "${attempt}" -ge "${attempts}" ]; then
+      echo "timed out after ${attempts} window checks and $(((attempts - 1) * delay))s retry sleep"
+      return "${status}"
+    fi
+    echo "window ${attempt}/${attempts}: waiting ${delay}s for every rate to become comparable"
     sleep "${delay}"
   done
 }
@@ -194,9 +197,9 @@ step "Check the collector and the telemetry stores (phase 6)"
 scripts/verify.sh phase6
 
 step "Compare Prometheus and VictoriaMetrics, then run every dashboard query on VictoriaMetrics"
-# Before phase 5: across a target's outage the engines differ by design (Prometheus adds a reset,
-# VictoriaMetrics restarts after the gap), so parity needs every rate's window complete, and the
-# gate waits for that; parity then gets only one retry for ingestion lag.
+# Before phase 5: across a target's outage the engines can differ by design, so the gate waits
+# until every selected rate matches its exact cross-engine equivalent. Parity then gets only one
+# retry for ingestion lag.
 wait_for_rate_window 72 5
 parity_with_ingestion_retry
 bounded_retry 12 5 python3 tests/dashboard_queries.py \

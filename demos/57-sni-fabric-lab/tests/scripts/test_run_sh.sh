@@ -59,8 +59,8 @@ printf '#!/usr/bin/env bash\nexit 0\n' > "${work}/stub/sleep"
 chmod +x "${work}/stub/podman" "${work}/stub/sleep"
 
 mismatches=0
-scenario() {  # scenario <name> <run.sh args> <up fail> <want> <mount mode> <recreated> <parity>
-  local demo out status checks verdict=ok got recreated parity_attempts
+scenario() {  # scenario <name> <run.sh args> <up fail> <want> <mount> <recreated> <parity> <window>
+  local demo out status checks verdict=ok got recreated parity_attempts window_attempts
   demo="$(mktemp -d "${work}/demo.XXXX")"
   mkdir -p "${demo}/scripts" "${demo}/tests/r1-2" "${demo}/secrets"
   printf 'mounted file\n' > "${demo}/mounted.yml"
@@ -95,8 +95,12 @@ from pathlib import Path
 import sys
 
 if "--window-ready" in sys.argv:
+    if os.environ.get("SCEN_DEMO"):
+        path = Path(os.environ["SCEN_DEMO"]) / "window-attempts"
+        count = int(path.read_text()) + 1 if path.exists() else 1
+        path.write_text(str(count))
     print("rate window samples at T: Prometheus=30, VictoriaMetrics=30; need at least 30")
-    raise SystemExit(0)
+    raise SystemExit(1 if os.environ.get("SCEN_WINDOW") == "fail" else 0)
 # The rerun below the scenarios sets no SCEN_DEMO; only the scenarios record the step order.
 if os.environ.get("SCEN_DEMO"):
     with open(Path(os.environ["SCEN_DEMO"]) / "order", "a", encoding="utf-8") as order:
@@ -117,7 +121,7 @@ PY
     printf '%s' "${SECRET_PREFIX:-x}-$s" > "${demo}/secrets/$s"
   done
   # shellcheck disable=SC2086
-  out="$(PATH="${work}/stub:${PATH}" SCEN_UP_FAIL="$3" SCEN_DEMO="${demo}" SCEN_PARITY="$7" \
+  out="$(PATH="${work}/stub:${PATH}" SCEN_UP_FAIL="$3" SCEN_DEMO="${demo}" SCEN_PARITY="$7" SCEN_WINDOW="$8" \
     bash "${demo}/scripts/run.sh" $2 2>&1)"; status=$?
   checks=0; [ ! -f "${demo}/checks" ] || checks="$(wc -l < "${demo}/checks")"
   if [ "${status}" -eq 0 ]; then got=pass; else got=stop; fi
@@ -130,6 +134,11 @@ PY
   if [ "$7" = fail ] && [ "${parity_attempts}" != 2 ]; then
     verdict=MISMATCH; mismatches=$((mismatches + 1))
   fi
+  window_attempts="$(cat "${demo}/window-attempts" 2>/dev/null || true)"
+  if [ "$8" = fail ] && { [ "${window_attempts}" != 72 ] ||
+       ! grep -Fq 'timed out after 72 window checks and 355s retry sleep' "${demo}/output/transcript.txt"; }; then
+    verdict=MISMATCH; mismatches=$((mismatches + 1))
+  fi
   order="$(paste -sd '|' "${demo}/order" 2>/dev/null || true)"
   if [ "${got}" = pass ] && [ "${order}" != "verify phase1 phase2 phase3|verify phase6|parity|verify phase5" ]; then
     verdict=MISMATCH; mismatches=$((mismatches + 1)); echo "          order: ${order}"
@@ -139,21 +148,22 @@ PY
   [ "${verdict}" = ok ] || grep -E '^(objects removed|Error|timed out)' <<<"${out}" | sed 's/^/          /'
 }
 RUN_SH="$1"
-scenario "compose up fails while old containers are healthy" ""        1 stop none "" pass
-scenario "--fresh on a lab that never ran"                   "--fresh" 0 pass none "" pass
-scenario "healthy run; old bind sources"                     ""        0 pass none "" pass
-scenario "new bind-mounted file"                             ""        0 pass file "envoy web" pass
-scenario "new file in bind-mounted directory"                ""        0 pass directory "grafana" pass
-scenario "file deleted from bind-mounted directory"          ""        0 pass deleted "grafana" pass
-scenario "two persistent parity disagreements"               ""        0 stop none "" fail
+scenario "compose up fails while old containers are healthy" ""        1 stop none "" pass pass
+scenario "--fresh on a lab that never ran"                   "--fresh" 0 pass none "" pass pass
+scenario "healthy run; old bind sources"                     ""        0 pass none "" pass pass
+scenario "new bind-mounted file"                             ""        0 pass file "envoy web" pass pass
+scenario "new file in bind-mounted directory"                ""        0 pass directory "grafana" pass pass
+scenario "file deleted from bind-mounted directory"          ""        0 pass deleted "grafana" pass pass
+scenario "two persistent parity disagreements"               ""        0 stop none "" fail pass
+scenario "rate comparison never becomes ready"               ""        0 stop none "" pass fail
 
 # The transcript must hold no --random value, and still print the public lab values.
 leaks=0
 rm -rf "${work}"/demo.*
-SECRET_PREFIX="rNd0m7Qx" scenario "run with random secrets" "" 0 pass none "" pass >/dev/null
+SECRET_PREFIX="rNd0m7Qx" scenario "run with random secrets" "" 0 pass none "" pass pass >/dev/null
 random_lines="$(cat "${work}"/demo.*/output/transcript.txt | grep -c 'rNd0m7Qx')"
 rm -rf "${work}"/demo.*
-SECRET_PREFIX="unused" scenario "run with the lab values" "" 0 pass none "" pass >/dev/null
+SECRET_PREFIX="unused" scenario "run with the lab values" "" 0 pass none "" pass pass >/dev/null
 for d in "${work}"/demo.*; do  # rewrite the lab values gen-secrets.sh lists, then run again
   for kv in admin-token=fabric-admin postgres-password=fabric-postgres; do printf '%s' "${kv#*=}" > "${d}/secrets/${kv%%=*}"; done
   PATH="${work}/stub:${PATH}" bash "${d}/scripts/run.sh" >/dev/null 2>&1

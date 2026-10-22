@@ -17,6 +17,17 @@ def labels(**values: str) -> tuple[tuple[str, str], ...]:
     return tuple(sorted(values.items()))
 
 
+def compare(previous, prometheus, following, victoria, rate_query, widened=None,
+            victoria_neighbors=None):
+    """Call either signature so these controls report old behavior instead of stopping early."""
+    try:
+        return parity.compare_series(previous, prometheus, following, victoria, rate_query,
+                                     widened, victoria_neighbors)
+    except TypeError:
+        return parity.compare_series(previous, prometheus, following, victoria, rate_query,
+                                     widened)
+
+
 job = labels(job="api")
 components = {labels(job=f"job-{number}"): 1.0 for number in range(11)}
 cases = [
@@ -26,8 +37,8 @@ cases = [
     ("equal gauge", {job: 1.0}, {job: 1.0}, {job: 1.0}, {job: 1.0}, False, True),
     ("measured MQ latency 0.000299/0.000299", {job: 0.000299}, {job: 0.000299},
      {job: 0.000299}, {job: 0.000299}, False, True),
-    ("gauge within one scrape's movement", {job: 0.9}, {job: 1.0}, {job: 1.1},
-     {job: 1.05}, False, True),
+    ("a gauge from between scrapes is not the copied value at T", {job: 0.9}, {job: 1.0},
+     {job: 1.1}, {job: 1.05}, False, False),
     ("steady gauge gets no rate allowance", {job: 1.0}, {job: 1.0}, {job: 1.0},
      {job: 1.01}, False, False),
     # The four measured Postgres pairs: s/W alone covers the steady-window difference.
@@ -87,16 +98,22 @@ widened_cases = [
      ({job: 1.2}, {job: 1.2}, {job: 1.2}), False),
     ("the wider window needs all three reads", steady, steady, steady, {job: 3.6}, True,
      ({job: 3.6}, {}, {job: 3.6}), False),
-    # The resolution the docstring states: within about s/W of a steady rate passes, beyond fails.
-    ("resolution: 3.2 % above a steady rate passes", steady, steady, steady, {job: 3.48}, True,
-     steady_wide, True),
+    ("a value 3.2 % above the exact expected rate fails", steady, steady, steady, {job: 3.48}, True,
+     steady_wide, False),
     ("resolution: 4.4 % above a steady rate fails", steady, steady, steady, {job: 3.52}, True,
      steady_wide, False),
 ]
 
 failures = 0
 for name, previous, prometheus, following, victoria, rate_query, want in cases:
-    result = parity.compare_series(previous, prometheus, following, victoria, rate_query)
+    # Production obtains the expected rate from P[310s](T). Supply the measured value for a
+    # positive case and the source value for a deliberately wrong case.
+    widened = None
+    if rate_query:
+        expected = victoria if want else prometheus
+        widened = (expected, expected, expected)
+    result = compare(previous, prometheus, following, victoria, rate_query,
+                     widened, (previous, following))
     if result.agrees == want:
         print(f"ok        {name}")
     else:
@@ -104,8 +121,8 @@ for name, previous, prometheus, following, victoria, rate_query, want in cases:
         print(f"MISMATCH  {name}: got {result.agrees}, want {want} ({result.detail})")
 for name, previous, prometheus, following, victoria, rate_query, widened, want in widened_cases:
     try:
-        result = parity.compare_series(previous, prometheus, following, victoria, rate_query,
-                                       widened)
+        result = compare(previous, prometheus, following, victoria, rate_query,
+                         widened, (previous, following))
         got, detail = result.agrees, result.detail
     except TypeError as error:  # a compare_series without the wider window
         got, detail = None, str(error)
@@ -115,8 +132,40 @@ for name, previous, prometheus, following, victoria, rate_query, widened, want i
         failures += 1
         print(f"MISMATCH  {name}: got {got}, want {want} ({detail})")
 
-# The window gate: every rate selector is read, and one with a gap is named. The MQ count is the
-# live one at T = 1792656830, 60 s after MQ stopped, when min(count_over_time(up[5m])) was 30.
+# Wrong store values equal to neighbouring P[310s] evaluations used to pass the second envelope.
+wrong_widened_cases = [
+    ("one scrape behind", [0.1, 0.1310344827586207, 0.1310344827586207], 0.1,
+     [0.1, 0.13, 0.13]),
+    ("dropped boundary sample across resets",
+     [0.2482758620689655, 0.2482758620689655, 0.24482758620689657],
+     0.25806451612903225,
+     [0.26333333333333336, 0.24333333333333335, 0.25666666666666665]),
+    ("previous scrape duplicated at T",
+     [0.3448275862068966, 0.3448275862068966, 0.3448275862068966],
+     0.3333333333333333,
+     [0.35333333333333333, 0.35333333333333333, 0.3333333333333333]),
+]
+for name, points, wrong, wide_points in wrong_widened_cases:
+    result = compare(
+        {job: points[0]}, {job: points[1]}, {job: points[2]}, {job: wrong}, True,
+        tuple({job: value} for value in wide_points), ({job: points[0]}, {job: points[2]}))
+    if not result.agrees:
+        print(f"ok        wrong copy refused: {name}")
+    else:
+        failures += 1
+        print(f"MISMATCH  wrong copy passed: {name} ({result.detail})")
+
+# Rewriting is confined to rate's own range, even in a mixed expression.
+mixed = "sum(rate(requests_total[5m])) + avg_over_time(queue_depth[5m])"
+rewritten = "sum(rate(requests_total[310s])) + avg_over_time(queue_depth[5m])"
+if parity.widened_expression(mixed) == rewritten:
+    print("ok        a non-rate [5m] range is not widened")
+else:
+    failures += 1
+    print(f"MISMATCH  mixed expression became {parity.widened_expression(mixed)!r}")
+
+# The readiness gate uses the actual exact comparison. A new/churning label set need not have 32
+# samples; a selected rate whose cross-engine values still differ remains named.
 selectors = [parity.rate_selectors(expression)
              for _, expression in parity.selected_queries(parity.DEFAULT_DASHBOARD)]
 gate_cases = [("eight rate queries, one selector each, two gauges with none",
@@ -129,19 +178,33 @@ for shape in ("sum(rate(x[1m]))", "rate(sum(x)[5m:])"):
         gate_cases.append((f"a rate it cannot read is refused: {shape}", True))
 
 
-def fake_counts(_base: str, expression: str, _timestamp: float):
-    return {(): 26.0 if "ibmmq_qmgr_mqput_mqput1_total" in expression else 32.0}
+def fake_counts(base: str, expression: str, _timestamp: float):
+    if "ibmmq_qmgr_mqput_mqput1_total" in expression and base == "victoria":
+        return {(): 1.1}
+    return {(): 1.0}
 
 
 real_query = parity.instant_query
 parity.instant_query = fake_counts
 try:
-    gaps = parity.incomplete_windows("http://unused", [e for found in selectors for e in found
-                                                       for e in [f"sum(rate({e}[5m]))"]], 0.0)
+    expressions = [f"sum(rate({selector}[5m]))" for found in selectors for selector in found]
+    try:
+        gaps = parity.incomplete_windows("prometheus", "victoria", expressions, 0.0)
+    except TypeError:
+        gaps = parity.incomplete_windows("victoria", expressions, 0.0)
 finally:
     parity.instant_query = real_query
-gate_cases.append(("a gap in MQ's counter is named, nothing else",
-                   gaps == ["ibmmq_qmgr_mqput_mqput1_total: 26 of 32 samples"]))
+gate_cases.append(("the one rate not yet exactly comparable is named, nothing else",
+                   gaps == ["sum(rate(ibmmq_qmgr_mqput_mqput1_total[5m]))"]))
+
+# A shared gauge hole agrees only if VictoriaMetrics has both neighbouring values too.
+shared_gap = compare({job: 0.000282}, {}, {job: 0.000282}, {}, False, None,
+                     ({job: 0.000282}, {job: 0.000282}))
+lost_copy = compare({job: 0.000282}, {}, {job: 0.000282}, {}, False, None, ({}, {}))
+gate_cases.extend([
+    ("shared one-scrape gauge hole agrees in both stores", shared_gap.agrees),
+    ("a copy that lost the gauge does not use Prometheus's neighbours", not lost_copy.agrees),
+])
 for name, ok in gate_cases:
     if ok:
         print(f"ok        {name}")

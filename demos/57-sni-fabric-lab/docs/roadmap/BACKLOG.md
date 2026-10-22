@@ -121,24 +121,24 @@ VictoriaTraces, fed the same data and compared, so that the choice rests on meas
     VictoriaMetrics `promscrape` at zero. `promtool` validates the committed config and rejects
     a malformed `remote_write` negative control.
   - AC 1 and AC 6: `tests/parity.py` selects ten queries by exact panel title and compares both
-    stores at one timestamp, excluding OTLP-only dotted labels. A VictoriaMetrics rate passes
-    within Prometheus's [5m] value at T − s, T and T + s widened by s/W, or within Prometheus's
-    rate over [310s], which holds the same samples VictoriaMetrics uses (the review measured 40
-    false failures in 9670 one-second sweeps without it, 0 with it). It runs only when every
-    rate selector holds all 32 samples of 320 s in both stores, and before phase 5's outages.
-    Resolution: a VictoriaMetrics rate within about 3.3 % of Prometheus's passes. On the fresh
-    run the gate waited for MQ's counter (28, then 29, 30, 31 of 32 samples after the queue
-    manager's start) and all ten then agreed (`output/transcript.txt`).
+    stores at one timestamp, excluding OTLP-only dotted labels. A VictoriaMetrics rate must equal
+    Prometheus's rate at T with only `rate`'s range widened to [310s], which is the exact
+    MetricsQL value for the same regular samples. Values from T − s or T + s are different
+    windows and cannot excuse a stale or damaged copy. It runs before phase 5's outages, after a
+    complete `up` window and once every selected rate is exactly comparable. On the recorded
+    fresh run the older sample-count gate waited for MQ's counter and all ten then agreed
+    (`output/transcript.txt`).
   - AC 2: live trace `1763fe65af3432a70272b596b16f4eac` had two spans in each store. Tempo
     returned them under `trace.resourceSpans[].scopeSpans[].spans[]`; VictoriaTraces returned
     them under `data[].spans[]`. Phase 6 now requires 2 and 2, not merely equal counts.
   - AC 3 and AC 4: Grafana has one Prometheus datasource variable, defaults to uid
     `prometheus`, and every panel follows it. The Perses converter degraded the variable to an
     empty `variables` list and its supplied fixed `prometheus` datasource; its JSON was not
-    hand-edited. On VictoriaMetrics: `31 queries, 0 with errors or warnings, 0 empty`.
-  - Phase 6 now requires all 11 healthy metric jobs in both stores, a fresh MQ recovery-log
-    gauge in Prometheus and equal MQ scrape sample counts. `run.sh` gates parity on a complete
-    five-minute window and fails a disagreement seen twice; it also recreates any running
+    hand-edited. On VictoriaMetrics: `31 queries, 0 with errors or warnings, 2 empty` before
+    phase 5 generated the status-update failure series (`output/transcript.txt`).
+  - Phase 6 now requires all 11 healthy metric jobs in both stores, the same positive count of
+    fresh MQ recovery-log gauges and the same positive MQ scrape sample count. `run.sh` gates
+    parity until every selected rate is comparable and fails a disagreement seen twice; it also recreates any running
     service whose bind-mounted source is newer than its container.
   - Measured after the first review pass: `scripts/run.sh --fresh` 8 min 54 s, 87 checks, 0
     failures; checks kept `84 before, 87 after`; the route test 0 mismatches. The upgrade path

@@ -340,7 +340,8 @@ mq_metrics_verdict() {  # mq_metrics_verdict <fresh gauges> <Prometheus samples>
       -v victoria="${victoria_samples}" 'BEGIN {
         number = "^[0-9]+([.][0-9]+)?$"
         exit !(gauge ~ number && gauge > 0 && copied ~ number && copied == gauge &&
-               prometheus ~ number && victoria ~ number && prometheus == victoria)
+               prometheus ~ number && prometheus > 0 && victoria ~ number &&
+               victoria == prometheus)
       }'; then
     pass "stores: MQ gauge and sample count copied" \
       "fresh gauges=${gauge_count} in both; scrape_samples_scraped=${prometheus_samples} in both"
@@ -442,6 +443,7 @@ phase6() {
     victoria_mq_gauges="$(metric_value victoriametrics \
       'count(last_over_time(ibmmq_qmgr_log_write_latency_seconds[1m]))' 2>/dev/null)"
     [ -n "${mq_gauges}" ] && [ "${mq_gauges}" = "${victoria_mq_gauges}" ] && \
+      [ -n "${prometheus_mq_samples}" ] && \
       [ "${prometheus_mq_samples}" = "${victoria_mq_samples}" ] && break
     sleep 3
   done

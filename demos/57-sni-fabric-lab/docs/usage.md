@@ -101,7 +101,7 @@ The steps, in order:
 
 Everything is also written to `output/transcript.txt`. It stops at the first failed step.
 Measured on 2026-10-22: 8 min 54 s from nothing, 87 checks, 0 failures; parity waited for
-MQ's counter to hold a complete window after the queue manager's start.
+each selected rate's exact cross-engine value to become comparable after the queue manager starts.
 
 ### 4.2 `scripts/gen-certs.sh`: the CA and certificates
 
@@ -307,7 +307,7 @@ scripts/verify.sh phase1 phase5   # several, in that order
 | `phase2` | 20 | Swagger; idempotent orders; validation; the admin token; CORS; Postgres only through `mesh_pg` |
 | `phase3` | 19 | The native MQ client in all three SNI modes; an order from created to processed; every `/metrics` through Envoy; Envoy's verified TLS to the MQ REST API |
 | `phase5` | 7 | 50% chaos, a Postgres restart, MQ stopped and started, tcp-svc stopped and started: everything recovers by itself. **Stops and restarts containers on purpose** |
-| `phase6` | 22 | Five synthetic traces (ten spans) reach the collector through Envoy with no export error; the collector shares only the internal `net-otel` with Envoy; its internal metrics return through `mesh_http`. Each store is ready when read through Envoy, sits on an internal network shared with Envoy alone, and its own metrics return through `mesh_http`. Both metric stores have the same complete set of healthy jobs; Prometheus holds a fresh MQ recovery-log gauge and its MQ scrape sample count equals VictoriaMetrics' remote-written copy. Grafana's test of each datasource answers OK. One named run: its five trace ids are the same in Tempo and VictoriaTraces, one trace has exactly two spans in both, its five metric samples are in VictoriaMetrics, and its five log lines (carrying one of those trace ids) are in VictoriaLogs |
+| `phase6` | 22 | Five synthetic traces (ten spans) reach the collector through Envoy with no export error; the collector shares only the internal `net-otel` with Envoy; its internal metrics return through `mesh_http`. Each store is ready when read through Envoy, sits on an internal network shared with Envoy alone, and its own metrics return through `mesh_http`. Both metric stores have the same complete set of healthy jobs, the same positive MQ scrape sample count, and the same positive count of fresh MQ recovery-log gauges. Grafana's test of each datasource answers OK. One named run: its five trace ids are the same in Tempo and VictoriaTraces, one trace has exactly two spans in both, its five metric samples are in VictoriaMetrics, and its five log lines (carrying one of those trace ids) are in VictoriaLogs |
 | (none) | 57 | `phase1 phase2 phase3` |
 
 Each check prints `PASS` or `FAIL` with what it saw. Phase 4 (metrics) is checked by the
@@ -328,10 +328,10 @@ python3 tests/test_dashboard.py
 | Test | Arguments | Checks |
 |---|---|---|
 | `tests/dashboard_queries.py` | `[dashboard.json] [--prometheus URL] [--minutes N]` | Every dashboard query returns without error or warning; lists each series' latest value; flags empty ones |
-| `tests/parity.py` | `[dashboard.json] [--prometheus URL] [--victoriametrics URL] [--markdown] [--window-ready]` | Ten exact dashboard queries at one timestamp have identical label sets; values must fit the Prometheus `T-s,T,T+s` envelope, widened by `m*s/W` only for rate extrapolation, or for a rate the same three reads with the range one interval wider (`[310s]`, the 30 intervals VictoriaMetrics uses). Fails on an empty side and states that OTLP-only dotted labels are excluded; `--window-ready` only checks that `up` and every series of each rate selector hold all their samples |
+| `tests/parity.py` | `[dashboard.json] [--prometheus URL] [--victoriametrics URL] [--markdown] [--window-ready]` | Ten exact dashboard queries at one timestamp have identical label sets. Gauges match at T; rates match Prometheus at T with only `rate`'s range widened to `[310s]`, the exact MetricsQL value for the same regular samples. A shared gauge hole at T passes only when both stores agree at T−s and T+s. Empty queries fail, OTLP-only dotted labels are excluded, and `--window-ready` requires a complete `up` window plus every selected rate's exact cross-engine comparison to be ready |
 | `tests/test_dashboard.py` | `[grafana.json] [perses.json]` | Sections, charts, colours, line styles, units, legends and `[5m]` windows, in both dashboard forms |
 | `tests/r1-3/test_prometheus_config.sh` | none | `promtool` accepts the committed scrape-and-remote-write config; a malformed `remote_write` copy is a failing negative control |
-| `tests/r1-3/test_parity.py` | none | Lab-free controls for all measured value pairs, gauge movement, rate extrapolation, clearly wrong values, one-sided and empty comparisons |
+| `tests/r1-3/test_parity.py` | none | Lab-free controls for all measured value pairs, exact gauge copies and cross-engine rates, dropped/stale/duplicated samples, shared one-scrape gauge holes, one-sided and empty comparisons |
 | `tests/browser_flows.py` | `<out-dir> <admin-token-file>` | In Chromium, light and dark: places an order, pings over TCP, refuses a wrong token, opens the portal; no console error or CSP violation |
 | `tests/grafana_capture.py` | `<out-dir> [prometheus\|victoriametrics]` | The dashboard as an anonymous viewer, dark and light: every chart present, no "No data", "NaN", "not found" or error; with a datasource uid, opened on that datasource with its name in the Datasource menu |
 

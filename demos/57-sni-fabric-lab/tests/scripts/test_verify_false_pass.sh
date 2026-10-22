@@ -173,4 +173,5 @@ phase6_case "MQ query has no answer" mq_metrics_verdict "stores: MQ gauge and sa
 # scrape_samples_scraped is Prometheus's own series: equal in a copy that lost the gauge itself.
 phase6_case "MQ gauge missing from the copy" mq_metrics_verdict "stores: MQ gauge and sample count copied" FAIL 1 136 136 0
 phase6_case "MQ gauge copy has no answer" mq_metrics_verdict "stores: MQ gauge and sample count copied" FAIL 1 136 136 ""
+phase6_case "MQ scrape counts are zero" mq_metrics_verdict "stores: MQ gauge and sample count copied" FAIL 1 0 0 1
 echo "mismatches: ${mismatches}"; exit "${mismatches}"

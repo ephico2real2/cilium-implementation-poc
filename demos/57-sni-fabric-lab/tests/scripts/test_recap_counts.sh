@@ -24,8 +24,18 @@ check() {  # check <description> <command status: 0 means match>
   printf '%-9s %s\n' "${verdict}" "${description}"
 }
 
-[ "${phases}" = "${got_phases}" ] && [ "${total}" = "${got_total}" ]; check \
-  "counts: phases 1-3 ${phases}, whole run ${total}" "$?"
+if [ "${phases}" = "${got_phases}" ] && [ "${total}" = "${got_total}" ]; then
+  check "counts: phases 1-3 ${phases}, whole run ${total}" 0
+else
+  check "counts: phases 1-3 ${phases}, whole run ${total}" 1
+fi
+# BACKLOG's VictoriaMetrics dashboard result is the one inside the comparison step, before phase 5
+# creates the two status-update series. Drop only dashboard_queries.py's elapsed-time suffix.
+vm_dashboard="$(awk '/^==== Compare Prometheus/{on=1; next} /^==== /{on=0} on' "${t}" \
+  | sed -n 's/^\([0-9][0-9]* queries, [0-9][0-9]* with errors or warnings, [0-9][0-9]* empty\), .*$/\1/p' \
+  | tail -1)"
+grep -Fq "On VictoriaMetrics: \`${vm_dashboard}\`" "$1/docs/roadmap/BACKLOG.md"; check \
+  "VictoriaMetrics dashboard: ${vm_dashboard}" "$?"
 grep -Fq "processed, after ${retries} Envoy retries." "$1/RECAP.md"; check \
   "retry delta: ${retry_before} -> ${retry_after} is ${retries}" "$?"
 # The secrets the run wrote or kept, each named in step 2's result, and no other.

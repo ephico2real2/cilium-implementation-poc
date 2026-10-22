@@ -7,35 +7,20 @@ MQ throughput and its latency gauge, Postgres transactions, and TCP commands. Th
 exact panel title and refId from fabric.json; a renamed or missing panel is an error, never an
 empty comparison.
 
-Both stores are evaluated at exactly T = now - 30 seconds, so T + one 10-second scrape interval
-is in the past. For each exact label set, Prometheus is also evaluated at T-s and T+s. A gauge
-or ``up`` value from VictoriaMetrics must lie inside the three Prometheus values' [min, max]
-envelope, plus a 1e-9 relative floating-point allowance.
+Both stores are evaluated at exactly T = now - 30 seconds. A gauge or ``up`` value must match at
+T, plus a 1e-9 relative floating-point allowance. If a consume-on-read MQ gauge is absent at T in
+both stores, both stores must contain the same series and value at T-s and T+s; an empty query or
+a series missing from the copy therefore cannot pass.
 
-For ``rate`` queries over W=300 seconds a VictoriaMetrics value passes when it lies in either of
-two envelopes, each the [min, max] of three Prometheus values plus the float allowance:
-
-- the same expression at T-s, T and T+s, widened on both sides by m*s/W, where m is the largest
-  absolute value of the three. Prometheus (v3.15.0 ``promql/functions.go`` ``extrapolatedRate``)
-  divides the increase of the samples inside (T-W, T] by W after extrapolating to the range's
-  edges, by at most 1.1 average intervals, and only towards zero for a counter that started at
-  zero; this envelope covers those counters;
-- the expression with its range widened by one interval, ``[W+s]``, at T-s, T and T+s. With
-  regular scrapes it covers the same 30 intervals VictoriaMetrics uses: MetricsQL's ``rate``
-  takes the last sample before the window as its start (v1.153.0
-  ``app/vmselect/promql/rollup.go`` ``rollupDerivFast``, prevValue at lines 779-783) and divides
-  by the time between that sample and the last one. Without it, one event in the interval before
-  the window and one in the last interval put V above every [5m] value by more than m*s/W:
-  measured on the lab, tcp-svc P = 9/290 at T-s, T and T+s, V = 10/300.
-
-The comparison is only defined over a window with every scrape in it. A target that is down
-leaves a gap Prometheus bridges with a counter reset and VictoriaMetrics restarts from (rollup.go
-``removeCounterResets``, lines 940-947), so ``--window-ready`` requires every series of every
-rate selector to hold all (W+2s)/s samples of (T-W-2s, T] in both stores. ``up`` alone cannot
-show it: it is written on every scrape, a failed one included.
-
-Resolution: in a steady window, a VictoriaMetrics rate within about s/W (3.3 %) of Prometheus's
-passes; the controls in tests/r1-3/test_parity.py pin that boundary.
+For a ``rate`` query over W=300 seconds, Prometheus evaluates the same expression with only the
+``rate`` range widened by one regular scrape interval, ``[W+s]``, at T. That value is the exact
+MetricsQL result from the same regular samples: MetricsQL includes the last sample at or before
+the left edge, while Prometheus's widened range includes that sample and extrapolates its sampled
+interval over W+s. The values at T-s and T+s belong to different windows and are not an
+allowance: accepting either would hide a store one scrape behind. ``--window-ready`` waits until
+this exact cross-engine comparison is defined and succeeds for every selected rate, rather than
+requiring every matching label set to be W old; a legitimately new or churning label set cannot
+hold the run closed merely because it has fewer samples.
 
 Only the dashboard's Prometheus-scraped metrics are selected. OTLP-ingested metrics in
 VictoriaMetrics retain dotted resource labels such as ``service.name``; they have no Prometheus
@@ -64,10 +49,8 @@ RATE_WINDOW_SECONDS = 300
 FLOAT_ALLOWANCE = 1e-9
 MIN_WINDOW_SAMPLES = RATE_WINDOW_SECONDS // SCRAPE_INTERVAL_SECONDS
 WIDE_RANGE = f"[{RATE_WINDOW_SECONDS + SCRAPE_INTERVAL_SECONDS}s]"
-# A rate's own samples, from P(T-s)'s first interval to T: one per scrape, none missing.
-GATE_SPAN_SECONDS = RATE_WINDOW_SECONDS + 2 * SCRAPE_INTERVAL_SECONDS
-MIN_GATE_SAMPLES = GATE_SPAN_SECONDS // SCRAPE_INTERVAL_SECONDS
-RATE_SELECTOR = re.compile(r"\brate\(\s*([^()\[\]]+?)\s*\[5m\]\s*\)")
+RATE_SELECTOR = re.compile(
+    r"(?P<prefix>\brate\(\s*)(?P<selector>[^()\[\]]+?)(?P<range>\s*\[5m\])(?P<suffix>\s*\))")
 
 # Exact title plus query ref: panel renames and query reordering are intentional test failures.
 SELECTIONS = (
@@ -99,21 +82,34 @@ class Comparison:
     detail: str
 
 
+def series_match(left: Series, right: Series) -> bool:
+    """Return whether two instant vectors have the same finite values within float noise."""
+    if set(left) != set(right):
+        return False
+    for labels, left_value in left.items():
+        right_value = right[labels]
+        if not math.isfinite(left_value) or not math.isfinite(right_value):
+            return False
+        allowance = FLOAT_ALLOWANCE * max(abs(left_value), abs(right_value))
+        if abs(left_value - right_value) > allowance:
+            return False
+    return True
+
+
 def compare_series(previous: Series, prometheus: Series, following: Series,
                    victoria: Series, rate_query: bool,
-                   widened: tuple[Series, Series, Series] | None = None) -> Comparison:
-    """Compare V(T) with P(T-s,T,T+s), adding m*s/W only for a rate query.
-
-    ``widened`` is the rate with its range one interval wider at T-s, T and T+s; a series also
-    agrees when V(T) lies within those three values.
-    """
+                   widened: tuple[Series, Series, Series] | None = None,
+                   victoria_neighbors: tuple[Series, Series] | None = None) -> Comparison:
+    """Compare V(T) with P(T), or with the exact P[W+s](T) MetricsQL rate equivalent."""
     prometheus_labels = set(prometheus)
     victoria_labels = set(victoria)
     if not prometheus_labels and not victoria_labels:
-        if previous or following:
-            # MQ's consume-on-read gauges miss a scrape now and then, with one scraper too
-            # (measured 2026-10-22): both stores then share the gap and the query is there at T±s.
-            return Comparison(True, 0, 0, None, None, "absent at T in both stores, present at T±s")
+        if (previous and following and victoria_neighbors is not None
+                and series_match(previous, victoria_neighbors[0])
+                and series_match(following, victoria_neighbors[1])):
+            # MQ's consume-on-read gauges miss a scrape now and then, with one scraper too.
+            return Comparison(True, 0, 0, None, None,
+                              "absent at T in both stores; both agree at T±s")
         return Comparison(False, 0, 0, None, None, "no series in either store")
     if prometheus_labels != victoria_labels:
         only_prometheus = prometheus_labels - victoria_labels
@@ -122,45 +118,42 @@ def compare_series(previous: Series, prometheus: Series, following: Series,
                   f"VictoriaMetrics-only={len(only_victoria)}")
         return Comparison(False, len(prometheus), len(victoria), None, None, detail)
 
+    expected = prometheus
+    if rate_query:
+        if widened is None:
+            return Comparison(False, len(prometheus), len(victoria), None, None,
+                              "rate comparison has no widened Prometheus value")
+        expected = widened[1]
+        if set(expected) != prometheus_labels:
+            return Comparison(False, len(prometheus), len(victoria), None, None,
+                              "the widened rate has different label sets at T")
+
     differences: list[float] = []
     tolerances: list[float] = []
-    outside = wide_only = 0
+    outside = 0
     for labels in sorted(prometheus_labels):
         current = prometheus[labels]
         right = victoria[labels]
-        points = (previous.get(labels, current), current, following.get(labels, current))
-        if not all(math.isfinite(value) for value in (*points, right)):
+        want = expected[labels]
+        if not all(math.isfinite(value) for value in (current, want, right)):
             return Comparison(False, len(prometheus), len(victoria), None, None,
-                              "a value in the comparison envelope is not finite")
-        scale = max(*(abs(value) for value in points), abs(right))
+                              "a value in the comparison is not finite")
+        scale = max(abs(current), abs(want), abs(right))
         float_allowance = FLOAT_ALLOWANCE * scale
-        rate_allowance = (max(abs(value) for value in points)
-                          * SCRAPE_INTERVAL_SECONDS / RATE_WINDOW_SECONDS
-                          if rate_query else 0.0)
-        lower = min(points) - rate_allowance - float_allowance
-        upper = max(points) + rate_allowance + float_allowance
-        tolerance = max(abs(current - lower), abs(upper - current))
+        tolerance = abs(current - want) + float_allowance
         difference = abs(current - right)
         differences.append(difference)
         tolerances.append(tolerance)
-        if lower <= right <= upper:
-            continue
-        wide = [series[labels] for series in widened or () if labels in series]
-        if (rate_query and len(wide) == 3 and all(math.isfinite(value) for value in wide)
-                and min(wide) - float_allowance <= right <= max(wide) + float_allowance):
-            wide_only += 1
-            continue
-        outside += 1
+        if abs(want - right) > float_allowance:
+            outside += 1
 
     maximum = max(differences)
     # Report the allowance for the same series that produced the maximum difference.
     max_tolerance = tolerances[differences.index(maximum)]
     if outside:
         return Comparison(False, len(prometheus), len(victoria), maximum, max_tolerance,
-                          f"{outside} series outside the one-scrape envelope")
-    detail = "within the one-scrape envelope"
-    if wide_only:
-        detail += f"; {wide_only} series within the {WIDE_RANGE} rate instead"
+                          f"{outside} series differ from the expected value at T")
+    detail = f"matches Prometheus {WIDE_RANGE} at T" if rate_query else "matches at T"
     return Comparison(True, len(prometheus), len(victoria), maximum, max_tolerance, detail)
 
 
@@ -171,28 +164,35 @@ def is_rate_query(expression: str) -> bool:
 
 def rate_selectors(expression: str) -> list[str]:
     """Return the series selector of every ``rate(<selector>[5m])``; a rate of another shape fails."""
-    selectors = RATE_SELECTOR.findall(expression)
+    selectors = [match.group("selector").strip() for match in RATE_SELECTOR.finditer(expression)]
     if is_rate_query(expression) and len(selectors) != len(re.findall(r"\brate\s*\(", expression)):
         raise ValueError(f"cannot read the rate selector of {expression!r}")
     return selectors
 
 
 def widened_expression(expression: str) -> str:
-    """Return the expression with each [5m] range one scrape interval wider."""
-    if "[5m]" not in expression:
-        raise ValueError(f"rate query without a [5m] range: {expression!r}")
-    return expression.replace("[5m]", WIDE_RANGE)
+    """Widen only ``[5m]`` ranges directly owned by ``rate`` calls."""
+    # Validate first: an unsupported rate shape must not be partly rewritten.
+    rate_selectors(expression)
+    return RATE_SELECTOR.sub(
+        lambda match: (match.group("prefix") + match.group("selector") + WIDE_RANGE
+                       + match.group("suffix")), expression)
 
 
-def incomplete_windows(base: str, expressions: list[str], timestamp: float) -> list[str]:
-    """Name each rate selector whose least-sampled series lacks a scrape in (T-W-2s, T]."""
+def incomplete_windows(prometheus_base: str, victoria_base: str,
+                       expressions: list[str], timestamp: float) -> list[str]:
+    """Name rates whose exact cross-engine equivalent is not ready at T."""
     shortfalls = []
-    for selector in sorted({s for e in expressions for s in rate_selectors(e)}):
-        values = instant_query(
-            base, f"min(count_over_time({selector}[{GATE_SPAN_SECONDS}s]))", timestamp)
-        count = next(iter(values.values()), 0.0)
-        if count < MIN_GATE_SAMPLES:
-            shortfalls.append(f"{selector}: {count:g} of {MIN_GATE_SAMPLES} samples")
+    for expression in expressions:
+        if not is_rate_query(expression):
+            continue
+        # Validation is shared with the real comparison and also prevents widening an unrelated
+        # [5m] range in a mixed expression.
+        rate_selectors(expression)
+        expected = instant_query(prometheus_base, widened_expression(expression), timestamp)
+        actual = instant_query(victoria_base, expression, timestamp)
+        if not series_match(expected, actual):
+            shortfalls.append(expression)
     return shortfalls
 
 
@@ -309,16 +309,15 @@ def main() -> int:
             prometheus_samples = full_window_samples(args.prometheus, evaluation_time)
             victoria_samples = full_window_samples(args.victoriametrics, evaluation_time)
             expressions = [expression for _, expression in selected_queries(Path(args.dashboard))]
-            shortfalls = [f"{name}: {gap}" for name, base in
-                          (("Prometheus", args.prometheus), ("VictoriaMetrics", args.victoriametrics))
-                          for gap in incomplete_windows(base, expressions, evaluation_time)]
+            shortfalls = incomplete_windows(
+                args.prometheus, args.victoriametrics, expressions, evaluation_time)
         except Exception as error:
             print(f"rate window not ready: {error}")
             return 1
         print(f"rate window samples at T: Prometheus={prometheus_samples}, "
               f"VictoriaMetrics={victoria_samples}; need at least {MIN_WINDOW_SAMPLES}")
         for shortfall in shortfalls:
-            print(f"rate window incomplete: {shortfall}")
+            print(f"rate window not comparable at T: {shortfall}")
         ready = min(prometheus_samples, victoria_samples) >= MIN_WINDOW_SAMPLES and not shortfalls
         return 0 if ready else 1
 
@@ -337,6 +336,10 @@ def main() -> int:
                                      evaluation_time - SCRAPE_INTERVAL_SECONDS)
             following = instant_query(args.prometheus, expression,
                                       evaluation_time + SCRAPE_INTERVAL_SECONDS)
+            victoria_previous = instant_query(args.victoriametrics, expression,
+                                               evaluation_time - SCRAPE_INTERVAL_SECONDS)
+            victoria_following = instant_query(args.victoriametrics, expression,
+                                                evaluation_time + SCRAPE_INTERVAL_SECONDS)
             widened = None
             if is_rate_query(expression):
                 wide = widened_expression(expression)
@@ -344,7 +347,8 @@ def main() -> int:
                                 for offset in (-SCRAPE_INTERVAL_SECONDS, 0,
                                                SCRAPE_INTERVAL_SECONDS))
             result = compare_series(previous, prometheus, following, victoria,
-                                    is_rate_query(expression), widened)
+                                    is_rate_query(expression), widened,
+                                    (victoria_previous, victoria_following))
         except Exception as error:  # Keep all ten rows visible when one endpoint or query fails.
             result = Comparison(False, 0, 0, None, None, f"query error: {error}")
         rows.append((title, result))
