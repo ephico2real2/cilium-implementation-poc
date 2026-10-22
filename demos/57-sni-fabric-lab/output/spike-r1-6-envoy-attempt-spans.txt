@@ -1,11 +1,11 @@
 Envoy image: docker.io/envoyproxy/envoy:v1.36.11
 spawn_upstream_span=false: request answered 503
-  trace ad614ac483fcfed572ef4d6fd6f28e09: 1 spans
+  trace f0bb4cf31baab2dbdd69816c03db168a: 1 spans
     ingress                              retry.count=-  status=503
   summary spans=1 attempts=0 retry.counts=-
   verdict as expected: spans=1 attempts=0 retry.counts=-
 spawn_upstream_span=true: request answered 503
-  trace 9d4d0b38f16798c0607817e9ef349fe8: 5 spans
+  trace fcc8419d40f2104d4a51336a5a2ecd23: 5 spans
     ingress                              retry.count=-  status=503
     router closed_port egress            retry.count=-  status=0
     router closed_port egress            retry.count=1  status=0

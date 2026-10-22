@@ -66,40 +66,17 @@ static_resources:
 EOF
 }
 
-tempo() {  # tempo <path>: a GET on Tempo through the lab's Envoy, from Grafana (which holds tempo.mesh)
-  podman exec fabric-grafana-1 curl -s "http://tempo.mesh:18080$1"
+bounded_curl() {  # every network wait has a finite connect and total time
+  curl --connect-timeout 2 --max-time 5 "$@"
 }
 
-run() {  # run <true|false> <want>: one request through a fresh throwaway Envoy; checks its spans
-  config "$1" > "${work}/envoy.yaml"
-  podman rm -f "${name}" >/dev/null 2>&1 || true
-  # As the lab runs Envoy: its own entrypoint and an unprivileged user (the image's entrypoint
-  # tries to chown /dev/stdout, which rootless Podman refuses).
-  podman run -d --name "${name}" --network fabric_net-otelsend -p 127.0.0.1::10000 \
-    --user 10008:10008 --entrypoint envoy -v "${work}/envoy.yaml:/etc/envoy/envoy.yaml:ro,Z" "${image}" \
-    -c /etc/envoy/envoy.yaml --log-level warn --disable-hot-restart >/dev/null
-  local port code waited=0
-  port="$(podman port "${name}" 10000/tcp | sed 's/.*://')"
-  until curl -s -o /dev/null "http://127.0.0.1:${port}/" 2>/dev/null; do
-    waited=$((waited + 1))
-    if [ "${waited}" -ge 30 ]; then echo "  Envoy did not answer in 30 s:"; podman logs --tail 20 "${name}"; return 1; fi
-    sleep 1
-  done
-  code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/spike")"
-  echo "spawn_upstream_span=$1: request answered ${code}"
-  # The readiness probe above was traced too; the probe's request has path /, this one /spike.
-  # Envoy's OpenTelemetry tracer sends its spans every 5 s (tracer.cc:203-205,
-  # tracing.opentelemetry.flush_interval_ms) and a removed container sends nothing: wait it out.
-  sleep 7
-  podman rm -f "${name}" >/dev/null
-  local service="${name}-${run_id}-spawn-$1" ids id tries=0 got
-  until ids="$(tempo "/api/search?tags=service.name%3D${service}&limit=20" |
-    python3 -c 'import json,sys; print(" ".join(t["traceID"] for t in json.load(sys.stdin).get("traces", [])))')" &&
-    [ -n "${ids}" ]; do
-    tries=$((tries + 1)); [ "${tries}" -lt 30 ] || { echo "  no trace for ${service} in Tempo after 60 s"; return 1; }
-    sleep 2
-  done
-  for id in ${ids}; do
+tempo() {  # tempo <path>: a GET on Tempo through the lab's Envoy, from Grafana (which holds tempo.mesh)
+  podman exec fabric-grafana-1 curl -fsS --connect-timeout 2 --max-time 5 "http://tempo.mesh:18080$1"
+}
+
+spans_of() {  # spans_of <trace ids>: prints the /spike trace's spans and a summary line
+  local id
+  for id in $1; do
     tempo "/api/v2/traces/${id}" | python3 -c '
 import json, sys
 spans = [s for b in json.load(sys.stdin)["trace"]["resourceSpans"] for ss in b["scopeSpans"] for s in ss["spans"]]
@@ -116,7 +93,42 @@ egress = sorted(tags(s).get("retry.count", "0") for s in spans if s["name"].star
 counts = ",".join(egress) or "-"
 print(f"  summary spans={len(spans)} attempts={len(egress)} retry.counts={counts}")
 ' "${id}"
-  done | tee "${work}/trace.txt"
+  done
+}
+
+run() {  # run <true|false> <want>: one request through a fresh throwaway Envoy; checks its spans
+  config "$1" > "${work}/envoy.yaml"
+  podman rm -f "${name}" >/dev/null 2>&1 || true
+  # As the lab runs Envoy: its own entrypoint and an unprivileged user (the image's entrypoint
+  # tries to chown /dev/stdout, which rootless Podman refuses).
+  podman run -d --name "${name}" --network fabric_net-otelsend -p 127.0.0.1::10000 \
+    --user 10008:10008 --entrypoint envoy -v "${work}/envoy.yaml:/etc/envoy/envoy.yaml:ro,Z" "${image}" \
+    -c /etc/envoy/envoy.yaml --log-level warn --disable-hot-restart >/dev/null
+  local port code ready_deadline=$((SECONDS + 30))
+  port="$(podman port "${name}" 10000/tcp | sed 's/.*://')"
+  until bounded_curl -s -o /dev/null "http://127.0.0.1:${port}/" 2>/dev/null; do
+    if (( SECONDS >= ready_deadline )); then
+      echo "  Envoy did not answer within 30 s:"; podman logs --tail 20 "${name}"; return 1
+    fi
+    sleep 1
+  done
+  code="$(bounded_curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/spike")"
+  echo "spawn_upstream_span=$1: request answered ${code}"
+  # The readiness probe above was traced too; the probe's request has path /, this one /spike.
+  # Envoy's OpenTelemetry tracer sends its spans every 5 s (tracer.cc:203-205,
+  # tracing.opentelemetry.flush_interval_ms) and a removed container sends nothing: wait it out.
+  sleep 7
+  podman rm -f "${name}" >/dev/null
+  local service="${name}-${run_id}-spawn-$1" ids id got trace_deadline=$((SECONDS + 60))
+  # Wait for this request's own trace (its path is /spike), not just any trace of the run: the
+  # readiness probe's trace can reach Tempo first.
+  until ids="$(tempo "/api/search?tags=service.name%3D${service}&limit=20" |
+    python3 -c 'import json,sys; print(" ".join(t["traceID"] for t in json.load(sys.stdin).get("traces", [])))')" &&
+    [ -n "${ids}" ] && spans_of "${ids}" > "${work}/trace.txt" && grep -q 'spans=' "${work}/trace.txt"; do
+    if (( SECONDS >= trace_deadline )); then echo "  no /spike trace for ${service} in Tempo within 60 s"; return 1; fi
+    sleep 2
+  done
+  cat "${work}/trace.txt"
   got="$(grep -o 'spans=.*' "${work}/trace.txt" || true)"
   if [ "${got}" = "$2" ]; then echo "  verdict as expected: ${got}"; else echo "  verdict UNEXPECTED: got '${got}', want '$2'"; return 1; fi
 }

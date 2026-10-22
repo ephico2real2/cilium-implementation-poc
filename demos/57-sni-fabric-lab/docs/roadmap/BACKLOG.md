@@ -327,6 +327,13 @@ in the fabric is visible.
   `retry.count` 1 to 3 (`tests/spikes/r1-6_envoy_attempt_spans.sh`, recorded in
   `output/spike-r1-6-envoy-attempt-spans.txt`; the source reading is on #99). R1.6 sets
   `spawn_upstream_span: true` on `mesh_http`.
+- **Still open after the spike** (#109 does not settle these): which of `mesh_http`'s virtual
+  hosts are traced, and at what sampling. The listener carries the telemetry routes too (`otlp`,
+  `metrics`, `prometheus`, `tempo`, `victoria_*`, `envoy`; `envoy/envoy.yaml:191-332`), and the
+  connection manager samples 100% by default, so the collector's own exports to `tempo.mesh` would
+  be traced and their spans exported again. The worker's parent across MQ (#98): Envoy rewrites
+  `traceparent` but not `ibm-mq-usr`. The spike retried on connect failure; AC 2's retries under
+  chaos at 50% are R1.6's own test.
 
 ## R1.7 Structured logs with trace ids
 
