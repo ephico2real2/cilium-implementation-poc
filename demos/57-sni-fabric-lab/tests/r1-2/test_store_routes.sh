@@ -44,6 +44,8 @@ refuse_ops() {  # refuse_ops <method> <path>; require ops_http's own fallback bo
     -H 'Host: victoriametrics.fabric.localtest.me' "http://victoriametrics.mesh:10080$2")"
   code="${got##*$'\n'}"
   body="${got%$'\n'*}"
+  # Envoy's inline body ends in its own newline; drop exactly that one, keep the exact match.
+  body="${body%$'\n'}"
   if [ "${code}" = 404 ] && [ "${body}" = "not routed on victoriametrics.fabric.localtest.me" ]; then
     echo "ok        $1 victoriametrics.fabric.localtest.me$2 -> Envoy 404"
   else
