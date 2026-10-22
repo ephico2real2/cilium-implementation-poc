@@ -70,7 +70,7 @@ Each story is INVEST-sized, with **acceptance criteria (Given / When / Then)**, 
 |---|---|
 | R1.1 Collector as the one pipeline | Given every service, when it emits OTLP, then it reaches the collector only through Envoy (`otlp.mesh` on `mesh_http`, HTTP :4318; gRPC :4317 on a new L4 route), and the collector's own metrics are scraped |
 | R1.2 Stores running | Tempo (single binary), VictoriaTraces, VictoriaMetrics, VictoriaLogs up, each on its own internal network, reached only through Envoy; Grafana datasources for all, with the VictoriaLogs plugin baked in |
-| R1.3 Side by side, compared | Prometheus and VictoriaMetrics scrape the same targets and a parity test compares 10 panel queries; the same trace id is found in Tempo and in VictoriaTraces |
+| R1.3 Side by side, compared | Prometheus remote-writes its scraped samples to VictoriaMetrics and a parity test compares 10 panel queries; the same trace id is found in Tempo and in VictoriaTraces |
 | R1.4 Zero-code auto-instrumentation | orders-api, worker and tcp-svc start under `opentelemetry-instrument`; FastAPI, httpx, psycopg spans appear with no code change; configuration is `OTEL_*` env vars only (factor III) |
 | R1.5 Trace across MQ | `traceparent` travels with the order event (spike: MQ REST v3 user properties, `ibm-mq-usr`; fallback: a field in the JSON body), so the worker's span joins the order's trace |
 | R1.6 Envoy spans on the mesh | `mesh_http` emits spans to the collector; a trace shows the Envoy hops between services and retries as separate attempts |

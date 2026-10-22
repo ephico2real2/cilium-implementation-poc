@@ -4,7 +4,11 @@
 global:
   scrape_interval: 10s
   scrape_timeout: 8s
-  # There are no rules; VictoriaMetrics' strict Prometheus parser refuses evaluation_interval.
+  evaluation_interval: 10s
+
+# The MQ exporter consumes gauges per read: one scraper, then remote write copies identical samples.
+remote_write:
+  - url: http://victoriametrics.mesh:18080/api/v1/write
 
 scrape_configs:
   - job_name: envoy

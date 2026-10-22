@@ -272,12 +272,17 @@ static_resources:
             - name: victoria_metrics
               domains: ["victoriametrics.mesh", "victoriametrics.mesh:*"]
               routes:
+              # MQ gauges allow one reader, so Prometheus copies every scraped sample here.
+              - match:
+                  path: /api/v1/write
+                  headers: [{name: ":method", string_match: {exact: POST}}]
+                route: {cluster: victoria_metrics, retry_policy: *safe_retry}
               - match:
                   path: /opentelemetry/v1/metrics
                   headers: [{name: ":method", string_match: {exact: POST}}]
                 route: {cluster: victoria_metrics, retry_policy: *safe_retry}
               # The Prometheus query API Grafana uses (rules and alerts: Grafana's alerting view, which
-              # VictoriaMetrics answers empty without vmalert); /api/v1/admin, import and write stay out.
+              # VictoriaMetrics answers empty without vmalert); /api/v1/admin and import stay out.
               - match:
                   safe_regex: &vm_read_api {regex: "/api/v1/(query|query_range|query_exemplars|labels|label/[^/]+/values|series|metadata|status/buildinfo|rules|alerts)"}
                   headers: [{name: ":method", string_match: {exact: GET}}]

@@ -89,16 +89,18 @@ The steps, in order:
 
 1. `gen-certs.sh` and `gen-secrets.sh` (create only what is missing)
 2. `podman compose up -d --build`
-3. Wait for every health check
-4. `verify.sh` phases 1–3 and phase 6, then `tests/parity.py` and every dashboard query on
-   VictoriaMetrics (with bounded retries while a fresh scraper gets two samples)
-5. `tests/r1-2/test_store_routes.sh` (Envoy refuses the stores' admin and write paths), the
-   Prometheus dashboard tests and `verify.sh` phase 5
-6. Print the memory in use, and the URLs with their logins
+3. Recreate any running service whose bind-mounted file, directory, or a file below that
+   directory is newer than its container, then wait for every health check
+4. `verify.sh` phases 1–3, phase 6 and phase 5
+5. Wait until both metric stores hold a complete five-minute sample window, compare the stores
+   (one retry only for ingestion lag), and run every dashboard query on VictoriaMetrics
+6. `tests/r1-2/test_store_routes.sh` (Envoy refuses admin and unapproved write paths) and the
+   Prometheus dashboard tests
+7. Print the memory in use, and the URLs with their logins
 
 Everything is also written to `output/transcript.txt`. It stops at the first failed step.
-Measured on the recorded run (2026-10-22): 8 min 6 s from nothing; MQ healthy after 143 s;
-phase 6 took 1 min 49 s of that.
+The R1.3 fresh-run duration is to be measured by the orchestrator after applying this version;
+the old 8 min 6 s measurement predates the full-window gate and new run order.
 
 ### 4.2 `scripts/gen-certs.sh`: the CA and certificates
 
@@ -304,7 +306,7 @@ scripts/verify.sh phase1 phase5   # several, in that order
 | `phase2` | 20 | Swagger; idempotent orders; validation; the admin token; CORS; Postgres only through `mesh_pg` |
 | `phase3` | 19 | The native MQ client in all three SNI modes; an order from created to processed; every `/metrics` through Envoy; Envoy's verified TLS to the MQ REST API |
 | `phase5` | 7 | 50% chaos, a Postgres restart, MQ stopped and started, tcp-svc stopped and started: everything recovers by itself. **Stops and restarts containers on purpose** |
-| `phase6` | 21 | Five synthetic traces (ten spans) reach the collector through Envoy with no export error; the collector shares only the internal `net-otel` with Envoy; its internal metrics return through `mesh_http`. Each store is ready when read through Envoy, sits on an internal network shared with Envoy alone, and its own metrics return through `mesh_http`. Prometheus and VictoriaMetrics have the same complete set of healthy scrape jobs. Grafana's test of each datasource answers OK. One named run: its five trace ids are the same in Tempo and VictoriaTraces, one trace has exactly two spans in both, its five metric samples are in VictoriaMetrics, and its five log lines (carrying one of those trace ids) are in VictoriaLogs |
+| `phase6` | 22 | Five synthetic traces (ten spans) reach the collector through Envoy with no export error; the collector shares only the internal `net-otel` with Envoy; its internal metrics return through `mesh_http`. Each store is ready when read through Envoy, sits on an internal network shared with Envoy alone, and its own metrics return through `mesh_http`. Both metric stores have the same complete set of healthy jobs; Prometheus holds a fresh MQ recovery-log gauge and its MQ scrape sample count equals VictoriaMetrics' remote-written copy. Grafana's test of each datasource answers OK. One named run: its five trace ids are the same in Tempo and VictoriaTraces, one trace has exactly two spans in both, its five metric samples are in VictoriaMetrics, and its five log lines (carrying one of those trace ids) are in VictoriaLogs |
 | (none) | 57 | `phase1 phase2 phase3` |
 
 Each check prints `PASS` or `FAIL` with what it saw. Phase 4 (metrics) is checked by the
@@ -325,10 +327,10 @@ python3 tests/test_dashboard.py
 | Test | Arguments | Checks |
 |---|---|---|
 | `tests/dashboard_queries.py` | `[dashboard.json] [--prometheus URL] [--minutes N]` | Every dashboard query returns without error or warning; lists each series' latest value; flags empty ones |
-| `tests/parity.py` | `[dashboard.json] [--prometheus URL] [--victoriametrics URL] [--markdown]` | Ten exact dashboard queries at one timestamp have identical label sets and values within their measured one-scrape movement; fails on an empty side and states that OTLP-only dotted labels are excluded |
+| `tests/parity.py` | `[dashboard.json] [--prometheus URL] [--victoriametrics URL] [--markdown] [--window-ready]` | Ten exact dashboard queries at one timestamp have identical label sets; values must fit the Prometheus `T-s,T,T+s` envelope, widened by `m*s/W` only for rate extrapolation. Fails on an empty side and states that OTLP-only dotted labels are excluded; `--window-ready` only checks for a complete five-minute window |
 | `tests/test_dashboard.py` | `[grafana.json] [perses.json]` | Sections, charts, colours, line styles, units, legends and `[5m]` windows, in both dashboard forms |
-| `tests/r1-3/test_vm_scrape_config.sh` | none | VictoriaMetrics and promtool accept the committed shared scrape file; a copy with `evaluation_interval` is a failing negative control |
-| `tests/r1-3/test_parity.py` | none | Lab-free equal, within-tolerance, outside-tolerance, one-sided and empty comparison controls |
+| `tests/r1-3/test_prometheus_config.sh` | none | `promtool` accepts the committed scrape-and-remote-write config; a malformed `remote_write` copy is a failing negative control |
+| `tests/r1-3/test_parity.py` | none | Lab-free controls for all measured value pairs, gauge movement, rate extrapolation, clearly wrong values, one-sided and empty comparisons |
 | `tests/browser_flows.py` | `<out-dir> <admin-token-file>` | In Chromium, light and dark: places an order, pings over TCP, refuses a wrong token, opens the portal; no console error or CSP violation |
 | `tests/grafana_capture.py` | `<out-dir>` | The dashboard as an anonymous viewer, dark and light: every chart present, no "No data", "NaN", "not found" or error |
 
@@ -377,17 +379,19 @@ file while running, so restart it. What each chart shows and why:
 ### 7.3 The telemetry stores
 
 Each store has its own internal network, shared with Envoy alone. The collector writes and
-Grafana reads through Envoy aliases on `mesh_http`; Envoy routes only the write path, the read
-API Grafana uses and the readiness probe (anything else, such as an admin or delete API, gets
-Envoy's 404). Prometheus and VictoriaMetrics scrape the same committed configuration through
-`metrics.mesh`; each store's own metrics are at `/metrics/<store>`. VictoriaMetrics uses its
-built-in scraper rather than adding a vmagent service.
+Grafana reads through Envoy aliases on `mesh_http`; Envoy routes only the approved write paths,
+the read API Grafana uses and the readiness probe (anything else, such as an admin or delete API,
+gets Envoy's 404). Prometheus is the sole scraper through `metrics.mesh` and remote-writes every
+sample through Envoy's mesh-only `victoriametrics.mesh/api/v1/write` route. This matters because
+MQ's exporter consumes its queue-manager gauges on read: a second scraper made Prometheus fall
+from 136 to 108 MQ samples and lose the recovery-log latency gauge. VictoriaMetrics runs no
+scraper; each store's own metrics remain at `/metrics/<store>`.
 
 | Container | Image | Alias on `mesh_http` | Writes | Reads (Grafana datasource `uid`) | Ready | UID |
 |---|---|---|---|---|---|---|
 | `tempo` | `grafana/tempo:3.1.0`, monolithic, local storage | `tempo.mesh` | `/v1/traces` (to its port 4318) | `/api/` (`tempo`) | `/ready` | 10004 |
 | `victoria-traces` | `victoriametrics/victoria-traces:v0.12.0` | `victoriatraces.mesh` | `/insert/opentelemetry/v1/traces` | `/select/jaeger/` (`victoriatraces`, Jaeger type) | `/health` | 10005 |
-| `victoria-metrics` | `victoriametrics/victoria-metrics:v1.153.0` | `victoriametrics.mesh`; host read API at `victoriametrics.fabric.localtest.me` | `/opentelemetry/v1/metrics` | the Prometheus query API (`victoriametrics`) | `/health`, and a Compose health check | 10006 |
+| `victoria-metrics` | `victoriametrics/victoria-metrics:v1.153.0` | `victoriametrics.mesh`; host read API at `victoriametrics.fabric.localtest.me` | `/api/v1/write` from Prometheus and `/opentelemetry/v1/metrics` from the collector | the Prometheus query API (`victoriametrics`) | `/health`, and a Compose health check | 10006 |
 | `victoria-logs` | `victoriametrics/victoria-logs:v1.53.0` | `victorialogs.mesh` | `/insert/opentelemetry/v1/logs` | `/select/logsql/` (`victorialogs`, plugin v0.32.0) | `/health` | 10007 |
 
 Data lives on the volumes `tempodata`, `vtracesdata`, `vmetricsdata` and `vlogsdata`, each

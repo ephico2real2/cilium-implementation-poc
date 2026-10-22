@@ -21,6 +21,17 @@ refuse() {  # refuse <method> <alias> <path>; require Envoy's own fallback, not 
     echo "MISMATCH  $1 $2$3 -> ${code}, body '${body}' (want Envoy 404)"; bad=$((bad + 1))
   fi
 }
+reach() {  # reach <method> <alias> <path>; require any upstream answer, not Envoy's fallback
+  local got code body
+  got="$(podman exec fabric-grafana-1 curl -g -s -w $'\n%{http_code}' -X "$1" "http://$2:18080$3")"
+  code="${got##*$'\n'}"
+  body="${got%$'\n'*}"
+  if [ "${code}" != 404 ] || [[ "${body}" != "not routed on "* ]]; then
+    echo "ok        $1 $2$3 -> upstream ${code}"
+  else
+    echo "MISMATCH  $1 $2$3 -> Envoy 404 (want an upstream answer)"; bad=$((bad + 1))
+  fi
+}
 expect_ops() {  # expect_ops <code> <method> <path>; ask ops_http from Envoy's Grafana network
   local got
   got="$(podman exec fabric-grafana-1 curl -g -s -o /dev/null -w '%{http_code}' -X "$2" \
@@ -39,15 +50,16 @@ refuse_ops() {  # refuse_ops <method> <path>; require ops_http's own fallback bo
     echo "MISMATCH  $1 victoriametrics.fabric.localtest.me$2 -> ${code}, body '${body}' (want Envoy 404)"; bad=$((bad + 1))
   fi
 }
-expect 404 POST victoriametrics.mesh '/api/v1/admin/tsdb/delete_series?match[]=gen'
-expect 404 POST victoriametrics.mesh /api/v1/import
-expect 404 POST victoriametrics.mesh /api/v1/write
-expect 404 GET victoriametrics.mesh /snapshot/create
-expect 404 GET victorialogs.mesh /internal/force_merge
-expect 404 GET victoriatraces.mesh '/select/logsql/query?query=*'
-expect 404 GET tempo.mesh /status/config
-expect 404 GET tempo.mesh /flush
-expect 404 POST tempo.mesh /api/echo
+refuse POST victoriametrics.mesh '/api/v1/admin/tsdb/delete_series?match[]=gen'
+refuse POST victoriametrics.mesh /api/v1/import
+# Any mesh caller could already write OTLP metrics; remote write is also mesh-only, while the host stays query-only.
+reach POST victoriametrics.mesh /api/v1/write
+refuse GET victoriametrics.mesh /snapshot/create
+refuse GET victorialogs.mesh /internal/force_merge
+refuse GET victoriatraces.mesh '/select/logsql/query?query=*'
+refuse GET tempo.mesh /status/config
+refuse GET tempo.mesh /flush
+refuse POST tempo.mesh /api/echo
 refuse GET tempo.mesh /v1/traces
 refuse POST tempo.mesh /ready
 refuse GET victoriatraces.mesh /insert/opentelemetry/v1/traces

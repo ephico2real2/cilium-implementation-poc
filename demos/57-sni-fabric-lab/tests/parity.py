@@ -7,27 +7,36 @@ MQ throughput and its latency gauge, Postgres transactions, and TCP commands. Th
 exact panel title and refId from fabric.json; a renamed or missing panel is an error, never an
 empty comparison.
 
-Both stores are evaluated at exactly T = now - 30 seconds. That three-scrape margin lets both
-10-second scrapers ingest the samples before either store evaluates T. For each label set, "one
-scrape interval's movement" is defined as abs(Prometheus(T) - Prometheus(T - 10 seconds)); the
-Prometheus/VictoriaMetrics difference at T must be less than or equal to that movement, plus a
-1e-12 relative floating-point allowance. Different scrape phases can put one different counter
-sample into a rate() over [5m], so this allows the amount the query itself moved across one
-scrape, not an arbitrary percentage. A live Prometheus measurement on 2026-10-22 found maximum
-movement 0 for nine selections and 2.37809e-07 for tcp-svc PING.
+Both stores are evaluated at exactly T = now - 30 seconds, so T + one 10-second scrape interval
+is in the past. For each exact label set, Prometheus is also evaluated at T-s and T+s. A gauge
+or ``up`` value from VictoriaMetrics must lie inside the three Prometheus values' [min, max]
+envelope, plus a 1e-9 relative floating-point allowance.
+
+For ``rate`` queries over W=300 seconds, the envelope is widened on both sides by m*s/W, where
+m is the largest absolute Prometheus value at those three timestamps. This is derived from two
+engine differences, each bounded by one scrape interval: an increment at a range boundary can
+be present on only one side, which the T-s/T/T+s envelope covers; and Prometheus can extrapolate
+the sampled interval by up to s/W while VictoriaMetrics divides using the sample immediately
+before the window. Prometheus implements the former in ``extrapolatedRate`` in
+``promql/functions.go`` (https://github.com/prometheus/prometheus/blob/main/promql/functions.go).
+VictoriaMetrics documents its non-extrapolating ``rate`` behavior in MetricsQL
+(https://docs.victoriametrics.com/metricsql/#rate). Thus V(T) must be in
+``[min(P(T-s),P(T),P(T+s))-m*s/W, max(...)+m*s/W]`` for a rate, or the unpadded
+three-point envelope for a gauge, plus the relative float allowance in either case.
 
 Only the dashboard's Prometheus-scraped metrics are selected. OTLP-ingested metrics in
 VictoriaMetrics retain dotted resource labels such as ``service.name``; they have no Prometheus
 counterpart and are deliberately outside this comparison.
 
 Usage: python3 tests/parity.py [dashboard.json] [--prometheus URL]
-       [--victoriametrics URL] [--markdown]
+       [--victoriametrics URL] [--markdown] [--window-ready]
 """
 from __future__ import annotations
 
 import argparse
 import json
 import math
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -38,7 +47,9 @@ DEFAULT_DASHBOARD = (Path(__file__).resolve().parent.parent
                      / "observability/grafana/dashboards/fabric.json")
 SCRAPE_INTERVAL_SECONDS = 10
 EVALUATION_MARGIN_SECONDS = 30
-FLOAT_ALLOWANCE = 1e-12
+RATE_WINDOW_SECONDS = 300
+FLOAT_ALLOWANCE = 1e-9
+MIN_WINDOW_SAMPLES = RATE_WINDOW_SECONDS // SCRAPE_INTERVAL_SECONDS
 
 # Exact title plus query ref: panel renames and query reordering are intentional test failures.
 SELECTIONS = (
@@ -70,8 +81,9 @@ class Comparison:
     detail: str
 
 
-def compare_series(prometheus: Series, victoria: Series, movement: Series) -> Comparison:
-    """Compare exact label sets and values using each series' measured one-scrape movement."""
+def compare_series(previous: Series, prometheus: Series, following: Series,
+                   victoria: Series, rate_query: bool) -> Comparison:
+    """Compare V(T) with P(T-s,T,T+s), adding m*s/W only for a rate query."""
     prometheus_labels = set(prometheus)
     victoria_labels = set(victoria)
     if not prometheus_labels and not victoria_labels:
@@ -87,18 +99,24 @@ def compare_series(prometheus: Series, victoria: Series, movement: Series) -> Co
     tolerances: list[float] = []
     outside = 0
     for labels in sorted(prometheus_labels):
-        left = prometheus[labels]
+        current = prometheus[labels]
         right = victoria[labels]
-        one_scrape = movement.get(labels, 0.0)
-        if not all(math.isfinite(value) for value in (left, right, one_scrape)):
+        points = (previous.get(labels, current), current, following.get(labels, current))
+        if not all(math.isfinite(value) for value in (*points, right)):
             return Comparison(False, len(prometheus), len(victoria), None, None,
-                              "a value or movement is not finite")
-        allowance = FLOAT_ALLOWANCE * max(1.0, abs(left), abs(right))
-        tolerance = abs(one_scrape) + allowance
-        difference = abs(left - right)
+                              "a value in the comparison envelope is not finite")
+        scale = max(*(abs(value) for value in points), abs(right))
+        float_allowance = FLOAT_ALLOWANCE * scale
+        rate_allowance = (max(abs(value) for value in points)
+                          * SCRAPE_INTERVAL_SECONDS / RATE_WINDOW_SECONDS
+                          if rate_query else 0.0)
+        lower = min(points) - rate_allowance - float_allowance
+        upper = max(points) + rate_allowance + float_allowance
+        tolerance = max(abs(current - lower), abs(upper - current))
+        difference = abs(current - right)
         differences.append(difference)
         tolerances.append(tolerance)
-        if difference > tolerance:
+        if right < lower or right > upper:
             outside += 1
 
     maximum = max(differences)
@@ -106,9 +124,14 @@ def compare_series(prometheus: Series, victoria: Series, movement: Series) -> Co
     max_tolerance = tolerances[differences.index(maximum)]
     if outside:
         return Comparison(False, len(prometheus), len(victoria), maximum, max_tolerance,
-                          f"{outside} series outside one-scrape movement")
+                          f"{outside} series outside the one-scrape envelope")
     return Comparison(True, len(prometheus), len(victoria), maximum, max_tolerance,
-                      "within one-scrape movement")
+                      "within the one-scrape envelope")
+
+
+def is_rate_query(expression: str) -> bool:
+    """Return whether the selected expression uses the rate semantics described above."""
+    return re.search(r"\brate\s*\(", expression) is not None
 
 
 def selected_queries(path: Path) -> list[tuple[str, str]]:
@@ -159,6 +182,17 @@ def instant_query(base: str, expression: str, timestamp: float) -> Series:
     return values
 
 
+def full_window_samples(base: str, timestamp: float) -> int:
+    """Return the least number of raw up samples held for any job in the five-minute window."""
+    values = instant_query(base, "min(count_over_time(up[5m]))", timestamp)
+    if len(values) != 1:
+        raise ValueError(f"full-window gate returned {len(values)} series")
+    value = next(iter(values.values()))
+    if value < 0 or not value.is_integer():
+        raise ValueError(f"full-window gate returned invalid sample count {value}")
+    return int(value)
+
+
 def format_number(value: float | None) -> str:
     return "—" if value is None else f"{value:.6g}"
 
@@ -196,9 +230,22 @@ def main() -> int:
     parser.add_argument("--victoriametrics",
                         default="http://victoriametrics.fabric.localtest.me:8080")
     parser.add_argument("--markdown", action="store_true", help="print the result table as Markdown")
+    parser.add_argument("--window-ready", action="store_true",
+                        help="only require both stores to hold a complete five-minute up window")
     args = parser.parse_args()
 
     evaluation_time = time.time() - EVALUATION_MARGIN_SECONDS
+    if args.window_ready:
+        try:
+            prometheus_samples = full_window_samples(args.prometheus, evaluation_time)
+            victoria_samples = full_window_samples(args.victoriametrics, evaluation_time)
+        except Exception as error:
+            print(f"rate window not ready: {error}")
+            return 1
+        print(f"rate window samples at T: Prometheus={prometheus_samples}, "
+              f"VictoriaMetrics={victoria_samples}; need at least {MIN_WINDOW_SAMPLES}")
+        return 0 if min(prometheus_samples, victoria_samples) >= MIN_WINDOW_SAMPLES else 1
+
     rows: list[tuple[str, Comparison]] = []
     try:
         queries = selected_queries(Path(args.dashboard))
@@ -212,15 +259,16 @@ def main() -> int:
             victoria = instant_query(args.victoriametrics, expression, evaluation_time)
             previous = instant_query(args.prometheus, expression,
                                      evaluation_time - SCRAPE_INTERVAL_SECONDS)
-            movement = {labels: abs(value - previous.get(labels, value))
-                        for labels, value in prometheus.items()}
-            result = compare_series(prometheus, victoria, movement)
+            following = instant_query(args.prometheus, expression,
+                                      evaluation_time + SCRAPE_INTERVAL_SECONDS)
+            result = compare_series(previous, prometheus, following, victoria,
+                                    is_rate_query(expression))
         except Exception as error:  # Keep all ten rows visible when one endpoint or query fails.
             result = Comparison(False, 0, 0, None, None, f"query error: {error}")
         rows.append((title, result))
 
     print(f"Evaluation timestamp: {evaluation_time:.3f} (now - {EVALUATION_MARGIN_SECONDS}s; "
-          f"scrape interval {SCRAPE_INTERVAL_SECONDS}s)")
+          f"scrape interval {SCRAPE_INTERVAL_SECONDS}s; rate window {RATE_WINDOW_SECONDS}s)")
     print("Scope: scraped dashboard series only; OTLP metrics with dotted labels "
           "(for example service.name) are left out because Prometheus has no counterpart.")
     print_table(rows, args.markdown)

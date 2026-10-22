@@ -79,7 +79,8 @@ services:
       net-otelsend:
         aliases: [otlp.mesh]
       net-obs:
-        aliases: [metrics.mesh]
+        # Prometheus remote-writes through Envoy, preserving the lab's only-path rule.
+        aliases: [metrics.mesh, victoriametrics.mesh]
       net-pgexp:
         aliases: [postgres.mesh]
       net-grafana:
@@ -90,8 +91,7 @@ services:
         aliases: [qm1.fabric.localtest.me]
       net-tempo: {}
       net-vtraces: {}
-      net-vmetrics:
-        aliases: [metrics.mesh]
+      net-vmetrics: {}
       net-vlogs: {}
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9901 && printf 'GET /ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q LIVE <&3"]
@@ -352,12 +352,10 @@ services:
     <<: *hardening
     image: docker.io/victoriametrics/victoria-metrics:v1.153.0
     user: "10006:10006"
-    # Its built-in scraper is the smallest way to share Prometheus's exact target config; a
-    # separate vmagent would add a service and network without changing what this lab measures.
-    command: ["-storageDataPath=/storage/data", "-promscrape.config=/etc/prometheus/prometheus.yml"]
+    # MQ gauges are consumed on read, so only Prometheus scrapes and this store receives its copy.
+    command: ["-storageDataPath=/storage/data"]
     volumes:
       - vmetricsdata:/storage
-      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on: *after-init
     networks: [net-vmetrics]
     healthcheck:

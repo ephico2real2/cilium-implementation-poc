@@ -39,7 +39,7 @@ OpenTelemetry Collector, so that a store can be added or swapped without touchin
 | 1 | the lab is up | a service sends a span to `http://otlp.mesh:18080` | the collector accepts it (`otelcol_receiver_accepted_spans_total` rises) |
 | 2 | the collector's network | anything but Envoy is dialled from it | the name does not resolve (isolation, as in phases 1–3) |
 | 3 | the collector is restarted | services keep sending | no request in the lab fails; the SDKs retry and their queues drain |
-| 4 | the collector runs | Prometheus and VictoriaMetrics scrape | its own metrics arrive through `metrics.mesh/metrics/otel-collector` |
+| 4 | the collector runs | Prometheus scrapes and remote-writes to VictoriaMetrics | its own metrics arrive through `metrics.mesh/metrics/otel-collector` and are held by both metric stores |
 
 - **Test:** `phase6` checks "otel: a span reaches the collector through Envoy", "isolation:
   the collector shares a network only with Envoy", and "metrics: the collector's own metrics
@@ -99,32 +99,33 @@ VictoriaTraces, fed the same data and compared, so that the choice rests on meas
 
 | # | Given | When | Then |
 |---|---|---|---|
-| 1 | Prometheus and VictoriaMetrics with the same scrape config | ten of the dashboard's queries run on both | each pair agrees within one scrape interval's movement (recorded table) |
+| 1 | Prometheus and VictoriaMetrics with the same samples | ten of the dashboard's queries run on both | each pair agrees within the measured one-scrape boundary and extrapolation envelope (recorded table) |
 | 2 | one trace sent through the collector | it is looked up by id | it is found in Tempo and in VictoriaTraces with the same span count |
 | 3 | the existing dashboard | its datasource is switched to VictoriaMetrics | every panel still draws (`tests/dashboard_queries.py --prometheus <vm>` passes) |
 | 4 | Prometheus feeds the dashboard today | R1.3 lands | Prometheus stays the dashboard's default; VictoriaMetrics is a choice beside it, nothing is replaced |
-| 5 | VictoriaMetrics scrapes the same targets | it does so | it reads the same `observability/prometheus.yml` (VictoriaMetrics v1.153.0 refuses its unused `evaluation_interval` today, measured by OB3: R1.3 removes it and adds a dry-run test) through Envoy's `metrics.mesh` like Prometheus, an alias Envoy gains on `net-vmetrics`; that network stays internal and shared with Envoy alone (phase6's isolation check unchanged) |
+| 5 | MQ's exporter consumes queue-manager gauges on read | both metric stores need the same samples | Prometheus remains the one scraper and remote-writes every sample through Envoy's mesh-only `victoriametrics.mesh/api/v1/write` route; VictoriaMetrics runs no scraper, while its `net-vmetrics` isolation stays unchanged |
 | 6 | metrics that arrive over OTLP keep OpenTelemetry's dotted label names in VictoriaMetrics (`service.name`, measured in R1.2) | the parity table is written | it compares the scraped series, which share Prometheus's names, and states what was left out and why |
 
 - **Test:** `tests/parity.py` (new), and `phase6` checks for the trace lookup.
 - **Seats:** Codex builds (Podman through the machine socket); OB3 and OB1-lite review, and a
   second pass on the fixed head.
 - **Pictures:** the parity table and the dashboard on each datasource, added to chapter 1.
-- **Open:** whether VictoriaMetrics scrapes with its own `-promscrape.config` or a vmagent; the
-  smaller change that meets AC 5 wins, measured. Either way the scraper's network needs Envoy's
-  `metrics.mesh` alias: today Envoy has it on `net-api` and `net-obs` only (`podman inspect`).
 - **Status (2026-10-22): implemented; fresh and upgrade runs to be measured by the
   orchestrator.**
-  - AC 5: VictoriaMetrics v1.153.0's strict dry run refused the old file with exit 255 and
-    `field evaluation_interval not found`; after removing that unused rule key it exited 0,
-    and Prometheus v3.15.0's `promtool check config` also passed. The built-in scraper won the
-    open choice: it needs one flag and the existing read-only mount, while vmagent would add a
-    service and network. `net-vmetrics` remains internal and shared with Envoy alone.
+  - AC 5: with two scrapers, Prometheus's MQ scrape fell from 136 samples to 108 and lost all
+    28 `ibmmq_qmgr_*` publication gauges; two back-to-back reads returned the recovery-log
+    latency gauge once, then not at all. In `github.com/ibm-messaging/mq-container` under
+    `internal/metrics`, `exporter.go` resets and refills gauge vectors from publications cached
+    since the previous collect, and `update.go` clears that cache. Prometheus is therefore the
+    one scraper and remote-writes through Envoy. The measured temporary design gave both stores
+    136 MQ samples and the gauge after six minutes, with remote-write rows rising and
+    VictoriaMetrics `promscrape` at zero. `promtool` validates the committed config and rejects
+    a malformed `remote_write` negative control.
   - AC 1 and AC 6: `tests/parity.py` selects ten queries by exact panel title and compares both
-    stores at one timestamp, excluding OTLP-only dotted labels. On the live Prometheus, nine
-    selections changed by 0 over one 10 s scrape and tcp-svc PING changed by
-    `2.37809e-07`; the two-store table is to be measured by the orchestrator after applying
-    the new scraper.
+    stores at one timestamp, excluding OTLP-only dotted labels. Its tolerance models one
+    10-second boundary interval and the engines' 10/300 rate extrapolation difference; every
+    measured pair passes the lab-free controls and clearly wrong values fail. The live parity
+    table on the committed code is to be measured by the orchestrator.
   - AC 2: live trace `1763fe65af3432a70272b596b16f4eac` had two spans in each store. Tempo
     returned them under `trace.resourceSpans[].scopeSpans[].spans[]`; VictoriaTraces returned
     them under `data[].spans[]`. Phase 6 now requires 2 and 2, not merely equal counts.
@@ -132,9 +133,12 @@ VictoriaTraces, fed the same data and compared, so that the choice rests on meas
     `prometheus`, and every panel follows it. The Perses converter degraded the variable to an
     empty `variables` list and its supplied fixed `prometheus` datasource; its JSON was not
     hand-edited. VictoriaMetrics dashboard results are to be measured by the orchestrator.
-  - The new host route, all 11 healthy scrape jobs in both stores, bounded fresh-start wait,
-    `scripts/run.sh --fresh`, the upgrade run and kept-check comparison are to be measured by
-    the orchestrator.
+  - Phase 6 now requires all 11 healthy metric jobs in both stores, a fresh MQ recovery-log
+    gauge in Prometheus and equal MQ scrape sample counts. `run.sh` gates parity on a complete
+    five-minute window and fails a disagreement seen twice; it also recreates any running
+    service whose bind-mounted source is newer than its container. The live route check,
+    parity table, `scripts/run.sh --fresh`, upgrade run and kept-check comparison are to be
+    measured by the orchestrator.
 
 ## E1 CI checks demo 57 on every pull request
 
