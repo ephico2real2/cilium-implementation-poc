@@ -100,7 +100,8 @@ The steps, in order:
 7. Print the memory in use, and the URLs with their logins
 
 Everything is also written to `output/transcript.txt`. It stops at the first failed step.
-Measured on 2026-10-22: 7 min 57 s from nothing, 87 checks, 0 failures.
+Measured on 2026-10-22: 8 min 54 s from nothing, 87 checks, 0 failures; parity waited for
+MQ's counter to hold a complete window after the queue manager's start.
 
 ### 4.2 `scripts/gen-certs.sh`: the CA and certificates
 

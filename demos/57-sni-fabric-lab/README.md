@@ -103,16 +103,16 @@ podman compose up -d --build
 ```
 
 ```text
-envoy            healthy after 6s
-web              healthy after 7s
+envoy            healthy after 0s
+web              healthy after 0s
 tcp-svc          healthy after 7s
 orders-api       healthy after 7s
 postgres         healthy after 7s
-mq               healthy after 140s
-worker           healthy after 140s
-prometheus       healthy after 140s
-grafana          healthy after 140s
-victoria-metrics healthy after 141s
+mq               healthy after 134s
+worker           healthy after 134s
+prometheus       healthy after 134s
+grafana          healthy after 134s
+victoria-metrics healthy after 134s
 ```
 
 ### 4. Check the shared port and the services
@@ -132,7 +132,7 @@ PASS  tcp-svc: ECHO                                  hello fabric
 PASS  tcp-svc: HELP                                  COMMANDS PING TIME ECHO HELP QUIT
 PASS  tcp-svc: unknown command                       ERR unknown command
 PASS  tcp-svc: QUIT                                  BYE
-PASS  tcp-svc: TIME is today's UTC date              2026-10-22T08:08:54+00:00
+PASS  tcp-svc: TIME is today's UTC date              2026-10-22T09:22:40+00:00
 PASS  tcp-svc: over-long line refused                ERR line too long
 PASS  edge_sni: unknown SNI is reset                 no peer certificate available 
 PASS  edge_sni: missing SNI is reset                 no peer certificate available 
@@ -161,7 +161,7 @@ PASS  admin: chaos rejects a rate over 1             HTTP 422
 PASS  cors: web origin allowed                       access-control-allow-origin: https://web.fabric.localtest.me:8443
 PASS  cors: other origin not allowed                 no allow-origin header
 PASS  isolation: orders-api cannot resolve postgres  socket.gaierror: [Errno -2] Name or service not known
-PASS  envoy: Postgres traffic went through mesh_pg   tcp.postgres.downstream_cx_total=24
+PASS  envoy: Postgres traffic went through mesh_pg   tcp.postgres.downstream_cx_total=25
 == Phase 3: IBM MQ, worker, mesh_http
 PASS  mq: put and get with OutboundSNI=HOSTNAME      RESULT ok: both messages put and got back through Envoy with OutboundS
 PASS  mq: channel-name SNI refused                   RESULT ok: refused as expected for mode channel
@@ -172,13 +172,13 @@ PASS  mq console: redirects to its login page        302 https://mqconsole.fabri
 PASS  mq: REST API reachable through mesh_http       True (after 0s)
 PASS  flow: order 4 created -> processed             processed 1 (after 1s)
 PASS  admin: every component up                      envoy=True postgres=True web=True tcp-svc=True mq=True worker=True
-PASS  metrics: /metrics/envoy through mesh_http      5533 samples
+PASS  metrics: /metrics/envoy through mesh_http      5537 samples
 PASS  metrics: /metrics/orders-api through mesh_http 245 samples
 PASS  metrics: /metrics/tcp-svc through mesh_http    39 samples
-PASS  metrics: /metrics/worker through mesh_http     43 samples
+PASS  metrics: /metrics/worker through mesh_http     45 samples
 PASS  metrics: /metrics/mq through mesh_http         136 samples
 PASS  worker: processed counter                      worker_messages_total{result="processed"} 2.0
-PASS  envoy: verified TLS to the MQ REST API         cluster.mq_web.ssl.handshake=12
+PASS  envoy: verified TLS to the MQ REST API         cluster.mq_web.ssl.handshake=8
 PASS  envoy: MQ certificate name matched             fail_verify_san=0
 PASS  isolation: worker cannot resolve mq            socket.gaierror: [Errno -2] Name or service not known
 PASS  isolation: worker cannot resolve orders-api    socket.gaierror: [Errno -2] Name or service not known
@@ -228,10 +228,10 @@ scripts/verify.sh phase5
 ```text
 == Phase 5: failures and recovery
 PASS  chaos 50%: every order still processed         processed=10 of 10 after 3s
-PASS  chaos 50%: Envoy retried the failed PUTs       upstream_rq_retry 0 -> 12
+PASS  chaos 50%: Envoy retried the failed PUTs       upstream_rq_retry 0 -> 7
 PASS  postgres restart: API recovers on its own      order 38 created 1 attempt(s) after the restart
 PASS  mq down: order still accepted, no event yet    created 0
-PASS  mq back: the sweeper's resend gets it processed processed=1 of 1 after 0s
+PASS  mq back: the sweeper's resend gets it processed processed=1 of 1 after 3s
 PASS  tcp-svc down: ping fails cleanly               HTTP 502
 PASS  tcp-svc back: ping works again                 {"reply":"PONG","latency_ms":2.6,"attempts":1}
 
@@ -253,22 +253,22 @@ PASS  metrics: the collector's own metrics through mesh_http 54 samples
 PASS  store: tempo ready, reached only through Envoy ready after 0s; net-tempo (internal) shared with Envoy alone
 PASS  metrics: /metrics/tempo through mesh_http      639 samples
 PASS  store: victoria-traces ready, reached only through Envoy OK after 0s; net-vtraces (internal) shared with Envoy alone
-PASS  metrics: /metrics/victoria-traces through mesh_http 497 samples
+PASS  metrics: /metrics/victoria-traces through mesh_http 496 samples
 PASS  store: victoria-metrics ready, reached only through Envoy OK after 0s; net-vmetrics (internal) shared with Envoy alone
 PASS  metrics: /metrics/victoria-metrics through mesh_http 976 samples
 PASS  store: victoria-logs ready, reached only through Envoy OK after 0s; net-vlogs (internal) shared with Envoy alone
-PASS  metrics: /metrics/victoria-logs through mesh_http 485 samples
+PASS  metrics: /metrics/victoria-logs through mesh_http 486 samples
 PASS  stores: same healthy metric jobs               11 jobs: envoy mq orders-api otel-collector postgres tcp-svc tempo victoria-logs victoria-metrics victoria-traces worker
-PASS  stores: MQ gauge and sample count copied       fresh gauges=1; scrape_samples_scraped=136 in both
+PASS  stores: MQ gauge and sample count copied       fresh gauges=1 in both; scrape_samples_scraped=136 in both
 PASS  grafana: datasource prometheus answers OK      status=OK Successfully queried the Prometheus API.
 PASS  grafana: datasource victoriametrics answers OK status=OK Successfully queried the Prometheus API.
 PASS  grafana: datasource victorialogs answers OK    status=OK Data source is working
 PASS  grafana: datasource tempo answers OK           status=OK Data source is working
 PASS  grafana: datasource victoriatraces answers OK  status=OK Data source is working
-PASS  stores: the same 5 trace ids in Tempo and VictoriaTraces phase6-72c11322 after 27s, e.g. 18577ad1e131c5089e612ae6ddaa10bb
+PASS  stores: the same 5 trace ids in Tempo and VictoriaTraces phase6-c70d14de after 27s, e.g. 24032ebc349d444cf4f6c858cbac278a
 PASS  stores: one trace has two spans                Tempo=2, VictoriaTraces=2 (parent + child)
 PASS  stores: the run's metrics in VictoriaMetrics   5 of 5 samples after 30s
-PASS  stores: the run's logs in VictoriaLogs         5 lines with trace_id 18577ad1e131c5089e612ae6ddaa10bb after 3s
+PASS  stores: the run's logs in VictoriaLogs         5 lines with trace_id 24032ebc349d444cf4f6c858cbac278a after 3s
 
 failures: 0
 ```
@@ -321,7 +321,8 @@ python3 tests/test_dashboard.py
 ```
 
 ```text
-31 queries, 0 with errors or warnings, 0 empty, 0.08 s in all
+EMPTY  Status updates: 5xx answered vs. 5xx that reached the work  B  series=0  
+31 queries, 0 with errors or warnings, 1 empty, 0.06 s in all
 PASS  14 charts in 7 sections; both forms agree on colours, styles, units, legends
 ```
 

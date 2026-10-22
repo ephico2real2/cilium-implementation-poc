@@ -41,7 +41,7 @@ starting again from zero.*
 | Envoy and the stores' admin and delete APIs | 29 of 29 route checks: refused with Envoy's own 404, reads allowed |
 | Tempo 3.1 single binary | 25 ms to start, 32 MB idle, no Kafka |
 | Memory in the 3887 MB Podman VM | 1255 MB still available with all four stores running |
-| `scripts/run.sh --fresh`, everything from nothing | 7 min 57 s, 87 checks, 0 failures (`output/transcript.txt`, 2026-10-22, with R1.3) |
+| `scripts/run.sh --fresh`, everything from nothing | 8 min 54 s, 87 checks, 0 failures (`output/transcript.txt`, 2026-10-22, with R1.3) |
 
 ## The walk: one run, followed through every store
 
@@ -144,21 +144,22 @@ of them from Prometheus, emptying the dashboard's MQ latency panel (measured, th
 Datasource menu at the top offers VictoriaMetrics beside it.*
 
 `python3 tests/parity.py --markdown`, on the lab from the fresh run (2026-10-22, evaluated at
-08:18:38 UTC; the allowance is one scrape interval at the window's edge plus Prometheus's
-extrapolation, both explained in the script):
+09:34:23 UTC, once every rate it compares held a complete window). The allowance and the second
+envelope are explained in the script. The MQ latency gauge missed one scrape at that instant, in
+both stores alike, so it agrees by its neighbours (present at T − s and T + s):
 
 | Query | Prometheus series | VictoriaMetrics series | Max difference | Verdict |
 |---|---:|---:|---:|---|
 | Each component, now | 11 | 11 | 0 (allowed 1e-09) | PASS |
-| New connections per tenant (per second) | 1 | 1 | 0.000574713 (allowed 0.00402299) | PASS |
+| New connections per tenant (per second) | 1 | 1 | 0.000574713 (allowed 0.000574713) | PASS |
 | Connections reset: unknown or missing SNI (per second) | 1 | 1 | 0 (allowed 0) | PASS |
 | Envoy's retries to orders-api (per second) | 1 | 1 | 0 (allowed 0) | PASS |
 | Orders created, replayed and processed (per second) | 1 | 1 | 0 (allowed 0) | PASS |
 | Events that needed another try (per second) | 1 | 1 | 0 (allowed 0) | PASS |
-| Queue manager: messages put and got (per second) | 1 | 1 | 0.000114943 (allowed 0.0434483) | PASS |
-| Queue manager: recovery log write latency, now (seconds) | 1 | 1 | 0 (allowed 2.82e-13) | PASS |
-| Postgres: transactions (per second) | 1 | 1 | 0.00655172 (allowed 0.127011) | PASS |
-| tcp-svc: commands (per second) | 1 | 1 | 0.00275862 (allowed 0.00413793) | PASS |
+| Queue manager: messages put and got (per second) | 1 | 1 | 0 (allowed 0.089636) | PASS |
+| Queue manager: recovery log write latency, now (seconds) | 0 | 0 | — | PASS |
+| Postgres: transactions (per second) | 1 | 1 | 0.000689655 (allowed 0.123333) | PASS |
+| tcp-svc: commands (per second) | 1 | 1 | 0.000574713 (allowed 0.000574713) | PASS |
 
 Traces: one of the run's traces holds 2 spans in Tempo and 2 in VictoriaTraces (`phase6`).
 
