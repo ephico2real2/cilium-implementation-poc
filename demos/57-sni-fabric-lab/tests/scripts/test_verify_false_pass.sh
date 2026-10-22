@@ -106,6 +106,9 @@ scenario "filter-chain counter missing after"    phase1 "envoy: no_filter_chain_
 scenario "OpenAPI lists both paths"              phase2 "api: OpenAPI lists"           PASS
 scenario "OpenAPI without /orders"               phase2 "api: OpenAPI lists"           FAIL \
   SCEN_OPENAPI='{"info":{"title":"orders-api"},"paths":{"/orders/{order_id}":{},"/admin/chaos":{}}}'
+# Another API whose title ends in orders-api: only check_exact refuses it, a substring check passes it.
+scenario "title merely contains orders-api"      phase2 "api: OpenAPI lists"           FAIL \
+  SCEN_OPENAPI='{"info":{"title":"legacy orders-api"},"paths":{"/orders":{},"/orders/{order_id}":{},"/admin/chaos":{}}}'
 scenario "order processed, 1 event sent"         phase3 "flow: order"                  PASS
 scenario "order processed, 10 events sent"       phase3 "flow: order"                  FAIL SCEN_EVENTS=10
 scenario "worker counter 2.0"                    phase3 "worker: processed counter"    PASS
