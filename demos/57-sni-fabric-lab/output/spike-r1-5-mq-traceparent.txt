@@ -1,10 +1,10 @@
-put     201  ibm-mq-usr: traceparent;"00-9f9caa35a27decfe49ccaedd7365fe3b-363c1c2f8e90add4-01";string
-put     ibm-mq-md-messageId: ID:414d5120514d31202020202020202020b71dda6a032a0040
+put     201  ibm-mq-usr: traceparent;"00-7f72bf681fa0f0f56db11247c09bb569-941f5528e2224750-01";string
+put     ibm-mq-md-messageId: ID:414d5120514d31202020202020202020b71dda6a032d0040
 get     200  body: 'spike r1.5'
-header  ibm-mq-md-messageid: ID:414d5120514d31202020202020202020b71dda6a032a0040
+header  ibm-mq-md-messageid: ID:414d5120514d31202020202020202020b71dda6a032d0040
 header  ibm-mq-md-expiry: unlimited
 header  ibm-mq-md-priority: 0
 header  ibm-mq-md-persistence: nonPersistent
-header  ibm-mq-usr: traceparent;"00-9f9caa35a27decfe49ccaedd7365fe3b-363c1c2f8e90add4-01";string
+header  ibm-mq-usr: traceparent;"00-7f72bf681fa0f0f56db11247c09bb569-941f5528e2224750-01";string
 header  ibm-mq-resolved-qmgr: QM1
-verdict CARRIED: sent 00-9f9caa35a27decfe49ccaedd7365fe3b-363c1c2f8e90add4-01, got back 'traceparent;"00-9f9caa35a27decfe49ccaedd7365fe3b-363c1c2f8e90add4-01";string'
+verdict CARRIED: sent 00-7f72bf681fa0f0f56db11247c09bb569-941f5528e2224750-01, got back 'traceparent;"00-7f72bf681fa0f0f56db11247c09bb569-941f5528e2224750-01";string'
