@@ -58,7 +58,7 @@ a { color: var(--remote); }
     <h2>Into the lab: one TLS port, routed on the SNI</h2>
     <figure>
       <div class="fig-scroll">
-        <svg viewBox="0 0 980 604" role="img" aria-label="Browsers, an openssl client and a native MQ client all connect to one port, 8443 on 127.0.0.1. Envoy's edge_sni listener reads the TLS SNI and passes each connection, still encrypted, to web, orders-api, tcp-svc or the MQ queue manager; any other SNI, or none, is reset. Grafana, Prometheus and VictoriaMetrics' read API are reached over plain HTTP on port 8080 through Envoy's ops_http listener.">
+        <svg viewBox="0 0 980 604" role="img" aria-label="Browsers, an openssl client and a native MQ client all connect to one port, 8443 on 127.0.0.1. Envoy's edge_sni listener reads the TLS SNI and passes each connection, still encrypted, to web, orders-api, tcp-svc or the MQ queue manager; any other SNI, or none, is reset. Grafana, Prometheus and VictoriaMetrics are reached over plain HTTP on port 8080 through Envoy's ops_http listener.">
           <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
           <g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600">
             <rect x="20" y="14" width="280" height="30" rx="6" fill="var(--host-wash)" stroke="var(--host)"/>
@@ -110,7 +110,7 @@ a { color: var(--remote); }
             <text x="367" y="432" font-weight="600">ops_http · host :8080</text>
             <g font-family="IBM Plex Mono, monospace" font-size="11.5">
               <text x="367" y="452">grafana.…    → grafana:3000</text>
-              <text x="367" y="482">victoriametrics.… → read API only</text>
+              <text x="367" y="482">victoriametrics.… → whole app :8428</text>
               <text x="367" y="512">prometheus.… → prometheus:9090</text>
             </g>
 

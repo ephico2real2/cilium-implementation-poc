@@ -6,7 +6,7 @@
 #                a rebuild from nothing; Postgres, MQ, Prometheus, Grafana and the telemetry
 #                stores' data are lost
 #   -h, --help   print this help
-# Takes about 11 minutes (11 min 1 s recorded): MQ starts in about 2 under amd64 emulation,
+# Takes about 11 minutes (11 min 7 s recorded): MQ starts in about 2 under amd64 emulation,
 # phase 6 waits up to 90 s for the stores to show new data, and parity waits until every selected
 # rate's exact cross-engine value is comparable. Exits non-zero at the first failed step.
 # Steps: certificates, secrets, images and containers, wait for every health check, then
@@ -211,7 +211,7 @@ bounded_retry 12 5 python3 tests/dashboard_queries.py \
 step "Check failures and recovery (phase 5)"
 scripts/verify.sh phase5
 
-step "Check the stores' allowed routes and refused admin or host-write paths"
+step "Check the stores' allowed routes, refused admin and write paths, and VictoriaMetrics from this Mac"
 bash tests/r1-2/test_store_routes.sh
 
 step "Check the dashboard: every query, both forms"
@@ -238,7 +238,7 @@ MQ console      https://mqconsole.fabric.localtest.me:8443/ibmmq/console  admin 
 MQ app user     (REST API, MQ clients)                                app / $(cred mq-app-password)
 Grafana         http://grafana.fabric.localtest.me:8080              anonymous viewer; admin / $(cred grafana-admin-password)
 Prometheus      http://prometheus.fabric.localtest.me:8080
-VictoriaMetrics http://victoriametrics.fabric.localtest.me:8080       read API only
+VictoriaMetrics http://victoriametrics.fabric.localtest.me:8080/vmui/ none
 Postgres        (through Envoy only)                                  fabric / $(cred postgres-password)
 EOF
 

@@ -11,7 +11,7 @@ Given / When / Then, the test that proves it (a check in a new `scripts/verify.s
 
 | Sprint | Goal | Stories |
 |---|---|---|
-| 1 | "The pipeline and the stores": every store up behind Envoy, fed by the collector, compared side by side | R1.1 (done), R1.2 (done), R1.3, E1 |
+| 1 | "The pipeline and the stores": every store up behind Envoy, fed by the collector, compared side by side | R1.1 (done), R1.2 (done), R1.3 (done), E1 (done), R1.10 |
 | 2 | "One order, one story": an order's trace, logs and metrics, linked | R1.4, R1.5, R1.6, R1.7, R1.8, R1.9 |
 
 **Every story is an enhancement: nothing that works today stops.** Each one carries the
@@ -220,6 +220,33 @@ that the regressions two reviews kept finding are caught by a machine on every c
     (run 39741725523, `check_exact` put back to `check` at `verify.sh:119`): `lab-free` red at
     the step `test_verify_false_pass.sh, …` on `MISMATCH  title merely contains orders-api
     PASS (want FAIL)`, in 49 s; the other two jobs passed.
+
+## R1.10 VictoriaMetrics' own UI from the Mac
+
+As someone looking at the shop's metrics, I want VictoriaMetrics' own web app on the Mac, as
+Prometheus's is, so that I can query, graph and explore the cardinality of the metrics it holds
+without going through Grafana.
+
+| # | Given | When | Then |
+|---|---|---|---|
+| 1 | the lab is up | `http://victoriametrics.fabric.localtest.me:8080/vmui/` is opened | vmui loads, every request it makes answers below 400, and a query of the shop's traffic draws a graph |
+| 2 | that host, from the Mac | any path is asked | Envoy passes it to VictoriaMetrics, admin and write calls included, as `prometheus.fabric.localtest.me` does for Prometheus (the operator's decision, 2026-10-22: "We dont need to block any path") |
+| 3 | the mesh alias `victoriametrics.mesh` | a component asks for an admin or write path other than its own | it is still Envoy's 404: only the host-facing route changes |
+| 4 | a GET on the host route | the store does not answer | Envoy retries it as it retried the read API before; anything else is retried only if it never reached the store |
+| 5 | a container on a network Envoy shares | it asks ops_http's `victoriametrics.fabric.localtest.me` for an admin or write path | Envoy's 404: the host name is no way round the mesh alias (found in review: ops_http listens on every network Envoy joins) |
+
+- **Test:** `tests/r1-2/test_store_routes.sh` asks the host route for vmui, its script bundle,
+  the root page, the status and admin pages, and an empty import, none of which changes data
+  (a GET on `delete_series` is the store's own 405); `tests/vmui_capture.py` opens vmui in
+  Chromium, light and dark.
+- **Out of scope:** a health dashboard for VictoriaMetrics in Grafana (the operator,
+  2026-10-22: settled); Prometheus already scrapes its own metrics through Envoy.
+- **Seats:** the orchestrator builds; Codex and OB1-lite review.
+- **Status (2026-10-22): built, reviewed in two passes, merge-ready** (record:
+  [../reviews/R1.10.md](../reviews/R1.10.md)). Both first-pass reviewers found that Envoy's ops
+  listener is on every network Envoy joins, so the whole app was open to every container too
+  (AC 5 added); fixed by telling the Mac's forwarded connections, which arrive from Envoy's own
+  address, from a container's. Fresh run 11 min 7 s, 87 checks, 0 failures; route test 45 of 45.
 
 ## Closing sprint 1
 

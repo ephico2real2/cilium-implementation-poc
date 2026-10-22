@@ -57,7 +57,7 @@ values written by `scripts/gen-secrets.sh`; they are public, so use them for thi
 | MQ web console | <https://mqconsole.fabric.localtest.me:8443/ibmmq/console> | `admin` / `fabric-mq-admin` |
 | Grafana | <http://grafana.fabric.localtest.me:8080/d/sni-fabric-lab/sni-fabric-lab> | none to view; `admin` / `fabric-grafana` to edit |
 | Prometheus | <http://prometheus.fabric.localtest.me:8080> | none |
-| VictoriaMetrics | <http://victoriametrics.fabric.localtest.me:8080> | none; Envoy exposes only its Prometheus-compatible read API |
+| VictoriaMetrics | <http://victoriametrics.fabric.localtest.me:8080/vmui/> | none; its whole app from this Mac, as Prometheus's: the vmui query and cardinality pages, every API, admin calls included; a container asking the same host name gets only the read API |
 | Tempo, VictoriaTraces, VictoriaLogs | through Envoy only; read them in Grafana's **Explore** | Grafana's `admin` / `fabric-grafana` |
 | MQ REST API and MQ clients | through Envoy only | `app` / `fabric-mq-app` |
 | Postgres | through Envoy only | `fabric` / `fabric-postgres` |
@@ -96,12 +96,12 @@ The steps, in order:
    stores (one retry, once that wait passes again), and run every dashboard query on
    VictoriaMetrics; before phase 5, whose outages leave gaps the two engines bridge differently
 6. `verify.sh` phase 5, then `tests/r1-2/test_store_routes.sh` (Envoy refuses admin and
-   unapproved write paths) and the Prometheus dashboard tests
+   unapproved write paths to the containers; this Mac gets VictoriaMetrics' whole app) and the Prometheus dashboard tests
 7. Print the memory in use, and the URLs with their logins
 
 Everything is also written to `output/transcript.txt`. It stops at the first failed step.
-Measured on 2026-10-22: 11 min 1 s from nothing, 87 checks, 0 failures. Parity waited 3 min
-20 s: a counter that sat at zero until phases 1-3 (orders created, unknown-SNI resets) is
+Measured on 2026-10-22: 11 min 7 s from nothing, 87 checks, 0 failures. The comparison step
+took 3 min 16 s, nearly all of it waiting: a counter that sat at zero until phases 1-3 (orders created, unknown-SNI resets) is
 exactly comparable only once its last zero sample has left the 310 s window, because Prometheus
 stops extrapolating at a counter's zero point and VictoriaMetrics never extrapolates.
 
@@ -325,6 +325,7 @@ python3 tests/parity.py --markdown
 python3 tests/test_dashboard.py
 ~/.local/share/diagram-kit/.venv/bin/python tests/browser_flows.py out/ secrets/admin-token
 ~/.local/share/diagram-kit/.venv/bin/python tests/grafana_capture.py out/
+~/.local/share/diagram-kit/.venv/bin/python tests/vmui_capture.py out/
 ```
 
 | Test | Arguments | Checks |
@@ -336,8 +337,9 @@ python3 tests/test_dashboard.py
 | `tests/r1-3/test_parity.py` | none | Lab-free controls for all measured value pairs, exact gauge copies and cross-engine rates, dropped/stale/duplicated samples, shared one-scrape gauge holes, one-sided and empty comparisons |
 | `tests/browser_flows.py` | `<out-dir> <admin-token-file>` | In Chromium, light and dark: places an order, pings over TCP, refuses a wrong token, opens the portal; no console error or CSP violation |
 | `tests/grafana_capture.py` | `<out-dir> [prometheus\|victoriametrics]` | The dashboard as an anonymous viewer, dark and light: every chart present, no "No data", "NaN", "not found" or error; with a datasource uid, opened on that datasource with its name in the Datasource menu |
+| `tests/vmui_capture.py` | `<out-dir>` | VictoriaMetrics' own UI from the Mac, light and dark: a query of the shop's traffic per Envoy upstream and the cardinality explorer; no page error, no response of 400 or more, each page's expected text |
 
-The two browser tests need Playwright and Chromium, from diagram-kit's environment.
+The three browser tests need Playwright and Chromium, from diagram-kit's environment.
 
 CI runs on every pull request that touches this demo
 ([`.github/workflows/demo57-ci.yaml`](../../../.github/workflows/demo57-ci.yaml)): shellcheck,
@@ -397,13 +399,14 @@ gets Envoy's 404). Prometheus is the sole scraper through `metrics.mesh` and rem
 sample through Envoy's mesh-only `victoriametrics.mesh/api/v1/write` route. This matters because
 MQ's exporter consumes its queue-manager gauges on read: a second scraper made Prometheus fall
 from 136 to 108 MQ samples and lose the recovery-log latency gauge. VictoriaMetrics runs no
-scraper; each store's own metrics remain at `/metrics/<store>`.
+scraper; each store's own metrics remain at `/metrics/<store>`. On the host, VictoriaMetrics is the whole
+app, as Prometheus is: <http://victoriametrics.fabric.localtest.me:8080/vmui/> for its own UI.
 
 | Container | Image | Alias on `mesh_http` | Writes | Reads (Grafana datasource `uid`) | Ready | UID |
 |---|---|---|---|---|---|---|
 | `tempo` | `grafana/tempo:3.1.0`, monolithic, local storage | `tempo.mesh` | `/v1/traces` (to its port 4318) | `/api/` (`tempo`) | `/ready` | 10004 |
 | `victoria-traces` | `victoriametrics/victoria-traces:v0.12.0` | `victoriatraces.mesh` | `/insert/opentelemetry/v1/traces` | `/select/jaeger/` (`victoriatraces`, Jaeger type) | `/health` | 10005 |
-| `victoria-metrics` | `victoriametrics/victoria-metrics:v1.153.0` | `victoriametrics.mesh`; host read API at `victoriametrics.fabric.localtest.me` | `/api/v1/write` from Prometheus and `/opentelemetry/v1/metrics` from the collector | the Prometheus query API (`victoriametrics`) | `/health`, and a Compose health check | 10006 |
+| `victoria-metrics` | `victoriametrics/victoria-metrics:v1.153.0` | `victoriametrics.mesh`; the whole app on the host at `victoriametrics.fabric.localtest.me` | `/api/v1/write` from Prometheus and `/opentelemetry/v1/metrics` from the collector | the Prometheus query API (`victoriametrics`) | `/health`, and a Compose health check | 10006 |
 | `victoria-logs` | `victoriametrics/victoria-logs:v1.53.0` | `victorialogs.mesh` | `/insert/opentelemetry/v1/logs` | `/select/logsql/` (`victorialogs`, plugin v0.32.0) | `/health` | 10007 |
 
 Data lives on the volumes `tempodata`, `vtracesdata`, `vmetricsdata` and `vlogsdata`, each
