@@ -35,7 +35,8 @@
 #   ~/.local/share/diagram-kit/.venv/bin/python tests/grafana_capture.py out/
 #   ~/.local/share/diagram-kit/.venv/bin/python tests/sprint1_walk.py docs/screenshots/sprint1 <run> <trace-id>
 #   ~/.local/share/diagram-kit/.venv/bin/python tests/vmui_capture.py docs/screenshots
-#                                              the four browser walks also need Playwright and
+#   ~/.local/share/diagram-kit/.venv/bin/python tests/spikes/r1-7_trace_to_logs.py
+#                                              the five browser walks also need Playwright and
 #                                              Chromium, from diagram-kit's environment
 #
 # container-tests (AC 3): the tests that need Podman and the lab's images but start nothing of the
