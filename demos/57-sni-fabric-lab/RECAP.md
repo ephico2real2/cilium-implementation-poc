@@ -37,12 +37,55 @@ browser, openssl, MQ client                 grafana.*, prometheus.* (browser)
 │ stats    :9902   /stats/prometheus only                                │
 └──┬───────┬────────┬────────┬────────┬────────┬────────┬────────┬───────┘
    web  orders-api tcp-svc  mq (QM1)  worker  postgres prometheus grafana
+   otel-collector  tempo  victoria-traces  victoria-metrics  victoria-logs  (Release 1)
         (each on its own internal network, shared with Envoy only)
 ```
 
-The figures `docs/diagrams/architecture/north-south.light.png` and `east-west.light.png` show
-the same in detail; `docs/diagrams/layers/` has the lab layer by layer, with the telemetry
-stack Release 1 adds.
+The same, layer by layer (source: `docs/diagrams/layers/source.html`, drawn with diagram-kit):
+
+![Eight layers from clients to Grafana: clients reach Envoy's edge on 8443 and 8080; the services sit behind it; Envoy's mesh carries every call between services and to Postgres and IBM MQ; the collector and Prometheus form the telemetry layer; four stores; Grafana reads them all.](docs/diagrams/layers/high-level.light.png)
+
+*Every arrow between layers is a hop through Envoy. Dashed: auto-instrumentation, sprint 2.*
+
+![Clients on this Mac reach Envoy's edge_sni listener on 127.0.0.1:8443, which reads the SNI and passes the TLS through to web, orders-api, tcp-svc or the MQ queue manager; an unknown or missing SNI is reset. Grafana and Prometheus are on 127.0.0.1:8080.](docs/diagrams/layers/edge.light.png)
+
+*Into the lab: one TLS port, routed on the hostname each client sends. Envoy decrypts nothing.*
+
+![Inside the lab every call goes through an Envoy listener: Postgres through mesh_pg, the MQ REST API, the API and every metrics endpoint through mesh_http, Envoy's own metrics through stats.](docs/diagrams/layers/mesh.light.png)
+
+*Between components: numbered in the order an order flows. Retries happen only where they are
+safe.*
+
+![telemetrygen sends spans through Envoy to the collector, which sends through Envoy to Tempo, VictoriaTraces, VictoriaMetrics and VictoriaLogs; Prometheus scrapes every component through Envoy; Grafana reads every store through Envoy.](docs/diagrams/layers/telemetry.light.png)
+
+*Release 1's telemetry: every signal passes Envoy twice, into the collector and out to each
+store. Dashed: the services' own telemetry, sprint 2.*
+
+## What it looks like
+
+Captured on the lab rebuilt on 2026-10-22 by `tests/browser_flows.py` and
+`tests/grafana_capture.py` (each step must show its expected text, or the capture fails).
+
+![The Orders page: the order form after placing order #121, the TCP service panel showing PONG in 2.4 ms, and the recent orders table.](docs/screenshots/orders-ping-over-tcp.light.png)
+
+*The Orders page after placing an order and pinging the TCP service. Order #121 still reads
+`created`: the picture is taken as the API answers, before the worker has processed it.*
+
+![The admin portal: health of envoy, postgres, web, tcp-svc, mq and worker, all up; connections per SNI tenant and retries per Envoy cluster; MQ queue depths; the chaos controls; every order.](docs/screenshots/admin-portal-open.light.png)
+
+*The admin portal, opened with the lab token `fabric-admin`: every component up, each tenant's
+connections, Envoy's retries per cluster, and order #121 now `processed`. A wrong token is
+refused (`docs/screenshots/admin-wrong-token-refused.light.png`).*
+
+![Swagger UI for orders-api: the public routes /orders, /orders/{order_id}, /tcp/ping, and the admin routes behind a lock.](docs/screenshots/swagger.light.png)
+
+*Swagger UI at `https://api.fabric.localtest.me:8443/docs`. The status update the worker makes
+is not here: it is served on the internal port only.*
+
+![The lab's Grafana dashboard: every component up; connections per tenant rising with traffic; unknown-SNI resets; orders created and processed; request durations; MQ puts and gets; Postgres transactions; TCP pings.](docs/screenshots/grafana-dashboard.light.png)
+
+*The dashboard over 15 minutes, the last two of them under `scripts/load.py --seconds 120`. The
+retry panels are flat: nothing failed. Step 7 below makes them move.*
 
 | Name | Address | What it is | Who answers |
 |---|---|---|---|

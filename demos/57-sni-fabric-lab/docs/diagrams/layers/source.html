@@ -63,8 +63,8 @@ a { color: var(--remote); }
     <div class="eyebrow">sni fabric lab · architecture by layer · 2026-10-22</div>
     <h1>The lab, layer by layer: what is built and what Release 1 adds</h1>
     <p class="lede">One high-level figure, then the edge, the mesh and the telemetry layers, and the network table that
-      makes Envoy the only path. Solid is built and checked (phases 1–5 and R1.1); dashed is R1.2 (built, under review)
-      or sprint 2.</p>
+      makes Envoy the only path. Solid is built and checked (phases 1–6, R1.1 and R1.2); dashed is sprint
+      2.</p>
   </header>
 
   <section>
@@ -141,30 +141,30 @@ a { color: var(--remote); }
 <text x="721.7" y="461" fill="var(--muted)">sprint 2: R1.4–R1.8</text>
 <line x1="567.5" y1="478" x2="567.5" y2="496" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah1)"/>
 <text x="24" y="531" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">STORES</text>
-<rect x="175.0" y="498" width="185.8" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<rect x="175.0" y="498" width="185.8" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
 <text x="189.0" y="521" font-weight="600">Tempo 3.1</text>
 <text x="189.0" y="539" fill="var(--muted)">traces · standard</text>
-<rect x="374.8" y="498" width="185.8" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<rect x="374.8" y="498" width="185.8" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
 <text x="388.8" y="521" font-weight="600">VictoriaTraces 0.12</text>
 <text x="388.8" y="539" fill="var(--muted)">traces · compared</text>
-<rect x="574.5" y="498" width="185.8" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<rect x="574.5" y="498" width="185.8" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
 <text x="588.5" y="521" font-weight="600">VictoriaMetrics 1.153</text>
 <text x="588.5" y="539" fill="var(--muted)">metrics</text>
-<rect x="774.2" y="498" width="185.8" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<rect x="774.2" y="498" width="185.8" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
 <text x="788.2" y="521" font-weight="600">VictoriaLogs 1.53</text>
 <text x="788.2" y="539" fill="var(--muted)">logs</text>
 <line x1="567.5" y1="556" x2="567.5" y2="574" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah1)"/>
 <text x="24" y="609" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">VIEW</text>
 <rect x="175.0" y="576" width="785.0" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
 <text x="189.0" y="599" font-weight="600">Grafana 12.4</text>
-<text x="189.0" y="617" fill="var(--muted)">dashboard; a datasource for every store from R1.2</text>
+<text x="189.0" y="617" fill="var(--muted)">dashboard; a datasource for every store</text>
 <text x="24" y="660" fill="var(--muted)">Every arrow between layers is a hop through Envoy; no component shares a network with another, only with Envoy.</text>
-<text x="24" y="682" fill="var(--host)" font-weight="600">Dashed = not built yet: the stores are R1.2 (built, under review), auto-instrumentation is sprint 2.</text>
+<text x="24" y="682" fill="var(--host)" font-weight="600">Dashed = not built yet: auto-instrumentation of the services is sprint 2 (R1.4–R1.8).</text>
           </g>
         </svg>
       </div>
       <figcaption>Every hop between layers goes through Envoy. The stores (Tempo, VictoriaTraces, VictoriaMetrics,
-        VictoriaLogs) are R1.2, built and under review; auto-instrumentation of the services is sprint 2.</figcaption>
+        VictoriaLogs) came with R1.2; auto-instrumentation of the services is sprint 2.</figcaption>
     </figure>
   </section>
 
@@ -248,7 +248,7 @@ a { color: var(--remote); }
             <text x="706" y="522" fill="var(--muted)">scrapes through Envoy (below)</text>
 
             <text x="30" y="566" fill="var(--muted)">… = .fabric.localtest.me, which resolves to 127.0.0.1. TLS ends at each backend, never at Envoy.</text>
-            <text x="30" y="588" fill="var(--host)" font-weight="600">Built and checked: phases 1–5, 65 checks (output/transcript.txt). Host ports listen on 127.0.0.1 only.</text>
+            <text x="30" y="588" fill="var(--host)" font-weight="600">Built and checked: run.sh --fresh, 84 checks (output/transcript.txt, 2026-10-22). Host ports on 127.0.0.1 only.</text>
           </g>
           <g fill="none" stroke-width="1.4" marker-end="url(#ah)">
             <line x1="260" y1="159" x2="353" y2="159" stroke="var(--remote)"/>
@@ -353,7 +353,7 @@ a { color: var(--remote); }
             <text x="706" y="402" fill="var(--muted)">PromQL for grafana and the portal</text>
             <rect x="690" y="430" width="260" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
             <text x="706" y="450" font-weight="600">every /metrics</text>
-            <text x="706" y="467" fill="var(--muted)">api, worker, tcp-svc, collector</text>
+            <text x="706" y="467" fill="var(--muted)">api, worker, tcp-svc, otel, stores</text>
             <text x="706" y="483" fill="var(--muted)">mq :9157, postgres-exporter</text>
             <rect x="690" y="515" width="260" height="50" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
             <text x="706" y="535" font-weight="600">Envoy admin 127.0.0.1:9901</text>
@@ -361,7 +361,7 @@ a { color: var(--remote); }
 
             <text x="30" y="606" fill="var(--none)">orders-api cannot reach postgres directly: they share no network, so the name does not resolve.</text>
             <text x="30" y="626" fill="var(--muted)">Arrows are coloured by caller: amber orders-api, teal worker; ink for grafana, prometheus and shared exits.</text>
-            <text x="30" y="646" fill="var(--host)" font-weight="600">Built and checked: phases 1–5, 65 checks (output/transcript.txt). Host ports listen on 127.0.0.1 only.</text>
+            <text x="30" y="646" fill="var(--host)" font-weight="600">Built and checked: run.sh --fresh, 84 checks (output/transcript.txt, 2026-10-22). Host ports on 127.0.0.1 only.</text>
           </g>
           <g fill="none" stroke-width="1.4" marker-end="url(#ah2)">
             <line x1="270" y1="108" x2="353" y2="108" stroke="var(--host)"/>
@@ -392,7 +392,7 @@ a { color: var(--remote); }
     <h2>4. Telemetry layer: one pipeline, four stores</h2>
     <figure>
       <div class="fig-scroll">
-        <svg viewBox="0 0 980 530" role="img" aria-label="Signals reach the OpenTelemetry Collector only through Envoy&#x27;s otlp.mesh; the collector exports through Envoy to Tempo and VictoriaTraces for traces, VictoriaMetrics for metrics and VictoriaLogs for logs, which R1.2 adds. Prometheus scrapes every component&#x27;s metrics through Envoy. Grafana reads every store through Envoy aliases.">
+        <svg viewBox="0 0 980 530" role="img" aria-label="Signals reach the OpenTelemetry Collector only through Envoy&#x27;s otlp.mesh; the collector exports through Envoy to Tempo and VictoriaTraces for traces, VictoriaMetrics for metrics and VictoriaLogs for logs, which R1.2 added. Prometheus scrapes every component&#x27;s metrics through Envoy. Grafana reads every store through Envoy aliases.">
           <defs><marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
           <g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
             <line x1="230" y1="88" x2="288" y2="140" stroke="var(--host)" stroke-width="1.4" marker-end="url(#ah4)"/>
@@ -401,14 +401,10 @@ a { color: var(--remote); }
             <line x1="230" y1="240" x2="288" y2="190" stroke="var(--host)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ah4)"/>
             <text x="236" y="252" font-size="11" fill="var(--muted)">sprint 2</text>
             <line x1="450" y1="164" x2="498" y2="164" stroke="var(--remote)" stroke-width="1.4" marker-end="url(#ah4)"/>
-            <line x1="680" y1="66" x2="738" y2="66" stroke="var(--remote)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ah4)"/>
-            <text x="694" y="60" font-size="11" fill="var(--muted)">R1.2</text>
-            <line x1="680" y1="128" x2="738" y2="128" stroke="var(--remote)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ah4)"/>
-            <text x="694" y="122" font-size="11" fill="var(--muted)">R1.2</text>
-            <line x1="680" y1="190" x2="738" y2="190" stroke="var(--remote)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ah4)"/>
-            <text x="694" y="184" font-size="11" fill="var(--muted)">R1.2</text>
-            <line x1="680" y1="252" x2="738" y2="252" stroke="var(--remote)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ah4)"/>
-            <text x="694" y="246" font-size="11" fill="var(--muted)">R1.2</text>
+            <line x1="680" y1="66" x2="738" y2="66" stroke="var(--remote)" stroke-width="1.4" marker-end="url(#ah4)"/>
+            <line x1="680" y1="128" x2="738" y2="128" stroke="var(--remote)" stroke-width="1.4" marker-end="url(#ah4)"/>
+            <line x1="680" y1="190" x2="738" y2="190" stroke="var(--remote)" stroke-width="1.4" marker-end="url(#ah4)"/>
+            <line x1="680" y1="252" x2="738" y2="252" stroke="var(--remote)" stroke-width="1.4" marker-end="url(#ah4)"/>
             <rect x="30" y="60" width="200" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5"/>
             <text x="44" y="83" font-weight="600">telemetrygen v0.162</text>
             <text x="44" y="101" fill="var(--muted)">synthetic spans (phase6)</text>
@@ -429,44 +425,44 @@ a { color: var(--remote); }
             <text x="514" y="128" fill="var(--muted)">GOMEMLIMIT 204MiB</text>
             <text x="514" y="148" fill="var(--muted)">own /metrics :8888</text>
             <text x="514" y="168" fill="var(--muted)">exports through Envoy</text>
-            <rect x="740" y="40" width="220" height="52" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <rect x="740" y="40" width="220" height="52" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
             <text x="754" y="63" font-weight="600">Tempo 3.1 · standard</text>
             <text x="754" y="81" fill="var(--muted)">tempo.mesh</text>
-            <rect x="740" y="102" width="220" height="52" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <rect x="740" y="102" width="220" height="52" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
             <text x="754" y="125" font-weight="600">VictoriaTraces 0.12</text>
             <text x="754" y="143" fill="var(--muted)">victoriatraces.mesh</text>
-            <rect x="740" y="164" width="220" height="52" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <rect x="740" y="164" width="220" height="52" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
             <text x="754" y="187" font-weight="600">VictoriaMetrics 1.153</text>
             <text x="754" y="205" fill="var(--muted)">victoriametrics.mesh</text>
-            <rect x="740" y="226" width="220" height="52" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <rect x="740" y="226" width="220" height="52" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
             <text x="754" y="249" font-weight="600">VictoriaLogs 1.53</text>
             <text x="754" y="267" fill="var(--muted)">victorialogs.mesh</text>
             <line x1="230" y1="348" x2="288" y2="348" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah4)"/>
             <line x1="450" y1="348" x2="498" y2="348" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah4)"/>
             <rect x="30" y="320" width="200" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
             <text x="44" y="343" font-weight="600">Prometheus 3.15</text>
-            <text x="44" y="361" fill="var(--muted)">7 scrape jobs</text>
+            <text x="44" y="361" fill="var(--muted)">11 scrape jobs</text>
             <rect x="290" y="320" width="160" height="56" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
             <text x="304" y="343" font-weight="600">Envoy mesh_http</text>
             <text x="304" y="361" fill="var(--muted)">metrics.mesh/metrics/…</text>
             <rect x="500" y="320" width="460" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
             <text x="514" y="343" font-weight="600">every component&#x27;s own /metrics</text>
-            <text x="514" y="361" fill="var(--muted)">envoy, orders-api, worker, tcp-svc, mq, postgres, collector</text>
-            <line x1="230" y1="428" x2="288" y2="428" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ah4)"/>
-            <text x="244" y="421" font-size="11" fill="var(--muted)">R1.2</text>
-            <rect x="30" y="400" width="200" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="514" y="361" fill="var(--muted)">envoy, orders-api, worker, tcp-svc, mq, postgres, collector, 4 stores</text>
+            <line x1="230" y1="428" x2="288" y2="428" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah4)"/>
+            <rect x="30" y="400" width="200" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
             <text x="44" y="423" font-weight="600">Grafana 12.4</text>
             <text x="44" y="441" fill="var(--muted)">VictoriaLogs plugin baked in</text>
-            <rect x="290" y="400" width="670" height="56" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <rect x="290" y="400" width="670" height="56" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
             <text x="304" y="423" font-weight="600">Envoy aliases on net-grafana</text>
-            <text x="304" y="441" fill="var(--muted)">prometheus.mesh (built) · tempo · victoriatraces · victoriametrics · victorialogs .mesh (R1.2)</text>
+            <text x="304" y="441" fill="var(--muted)">prometheus.mesh · tempo.mesh · victoriatraces.mesh · victoriametrics.mesh · victorialogs.mesh</text>
             <text x="30" y="492" fill="var(--muted)">Every signal passes Envoy twice: from its source to the collector (otlp.mesh), and from the collector to each store.</text>
-            <text x="30" y="514" fill="var(--host)" font-weight="600">Solid = built and checked (R1.1). Dashed = R1.2 (built, under review) or sprint 2.</text>
+            <text x="30" y="514" fill="var(--host)" font-weight="600">Solid = built and checked (R1.1, R1.2). Dashed = sprint 2.</text>
           </g>
         </svg>
       </div>
-      <figcaption>Built today: telemetrygen → Envoy → collector, and Prometheus scraping through Envoy. Under review (R1.2): the
-        four stores and Grafana's datasources. Sprint 2: the services' own telemetry and Envoy's spans.</figcaption>
+      <figcaption>Built and checked: telemetrygen → Envoy → collector → Envoy → the four stores, Prometheus scraping
+        through Envoy, Grafana reading every store through Envoy. Sprint 2: the services' own telemetry and Envoy's
+        spans.</figcaption>
     </figure>
   </section>
 
@@ -488,10 +484,10 @@ a { color: var(--remote); }
           <tr><td><code>net-mqclient</code></td><td>mq-client (on demand)</td><td>qm1.…</td></tr>
           <tr><td><code>net-pgexp</code></td><td>postgres-exporter</td><td>postgres.mesh</td></tr>
           <tr><td><code>net-obs</code></td><td>prometheus</td><td>metrics.mesh</td></tr>
-          <tr><td><code>net-grafana</code></td><td>grafana</td><td>prometheus.mesh; R1.2: tempo, victoriatraces, victoriametrics, victorialogs .mesh</td></tr>
-          <tr><td><code>net-otel</code></td><td>otel-collector</td><td>R1.2: tempo, victoriatraces, victoriametrics, victorialogs .mesh</td></tr>
+          <tr><td><code>net-grafana</code></td><td>grafana</td><td>prometheus.mesh, tempo.mesh, victoriatraces.mesh, victoriametrics.mesh, victorialogs.mesh</td></tr>
+          <tr><td><code>net-otel</code></td><td>otel-collector</td><td>tempo.mesh, victoriatraces.mesh, victoriametrics.mesh, victorialogs.mesh</td></tr>
           <tr><td><code>net-otelsend</code></td><td>telemetrygen (on demand)</td><td>otlp.mesh</td></tr>
-          <tr><td><code>net-tempo · net-vtraces · net-vmetrics · net-vlogs</code></td><td>one store each (R1.2)</td><td>—</td></tr>
+          <tr><td><code>net-tempo · net-vtraces · net-vmetrics · net-vlogs</code></td><td>one store each</td><td>—</td></tr>
         </tbody>
       </table>
     </div>

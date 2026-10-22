@@ -21,21 +21,11 @@ Every signal reaches the collector only through Envoy (`otlp.mesh`), and the col
 each store only through Envoy too; Envoy routes each store's write path, the read API Grafana
 uses and its readiness probe, and nothing else.
 
-<!-- markdownlint-disable MD033 -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/layers/telemetry.dark.png">
-  <img alt="Signals pass Envoy twice: from telemetrygen to the collector through otlp.mesh, and from the collector to Tempo, VictoriaTraces, VictoriaMetrics and VictoriaLogs through their own aliases; Prometheus scrapes every component through Envoy; Grafana reads every store through Envoy." src="../diagrams/layers/telemetry.light.png">
-</picture>
-<!-- markdownlint-enable MD033 -->
+![Signals pass Envoy twice: from telemetrygen to the collector through otlp.mesh, and from the collector to Tempo, VictoriaTraces, VictoriaMetrics and VictoriaLogs through their own aliases; Prometheus scrapes every component through Envoy; Grafana reads every store through Envoy.](../diagrams/layers/telemetry.light.png)
 
 *The telemetry layer. Solid is built and checked; dashed is sprint 2.*
 
-<!-- markdownlint-disable MD033 -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../screenshots/sprint1/collector-accepted-spans.dark.png">
-  <img alt="Prometheus graph of otelcol_receiver_accepted_spans_total rising as telemetrygen's spans reach the collector through Envoy." src="../screenshots/sprint1/collector-accepted-spans.light.png">
-</picture>
-<!-- markdownlint-enable MD033 -->
+![Prometheus graph of otelcol_receiver_accepted_spans_total over an hour: steps up as runs arrive, two drops where the collector restarted.](../screenshots/sprint1/collector-accepted-spans.light.png)
 
 *R1.1: the collector's own counter of accepted spans, scraped by Prometheus through Envoy,
 over one hour of building (2026-10-21 23:25 to 2026-10-22 00:24 UTC): each step up is a
@@ -55,99 +45,104 @@ starting again from zero.*
 ## The walk: one run, followed through every store
 
 One named run (`walk-ab190b56`: 5 traces, 2 minutes of metrics, 5 log lines carrying one of
-the trace ids), sent by `telemetrygen` through Envoy to the collector, then followed by hand in
-the browser. Each picture is a step the walk script clicks; the script fails, rather than takes
-the picture, when the step does not show what it should.
+the trace ids), sent by `telemetrygen` through Envoy to the collector on 2026-10-22, on the lab
+rebuilt from nothing, then followed in the browser by `tests/sprint1_walk.py`. Each picture is a
+step the script clicks; it fails, rather than takes the picture, when the step does not show
+what it should.
 
-### 1. Grafana knows every store
+### 1. Sign in to Grafana
 
-<!-- markdownlint-disable MD033 -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../screenshots/sprint1/02-datasources.dark.png">
-  <img alt="Grafana's data sources page lists Prometheus, Tempo, VictoriaLogs, VictoriaMetrics and VictoriaTraces, each with an Envoy alias as its URL." src="../screenshots/sprint1/02-datasources.light.png">
-</picture>
-<!-- markdownlint-enable MD033 -->
+![Grafana's sign-in page with the user admin filled in and the password masked.](../screenshots/sprint1/01-grafana-login.light.png)
+
+*Grafana's own sign-in form, user `admin` (the lab password is in `secrets/`, documented in
+`docs/usage.md`). The anonymous viewer can read the dashboard but not Explore or data sources.*
+
+### 2. Grafana knows every store
+
+![Grafana's data sources page lists Prometheus, Tempo, VictoriaLogs, VictoriaMetrics and VictoriaTraces, each with an Envoy alias as its URL.](../screenshots/sprint1/02-datasources.light.png)
 
 *Five data sources, every URL an Envoy alias (`*.mesh:18080`): Grafana reaches no store
 directly.*
 
-### 2. Each one answers its test
+### 3. Each one answers its test
 
-<!-- markdownlint-disable MD033 -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../screenshots/sprint1/06-datasource-tempo.dark.png">
-  <img alt="Tempo's data source page after clicking Test: Data source is working." src="../screenshots/sprint1/06-datasource-tempo.light.png">
-</picture>
-<!-- markdownlint-enable MD033 -->
+The data sources are provisioned from files, so Grafana offers **Test**, not "Save & test".
 
-*"Test" clicked on Tempo. The same for the other four: `03` to `07` in
-[../screenshots/sprint1/](../screenshots/sprint1/).*
+![Prometheus data source after Test: Successfully queried the Prometheus API.](../screenshots/sprint1/03-datasource-prometheus.light.png)
 
-### 3. The run's traces in Tempo, and one opened
+*Prometheus: "Successfully queried the Prometheus API", through `prometheus.mesh`.*
 
-<!-- markdownlint-disable MD033 -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../screenshots/sprint1/09-tempo-trace.dark.png">
-  <img alt="Grafana Explore on Tempo: a TraceQL search for the run's service lists five traces; the clicked one opens with its root span lets-go and child span okey-dokey-0." src="../screenshots/sprint1/09-tempo-trace.light.png">
-</picture>
-<!-- markdownlint-enable MD033 -->
+![VictoriaMetrics data source, of type Prometheus, after Test: Successfully queried the Prometheus API.](../screenshots/sprint1/04-datasource-victoriametrics.light.png)
 
-*TraceQL `{resource.service.name="walk-ab190b56"}` finds the run's 5 traces; clicking one opens
-it: a root span and its child.*
+*VictoriaMetrics answers the same Prometheus API, through `victoriametrics.mesh`.*
 
-### 4. The same trace in VictoriaTraces
+![VictoriaLogs data source after Test: Data source is working, with no error.](../screenshots/sprint1/05-datasource-victorialogs.light.png)
 
-<!-- markdownlint-disable MD033 -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../screenshots/sprint1/10-victoriatraces-trace.dark.png">
-  <img alt="Grafana Explore on VictoriaTraces through the Jaeger data source: the same trace id, the same two spans." src="../screenshots/sprint1/10-victoriatraces-trace.light.png">
-</picture>
-<!-- markdownlint-enable MD033 -->
+*VictoriaLogs, through the plugin baked into the Grafana image. Before the fix below, this page
+also showed an error.*
+
+![Tempo data source after Test: Data source is working.](../screenshots/sprint1/06-datasource-tempo.light.png)
+
+*Tempo, through `tempo.mesh`.*
+
+![VictoriaTraces, a Jaeger data source, after Test: Data source is working.](../screenshots/sprint1/07-datasource-victoriatraces.light.png)
+
+*VictoriaTraces, read with Grafana's built-in Jaeger data source at
+`victoriatraces.mesh:18080/select/jaeger`.*
+
+### 4. The run's traces in Tempo
+
+![Grafana Explore on Tempo: a TraceQL search for the run's service lists five traces.](../screenshots/sprint1/08-tempo-search.light.png)
+
+*TraceQL `{resource.service.name="walk-ab190b56"}` finds the run's 5 traces.*
+
+### 5. One trace opened, by clicking it
+
+![The clicked trace opens beside the search: root span lets-go and its child okey-dokey-0.](../screenshots/sprint1/09-tempo-trace.light.png)
+
+*Clicking a trace id opens it: telemetrygen's root span and its one child.*
+
+### 6. The same trace in VictoriaTraces
+
+![Grafana Explore on VictoriaTraces through the Jaeger data source: the same trace id, the same two spans.](../screenshots/sprint1/10-victoriatraces-trace.light.png)
 
 *The collector sent the same trace to both stores; R1.3 compares them on every trace.*
 
-### 5. The run's metrics in VictoriaMetrics
+### 7. The run's metrics in VictoriaMetrics
 
-<!-- markdownlint-disable MD033 -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../screenshots/sprint1/11-victoriametrics-metrics.dark.png">
-  <img alt="Grafana Explore on VictoriaMetrics: the run's counter rising for two minutes." src="../screenshots/sprint1/11-victoriametrics-metrics.light.png">
-</picture>
-<!-- markdownlint-enable MD033 -->
+![Grafana Explore on VictoriaMetrics: the run's counter rising for two minutes.](../screenshots/sprint1/11-victoriametrics-metrics.light.png)
 
-*Two minutes of OTLP metrics, stored with their dotted OpenTelemetry label names
-(`service.name`).*
+*Two minutes of OTLP metrics, one sample a second, stored with their dotted OpenTelemetry label
+names (`service.name`).*
 
-### 6. The run's log lines in VictoriaLogs, found by trace id
+### 8. The run's log lines in VictoriaLogs, found by trace id
 
-<!-- markdownlint-disable MD033 -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../screenshots/sprint1/12-victorialogs-lines.dark.png">
-  <img alt="Grafana Explore on VictoriaLogs: the query trace_id equals the run's trace id returns five lines." src="../screenshots/sprint1/12-victorialogs-lines.light.png">
-</picture>
-<!-- markdownlint-enable MD033 -->
+![Grafana Explore on VictoriaLogs: the query trace_id equals the run's trace id returns five lines.](../screenshots/sprint1/12-victorialogs-lines.light.png)
 
-*Looked up by the trace id from step 3: the first sight of chapter 1's goal, a trace's logs one
+*Looked up by the trace id from step 5: the first sight of chapter 1's goal, a trace's logs one
 query away. Sprint 2 makes the services write such lines themselves.*
 
-### 7. Prometheus scrapes everything through Envoy
+### 9. Prometheus scrapes everything through Envoy
 
-<!-- markdownlint-disable MD033 -->
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../screenshots/sprint1/13-prometheus-targets.dark.png">
-  <img alt="Prometheus target health: every job, including otel-collector, tempo, victoria-traces, victoria-metrics and victoria-logs, is up, each scraped at metrics.mesh:18080." src="../screenshots/sprint1/13-prometheus-targets.light.png">
-</picture>
-<!-- markdownlint-enable MD033 -->
+![Prometheus target health: all 11 jobs up, including otel-collector, tempo, victoria-traces, victoria-metrics and victoria-logs, each scraped at metrics.mesh:18080.](../screenshots/sprint1/13-prometheus-targets.light.png)
 
-*Every target is `metrics.mesh:18080/metrics/<component>`: Prometheus, too, sees only Envoy.*
+*All 11 targets up, each `metrics.mesh:18080/metrics/<component>`: Prometheus, too, sees only
+Envoy.*
 
 ## Found by looking
 
-The walk's pictures found what the checks had not: the VictoriaLogs plugin's settings page
-showed `Unexpected token 'o', "not routed "... is not valid JSON`. Envoy's access log named the
-request, `POST /select/tenant_ids`, a read the plugin makes that R1.2's route list did not allow;
-Grafana's alerting view likewise asks VictoriaMetrics for `GET /api/v1/rules`. Both are read-only
-and now routed; the pictures above were taken after the fix.
+The walk found what the checks and both reviews had not.
+
+![Before the fix: the VictoriaLogs data source page shows an error, Unexpected token 'o', not routed is not valid JSON, above the Data source is working banner.](../screenshots/sprint1/found-victorialogs-not-routed.light.png)
+
+*Before the fix (2026-10-22 01:21 UTC): the data source test passes, yet the page reports
+`Unexpected token 'o', "not routed "... is not valid JSON`.*
+
+Envoy's access log named the request: `POST /select/tenant_ids`, a read the plugin makes when
+its settings page opens, which R1.2's route list did not allow; Envoy answered with its own
+`not routed` text, which the plugin tried to parse as JSON. Grafana's alerting view likewise
+asks VictoriaMetrics for `GET /api/v1/rules`. Both are read-only, and both are now routed, with
+three route tests; step 3 above shows the page after the fix.
 
 ## Re-taking the pictures
 

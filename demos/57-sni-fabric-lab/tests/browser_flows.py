@@ -2,8 +2,9 @@
 
 Usage: python tests/browser_flows.py <out-dir> <admin-token-file>
 Flows: place an order from the form, ping the TCP service, open the admin portal with the
-token. Fails on any console error or CSP violation, and saves a screenshot per step in both
-colour schemes. TLS is verified separately (scripts/verify.sh, against the lab CA).
+token, read the API in Swagger UI. Fails on any console error or CSP violation, and saves a
+screenshot per step in both colour schemes. TLS is verified separately (scripts/verify.sh,
+against the lab CA).
 """
 import sys
 from pathlib import Path
@@ -66,6 +67,13 @@ def run(out_dir: Path, token: str) -> int:
                 expect(page.locator("#health")).to_contain_text("postgres", timeout=10000)
                 expect(page.locator("#admin-orders tr").first).to_be_visible(timeout=10000)
             step("admin portal open", open_portal)
+
+            page.goto("https://api.fabric.localtest.me:8443/docs", wait_until="networkidle")
+
+            def swagger():
+                expect(page.locator(".swagger-ui .title")).to_contain_text("orders-api", timeout=10000)
+                expect(page.get_by_text("/orders", exact=True).first).to_be_visible(timeout=10000)
+            step("swagger", swagger)
 
             csp = [e for e in errors if "Content Security Policy" in e]
             # A refused token logs a 401 in the console by design; anything else is a problem.
