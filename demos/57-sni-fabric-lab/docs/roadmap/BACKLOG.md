@@ -320,6 +320,13 @@ in the fabric is visible.
 - **Test:** `phase6` "otel: Envoy spans on mesh_http"; the retry check under chaos.
 - **Open:** whether Envoy draws one span per upstream attempt by default, or needs its upstream
   span option: measured, not assumed.
+- **Spike answered (2026-10-22, #109): it needs the option.** A throwaway Envoy v1.36.11 (the lab's
+  image) retried one request to a closed port 3 times and sent its spans through `otlp.mesh` to
+  Tempo. With `spawn_upstream_span` false the trace held 1 span, the ingress (503); with it true, 5:
+  the ingress and one `router <cluster> egress` span per attempt, the retries tagged
+  `retry.count` 1 to 3 (`tests/spikes/r1-6_envoy_attempt_spans.sh`, recorded in
+  `output/spike-r1-6-envoy-attempt-spans.txt`; the source reading is on #99). R1.6 sets
+  `spawn_upstream_span: true` on `mesh_http`.
 
 ## R1.7 Structured logs with trace ids
 
