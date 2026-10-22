@@ -242,6 +242,11 @@ without going through Grafana.
 - **Out of scope:** a health dashboard for VictoriaMetrics in Grafana (the operator,
   2026-10-22: settled); Prometheus already scrapes its own metrics through Envoy.
 - **Seats:** the orchestrator builds; Codex and OB1-lite review.
+- **Status (2026-10-22): built, reviewed in two passes, merge-ready** (record:
+  [../reviews/R1.10.md](../reviews/R1.10.md)). Both first-pass reviewers found that Envoy's ops
+  listener is on every network Envoy joins, so the whole app was open to every container too
+  (AC 5 added); fixed by telling the Mac's forwarded connections, which arrive from Envoy's own
+  address, from a container's. Fresh run 11 min 7 s, 87 checks, 0 failures; route test 45 of 45.
 
 ## Closing sprint 1
 
