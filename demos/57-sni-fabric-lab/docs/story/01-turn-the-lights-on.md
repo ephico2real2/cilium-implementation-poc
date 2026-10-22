@@ -15,7 +15,7 @@ numbers come from the review records in [../reviews/](../reviews/), the pictures
 | 1 | R1.3 Side by side, compared | done | Codex, OB3 and OB1-lite | [R1.3](../reviews/R1.3.md) |
 | 1 | E1 CI checks demo 57 on every pull request | done | OB3, Codex and OB1-lite | [E1](../reviews/E1.md) |
 | 1 | R1.10 VictoriaMetrics' own UI from the Mac | done (#93) | the orchestrator; Codex and OB1-lite | [R1.10](../reviews/R1.10.md) |
-| 2 | R1.4 Zero-code auto-instrumentation | built; in review (#97) | designed by Codex and OB1-lite, built from OB1-lite's design | [R1.4](../reviews/R1.4.md) |
+| 2 | R1.4 Zero-code auto-instrumentation | done (#114) | designed by Codex and OB1-lite, built from OB1-lite's design; reviewed by Codex and OB3 | [R1.4](../reviews/R1.4.md) |
 | 2 | R1.5–R1.9 One order, one story | not started | — | [BACKLOG](../roadmap/BACKLOG.md) |
 
 ## Sprint 1: the pipeline and the stores
