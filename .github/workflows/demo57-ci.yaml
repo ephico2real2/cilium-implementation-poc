@@ -27,6 +27,8 @@
 #                                              ten dashboard queries, Prometheus against VictoriaMetrics
 #   python3 tests/dashboard_queries.py --minutes 5
 #                                              every dashboard query against the lab's Prometheus
+#   bash tests/spikes/r1-5_mq_traceparent.sh  spike for R1.5: MQ REST carries traceparent; puts
+#                                              and gets one message on DEV.QUEUE.3
 #   ~/.local/share/diagram-kit/.venv/bin/python tests/browser_flows.py out/ secrets/admin-token
 #   ~/.local/share/diagram-kit/.venv/bin/python tests/grafana_capture.py out/
 #   ~/.local/share/diagram-kit/.venv/bin/python tests/sprint1_walk.py docs/screenshots/sprint1 <run> <trace-id>
