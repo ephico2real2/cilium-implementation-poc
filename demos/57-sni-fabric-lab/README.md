@@ -106,13 +106,13 @@ podman compose up -d --build
 envoy            healthy after 0s
 web              healthy after 0s
 tcp-svc          healthy after 6s
-orders-api       healthy after 6s
-postgres         healthy after 6s
-mq               healthy after 121s
-worker           healthy after 121s
-prometheus       healthy after 121s
-grafana          healthy after 121s
-victoria-metrics healthy after 121s
+orders-api       healthy after 10s
+postgres         healthy after 10s
+mq               healthy after 131s
+worker           healthy after 131s
+prometheus       healthy after 131s
+grafana          healthy after 131s
+victoria-metrics healthy after 131s
 ```
 
 ### 4. Check the shared port and the services
@@ -132,7 +132,7 @@ PASS  tcp-svc: ECHO                                  hello fabric
 PASS  tcp-svc: HELP                                  COMMANDS PING TIME ECHO HELP QUIT
 PASS  tcp-svc: unknown command                       ERR unknown command
 PASS  tcp-svc: QUIT                                  BYE
-PASS  tcp-svc: TIME is today's UTC date              2026-10-22T11:41:29+00:00
+PASS  tcp-svc: TIME is today's UTC date              2026-10-22T13:39:43+00:00
 PASS  tcp-svc: over-long line refused                ERR line too long
 PASS  edge_sni: unknown SNI is reset                 no peer certificate available 
 PASS  edge_sni: missing SNI is reset                 no peer certificate available 
@@ -147,13 +147,13 @@ PASS  api: OpenAPI lists /orders and /admin/chaos    orders-api True True
 PASS  orders: POST creates (201)                     HTTP 201
 PASS  orders: same key replays (200)                 HTTP 200
 PASS  orders: replay header                          idempotent-replayed: true
-PASS  orders: replay returns the same order          {"id":1,"item":"espresso","quantity":2,"status":"processed","created_a
+PASS  orders: replay returns the same order          {"id":1,"item":"espresso","quantity":2,"status":"created","created_at"
 PASS  orders: same key, other body refused (422)     HTTP 422
 PASS  orders: missing Idempotency-Key refused        HTTP 422
 PASS  orders: quantity over 20 refused               HTTP 422
 PASS  orders: GET by id                              espresso 2
 PASS  orders: status update not exposed publicly     HTTP 404
-PASS  tcp: API pings tcp-svc through edge_sni        {"reply":"PONG","latency_ms":3.0,"attempts":1}
+PASS  tcp: API pings tcp-svc through edge_sni        {"reply":"PONG","latency_ms":11.5,"attempts":1}
 PASS  admin: no token refused                        HTTP 401
 PASS  admin: wrong token refused                     HTTP 401
 PASS  admin: envoy, postgres, web, tcp-svc up        envoy=True postgres=True web=True tcp-svc=True mq=True worker=True
@@ -161,7 +161,7 @@ PASS  admin: chaos rejects a rate over 1             HTTP 422
 PASS  cors: web origin allowed                       access-control-allow-origin: https://web.fabric.localtest.me:8443
 PASS  cors: other origin not allowed                 no allow-origin header
 PASS  isolation: orders-api cannot resolve postgres  socket.gaierror: [Errno -2] Name or service not known
-PASS  envoy: Postgres traffic went through mesh_pg   tcp.postgres.downstream_cx_total=22
+PASS  envoy: Postgres traffic went through mesh_pg   tcp.postgres.downstream_cx_total=30
 == Phase 3: IBM MQ, worker, mesh_http
 PASS  mq: put and get with OutboundSNI=HOSTNAME      RESULT ok: both messages put and got back through Envoy with OutboundS
 PASS  mq: channel-name SNI refused                   RESULT ok: refused as expected for mode channel
@@ -173,12 +173,12 @@ PASS  mq: REST API reachable through mesh_http       True (after 0s)
 PASS  flow: order 4 created -> processed             processed 1 (after 1s)
 PASS  admin: every component up                      envoy=True postgres=True web=True tcp-svc=True mq=True worker=True
 PASS  metrics: /metrics/envoy through mesh_http      5537 samples
-PASS  metrics: /metrics/orders-api through mesh_http 245 samples
+PASS  metrics: /metrics/orders-api through mesh_http 247 samples
 PASS  metrics: /metrics/tcp-svc through mesh_http    39 samples
 PASS  metrics: /metrics/worker through mesh_http     43 samples
 PASS  metrics: /metrics/mq through mesh_http         136 samples
 PASS  worker: processed counter                      worker_messages_total{result="processed"} 2.0
-PASS  envoy: verified TLS to the MQ REST API         cluster.mq_web.ssl.handshake=8
+PASS  envoy: verified TLS to the MQ REST API         cluster.mq_web.ssl.handshake=13
 PASS  envoy: MQ certificate name matched             fail_verify_san=0
 PASS  isolation: worker cannot resolve mq            socket.gaierror: [Errno -2] Name or service not known
 PASS  isolation: worker cannot resolve orders-api    socket.gaierror: [Errno -2] Name or service not known
@@ -231,9 +231,9 @@ PASS  chaos 50%: every order still processed         processed=10 of 10 after 3s
 PASS  chaos 50%: Envoy retried the failed PUTs       upstream_rq_retry 0 -> 10
 PASS  postgres restart: API recovers on its own      order 38 created 1 attempt(s) after the restart
 PASS  mq down: order still accepted, no event yet    created 0
-PASS  mq back: the sweeper's resend gets it processed processed=1 of 1 after 12s
+PASS  mq back: the sweeper's resend gets it processed processed=1 of 1 after 6s
 PASS  tcp-svc down: ping fails cleanly               HTTP 502
-PASS  tcp-svc back: ping works again                 {"reply":"PONG","latency_ms":2.6,"attempts":1}
+PASS  tcp-svc back: ping works again                 {"reply":"PONG","latency_ms":4.3,"attempts":1}
 
 failures: 0
 ```
@@ -253,11 +253,11 @@ PASS  metrics: the collector's own metrics through mesh_http 54 samples
 PASS  store: tempo ready, reached only through Envoy ready after 0s; net-tempo (internal) shared with Envoy alone
 PASS  metrics: /metrics/tempo through mesh_http      639 samples
 PASS  store: victoria-traces ready, reached only through Envoy OK after 0s; net-vtraces (internal) shared with Envoy alone
-PASS  metrics: /metrics/victoria-traces through mesh_http 493 samples
+PASS  metrics: /metrics/victoria-traces through mesh_http 495 samples
 PASS  store: victoria-metrics ready, reached only through Envoy OK after 0s; net-vmetrics (internal) shared with Envoy alone
-PASS  metrics: /metrics/victoria-metrics through mesh_http 978 samples
+PASS  metrics: /metrics/victoria-metrics through mesh_http 975 samples
 PASS  store: victoria-logs ready, reached only through Envoy OK after 0s; net-vlogs (internal) shared with Envoy alone
-PASS  metrics: /metrics/victoria-logs through mesh_http 486 samples
+PASS  metrics: /metrics/victoria-logs through mesh_http 482 samples
 PASS  stores: same healthy metric jobs               11 jobs: envoy mq orders-api otel-collector postgres tcp-svc tempo victoria-logs victoria-metrics victoria-traces worker
 PASS  stores: MQ gauge and sample count copied       fresh gauges=1 in both; scrape_samples_scraped=136 in both
 PASS  grafana: datasource prometheus answers OK      status=OK Successfully queried the Prometheus API.
@@ -265,10 +265,10 @@ PASS  grafana: datasource victoriametrics answers OK status=OK Successfully quer
 PASS  grafana: datasource victorialogs answers OK    status=OK Data source is working
 PASS  grafana: datasource tempo answers OK           status=OK Data source is working
 PASS  grafana: datasource victoriatraces answers OK  status=OK Data source is working
-PASS  stores: the same 5 trace ids in Tempo and VictoriaTraces phase6-0023cac4 after 27s, e.g. 1cb131fd37908acabf2656c806f7eeb4
+PASS  stores: the same 5 trace ids in Tempo and VictoriaTraces phase6-bd748a9f after 27s, e.g. 16278810a1361cfbe9ced5dbe4119376
 PASS  stores: one trace has two spans                Tempo=2, VictoriaTraces=2 (parent + child)
 PASS  stores: the run's metrics in VictoriaMetrics   5 of 5 samples after 30s
-PASS  stores: the run's logs in VictoriaLogs         5 lines with trace_id 1cb131fd37908acabf2656c806f7eeb4 after 3s
+PASS  stores: the run's logs in VictoriaLogs         5 lines with trace_id 16278810a1361cfbe9ced5dbe4119376 after 3s
 
 failures: 0
 ```
@@ -305,11 +305,16 @@ ok        GET victoriametrics.mesh/health -> 200
 ok        GET victorialogs.mesh/health -> 200
 ok        GET victoriametrics.fabric.localtest.me/api/v1/query?query=1 -> 200
 ok        POST victoriametrics.fabric.localtest.me/api/v1/query?query=1 -> 200
-ok        POST victoriametrics.fabric.localtest.me/api/v1/import -> Envoy 404
-ok        POST victoriametrics.fabric.localtest.me/api/v1/admin/tsdb/delete_series?match[]=gen -> Envoy 404
-ok        POST victoriametrics.fabric.localtest.me/api/v1/write -> Envoy 404
-ok        POST victoriametrics.fabric.localtest.me/-/reload -> Envoy 404
-ok        POST victoriametrics.fabric.localtest.me/opentelemetry/v1/metrics -> Envoy 404
+ok        GET victoriametrics.fabric.localtest.me/ -> 200, holds 'Single-node VictoriaMetrics'
+ok        GET victoriametrics.fabric.localtest.me/vmui/ -> 200, holds '<title>vmui</title>'
+ok        GET victoriametrics.fabric.localtest.me/vmui/assets/index-COkkZ7F8.js -> 200
+ok        GET victoriametrics.fabric.localtest.me/api/v1/status/tsdb -> 200
+ok        GET victoriametrics.fabric.localtest.me/api/v1/status/top_queries -> 200
+ok        GET victoriametrics.fabric.localtest.me/flags -> 200
+ok        GET victoriametrics.fabric.localtest.me/metrics -> 200
+ok        GET victoriametrics.fabric.localtest.me/snapshot/list -> 200
+ok        GET victoriametrics.fabric.localtest.me/api/v1/admin/tsdb/delete_series -> 405
+ok        POST victoriametrics.fabric.localtest.me/api/v1/import -> 204
 mismatches: 0
 ```
 
@@ -322,7 +327,7 @@ python3 tests/test_dashboard.py
 
 ```text
 EMPTY  Status updates: 5xx answered vs. 5xx that reached the work  B  series=0  
-31 queries, 0 with errors or warnings, 1 empty, 0.08 s in all
+31 queries, 0 with errors or warnings, 1 empty, 0.12 s in all
 PASS  14 charts in 7 sections; both forms agree on colours, styles, units, legends
 ```
 

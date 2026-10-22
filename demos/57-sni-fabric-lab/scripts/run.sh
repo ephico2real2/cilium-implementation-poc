@@ -238,7 +238,7 @@ MQ console      https://mqconsole.fabric.localtest.me:8443/ibmmq/console  admin 
 MQ app user     (REST API, MQ clients)                                app / $(cred mq-app-password)
 Grafana         http://grafana.fabric.localtest.me:8080              anonymous viewer; admin / $(cred grafana-admin-password)
 Prometheus      http://prometheus.fabric.localtest.me:8080
-VictoriaMetrics http://victoriametrics.fabric.localtest.me:8080       read API only
+VictoriaMetrics http://victoriametrics.fabric.localtest.me:8080/vmui/ none
 Postgres        (through Envoy only)                                  fabric / $(cred postgres-password)
 EOF
 

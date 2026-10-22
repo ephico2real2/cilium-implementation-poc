@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Usage: test_store_routes.sh   (against the running lab)
-# Envoy routes only each store's write path, the read API Grafana uses and the readiness probe;
-# an admin, delete or other write path must get Envoy's 404. Asked from inside Grafana, which
-# holds every store alias.
+# On the mesh, Envoy routes only each store's write path, the read API Grafana uses and the
+# readiness probe; an admin, delete or other write path must get Envoy's 404. On the host,
+# VictoriaMetrics is the whole app. Asked from inside Grafana, which holds every store alias.
 set -u
 bad=0
 expect() {  # expect <code> <method> <alias> <path>
@@ -38,23 +38,21 @@ expect_ops() {  # expect_ops <code> <method> <path>; ask ops_http from Envoy's G
     -H 'Host: victoriametrics.fabric.localtest.me' "http://victoriametrics.mesh:10080$3")"
   if [ "${got}" = "$1" ]; then echo "ok        $2 victoriametrics.fabric.localtest.me$3 -> ${got}"; else echo "MISMATCH  $2 victoriametrics.fabric.localtest.me$3 -> ${got} (want $1)"; bad=$((bad + 1)); fi
 }
-refuse_ops() {  # refuse_ops <method> <path>; require ops_http's own fallback body
+expect_ops_body() {  # expect_ops_body <code> <path> <text>; a GET whose body must hold <text>
   local got code body
-  got="$(podman exec fabric-grafana-1 curl -g -s -w $'\n%{http_code}' -X "$1" \
+  got="$(podman exec fabric-grafana-1 curl -g -s -w $'\n%{http_code}' \
     -H 'Host: victoriametrics.fabric.localtest.me' "http://victoriametrics.mesh:10080$2")"
   code="${got##*$'\n'}"
   body="${got%$'\n'*}"
-  # Envoy's inline body ends in its own newline; drop exactly that one, keep the exact match.
-  body="${body%$'\n'}"
-  if [ "${code}" = 404 ] && [ "${body}" = "not routed on victoriametrics.fabric.localtest.me" ]; then
-    echo "ok        $1 victoriametrics.fabric.localtest.me$2 -> Envoy 404"
+  if [ "${code}" = "$1" ] && [[ "${body}" == *"$3"* ]]; then
+    echo "ok        GET victoriametrics.fabric.localtest.me$2 -> ${code}, holds '$3'"
   else
-    echo "MISMATCH  $1 victoriametrics.fabric.localtest.me$2 -> ${code}, body '${body}' (want Envoy 404)"; bad=$((bad + 1))
+    echo "MISMATCH  GET victoriametrics.fabric.localtest.me$2 -> ${code} (want $1 holding '$3')"; bad=$((bad + 1))
   fi
 }
 refuse POST victoriametrics.mesh '/api/v1/admin/tsdb/delete_series?match[]=gen'
 refuse POST victoriametrics.mesh /api/v1/import
-# Any mesh caller could already write OTLP metrics; remote write is also mesh-only, while the host stays query-only.
+# Any mesh caller could already write OTLP metrics; remote write is the same, from the mesh.
 reach POST victoriametrics.mesh /api/v1/write
 refuse GET victoriametrics.mesh /snapshot/create
 refuse GET victorialogs.mesh /internal/force_merge
@@ -83,13 +81,28 @@ expect 200 GET tempo.mesh /ready
 expect 200 GET victoriatraces.mesh /health
 expect 200 GET victoriametrics.mesh /health
 expect 200 GET victorialogs.mesh /health
-# The host-facing VictoriaMetrics endpoint exposes only the anchored read API, never a write,
-# destructive admin call, reload or the collector's OTLP ingestion path.
+# The host-facing VictoriaMetrics endpoint is the whole app, as Prometheus's is (the operator's
+# decision): the UI, its status pages and the admin API all reach the store. Asked without
+# changing data: a GET on delete_series gets the store's own 405, an empty import adds nothing.
 expect_ops 200 GET '/api/v1/query?query=1'
 expect_ops 200 POST '/api/v1/query?query=1'
-refuse_ops POST /api/v1/import
-refuse_ops POST '/api/v1/admin/tsdb/delete_series?match[]=gen'
-refuse_ops POST /api/v1/write
-refuse_ops POST /-/reload
-refuse_ops POST /opentelemetry/v1/metrics
+expect_ops_body 200 / 'Single-node VictoriaMetrics'
+expect_ops_body 200 /vmui/ '<title>vmui</title>'
+# The page's own script bundle, by the name the page gives it (it changes with each release).
+vmui_js="$(podman exec fabric-grafana-1 curl -s -H 'Host: victoriametrics.fabric.localtest.me' \
+  http://victoriametrics.mesh:10080/vmui/ | grep -oE 'src="\./assets/index-[^"]+\.js"' | head -1)"
+vmui_js="${vmui_js#src=\"./}"
+vmui_js="${vmui_js%\"}"
+if [ -n "${vmui_js}" ]; then
+  expect_ops 200 GET "/vmui/${vmui_js}"
+else
+  echo "MISMATCH  GET victoriametrics.fabric.localtest.me/vmui/ names no assets/index-*.js"; bad=$((bad + 1))
+fi
+expect_ops 200 GET /api/v1/status/tsdb
+expect_ops 200 GET /api/v1/status/top_queries
+expect_ops 200 GET /flags
+expect_ops 200 GET /metrics
+expect_ops 200 GET /snapshot/list
+expect_ops 405 GET /api/v1/admin/tsdb/delete_series
+expect_ops 204 POST /api/v1/import
 echo "mismatches: ${bad}"; exit "${bad}"

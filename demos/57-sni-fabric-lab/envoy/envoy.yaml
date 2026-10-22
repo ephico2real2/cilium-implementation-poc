@@ -2,7 +2,7 @@
 #   edge_sni   :10443  L4  TLS passthrough, routed on SNI      (host port 8443)
 #   mesh_http  :18080  L7  east-west HTTP, routed on Host and path, with retries
 #   mesh_pg    :15432  L4  to Postgres, with connect retries
-#   ops_http   :10080  L7  Grafana and Prometheus for the browser   (host port 8080)
+#   ops_http   :10080  L7  Grafana, Prometheus and VictoriaMetrics for the browser (host port 8080)
 #   stats      :9902   L7  /stats/prometheus only
 # The admin API itself stays on 127.0.0.1:9901.
 admin:
@@ -377,18 +377,15 @@ static_resources:
             - name: victoria_metrics
               domains: ["victoriametrics.fabric.localtest.me", "victoriametrics.fabric.localtest.me:*"]
               routes:
-              # The host-facing endpoint is query-only, with the same GET and POST methods Grafana
-              # gets on the mesh; imports, writes, reloads and admin calls stop at Envoy.
+              # The whole app for the browser on the Mac, as Prometheus above: vmui and every API,
+              # admin calls included (the operator's decision); the mesh alias stays narrowed.
+              # A GET is retried like the read API was; anything else only if it never arrived.
               - match:
-                  safe_regex: *vm_read_api
+                  prefix: /
                   headers: [{name: ":method", string_match: {exact: GET}}]
                 route: {cluster: victoria_metrics, timeout: 60s, retry_policy: *idempotent_retry}
-              - match:
-                  safe_regex: *vm_read_api
-                  headers: [{name: ":method", string_match: {exact: POST}}]
-                route: {cluster: victoria_metrics, timeout: 60s, retry_policy: *safe_retry}
               - match: {prefix: /}
-                direct_response: {status: 404, body: {inline_string: "not routed on victoriametrics.fabric.localtest.me\n"}}
+                route: {cluster: victoria_metrics, timeout: 60s, retry_policy: *safe_retry}
           http_filters:
           - name: envoy.filters.http.router
             typed_config:

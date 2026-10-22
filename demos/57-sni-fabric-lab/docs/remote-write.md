@@ -146,7 +146,7 @@ readers. IBM MQ's exporter is consume-on-read: two scrapers each get part of the
 | The alias | [`compose.yaml`](../compose.yaml) | Envoy answers as `victoriametrics.mesh` on `net-obs`, Prometheus's only network |
 | The route | [`envoy/envoy.yaml`](../envoy/envoy.yaml) | on `victoriametrics.mesh`, `POST /api/v1/write` to VictoriaMetrics, retried only if the request never reached it |
 | No scraper | [`compose.yaml`](../compose.yaml) | VictoriaMetrics runs with `-storageDataPath` only: no `-promscrape.config` |
-| The host stays read-only | [`envoy/envoy.yaml`](../envoy/envoy.yaml) | `victoriametrics.fabric.localtest.me:8080` routes only the query API; `/api/v1/write` there is Envoy's 404 |
+| The host gets the whole app | [`envoy/envoy.yaml`](../envoy/envoy.yaml) | `victoriametrics.fabric.localtest.me:8080` routes everything, vmui included, as `prometheus.fabric.localtest.me` does; on the mesh only Prometheus's remote write and the collector's OTLP write reach the store |
 
 ```yaml
 # observability/prometheus.yml
@@ -155,7 +155,8 @@ remote_write:
 ```
 
 The write route is open to any caller on the mesh, as VictoriaMetrics' OpenTelemetry write route
-already was; from this Mac, only the query API is reachable.
+already was. From this Mac, `victoriametrics.fabric.localtest.me:8080` is VictoriaMetrics' whole
+app, its own UI included (below).
 
 ## How we know it works
 
@@ -169,6 +170,36 @@ Measured on the live lab, 2026-10-22:
 | Parity | 10 of 10 queries equal to floating-point noise (`tests/parity.py`) |
 | `scripts/verify.sh phase6` | "stores: MQ gauge and sample count copied": the gauge in both stores, equal positive sample counts |
 | `scripts/run.sh --fresh` | 87 checks, 0 failures; every check of the run before R1.3 still passes |
+
+## See it in VictoriaMetrics' own UI
+
+VictoriaMetrics ships its own web app, vmui, at
+<http://victoriametrics.fabric.localtest.me:8080/vmui/>: a query page with graphs, and an
+explorer of what the store holds. Apart from the few test metrics `phase6` sends through the
+collector over OpenTelemetry, every series in it was scraped by Prometheus and arrived by remote
+write.
+
+![vmui's query page graphing the shop's requests per second through Envoy over 30 minutes, one line per upstream: mq_web about 0.25, orders_api_internal 0.1, orders_api_tls about 0.08, then tcp_svc and web near 0.02.](screenshots/vmui-query.light.png)
+
+*vmui's query page, 2026-10-22, with no load running: the shop's requests per second through
+Envoy, one line per application upstream. The worker getting messages through MQ's REST API
+(`mq_web`) and Prometheus scraping orders-api every 10 s (`orders_api_internal`) keep it moving.*
+
+![vmui's cardinality explorer: 10,670 series and 1,584 metric names in total, with the metric names and labels that have the most series.](screenshots/vmui-cardinality.light.png)
+
+*The cardinality explorer, the same day: 10,670 series under 1,584 metric names; the most
+series belong to the `flag` metric, which VictoriaMetrics, VictoriaLogs and VictoriaTraces
+each expose about themselves, and to Envoy's latency buckets.*
+
+Both pictures are taken by `tests/vmui_capture.py`, which fails rather than takes them when a
+page errors, a request answers 400 or more, or the expected text is missing:
+
+```bash
+~/.local/share/diagram-kit/.venv/bin/python tests/vmui_capture.py docs/screenshots
+```
+
+To see the MQ samples this page is about, type `scrape_samples_scraped{job="mq"}` on the query
+page and press **Execute**.
 
 ## Check it yourself
 

@@ -183,8 +183,8 @@ emulation; about two minutes is normal.
 podman compose up -d --build
 ```
 
-Result: every health check passes; Envoy after 0 s, Postgres after 6 s, MQ after 121 s and
-Grafana after 121 s. Watch them with `podman ps --format '{{.Names}} {{.Status}}'` until every one reads
+Result: every health check passes; Envoy after 0 s, Postgres after 10 s, MQ after 131 s and
+Grafana after 131 s. Watch them with `podman ps --format '{{.Names}} {{.Status}}'` until every one reads
 `healthy`; the five without a health check (`otel-collector`, `postgres-exporter`, `tempo`,
 `victoria-traces`, `victoria-logs`) read `Up`.
 
@@ -230,7 +230,7 @@ scripts/verify.sh phase5
 ```
 
 Result: 7 checks, `failures: 0`; under 50% chaos `processed=10 of 10 after 3s`, and the order
-taken while MQ was down `processed=1 of 1 after 12s` once the sweeper re-sent it.
+taken while MQ was down `processed=1 of 1 after 6s` once the sweeper re-sent it.
 
 ## Verify
 
