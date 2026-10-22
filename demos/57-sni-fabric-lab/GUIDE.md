@@ -7,6 +7,7 @@ says so.
 
 - The lab is up: `scripts/run.sh` has finished (see [RECAP.md](RECAP.md)).
 - The commands use the lab CA, `certs/ca/ca.crt`, and the lab credentials in `docs/usage.md`.
+- `openssl version` prints OpenSSL 3 or later, not LibreSSL (RECAP.md, Prerequisites).
 - Prometheus scrapes every 10 s, so a counter read through it moves up to 10 s after the event.
 
 ## Exercises

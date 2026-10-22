@@ -35,7 +35,15 @@ scenario() {  # scenario <name> <run.sh args> <SCEN_UP_FAIL> <want: pass|stop>
   local demo out status checks verdict=ok got
   demo="$(mktemp -d "${work}/demo.XXXX")"
   mkdir -p "${demo}/scripts" "${demo}/tests/r1-2" "${demo}/secrets"
-  cp "${RUN_SH}" "${demo}/scripts/run.sh"
+  # Process substitution is forbidden by some managed test sandboxes. This harness tests run.sh's
+  # control flow, not tee, so replace only its transcript tee with a plain redirection.
+  awk '
+    $0 == "exec > >(tee \"${TRANSCRIPT}\") 2>&1" {
+      print "exec >\"${TRANSCRIPT}\" 2>&1"
+      next
+    }
+    { print }
+  ' "${RUN_SH}" > "${demo}/scripts/run.sh"
   printf '#!/usr/bin/env bash\necho gen-certs.sh\n' > "${demo}/scripts/gen-certs.sh"
   # The real gen-secrets.sh: it keeps the files below and is where the lab values are listed.
   cp "$(dirname "${RUN_SH}")/gen-secrets.sh" "${demo}/scripts/gen-secrets.sh"

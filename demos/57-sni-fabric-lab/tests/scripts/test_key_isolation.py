@@ -9,8 +9,10 @@ component's copy, each readable only by its owner. So:
   3. no service that can read past file modes (DAC_READ_SEARCH, DAC_OVERRIDE) mounts them;
   4. every long-running service has a UID of its own (mq-client shares the queue manager's
      1001 by design and mounts none of its volumes; init is a one-shot root);
-  5. init-volumes.sh still works with only the mounts compose gives it (run in a throwaway
-     container, named volumes replaced by tmpfs).
+  5. init-volumes.sh still works with only the mounts and the hardening compose gives it (read-only
+     root, its capabilities), and twice in a row, as on every `podman compose up` of a lab that
+     already exists: the second run leaves the same owners and modes and nothing of an older
+     layout behind (run in a throwaway container, named volumes replaced by tmpfs).
 Exits with the number of failed checks.
 """
 import json
@@ -71,18 +73,38 @@ def main() -> int:
 
     init = services["init"]
     args = ["podman", "run", "--rm", "--network", "none"]
+    # init's own hardening, so a capability it needs and lacks fails here, not on the next rebuild.
+    if init.get("read_only"):
+        args.append("--read-only")
+    args += [f"--cap-drop={cap}" for cap in init.get("cap_drop", [])]
+    args += [f"--cap-add={cap}" for cap in init.get("cap_add", [])]
+    args += [f"--security-opt={opt}" for opt in init.get("security_opt", [])]
+    targets = []
     for vol in init["volumes"]:
         if vol["type"] == "bind":
             args += ["-v", f"{vol['source']}:{vol['target']}:ro"]
         else:
             args += ["--tmpfs", vol["target"]]
+            targets.append(vol["target"])
     script = next(v["target"] for v in init["volumes"] if v["target"].endswith("init-volumes.sh"))
-    probe = (f"sh {script} >/dev/null && ls -n /tls/ca/ca.crt /pg-secrets/postgres/postgres-password "
-             "&& ! ls -d /secrets/postgres 2>/dev/null")
+    # Owners and modes of everything init writes; a store's own files under data/ are not init's.
+    snapshot = f"find {' '.join(targets)} -maxdepth 2 ! -path '*/data/*' -exec stat -c '%a %u %n' {{}} + | sort"
+    # Between the runs: a store writes as its own UID inside its 0700 data folder, and a lab
+    # from before pg-secrets left a root-owned /secrets/postgres.
+    probe = f"""
+sh {script} >/dev/null || {{ echo "first run failed"; exit 1; }}
+first="$({snapshot})"
+mkdir -m 0700 /stores/tempo/data/blocks && chown 10004 /stores/tempo/data/blocks
+mkdir -p /secrets/postgres && echo old > /secrets/postgres/postgres-password && chmod 0500 /secrets/postgres
+sh {script} >/dev/null || {{ echo "second run failed"; exit 1; }}
+second="$({snapshot})"
+[ "$first" = "$second" ] || {{ echo "second run differs:"; echo "$second" | grep -vxF -e "$first"; exit 1; }}
+ls -n /tls/ca/ca.crt /pg-secrets/postgres/postgres-password >/dev/null && ! ls -d /secrets/postgres 2>/dev/null
+"""
     result = subprocess.run([*args, init["image"], "sh", "-c", probe], capture_output=True, text=True)
     if result.returncode != 0:
-        failures.append(f"5. init-volumes.sh with compose's mounts: exit {result.returncode}: "
-                        f"{(result.stderr or result.stdout).strip()[:200]}")
+        failures.append(f"5. init-volumes.sh with compose's mounts and hardening, run twice: exit "
+                        f"{result.returncode}: {(result.stdout + result.stderr).strip()[:300]}")
 
     for line in failures:
         print("FAIL ", line)

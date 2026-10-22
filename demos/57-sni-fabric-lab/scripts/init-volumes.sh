@@ -31,10 +31,12 @@ put() {  # put <src> <dst> <uid> <mode>
 }
 
 # ---------------------------------------------------------------- /tls
+# Emptied first (here and in /secrets), so a folder no longer in the list below does not stay
+# behind, readable by a UID that may since belong to another component.
+find /tls -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 for entry in web:101 tcp-svc:10001 orders-api:10002 mq-client:1001; do
   name="${entry%%:*}"
   uid="${entry##*:}"
-  rm -rf "/tls/${name}"
   mkdir -p "/tls/${name}"
   put "/src/certs/${name}/tls.crt" "/tls/${name}/tls.crt" "${uid}" 0444
   put "/src/certs/${name}/ca.crt" "/tls/${name}/ca.crt" "${uid}" 0444
@@ -50,6 +52,8 @@ chmod 0555 /tls/ca
 echo "init-volumes: tls/ca/ca.crt -> everyone"
 
 # ---------------------------------------------------------------- /secrets
+# A lab from before pg-secrets still holds a root-owned /secrets/postgres: emptied first.
+find /secrets -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 # consumer:uid:secret,...
 for entry in \
   orders-api:10002:admin-token,postgres-password,mq-app-password,worker-token \
@@ -62,7 +66,6 @@ do
   rest="${entry#*:}"
   uid="${rest%%:*}"
   list="${rest#*:}"
-  rm -rf "/secrets/${consumer}"
   mkdir -p "/secrets/${consumer}"
   for secret in $(echo "${list}" | tr ',' ' '); do
     put "/src/secrets/${secret}" "/secrets/${consumer}/${secret}" "${uid}" 0400

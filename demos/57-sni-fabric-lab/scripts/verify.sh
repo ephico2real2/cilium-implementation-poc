@@ -83,8 +83,9 @@ phase1() {
   out="$("${OPENSSL}" s_client -connect "127.0.0.1:${PORT}" -noservername </dev/null 2>&1 | grep -E 'errno|peer certificate' | head -2 | tr '\n' ' ')"
   check "edge_sni: missing SNI is reset" "no peer certificate available" "${out}"
   after="$(envoy_stat 'listener.0.0.0.0_10443.no_filter_chain_match')"
-  # Compared exactly: as a substring, 1 -> 13 would have passed "rose by 2".
-  if [[ "${before}" =~ ^[0-9]+$ ]] && [ "${after}" = "$((before + 2))" ]; then
+  # Compared as numbers, never as substrings. At least 2, not exactly 2: the counter is the whole
+  # listener's, so any other client's unknown SNI in this window counts too.
+  if [[ "${before}" =~ ^[0-9]+$ ]] && [[ "${after}" =~ ^[0-9]+$ ]] && [ "${after}" -ge $((before + 2)) ]; then
     pass "envoy: no_filter_chain_match rose by 2" "${before} -> ${after}"
   else
     fail "envoy: no_filter_chain_match rose by 2" "${before:-missing} -> ${after:-missing}"
@@ -169,12 +170,14 @@ mesh_get() {  # mesh_get <url>  -> body, fetched from inside orders-api through 
   in_container orders-api python -c "import sys, urllib.request; sys.stdout.write(urllib.request.urlopen(sys.argv[1], timeout=10).read().decode())" "$1"
 }
 
-# Only samples from the last two scrapes (10 s apart): a restarted collector has no series until
-# its first span, and a plain query would return the old process's last value for 5 minutes.
-prometheus_value() {  # prometheus_value -> sum of accepted spans, or zero before the series exists
-  curl -fsS --get --data-urlencode 'query=sum(last_over_time(otelcol_receiver_accepted_spans_total[20s]))' \
+# Only samples from the last three scrapes (10 s apart): a plain query would return a restarted
+# collector's old last value for 5 minutes. A restarted collector has no series until its first
+# span, so a fresh `up` sample stands for zero then; with no fresh scrape at all the answer is
+# empty and this fails, rather than invent a zero the next cumulative sample would look past.
+prometheus_value() {  # prometheus_value -> sum of accepted spans; exits 1 without a fresh scrape
+  curl -fsS --get --data-urlencode 'query=sum(last_over_time(otelcol_receiver_accepted_spans_total[30s])) or on() (0 * sum(last_over_time(up{job="otel-collector"}[30s])))' \
     "http://prometheus.fabric.localtest.me:8080/api/v1/query" \
-    | python3 -c 'import json,sys; d=json.load(sys.stdin); r=d["data"]["result"]; print(r[0]["value"][1] if r else 0)'
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); r=d["data"]["result"]; print(r[0]["value"][1]) if r else sys.exit(1)'
 }
 
 phase3() {

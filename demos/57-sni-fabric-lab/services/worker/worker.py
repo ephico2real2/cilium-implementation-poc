@@ -69,6 +69,15 @@ def backoff(attempt: int, cap: float = 10.0) -> float:
     return random.uniform(0, min(cap, 0.25 * 2 ** min(attempt, 8)))
 
 
+def required_secret(path: str) -> str:
+    """Read a non-empty secret, or stop before consuming any messages."""
+    with open(path, encoding="utf-8") as handle:
+        value = handle.read().strip()
+    if not value:
+        raise RuntimeError(f"required secret is empty: {path}")
+    return value
+
+
 def main() -> None:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
@@ -76,14 +85,14 @@ def main() -> None:
     # first event of that kind.
     for result in ("processed", "requeued", "dead_lettered", "lost"):
         MESSAGES.labels(result)
+    mq_password = required_secret(MQ_PASSWORD_FILE)
+    worker_token = required_secret(WORKER_TOKEN_FILE)
     start_http_server(METRICS_PORT)
-    with open(MQ_PASSWORD_FILE, encoding="utf-8") as handle:
-        auth = (MQ_USER, handle.read().strip())
+    auth = (MQ_USER, mq_password)
     # The MQ REST API refuses POST and DELETE without this header (any value).
     mq_headers = {"ibm-mq-rest-csrf-token": "fabric"}
     mq = httpx.Client(auth=auth, headers=mq_headers, timeout=httpx.Timeout(GET_WAIT_MS / 1000 + 5, connect=2))
-    with open(WORKER_TOKEN_FILE, encoding="utf-8") as handle:
-        api_headers = {"Authorization": f"Bearer {handle.read().strip()}"}
+    api_headers = {"Authorization": f"Bearer {worker_token}"}
     api = httpx.Client(headers=api_headers, timeout=httpx.Timeout(15, connect=2))
 
     def put(queue: str, event: dict) -> bool:

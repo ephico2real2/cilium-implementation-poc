@@ -18,10 +18,29 @@ shared-SNI design for exposing IBM MQ through Envoy.
   with no certificate are both refused.
 - An order saved in Postgres, announced on MQ and marked processed by the worker in 1 s.
 - Retries that rescue what they safely can: under 50% injected failures all 10 orders were
-  processed, after 9 Envoy retries.
+  processed, after 7 Envoy retries.
 - Recovery without a restart by hand: from a Postgres restart, from MQ stopped and started,
   and from the TCP service stopped and started.
-- Metrics from all six components scraped through Envoy, on a Grafana dashboard of 14 charts.
+- Metrics from every component scraped through Envoy (11 scrape jobs), on a Grafana dashboard
+  of 14 charts.
+- Release 1 so far: an OpenTelemetry Collector and four telemetry stores (Tempo,
+  VictoriaTraces, VictoriaMetrics, VictoriaLogs), also reached only through Envoy. The story so
+  far, with screenshots: `docs/story/01-turn-the-lights-on.md`.
+
+## Words used here
+
+| Word | What it means in this lab |
+|---|---|
+| TLS | The encryption behind `https://`. Each service has its own certificate and key. |
+| SNI | The hostname a client names at the very start of a TLS connection, before anything is encrypted. Envoy reads it to choose the backend. |
+| TLS pass-through | Envoy forwards the encrypted bytes untouched; only the backend can decrypt them. |
+| Mutual TLS | Both sides show a certificate: the MQ client proves who it is, as the server does. |
+| Envoy listener | One port Envoy listens on, with its own routing rules (`edge_sni`, `mesh_http`, ...). |
+| Internal network | A Podman network with no route out. Each component sits on its own, shared only with Envoy. |
+| Alias (`api.mesh`) | A name Envoy answers to on a network; the only names a component can look up. |
+| Retry | Envoy trying a request again. It does so only where repeating it cannot do harm twice. |
+| Sweeper | A loop in orders-api that re-sends the MQ event of any order still `created` after 60 s. |
+| Destructive get | Reading a message from MQ's REST API removes it from the queue; repeating the read would lose a different message, so Envoy never retries it once sent. |
 
 ## Architecture
 
@@ -99,10 +118,27 @@ retry panels are flat: nothing failed. Step 7 below makes them move.*
 
 ## Prerequisites
 
-- Podman 5 with a running machine of 4 GiB, and a Compose provider (`podman compose`).
-  Rootless Podman binds no host port below 1024, so the lab uses 8443 and 8080.
-- OpenSSL 3 or later (`brew install openssl`); macOS's own LibreSSL is refused.
-- Python 3, `curl` and `uuidgen`.
+Check each one before you start; the expected answer is beside it.
+
+| Need | Check | Expect |
+|---|---|---|
+| Podman 5 or later | `podman --version` | `podman version 5.` or later (recorded on 6.1.2) |
+| A running Podman machine with 4 GiB | `podman machine list` | `Currently running`, memory `4GiB` |
+| A Compose provider | `podman compose version` | a version line, no error |
+| OpenSSL 3 or later | `openssl version` | `OpenSSL 3.` or later, not `LibreSSL` |
+| Python 3 | `python3 --version` | `Python 3.` something; the scripts need no extra packages |
+| `curl`, `uuidgen` | `command -v curl uuidgen` | two paths |
+
+- Rootless Podman binds no host port below 1024, so the lab uses 8443 and 8080.
+- If `openssl version` says `LibreSSL` (macOS's own), install OpenSSL and put it first on your
+  `PATH` for this shell, so the scripts and the exercises in GUIDE.md both use it:
+
+```bash
+brew install openssl
+export PATH="$(brew --prefix openssl)/bin:${PATH}"
+openssl version
+```
+
 - Internet access for the image pulls. `*.localtest.me` resolves to `127.0.0.1` in public DNS,
   so no hosts file is needed.
 - On Apple silicon, amd64 emulation in the Podman machine: the IBM MQ image has no arm64
@@ -134,18 +170,26 @@ scripts/gen-secrets.sh
 ```
 
 Result: `secrets/` holds `admin-token`, `postgres-password`, `mq-admin-password`,
-`mq-app-password` and `grafana-admin-password`, with the lab values listed under Reference.
+`mq-app-password`, `grafana-admin-password` and `worker-token`, with the lab values listed
+under Reference. They are fixed, public lab values (`--random` writes random ones).
 
 ### 3. Start the lab
+
+This builds the lab's images and starts every container. IBM MQ is slow to start under amd64
+emulation; about two minutes is normal.
 
 ```bash
 podman compose up -d --build
 ```
 
-Result: every health check passes; Envoy after 6 s, Postgres after 13 s, MQ and Grafana after
-124 s.
+Result: every health check passes; Envoy after 0 s, Postgres after 7 s, MQ after 143 s and
+Grafana after 144 s. Watch them with `podman ps --format '{{.Names}} {{.Status}}'` until every one reads
+`healthy` (the telemetry stores without a health check read `Up`).
 
 ### 4. Check the shared port and the services
+
+The checks connect to every hostname on the one port, try names that must be refused, place an
+order and follow it through MQ to the worker, and prove each component can reach only Envoy.
 
 ```bash
 scripts/verify.sh
@@ -163,6 +207,10 @@ Result: `RESULT ok: both messages put and got back through Envoy with OutboundSN
 
 ### 6. Send traffic
 
+Two minutes of customers: new orders, repeats of the same order (answered from the first), TCP
+pings, and a few connections with a hostname no tenant owns. Watch them arrive on the dashboard
+while it runs.
+
 ```bash
 python3 scripts/load.py --seconds 120
 ```
@@ -172,12 +220,15 @@ reset.
 
 ### 7. Break things and watch them recover
 
+This makes half of the worker's updates fail, restarts Postgres, stops and starts MQ and the TCP
+service, and checks that every order still ends `processed`, with no restart by hand.
+
 ```bash
 scripts/verify.sh phase5
 ```
 
 Result: 7 checks, `failures: 0`; under 50% chaos `processed=10 of 10 after 3s`, and the order
-taken while MQ was down `processed=1 of 1 after 15s` once the sweeper re-sent it.
+taken while MQ was down `processed=1 of 1 after 12s` once the sweeper re-sent it.
 
 ## Verify
 
@@ -187,11 +238,21 @@ Rebuild from nothing and run every check, recorded to `output/transcript.txt`:
 scripts/run.sh --fresh
 ```
 
-Result: 7 min 52 s; 84 checks pass, `31 queries, 0 with errors or warnings`, and
+Result: 8 min 6 s; 84 checks pass, `31 queries, 0 with errors or warnings`, and
 `PASS  14 charts in 7 sections; both forms agree on colours, styles, units, legends`.
 
 Then open <https://web.fabric.localtest.me:8443/admin> with the token `fabric-admin`, and
 <http://grafana.fabric.localtest.me:8080/d/sni-fabric-lab/sni-fabric-lab>.
+
+The browser warns about the certificate until it trusts the lab's own CA. To trust it (macOS,
+your login keychain only; the CA's key stays in `certs/ca/` on this Mac):
+
+```bash
+security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db certs/ca/ca.crt
+```
+
+To undo it: `security remove-trusted-cert certs/ca/ca.crt`, then delete "SNI Fabric Lab Root CA"
+in Keychain Access.
 
 ## Reference
 
@@ -217,6 +278,15 @@ choices: `docs/metrics/dashboard-choices.md`.
 
 ## Troubleshooting
 
+- `gen-certs.sh: need OpenSSL 3 or later, found 'LibreSSL ...'`, or TLS checks failing in
+  `verify.sh` → the scripts found macOS's own `openssl` → put Homebrew's first on `PATH` (see
+  Prerequisites) and run again.
+- `Cannot connect to Podman` → the Podman machine is stopped → `podman machine start`.
+- `address already in use` for 8443 or 8080 → another program holds the port →
+  `lsof -nP -iTCP:8443 -sTCP:LISTEN` names it; `gvproxy` means another Podman container
+  publishes it (`podman ps` shows which), anything else is a program to stop.
+- `mq` stays `starting` for more than five minutes → amd64 emulation is missing or slow → run
+  the `uname -m` check under Prerequisites; it must print `x86_64`.
 - An order stays `created` for about a minute after Envoy or the worker restarted → a waiting
   MQ REST get that lost its caller still took the event (the get is destructive and not
   transactional) → nothing to do: the sweeper re-sends it; measured, order 600 was processed

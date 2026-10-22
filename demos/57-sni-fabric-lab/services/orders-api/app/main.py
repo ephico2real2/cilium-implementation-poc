@@ -341,8 +341,10 @@ def require_worker(authorization: Annotated[str | None, Header()] = None) -> Non
     """Envoy routes api.mesh from every lab network, so reaching this server says nothing about
     who is calling: only the worker holds the token that may change an order's status."""
     expected = settings.worker_token
-    supplied = (authorization or "").removeprefix("Bearer ")
-    if not expected or not hmac.compare_digest(supplied.encode(), expected.encode()):
+    scheme, separator, supplied = (authorization or "").partition(" ")
+    valid_shape = separator == " " and scheme == "Bearer" and bool(supplied) and " " not in supplied
+    matches = hmac.compare_digest(supplied.encode(), expected.encode())
+    if not expected or not valid_shape or not matches:
         raise HTTPException(401, "worker token required", headers={"WWW-Authenticate": "Bearer"})
 
 

@@ -2,8 +2,9 @@
 # Usage: test_verify_false_pass.sh <path to verify.sh>
 # Runs verify.sh against a fake podman, curl and openssl (nothing touches the lab, phase5's
 # stop and restart included) and checks that each check below gives the right verdict:
-# no number may pass by being a substring of another, no missing value may pass, and an
-# unknown phase name must not exit 0 with "failures: 0".
+# no number may pass by being a substring of another, no missing value may pass, another
+# client's traffic on the shared port must not fail a check, and an unknown phase name must not
+# exit 0 with "failures: 0".
 set -u
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
@@ -23,13 +24,13 @@ case "$1 $2" in
   "exec fabric-envoy-1")
     stat="$7"  # exec fabric-envoy-1 bash -c <script> _ <stat>
     case "${stat}" in
-      *no_filter_chain_match) echo "${stat}: $(next nfcm "${SCEN_NFCM}")" ;;
+      *no_filter_chain_match) v="$(next nfcm "${SCEN_NFCM}")"; [ "${v}" = missing ] || echo "${stat}: ${v}" ;;
       *fail_verify_san) [ "${SCEN_SAN}" = missing ] || echo "${stat}: ${SCEN_SAN}" ;;
       *) echo "${stat}: $(next "${stat}" "1 50")" ;;
     esac ;;
   "exec fabric-orders-api-1")
     for i in $(seq 1 12); do echo "sample_${i} 1"; done
-    echo 'worker_messages_total{result="processed"} 2.0'
+    echo "worker_messages_total{result=\"processed\"} ${SCEN_WORKER:-2.0}"
     echo "socket.gaierror: [Errno -2] Name or service not known" ;;
   "exec "*) echo "Name or service not known; nc: bad address 'x'; Permission denied" ;;
   "compose run") echo "RESULT ok: both messages put and got back; RESULT ok: refused" ;;
@@ -42,6 +43,8 @@ STUB
 cat > "${work}/stub/curl" <<'STUB'
 #!/usr/bin/env bash
 # Fake curl: the API, web and MQ console answers verify.sh reads, by URL and method.
+# Prometheus with no fresh sample at all answers an empty result.
+if [ "${SCEN_PROM_EMPTY:-0}" = 1 ]; then printf '{"data":{"result":[]}}'; exit 0; fi
 method=GET; fmt=""; headers=0; url=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -59,12 +62,14 @@ case "${fmt}" in
 esac
 [ "${headers}" = 0 ] || printf "content-security-policy: default-src 'self'; connect-src 'self' https://api.fabric.localtest.me\r\n\r\n"
 code=200; body=""
+openapi='{"info":{"title":"orders-api"},"paths":{"/orders":{},"/orders/{order_id}":{},"/admin/chaos":{}}}'
 case "${method} ${url}" in
+  "GET "*"/openapi.json") body="${SCEN_OPENAPI:-${openapi}}" ;;
   *"/admin/overview")
     body='{"health":[{"name":"envoy","ok":true},{"name":"postgres","ok":true},{"name":"web","ok":true},{"name":"tcp-svc","ok":true},{"name":"mq","ok":true},{"name":"worker","ok":true}]}' ;;
   "POST "*"/orders")
     if [ "${SCEN_ORDERS}" = down ]; then code=000; else code=201; body='{"id":7,"item":"espresso","quantity":2,"status":"created","events_sent":0}'; fi ;;
-  "GET "*/orders/[0-9]*) body='{"id":7,"item":"espresso","quantity":2,"status":"processed","events_sent":1}' ;;
+  "GET "*/orders/[0-9]*) body="{\"id\":7,\"item\":\"espresso\",\"quantity\":2,\"status\":\"processed\",\"events_sent\":${SCEN_EVENTS:-1}}" ;;
   *"/tcp/ping") body='{"reply":"PONG"}' ;;
 esac
 printf '%s' "${body}"
@@ -94,7 +99,16 @@ scenario() {  # scenario <name> <phase> <check name> <want PASS|FAIL> [VAR=value
     "$(grep -E "^(PASS|FAIL)  ${check}" <<<"${out}" | head -1 | cut -c53-)"
 }
 scenario "filter-chain misses 1 -> 3"            phase1 "envoy: no_filter_chain_match" PASS
-scenario "filter-chain misses 1 -> 13"           phase1 "envoy: no_filter_chain_match" FAIL SCEN_NFCM="1 13"
+scenario "1 -> 13 (other clients' unknown SNI)"  phase1 "envoy: no_filter_chain_match" PASS SCEN_NFCM="1 13"
+scenario "filter-chain misses 1 -> 2"            phase1 "envoy: no_filter_chain_match" FAIL SCEN_NFCM="1 2"
+scenario "filter-chain counter missing after"    phase1 "envoy: no_filter_chain_match" FAIL SCEN_NFCM="1 missing"
+scenario "OpenAPI lists both paths"              phase2 "api: OpenAPI lists"           PASS
+scenario "OpenAPI without /orders"               phase2 "api: OpenAPI lists"           FAIL \
+  SCEN_OPENAPI='{"info":{"title":"orders-api"},"paths":{"/orders/{order_id}":{},"/admin/chaos":{}}}'
+scenario "order processed, 1 event sent"         phase3 "flow: order"                  PASS
+scenario "order processed, 10 events sent"       phase3 "flow: order"                  FAIL SCEN_EVENTS=10
+scenario "worker counter 2.0"                    phase3 "worker: processed counter"    PASS
+scenario "worker counter 0.0"                    phase3 "worker: processed counter"    FAIL SCEN_WORKER=0.0
 scenario "MQ SAN failures 0"                     phase3 "envoy: MQ certificate name"   PASS
 scenario "MQ SAN failures 10"                    phase3 "envoy: MQ certificate name"   FAIL SCEN_SAN=10
 scenario "MQ SAN counter missing"                phase3 "envoy: MQ certificate name"   FAIL SCEN_SAN=missing
@@ -104,4 +118,12 @@ scenario "an order after the Postgres restart"   phase5 "postgres restart"      
 out="$(PATH="${work}/stub:${PATH}" bash "${work}/demo/scripts/verify.sh" phase4 2>&1)"; status=$?
 if [ "${status}" -ne 0 ]; then verdict=ok; else verdict=MISMATCH; mismatches=$((mismatches + 1)); fi
 printf '%-9s %-46s exit %s (want non-zero): %s\n' "${verdict}" "unknown phase name phase4" "${status}" "$(tail -1 <<<"${out}")"
+
+# An empty answer from Prometheus (no fresh scrape) must fail the baseline, not become a zero
+# the next cumulative sample would look past. Runs verify.sh's own prometheus_value.
+prometheus_function="$(awk '/^prometheus_value\(\)/ { on=1 } on { print } on && /^}/ { exit }' "${work}/demo/scripts/verify.sh")"
+PATH="${work}/stub:${PATH}" SCEN_PROM_EMPTY=1 bash -o pipefail -c "${prometheus_function}; prometheus_value" >/dev/null 2>&1
+status=$?
+if [ "${status}" -ne 0 ]; then verdict=ok; else verdict=MISMATCH; mismatches=$((mismatches + 1)); fi
+printf '%-9s %-46s exit %s (want non-zero)\n' "${verdict}" "Prometheus answers empty: no zero invented" "${status}"
 echo "mismatches: ${mismatches}"; exit "${mismatches}"

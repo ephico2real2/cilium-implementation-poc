@@ -1,8 +1,9 @@
 # Using the lab: every script and option
 
 Paths are relative to `demos/57-sni-fabric-lab/`. Every script prints its own help with `-h`
-or `--help`. The numbers quoted were measured on 2026-10-21 (Podman 5 on an Apple-silicon
-Mac, IBM MQ under amd64 emulation); `output/transcript.txt` holds the full recorded run.
+or `--help`. The numbers quoted were measured on 2026-10-21 and 2026-10-22 (Podman 6.1.2 on an
+Apple-silicon Mac, IBM MQ under amd64 emulation); `output/transcript.txt` holds the full
+recorded run.
 
 ## Contents
 
@@ -92,7 +93,7 @@ The steps, in order:
 5. Print the memory in use, and the URLs with their logins
 
 Everything is also written to `output/transcript.txt`. It stops at the first failed step.
-Measured on the recorded run (2026-10-22): 7 min 52 s from nothing; MQ healthy after 130 s;
+Measured on the recorded run (2026-10-22): 8 min 6 s from nothing; MQ healthy after 143 s;
 phase 6 took 1 min 49 s of that.
 
 ### 4.2 `scripts/gen-certs.sh`: the CA and certificates
