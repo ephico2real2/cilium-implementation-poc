@@ -27,6 +27,9 @@ shared-SNI design for exposing IBM MQ through Envoy.
 - Release 1 so far: an OpenTelemetry Collector and four telemetry stores (Tempo,
   VictoriaTraces, VictoriaMetrics, VictoriaLogs), also reached only through Envoy. The story so
   far, with screenshots: `docs/story/01-turn-the-lights-on.md`.
+- Traces with no tracing code: orders-api, the worker and tcp-svc start under
+  `opentelemetry-instrument`, and one order is a trace of 12 spans in Tempo and VictoriaTraces
+  ([how it works](docs/tracing.md)).
 
 ## Words used here
 
@@ -43,7 +46,7 @@ shared-SNI design for exposing IBM MQ through Envoy.
 | Sweeper | A loop in orders-api that re-sends the MQ event of any order still `created` after 60 s. |
 | Destructive get | Reading a message from MQ's REST API removes it from the queue; repeating the read would lose a different message, so Envoy never retries it once sent. |
 | Span, trace | A span is one timed operation (a request served, an HTTP call, an SQL statement); a trace is the spans of one piece of work, linked by a shared trace id. |
-| `opentelemetry-instrument` | The command each service starts under: it reads the `OTEL_*` variables, sets up the exporter and patches FastAPI, httpx and psycopg before the service's own code runs. |
+| `opentelemetry-instrument` | The command each service starts under: it reads the `OTEL_*` variables, sets up the exporter and loads the instrumentations installed in that image (FastAPI, httpx and psycopg in orders-api; httpx in the worker; none in tcp-svc) before the service's own code runs. |
 
 ## Architecture
 

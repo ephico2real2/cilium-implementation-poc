@@ -36,7 +36,9 @@
 #   ~/.local/share/diagram-kit/.venv/bin/python tests/sprint1_walk.py docs/screenshots/sprint1 <run> <trace-id>
 #   ~/.local/share/diagram-kit/.venv/bin/python tests/vmui_capture.py docs/screenshots
 #   ~/.local/share/diagram-kit/.venv/bin/python tests/spikes/r1-7_trace_to_logs.py
-#                                              the five browser walks also need Playwright and
+#   ~/.local/share/diagram-kit/.venv/bin/python tests/trace_capture.py docs/screenshots
+#                                              places one order, captures its traces in Grafana;
+#                                              the six browser walks also need Playwright and
 #                                              Chromium, from diagram-kit's environment
 #
 # container-tests (AC 3): the tests that need Podman and the lab's images but start nothing of the
@@ -162,6 +164,10 @@ jobs:
       - name: test_verify_false_pass.sh, no verify.sh check passes on a substring or a missing value
         if: ${{ !cancelled() }}
         run: bash tests/scripts/test_verify_false_pass.sh scripts/verify.sh
+
+      - name: test_trace_capture.py, the tracing page's pictures are taken only of a whole trace
+        if: ${{ !cancelled() }}
+        run: python3 tests/scripts/test_trace_capture.py tests/trace_capture.py
 
       - name: test_run_sh.sh, run.sh stops on a failed build and keeps random secrets out of the transcript
         if: ${{ !cancelled() }}

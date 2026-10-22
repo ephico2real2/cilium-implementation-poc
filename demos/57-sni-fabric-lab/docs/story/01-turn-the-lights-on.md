@@ -3,8 +3,10 @@
 Release 1 gives Fabric Coffee its telemetry before any new feature: one OpenTelemetry Collector
 as the only pipeline, traces in Tempo (and VictoriaTraces, compared), metrics in
 VictoriaMetrics beside Prometheus, logs in VictoriaLogs. This page grows with each story; the
-numbers come from the review records in [../reviews/](../reviews/), the pictures from
-`tests/sprint1_walk.py`.
+numbers come from the review records in [../reviews/](../reviews/). The walk's numbered pictures
+(`sprint1/01` to `13`) come from `tests/sprint1_walk.py`, the dashboard on VictoriaMetrics from
+`tests/grafana_capture.py`, R1.10's from `tests/vmui_capture.py` and R1.4's from
+`tests/trace_capture.py`; no script writes the other two sprint 1 pictures.
 
 ## Where we are
 
@@ -182,6 +184,19 @@ Envoy joins, so Envoy now tells the Mac's connections from a container's.
 
 *vmui on the lab, 2026-10-22, taken by `tests/vmui_capture.py`; more on
 [the remote-write page](../remote-write.md#see-it-in-victoriametrics-own-ui).*
+
+## R1.4: an order, traced
+
+orders-api, the worker and tcp-svc now start under `opentelemetry-instrument`, configured by
+`OTEL_*` variables alone. One order through the edge is a trace of 12 orders-api spans in Tempo
+and in VictoriaTraces: the request, its SQL statements and the event put on IBM MQ. The worker's
+status update joins orders-api's server span across Envoy in a trace of its own until R1.5
+carries the trace through MQ.
+
+![Grafana Explore on Tempo: orders-api POST /orders, 32.67 ms, 12 spans, the 23.53 ms POST to MQ the longest.](../screenshots/trace-order-tempo.light.png)
+
+*One order's trace in Tempo, 2026-10-22, taken by `tests/trace_capture.py`; the whole of it, and
+what is not traced yet, on [the tracing page](../tracing.md).*
 
 ## Found by looking
 
