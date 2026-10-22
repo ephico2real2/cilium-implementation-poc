@@ -110,8 +110,7 @@ VictoriaTraces, fed the same data and compared, so that the choice rests on meas
 - **Seats:** Codex builds (Podman through the machine socket); OB3 and OB1-lite review, and a
   second pass on the fixed head.
 - **Pictures:** the parity table and the dashboard on each datasource, added to chapter 1.
-- **Status (2026-10-22): implemented; fresh and upgrade runs to be measured by the
-  orchestrator.**
+- **Status (2026-10-22): built in two rounds, measured on the live lab; review next.**
   - AC 5: with two scrapers, Prometheus's MQ scrape fell from 136 samples to 108 and lost all
     28 `ibmmq_qmgr_*` publication gauges; two back-to-back reads returned the recovery-log
     latency gauge once, then not at all. In `github.com/ibm-messaging/mq-container` under
@@ -124,21 +123,27 @@ VictoriaTraces, fed the same data and compared, so that the choice rests on meas
   - AC 1 and AC 6: `tests/parity.py` selects ten queries by exact panel title and compares both
     stores at one timestamp, excluding OTLP-only dotted labels. Its tolerance models one
     10-second boundary interval and the engines' 10/300 rate extrapolation difference; every
-    measured pair passes the lab-free controls and clearly wrong values fail. The live parity
-    table on the committed code is to be measured by the orchestrator.
+    measured pair passes the lab-free controls and clearly wrong values fail. On the fresh run
+    all ten agreed on the first read (Postgres transactions: difference 0.0053, allowed 0.126;
+    new connections: 0.0013, allowed 0.0047), in `output/transcript.txt`.
   - AC 2: live trace `1763fe65af3432a70272b596b16f4eac` had two spans in each store. Tempo
     returned them under `trace.resourceSpans[].scopeSpans[].spans[]`; VictoriaTraces returned
     them under `data[].spans[]`. Phase 6 now requires 2 and 2, not merely equal counts.
   - AC 3 and AC 4: Grafana has one Prometheus datasource variable, defaults to uid
     `prometheus`, and every panel follows it. The Perses converter degraded the variable to an
     empty `variables` list and its supplied fixed `prometheus` datasource; its JSON was not
-    hand-edited. VictoriaMetrics dashboard results are to be measured by the orchestrator.
+    hand-edited. On VictoriaMetrics: `31 queries, 0 with errors or warnings, 0 empty`.
   - Phase 6 now requires all 11 healthy metric jobs in both stores, a fresh MQ recovery-log
     gauge in Prometheus and equal MQ scrape sample counts. `run.sh` gates parity on a complete
     five-minute window and fails a disagreement seen twice; it also recreates any running
-    service whose bind-mounted source is newer than its container. The live route check,
-    parity table, `scripts/run.sh --fresh`, upgrade run and kept-check comparison are to be
-    measured by the orchestrator.
+    service whose bind-mounted source is newer than its container.
+  - Measured: `scripts/run.sh --fresh` 7 min 57 s, 87 checks, 0 failures; checks kept
+    `84 before, 87 after`; the route test 0 mismatches (its host-refusal helper compared Envoy's
+    body without the newline Envoy's inline body ends in, and could never pass: fixed). The
+    upgrade path over the running lab recreated exactly Grafana (its dashboards directory) and
+    Prometheus (`prometheus.yml`), then passed every phase; parity disagreed on 2 of 10 on the
+    first read, both low-count rates whose window held Prometheus's restart five minutes
+    earlier, and agreed on all 10 five seconds later.
 
 ## E1 CI checks demo 57 on every pull request
 

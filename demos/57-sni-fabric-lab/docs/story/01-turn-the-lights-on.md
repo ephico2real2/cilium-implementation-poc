@@ -12,8 +12,8 @@ numbers come from the review records in [../reviews/](../reviews/), the pictures
 |---|---|---|---|---|
 | 1 | R1.1 The collector is the one pipeline | done | Codex, OB3 | [R1.1](../reviews/R1.1.md) |
 | 1 | R1.2 The stores are running | done | OB3, Codex | [R1.2](../reviews/R1.2.md) |
-| 1 | R1.3 Side by side, compared | next | Codex, OB3 | — |
-| 1 | E1 CI checks demo 57 on every pull request | next | OB3, Codex | — |
+| 1 | R1.3 Side by side, compared | built and measured; in review | Codex, OB3 and OB1-lite | [R1.3](../reviews/R1.3.md) |
+| 1 | E1 CI checks demo 57 on every pull request | built, green on GitHub; in review | OB3, Codex and OB1-lite | [E1](../reviews/E1.md) |
 | 2 | R1.4–R1.9 One order, one story | not started; its two mocks await approval | — | [BACKLOG](../roadmap/BACKLOG.md) |
 
 ## Sprint 1, so far: the pipeline and the stores
@@ -22,7 +22,7 @@ Every signal reaches the collector only through Envoy (`otlp.mesh`), and the col
 each store only through Envoy too; Envoy routes each store's write path, the read API Grafana
 uses and its readiness probe, and nothing else.
 
-![Signals pass Envoy twice: from telemetrygen to the collector through otlp.mesh, and from the collector to Tempo, VictoriaTraces, VictoriaMetrics and VictoriaLogs through their own aliases; Prometheus scrapes every component through Envoy; Grafana reads every store through Envoy.](../diagrams/layers/telemetry.light.png)
+![Signals pass Envoy twice: from telemetrygen to the collector through otlp.mesh, and from the collector to Tempo, VictoriaTraces, VictoriaMetrics and VictoriaLogs through their own aliases; Prometheus scrapes every component through Envoy and remote-writes every sample through Envoy to VictoriaMetrics; Grafana reads every store through Envoy.](../diagrams/layers/telemetry.light.png)
 
 *The telemetry layer. Solid is built and checked; dashed is sprint 2.*
 
@@ -41,7 +41,7 @@ starting again from zero.*
 | Envoy and the stores' admin and delete APIs | 29 of 29 route checks: refused with Envoy's own 404, reads allowed |
 | Tempo 3.1 single binary | 25 ms to start, 32 MB idle, no Kafka |
 | Memory in the 3887 MB Podman VM | 1255 MB still available with all four stores running |
-| `scripts/run.sh --fresh`, everything from nothing | 8 min 6 s, 84 checks, 0 failures (`output/transcript.txt`, 2026-10-22) |
+| `scripts/run.sh --fresh`, everything from nothing | 7 min 57 s, 87 checks, 0 failures (`output/transcript.txt`, 2026-10-22, with R1.3) |
 
 ## The walk: one run, followed through every store
 
@@ -129,6 +129,38 @@ query away. Sprint 2 makes the services write such lines themselves.*
 
 *All 11 targets up, each `metrics.mesh:18080/metrics/<component>`: Prometheus, too, sees only
 Envoy.*
+
+## R1.3: the two metric stores, side by side
+
+Prometheus scrapes every component, as before, and copies every sample it scraped to
+VictoriaMetrics by remote write, through Envoy. VictoriaMetrics does not scrape: IBM MQ's
+exporter hands each queue-manager gauge to the first reader only, and a second scraper took 28
+of them from Prometheus, emptying the dashboard's MQ latency panel (measured, then fixed; see
+[the review record](../reviews/R1.3.md)).
+
+![The lab dashboard opened with the Datasource menu set to VictoriaMetrics: every chart draws, from component health to the tcp-svc commands.](../screenshots/grafana-dashboard-victoriametrics.light.png)
+
+*The same dashboard on VictoriaMetrics (2026-10-22). Prometheus stays the default; the
+Datasource menu at the top offers VictoriaMetrics beside it.*
+
+`python3 tests/parity.py --markdown`, on the lab from the fresh run (2026-10-22, evaluated at
+08:18:38 UTC; the allowance is one scrape interval at the window's edge plus Prometheus's
+extrapolation, both explained in the script):
+
+| Query | Prometheus series | VictoriaMetrics series | Max difference | Verdict |
+|---|---:|---:|---:|---|
+| Each component, now | 11 | 11 | 0 (allowed 1e-09) | PASS |
+| New connections per tenant (per second) | 1 | 1 | 0.000574713 (allowed 0.00402299) | PASS |
+| Connections reset: unknown or missing SNI (per second) | 1 | 1 | 0 (allowed 0) | PASS |
+| Envoy's retries to orders-api (per second) | 1 | 1 | 0 (allowed 0) | PASS |
+| Orders created, replayed and processed (per second) | 1 | 1 | 0 (allowed 0) | PASS |
+| Events that needed another try (per second) | 1 | 1 | 0 (allowed 0) | PASS |
+| Queue manager: messages put and got (per second) | 1 | 1 | 0.000114943 (allowed 0.0434483) | PASS |
+| Queue manager: recovery log write latency, now (seconds) | 1 | 1 | 0 (allowed 2.82e-13) | PASS |
+| Postgres: transactions (per second) | 1 | 1 | 0.00655172 (allowed 0.127011) | PASS |
+| tcp-svc: commands (per second) | 1 | 1 | 0.00275862 (allowed 0.00413793) | PASS |
+
+Traces: one of the run's traces holds 2 spans in Tempo and 2 in VictoriaTraces (`phase6`).
 
 ## Found by looking
 

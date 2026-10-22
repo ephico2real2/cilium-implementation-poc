@@ -1,8 +1,8 @@
 
-==== Remove the lab's containers and volumes  (2026-10-22T03:26:13Z)
+==== Remove the lab's containers and volumes  (2026-10-22T08:06:16Z)
 objects removed: 46
 
-==== Create the CA and certificates  (2026-10-22T03:26:24Z)
+==== Create the CA and certificates  (2026-10-22T08:06:26Z)
 kept CA           /Users/olasumbo/gitRepos/cilium-implementation-poc/demos/57-sni-fabric-lab/certs/ca/ca.crt
 kept   web        web.fabric.localtest.me
 kept   orders-api api.fabric.localtest.me
@@ -21,7 +21,7 @@ CA certificate: /Users/olasumbo/gitRepos/cilium-implementation-poc/demos/57-sni-
 To trust it in this Mac's login keychain (browsers stop warning), run it yourself:
   security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db /Users/olasumbo/gitRepos/cilium-implementation-poc/demos/57-sni-fabric-lab/certs/ca/ca.crt
 
-==== Create the secrets  (2026-10-22T03:26:24Z)
+==== Create the secrets  (2026-10-22T08:06:27Z)
 kept    admin-token
 kept    postgres-password
 kept    mq-admin-password
@@ -29,45 +29,50 @@ kept    mq-app-password
 kept    grafana-admin-password
 kept    worker-token
 
-==== Build and start every container  (2026-10-22T03:26:24Z)
+==== Build and start every container  (2026-10-22T08:06:27Z)
+ Image localhost/fabric-worker:dev Built 
+ Image localhost/fabric-worker:dev Built 
  Image localhost/fabric-tcp-svc:dev Built 
  Image localhost/fabric-tcp-svc:dev Built 
  Image localhost/fabric-orders-api:dev Built 
  Image localhost/fabric-orders-api:dev Built 
- Image localhost/fabric-worker:dev Built 
- Image localhost/fabric-worker:dev Built 
  Image localhost/fabric-grafana:dev Built 
  Image localhost/fabric-grafana:dev Built 
  Container fabric-otel-collector-1 Started 
- Container fabric-init-1 Started 
  Container fabric-prometheus-1 Started 
+ Container fabric-init-1 Started 
  Container fabric-postgres-1 Started 
+ Container fabric-envoy-1 Started 
+ Container fabric-tcp-svc-1 Started 
+ Container fabric-victoria-traces-1 Started 
+ Container fabric-orders-api-1 Started 
+ Container fabric-victoria-metrics-1 Started 
  Container fabric-web-1 Started 
+ Container fabric-worker-1 Started 
  Container fabric-victoria-logs-1 Started 
  Container fabric-tempo-1 Started 
- Container fabric-orders-api-1 Started 
- Container fabric-envoy-1 Started 
- Container fabric-worker-1 Started 
- Container fabric-victoria-traces-1 Started 
- Container fabric-victoria-metrics-1 Started 
  Container fabric-grafana-1 Started 
- Container fabric-postgres-exporter-1 Started 
  Container fabric-mq-1 Started 
- Container fabric-tcp-svc-1 Started 
+ Container fabric-postgres-exporter-1 Started 
 
-==== Wait for every health check  (2026-10-22T03:26:28Z)
-envoy            healthy after 0s
-web              healthy after 0s
+==== Recreate services whose bind-mounted source changed  (2026-10-22T08:06:31Z)
+[4m>>>> Executing external compose provider "/Users/olasumbo/.docker/bin/docker-compose". Please see podman-compose(1) for how to disable this message. <<<<
+
+[0mbind mounts: no running service has a newer source
+
+==== Wait for every health check  (2026-10-22T08:06:32Z)
+envoy            healthy after 6s
+web              healthy after 7s
 tcp-svc          healthy after 7s
 orders-api       healthy after 7s
 postgres         healthy after 7s
-mq               healthy after 143s
-worker           healthy after 143s
-prometheus       healthy after 144s
-grafana          healthy after 144s
-victoria-metrics healthy after 144s
+mq               healthy after 140s
+worker           healthy after 140s
+prometheus       healthy after 140s
+grafana          healthy after 140s
+victoria-metrics healthy after 141s
 
-==== Check phases 1-3  (2026-10-22T03:28:52Z)
+==== Check phases 1-3  (2026-10-22T08:08:53Z)
 == Phase 1: edge_sni, web, tcp-svc
 PASS  web: Orders page over TLS, CA-verified         200 0
 PASS  web: Admin portal page                         <title>Fabric Admin</title>
@@ -78,7 +83,7 @@ PASS  tcp-svc: ECHO                                  hello fabric
 PASS  tcp-svc: HELP                                  COMMANDS PING TIME ECHO HELP QUIT
 PASS  tcp-svc: unknown command                       ERR unknown command
 PASS  tcp-svc: QUIT                                  BYE
-PASS  tcp-svc: TIME is today's UTC date              2026-10-22T03:28:54+00:00
+PASS  tcp-svc: TIME is today's UTC date              2026-10-22T08:08:54+00:00
 PASS  tcp-svc: over-long line refused                ERR line too long
 PASS  edge_sni: unknown SNI is reset                 no peer certificate available 
 PASS  edge_sni: missing SNI is reset                 no peer certificate available 
@@ -99,7 +104,7 @@ PASS  orders: missing Idempotency-Key refused        HTTP 422
 PASS  orders: quantity over 20 refused               HTTP 422
 PASS  orders: GET by id                              espresso 2
 PASS  orders: status update not exposed publicly     HTTP 404
-PASS  tcp: API pings tcp-svc through edge_sni        {"reply":"PONG","latency_ms":13.0,"attempts":1}
+PASS  tcp: API pings tcp-svc through edge_sni        {"reply":"PONG","latency_ms":2.6,"attempts":1}
 PASS  admin: no token refused                        HTTP 401
 PASS  admin: wrong token refused                     HTTP 401
 PASS  admin: envoy, postgres, web, tcp-svc up        envoy=True postgres=True web=True tcp-svc=True mq=True worker=True
@@ -118,7 +123,7 @@ PASS  mq console: redirects to its login page        302 https://mqconsole.fabri
 PASS  mq: REST API reachable through mesh_http       True (after 0s)
 PASS  flow: order 4 created -> processed             processed 1 (after 1s)
 PASS  admin: every component up                      envoy=True postgres=True web=True tcp-svc=True mq=True worker=True
-PASS  metrics: /metrics/envoy through mesh_http      5535 samples
+PASS  metrics: /metrics/envoy through mesh_http      5533 samples
 PASS  metrics: /metrics/orders-api through mesh_http 245 samples
 PASS  metrics: /metrics/tcp-svc through mesh_http    39 samples
 PASS  metrics: /metrics/worker through mesh_http     43 samples
@@ -131,7 +136,7 @@ PASS  isolation: worker cannot resolve orders-api    socket.gaierror: [Errno -2]
 
 failures: 0
 
-==== Check the collector and the telemetry stores (phase 6)  (2026-10-22T03:30:28Z)
+==== Check the collector and the telemetry stores (phase 6)  (2026-10-22T08:10:29Z)
 == Phase 6: OpenTelemetry collector and the telemetry stores
 PASS  otel: a span reaches the collector through Envoy accepted spans 0 -> 10 (10 sent)
 PASS  isolation: the collector shares a network only with Envoy network=fabric_net-otel (internal), peer=fabric-envoy-1
@@ -139,32 +144,98 @@ PASS  metrics: the collector's own metrics through mesh_http 54 samples
 PASS  store: tempo ready, reached only through Envoy ready after 0s; net-tempo (internal) shared with Envoy alone
 PASS  metrics: /metrics/tempo through mesh_http      639 samples
 PASS  store: victoria-traces ready, reached only through Envoy OK after 0s; net-vtraces (internal) shared with Envoy alone
-PASS  metrics: /metrics/victoria-traces through mesh_http 495 samples
+PASS  metrics: /metrics/victoria-traces through mesh_http 497 samples
 PASS  store: victoria-metrics ready, reached only through Envoy OK after 0s; net-vmetrics (internal) shared with Envoy alone
-PASS  metrics: /metrics/victoria-metrics through mesh_http 944 samples
+PASS  metrics: /metrics/victoria-metrics through mesh_http 976 samples
 PASS  store: victoria-logs ready, reached only through Envoy OK after 0s; net-vlogs (internal) shared with Envoy alone
-PASS  metrics: /metrics/victoria-logs through mesh_http 488 samples
+PASS  metrics: /metrics/victoria-logs through mesh_http 485 samples
+PASS  stores: same healthy metric jobs               11 jobs: envoy mq orders-api otel-collector postgres tcp-svc tempo victoria-logs victoria-metrics victoria-traces worker
+PASS  stores: MQ gauge and sample count copied       fresh gauges=1; scrape_samples_scraped=136 in both
 PASS  grafana: datasource prometheus answers OK      status=OK Successfully queried the Prometheus API.
 PASS  grafana: datasource victoriametrics answers OK status=OK Successfully queried the Prometheus API.
 PASS  grafana: datasource victorialogs answers OK    status=OK Data source is working
 PASS  grafana: datasource tempo answers OK           status=OK Data source is working
 PASS  grafana: datasource victoriatraces answers OK  status=OK Data source is working
-PASS  stores: the same 5 trace ids in Tempo and VictoriaTraces phase6-01288ddd after 27s, e.g. 1ebb3f2c4534577ea1afa793a464ede2
+PASS  stores: the same 5 trace ids in Tempo and VictoriaTraces phase6-72c11322 after 27s, e.g. 18577ad1e131c5089e612ae6ddaa10bb
+PASS  stores: one trace has two spans                Tempo=2, VictoriaTraces=2 (parent + child)
 PASS  stores: the run's metrics in VictoriaMetrics   5 of 5 samples after 30s
-PASS  stores: the run's logs in VictoriaLogs         5 lines with trace_id 1ebb3f2c4534577ea1afa793a464ede2 after 3s
+PASS  stores: the run's logs in VictoriaLogs         5 lines with trace_id 18577ad1e131c5089e612ae6ddaa10bb after 3s
 
 failures: 0
 
-==== Check that Envoy refuses the stores' admin and write paths  (2026-10-22T03:32:17Z)
-ok        POST victoriametrics.mesh/api/v1/admin/tsdb/delete_series?match[]=gen -> 404
-ok        POST victoriametrics.mesh/api/v1/import -> 404
-ok        POST victoriametrics.mesh/api/v1/write -> 404
-ok        GET victoriametrics.mesh/snapshot/create -> 404
-ok        GET victorialogs.mesh/internal/force_merge -> 404
-ok        GET victoriatraces.mesh/select/logsql/query?query=* -> 404
-ok        GET tempo.mesh/status/config -> 404
-ok        GET tempo.mesh/flush -> 404
-ok        POST tempo.mesh/api/echo -> 404
+==== Check failures and recovery (phase 5)  (2026-10-22T08:12:19Z)
+== Phase 5: failures and recovery
+PASS  chaos 50%: every order still processed         processed=10 of 10 after 3s
+PASS  chaos 50%: Envoy retried the failed PUTs       upstream_rq_retry 0 -> 12
+PASS  postgres restart: API recovers on its own      order 38 created 1 attempt(s) after the restart
+PASS  mq down: order still accepted, no event yet    created 0
+PASS  mq back: the sweeper's resend gets it processed processed=1 of 1 after 0s
+PASS  tcp-svc down: ping fails cleanly               HTTP 502
+PASS  tcp-svc back: ping works again                 {"reply":"PONG","latency_ms":2.6,"attempts":1}
+
+failures: 0
+
+==== Compare Prometheus and VictoriaMetrics, then run every dashboard query on VictoriaMetrics  (2026-10-22T08:14:07Z)
+rate window samples at T: Prometheus=30, VictoriaMetrics=30; need at least 30
+Evaluation timestamp: 1792656818.078 (now - 30s; scrape interval 10s; rate window 300s)
+Scope: scraped dashboard series only; OTLP metrics with dotted labels (for example service.name) are left out because Prometheus has no counterpart.
+query                                                       Prometheus  VictoriaMetrics               max difference  verdict
+Each component, now                                                 11               11                   0 <= 1e-09  PASS
+New connections per tenant (per second)                              1                1     0.00126437 <= 0.00471264  PASS
+Connections reset: unknown or missing SNI (per second)               1                1   0.000273897 <= 0.000342463  PASS
+Envoy's retries to orders-api (per second)                           1                1     0.00109559 <= 0.00136985  PASS
+Orders created, replayed and processed (per second)                  1                1    0.000734437 <= 0.00158004  PASS
+Events that needed another try (per second)                          1                1   1.30816e-05 <= 0.000111548  PASS
+Queue manager: messages put and got (per second)                     1                1      0.00827586 <= 0.0559284  PASS
+Queue manager: recovery log write latency, now (seconds)             1                1                0 <= 2.82e-13  PASS
+Postgres: transactions (per second)                                  1                1       0.00528736 <= 0.125632  PASS
+tcp-svc: commands (per second)                                       1                1      0.00114943 <= 0.0045977  PASS
+
+10 queries, 0 disagreements
+ok     Each component, now                                         A  series=11  job=envoy=1; job=mq=1; job=orders-api=1; job=otel-collector=1; job=postgres=1; job=tcp-svc=1; job=tempo=1; job
+ok     Each component, over time                                   A  series=11  job=envoy=1; job=mq=1; job=orders-api=1; job=otel-collector=1; job=postgres=1; job=tcp-svc=1; job=tempo=1; job
+ok     New connections per tenant (per second)                     A  series=1  value=0.03667
+ok     New connections per tenant (per second)                     B  series=1  value=0.2733
+ok     New connections per tenant (per second)                     C  series=1  value=0.04
+ok     New connections per tenant (per second)                     D  series=1  value=0.01
+ok     New connections per tenant (per second)                     E  series=1  value=0.006667
+ok     Connections reset: unknown or missing SNI (per second)      A  series=1  value=0.01
+ok     Status updates: 5xx answered vs. 5xx that reached the work  A  series=1  value=0
+ok     Status updates: 5xx answered vs. 5xx that reached the work  B  series=1  value=0
+ok     Envoy's retries to orders-api (per second)                  A  series=1  value=0.04
+ok     Envoy's retries to orders-api (per second)                  B  series=1  value=0.02
+ok     Orders created, replayed and processed (per second)         A  series=1  value=0.04667
+ok     Orders created, replayed and processed (per second)         B  series=1  value=0.04333
+ok     Orders created, replayed and processed (per second)         C  series=1  value=0.003333
+ok     Events that needed another try (per second)                 A  series=1  value=0.003333
+ok     Events that needed another try (per second)                 B  series=1  value=0
+ok     Events that needed another try (per second)                 C  series=1  value=0.003333
+ok     orders-api request duration, 95th percentile (seconds)      A  series=1  value=1.113
+ok     orders-api request duration, 95th percentile (seconds)      B  series=1  value=0.00475
+ok     Worker status update, retries included (seconds)            A  series=1  value=0.01
+ok     Worker status update, retries included (seconds)            B  series=1  value=0.325
+ok     Queue manager: messages put and got (per second)            A  series=1  value=1.06
+ok     Queue manager: messages put and got (per second)            B  series=1  value=1.113
+ok     Queue manager: recovery log write latency, now (seconds)    A  series=1  value=0.000282
+ok     Postgres: transactions (per second)                         A  series=1  value=3.453
+ok     Postgres: transactions (per second)                         B  series=1  value=0.003333
+ok     tcp-svc: commands (per second)                              A  series=1  value=0.03333
+ok     tcp-svc: commands (per second)                              B  series=1  value=0
+ok     tcp-svc: commands (per second)                              C  series=1  value=0
+ok     tcp-svc: commands (per second)                              D  series=1  value=0
+
+31 queries, 0 with errors or warnings, 0 empty, 0.08 s in all
+
+==== Check the stores' allowed routes and refused admin or host-write paths  (2026-10-22T08:14:08Z)
+ok        POST victoriametrics.mesh/api/v1/admin/tsdb/delete_series?match[]=gen -> Envoy 404
+ok        POST victoriametrics.mesh/api/v1/import -> Envoy 404
+ok        POST victoriametrics.mesh/api/v1/write -> upstream 204
+ok        GET victoriametrics.mesh/snapshot/create -> Envoy 404
+ok        GET victorialogs.mesh/internal/force_merge -> Envoy 404
+ok        GET victoriatraces.mesh/select/logsql/query?query=* -> Envoy 404
+ok        GET tempo.mesh/status/config -> Envoy 404
+ok        GET tempo.mesh/flush -> Envoy 404
+ok        POST tempo.mesh/api/echo -> Envoy 404
 ok        GET tempo.mesh/v1/traces -> Envoy 404
 ok        POST tempo.mesh/ready -> Envoy 404
 ok        GET victoriatraces.mesh/insert/opentelemetry/v1/traces -> Envoy 404
@@ -185,44 +256,37 @@ ok        GET tempo.mesh/ready -> 200
 ok        GET victoriatraces.mesh/health -> 200
 ok        GET victoriametrics.mesh/health -> 200
 ok        GET victorialogs.mesh/health -> 200
+ok        GET victoriametrics.fabric.localtest.me/api/v1/query?query=1 -> 200
+ok        POST victoriametrics.fabric.localtest.me/api/v1/query?query=1 -> 200
+ok        POST victoriametrics.fabric.localtest.me/api/v1/import -> Envoy 404
+ok        POST victoriametrics.fabric.localtest.me/api/v1/admin/tsdb/delete_series?match[]=gen -> Envoy 404
+ok        POST victoriametrics.fabric.localtest.me/api/v1/write -> Envoy 404
+ok        POST victoriametrics.fabric.localtest.me/-/reload -> Envoy 404
+ok        POST victoriametrics.fabric.localtest.me/opentelemetry/v1/metrics -> Envoy 404
 mismatches: 0
 
-==== Check the dashboard: every query, both forms  (2026-10-22T03:32:21Z)
-EMPTY  Status updates: 5xx answered vs. 5xx that reached the work  A  series=0  
-EMPTY  Status updates: 5xx answered vs. 5xx that reached the work  B  series=0  
-31 queries, 0 with errors or warnings, 2 empty, 0.10 s in all
+==== Check the dashboard: every query, both forms  (2026-10-22T08:14:12Z)
+31 queries, 0 with errors or warnings, 0 empty, 0.08 s in all
 PASS  14 charts in 7 sections; both forms agree on colours, styles, units, legends
 
-==== Check failures and recovery (phase 5)  (2026-10-22T03:32:21Z)
-== Phase 5: failures and recovery
-PASS  chaos 50%: every order still processed         processed=10 of 10 after 3s
-PASS  chaos 50%: Envoy retried the failed PUTs       upstream_rq_retry 0 -> 7
-PASS  postgres restart: API recovers on its own      order 38 created 1 attempt(s) after the restart
-PASS  mq down: order still accepted, no event yet    created 0
-PASS  mq back: the sweeper's resend gets it processed processed=1 of 1 after 12s
-PASS  tcp-svc down: ping fails cleanly               HTTP 502
-PASS  tcp-svc back: ping works again                 {"reply":"PONG","latency_ms":2.6,"attempts":1}
+==== Memory in use  (2026-10-22T08:14:12Z)
+fabric-envoy-1 50.3MB / 4.076GB
+fabric-grafana-1 142.8MB / 4.076GB
+fabric-mq-1 1.214GB / 4.076GB
+fabric-orders-api-1 63.05MB / 4.076GB
+fabric-otel-collector-1 104.5MB / 4.076GB
+fabric-postgres-1 28.19MB / 4.076GB
+fabric-postgres-exporter-1 10.66MB / 4.076GB
+fabric-prometheus-1 128.4MB / 4.076GB
+fabric-tcp-svc-1 21.84MB / 4.076GB
+fabric-tempo-1 56.75MB / 4.076GB
+fabric-victoria-logs-1 18.72MB / 4.076GB
+fabric-victoria-metrics-1 69.21MB / 4.076GB
+fabric-victoria-traces-1 25.91MB / 4.076GB
+fabric-web-1 6.275MB / 4.076GB
+fabric-worker-1 24.03MB / 4.076GB
 
-failures: 0
-
-==== Memory in use  (2026-10-22T03:34:19Z)
-fabric-envoy-1 42.31MB / 4.076GB
-fabric-grafana-1 142.2MB / 4.076GB
-fabric-mq-1 1.171GB / 4.076GB
-fabric-orders-api-1 53.11MB / 4.076GB
-fabric-otel-collector-1 94.9MB / 4.076GB
-fabric-postgres-1 30.2MB / 4.076GB
-fabric-postgres-exporter-1 17.29MB / 4.076GB
-fabric-prometheus-1 78MB / 4.076GB
-fabric-tcp-svc-1 21.71MB / 4.076GB
-fabric-tempo-1 74.54MB / 4.076GB
-fabric-victoria-logs-1 14.07MB / 4.076GB
-fabric-victoria-metrics-1 34.8MB / 4.076GB
-fabric-victoria-traces-1 15.04MB / 4.076GB
-fabric-web-1 5.984MB / 4.076GB
-fabric-worker-1 26.85MB / 4.076GB
-
-==== Where to log in (lab credentials, from secrets/)  (2026-10-22T03:34:19Z)
+==== Where to log in (lab credentials, from secrets/)  (2026-10-22T08:14:13Z)
 Orders page     https://web.fabric.localtest.me:8443/
 Admin portal    https://web.fabric.localtest.me:8443/admin            token  fabric-admin
 Swagger         https://api.fabric.localtest.me:8443/docs
@@ -230,6 +294,7 @@ MQ console      https://mqconsole.fabric.localtest.me:8443/ibmmq/console  admin 
 MQ app user     (REST API, MQ clients)                                app / fabric-mq-app
 Grafana         http://grafana.fabric.localtest.me:8080              anonymous viewer; admin / fabric-grafana
 Prometheus      http://prometheus.fabric.localtest.me:8080
+VictoriaMetrics http://victoriametrics.fabric.localtest.me:8080       read API only
 Postgres        (through Envoy only)                                  fabric / fabric-postgres
 
-==== Done  (2026-10-22T03:34:19Z)
+==== Done  (2026-10-22T08:14:13Z)

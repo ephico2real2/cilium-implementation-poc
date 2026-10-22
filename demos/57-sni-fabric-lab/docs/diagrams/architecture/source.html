@@ -58,7 +58,7 @@ a { color: var(--remote); }
     <h2>Into the lab: one TLS port, routed on the SNI</h2>
     <figure>
       <div class="fig-scroll">
-        <svg viewBox="0 0 980 604" role="img" aria-label="Browsers, an openssl client and a native MQ client all connect to one port, 8443 on 127.0.0.1. Envoy's edge_sni listener reads the TLS SNI and passes each connection, still encrypted, to web, orders-api, tcp-svc or the MQ queue manager; any other SNI, or none, is reset. Grafana and Prometheus are reached over plain HTTP on port 8080 through Envoy's ops_http listener.">
+        <svg viewBox="0 0 980 604" role="img" aria-label="Browsers, an openssl client and a native MQ client all connect to one port, 8443 on 127.0.0.1. Envoy's edge_sni listener reads the TLS SNI and passes each connection, still encrypted, to web, orders-api, tcp-svc or the MQ queue manager; any other SNI, or none, is reset. Grafana, Prometheus and VictoriaMetrics' read API are reached over plain HTTP on port 8080 through Envoy's ops_http listener.">
           <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
           <g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600">
             <rect x="20" y="14" width="280" height="30" rx="6" fill="var(--host-wash)" stroke="var(--host)"/>
@@ -110,6 +110,7 @@ a { color: var(--remote); }
             <text x="367" y="432" font-weight="600">ops_http · host :8080</text>
             <g font-family="IBM Plex Mono, monospace" font-size="11.5">
               <text x="367" y="452">grafana.…    → grafana:3000</text>
+              <text x="367" y="482">victoriametrics.… → read API only</text>
               <text x="367" y="512">prometheus.… → prometheus:9090</text>
             </g>
 
@@ -134,7 +135,7 @@ a { color: var(--remote); }
             <text x="706" y="522" fill="var(--muted)">scrapes through Envoy (below)</text>
 
             <text x="30" y="566" fill="var(--muted)">… = .fabric.localtest.me, which resolves to 127.0.0.1. TLS ends at each backend, never at Envoy.</text>
-            <text x="30" y="588" fill="var(--host)" font-weight="600">Built and checked: run.sh --fresh, 84 checks (output/transcript.txt, 2026-10-22). Host ports on 127.0.0.1 only.</text>
+            <text x="30" y="588" fill="var(--host)" font-weight="600">Built and checked: run.sh --fresh, 87 checks (output/transcript.txt, 2026-10-22). Host ports on 127.0.0.1 only.</text>
           </g>
           <g fill="none" stroke-width="1.4" marker-end="url(#ah)">
             <line x1="260" y1="159" x2="353" y2="159" stroke="var(--remote)"/>
@@ -248,7 +249,7 @@ a { color: var(--remote); }
 
             <text x="30" y="606" fill="var(--none)">orders-api cannot reach postgres directly: they share no network, so the name does not resolve.</text>
             <text x="30" y="626" fill="var(--muted)">Arrows are coloured by caller: amber orders-api, teal worker; ink for grafana, prometheus and shared exits.</text>
-            <text x="30" y="646" fill="var(--host)" font-weight="600">Built and checked: run.sh --fresh, 84 checks (output/transcript.txt, 2026-10-22). Host ports on 127.0.0.1 only.</text>
+            <text x="30" y="646" fill="var(--host)" font-weight="600">Built and checked: run.sh --fresh, 87 checks (output/transcript.txt, 2026-10-22). Host ports on 127.0.0.1 only.</text>
           </g>
           <g fill="none" stroke-width="1.4" marker-end="url(#ah2)">
             <line x1="270" y1="108" x2="353" y2="108" stroke="var(--host)"/>
