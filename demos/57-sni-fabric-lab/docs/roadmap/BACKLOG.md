@@ -285,6 +285,14 @@ instrumentation is a deployment choice, not a code change (factor III).
 
 - **Test:** `phase6` "otel: one order's trace has server, client and database spans".
 - **Pins:** OTel Python SDK 1.45.1, instrumentations 0.66b1, hash-locked.
+- **Built:** each service's `CMD` is `opentelemetry-instrument python ...`; `compose.yaml`'s
+  `x-otel-env` holds every setting (traces only, OTLP/HTTP to `otlp.mesh`, W3C trace context,
+  every trace kept, `service.version=dev` as the images' tag). The instrumentations are named in
+  `requirements.txt`, never bootstrapped: FastAPI, httpx and psycopg for orders-api, httpx for the
+  worker, none for tcp-svc, which therefore sends no span. `phase6` adds three checks: the three
+  services run instrumented, one order's trace (placed with the check's own `traceparent`) has its
+  server span with HTTP and database client spans under it, and the orders-api and worker spans
+  carry the three resource attributes.
 
 ## R1.5 The trace crosses IBM MQ
 

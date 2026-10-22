@@ -15,7 +15,8 @@ numbers come from the review records in [../reviews/](../reviews/), the pictures
 | 1 | R1.3 Side by side, compared | done | Codex, OB3 and OB1-lite | [R1.3](../reviews/R1.3.md) |
 | 1 | E1 CI checks demo 57 on every pull request | done | OB3, Codex and OB1-lite | [E1](../reviews/E1.md) |
 | 1 | R1.10 VictoriaMetrics' own UI from the Mac | done (#93) | the orchestrator; Codex and OB1-lite | [R1.10](../reviews/R1.10.md) |
-| 2 | R1.4–R1.9 One order, one story | not started; its two mocks await approval | — | [BACKLOG](../roadmap/BACKLOG.md) |
+| 2 | R1.4 Zero-code auto-instrumentation | built; in review (#97) | designed by Codex and OB1-lite, built from OB1-lite's design | [R1.4](../reviews/R1.4.md) |
+| 2 | R1.5–R1.9 One order, one story | not started | — | [BACKLOG](../roadmap/BACKLOG.md) |
 
 ## Sprint 1: the pipeline and the stores
 
@@ -147,22 +148,22 @@ design and its workflow).
 Datasource menu at the top offers VictoriaMetrics beside it.*
 
 `python3 tests/parity.py`, in the fresh run (`output/transcript.txt`, 2026-10-22, evaluated at
-14:27:46 UTC, once every rate was exactly comparable). For a rate the expected value is
+18:51:49 UTC, once every rate was exactly comparable). For a rate the expected value is
 Prometheus's rate over [310s], which holds the same samples VictoriaMetrics' [5m] rate uses;
 for the rest it is Prometheus's own value. Each is matched to float precision:
 
 | Query | Prometheus series | VictoriaMetrics series | Max difference from the expected value | Verdict |
 |---|---:|---:|---:|---|
 | Each component, now | 11 | 11 | 0 (allowed 1e-09) | PASS |
-| New connections per tenant (per second) | 1 | 1 | 0 (allowed 2e-11) | PASS |
-| Connections reset: unknown or missing SNI (per second) | 1 | 1 | 0 (allowed 3.44828e-12) | PASS |
+| New connections per tenant (per second) | 1 | 1 | 0 (allowed 2.00002e-11) | PASS |
+| Connections reset: unknown or missing SNI (per second) | 1 | 1 | 4.33681e-19 (allowed 3.44828e-12) | PASS |
 | Envoy's retries to orders-api (per second) | 1 | 1 | 0 (allowed 0) | PASS |
-| Orders created, replayed and processed (per second) | 1 | 1 | 0 (allowed 3.44828e-12) | PASS |
+| Orders created, replayed and processed (per second) | 1 | 1 | 0 (allowed 6.89655e-12) | PASS |
 | Events that needed another try (per second) | 1 | 1 | 0 (allowed 0) | PASS |
-| Queue manager: messages put and got (per second) | 1 | 1 | 2.22045e-16 (allowed 1.31379e-09) | PASS |
-| Queue manager: recovery log write latency, now (seconds) | 1 | 1 | 0 (allowed 2.53e-13) | PASS |
-| Postgres: transactions (per second) | 1 | 1 | 4.44089e-16 (allowed 3.47333e-09) | PASS |
-| tcp-svc: commands (per second) | 1 | 1 | 3.46945e-18 (allowed 3e-11) | PASS |
+| Queue manager: messages put and got (per second) | 1 | 1 | 0 (allowed 1.31667e-09) | PASS |
+| Queue manager: recovery log write latency, now (seconds) | 1 | 1 | 0 (allowed 2.77e-13) | PASS |
+| Postgres: transactions (per second) | 1 | 1 | 4.44089e-16 (allowed 3.51e-09) | PASS |
+| tcp-svc: commands (per second) | 1 | 1 | 0 (allowed 2.33333e-11) | PASS |
 
 Traces: one of the run's traces holds 2 spans in Tempo and 2 in VictoriaTraces (`phase6`).
 

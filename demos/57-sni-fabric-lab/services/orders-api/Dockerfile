@@ -11,4 +11,6 @@ COPY app ./app
 RUN useradd --uid 10002 --no-create-home --shell /usr/sbin/nologin app
 USER 10002
 EXPOSE 8443 8080
-CMD ["python", "-m", "app.main"]
+# opentelemetry-instrument (R1.4) configures OpenTelemetry from the OTEL_* variables compose.yaml
+# sets, instruments FastAPI, httpx and psycopg, then execs the same command: no code change.
+CMD ["opentelemetry-instrument", "python", "-m", "app.main"]

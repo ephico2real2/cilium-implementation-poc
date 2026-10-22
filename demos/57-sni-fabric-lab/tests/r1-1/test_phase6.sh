@@ -13,7 +13,7 @@ scenario() {  # scenario <name> <values> <tg output> <internal> <expected otel> 
   local state; state="$(mktemp "${H}/state.XXXX")"; echo 0 > "${state}"
   local out; out="$(PATH="${H}/stub:${PATH}" SCEN_STATE="${state}" SCEN_VALUES="$2" SCEN_TG_OUT="$3" SCEN_INTERNAL="$4" \
     bash "${demo}/scripts/verify.sh" phase6 2>&1)"
-  local otel iso; otel="$(grep -oE '^(PASS|FAIL)  otel:' <<<"${out}" | cut -c1-4)"; iso="$(grep -oE '^(PASS|FAIL)  isolation:' <<<"${out}" | cut -c1-4)"
+  local otel iso; otel="$(grep -oE '^(PASS|FAIL)  otel: a span reaches' <<<"${out}" | cut -c1-4)"; iso="$(grep -oE '^(PASS|FAIL)  isolation:' <<<"${out}" | cut -c1-4)"
   local verdict=ok; [ "${otel}" = "$5" ] && [ "${iso}" = "$6" ] || { verdict=MISMATCH; mismatches=$((mismatches + 1)); }
   printf '%-9s %-44s otel=%s (want %s) isolation=%s (want %s)\n' "${verdict}" "$1" "${otel}" "$5" "${iso}" "$6"
   rm -f "${state}"
