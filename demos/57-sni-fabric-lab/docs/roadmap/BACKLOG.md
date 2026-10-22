@@ -132,6 +132,36 @@ that the regressions two reviews kept finding are caught by a machine on every c
   breaks one check on purpose (a substring comparison put back in `verify.sh`), it is red and
   names the step. Run time recorded.
 - **Seats:** OB3 builds; Codex and OB1-lite review.
+- **Status (2026-10-22): built, measured locally; not yet run on GitHub.** The workflow is
+  [`.github/workflows/demo57-ci.yaml`](../../../../.github/workflows/demo57-ci.yaml): a job
+  `lab-free` (AC 1, one step per check), diagram-kit's own job for the three diagram pages,
+  and the spike `spike-container-tests` (AC 3). As measured locally:
+  - `lab-free`: every step's script run verbatim from the workflow file (Docker Compose 2.38.2,
+    the runner's version; images through Podman): 14 steps, 0 failed, about 80 s, of which
+    `test_phase6.sh` takes 41 s and `test_verify_false_pass.sh` 26 s. The eight tests also pass
+    in a Linux container (`python:3.12.14-slim-bookworm`: mawk, no `uuidgen`).
+  - `test_checks_kept.sh` compares the base's committed transcript with the change's: base
+    `main`, 84 checks before and after; base `6d5a505`, 65 before and 84 after; a transcript
+    without one PASS line fails and names the check.
+  - AC 2, the regression: with `check_exact` put back to `check` in `phase2`, only the step
+    `test_verify_false_pass.sh, …` goes red, on `MISMATCH  title merely contains orders-api
+    PASS (want FAIL)`. Before this story the test did not fail on that change (measured:
+    `mismatches: 0`); the new scenario, an OpenAPI title that merely contains `orders-api`, is
+    the one a substring check passes. A substring put back in phase 3's order flow fails
+    `order processed, 10 events sent`.
+  - `test_status_auth.sh` gave its temporary directory mode 0700, which the orders-api UID
+    10002 cannot enter under rootless Podman on Linux (a Podman machine's file sharing hides
+    it on the Mac); the directory is now 0755, and the test still fails when the token's
+    `Bearer` shape check is removed (`lowercase scheme -> 503`).
+  - AC 5: every action pinned by the full commit of its release tag, the newest release at
+    least two weeks old (checkout v7.0.1, setup-python v7.0.0, setup-node v7.1.0); diagram-kit
+    at v0.2.5's commit, the kit pin set for every repository, though tagged 2026-10-14 (eight
+    days old). ShellCheck 0.11.0 (image), markdownlint-cli2 0.23.3, Node 24.21.0, Python
+    3.12.14. `actionlint` 1.7.12: no finding.
+  - AC 4: `git diff --stat main -- .github/` is empty, so no existing workflow changed;
+    `git status --short -- .github/` lists the new workflow as the one file added.
+  - To be measured on GitHub by the orchestrator: each job's run time, the diagram job on the
+    runner, and the spike's five results (the tests that pass move into `lab-free`).
 
 ## Closing sprint 1
 

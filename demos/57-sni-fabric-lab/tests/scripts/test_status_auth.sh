@@ -12,6 +12,9 @@ printf 'right-token' > "${work}/worker-token"
 : > "${work}/empty-worker-token"
 cp "$2" "${work}/ca.crt"
 chmod 644 "${work}"/*
+# mktemp -d is 0700: under rootless Podman on Linux its owner is the container's root, so the
+# image's UID 10002 could not enter it (a Podman machine's file sharing on a Mac hides this).
+chmod 755 "${work}"
 worker_dir="$(cd "$1/../../worker" && pwd)"
 podman run --rm -i --network none --read-only \
   -v "$(cd "$1" && pwd):/srv/app:ro" -v "${worker_dir}:/srv/worker:ro" -v "${work}:/s:ro" \

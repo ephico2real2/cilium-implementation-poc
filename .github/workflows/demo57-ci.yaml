@@ -1,0 +1,271 @@
+# Demo 57, the SNI fabric lab, checked on every pull request that touches it (backlog story E1,
+# demos/57-sni-fabric-lab/docs/roadmap/BACKLOG.md). Each check and each test is its own step, so
+# a red run's log names what failed.
+#
+# lab-free: what needs nothing of the lab running. shellcheck on every shell script of the demo,
+# mdfmt check on its Markdown, compose config, Envoy's --mode validate, the collector's validate,
+# and the tests that stub or read everything they touch. diagrams: diagram-kit's own job on the
+# demo's diagram pages. Neither starts a container of the lab's.
+#
+# The engine, from the runner image's software list (ubuntu-24.04, image 20261012.334.1):
+# https://github.com/actions/runner-images/blob/06f4a9146f061c2776b044dab74b5390d9c000b9/images/ubuntu/Ubuntu2404-Readme.md
+# Docker Server 28.0.4 with Docker Compose 2.38.2 (installed as the plugin in
+# /usr/libexec/docker/cli-plugins), and Podman 4.9.3, which has no compose of its own: its
+# `podman compose` runs the first provider it finds, and that plugin path is on its default list
+# (containers/common v0.57.4, pkg/config/default.go:120-128). So lab-free uses docker; the spike
+# uses podman, because the tests it runs call podman.
+#
+# Not in CI: the checks that need the running lab (scripts/run.sh --fresh builds four images and
+# starts the 16 services, 8 min 6 s recorded on the Mac), which this workflow does not bring up.
+# Each runs on the lab's machine, from the demo directory, once the lab is up:
+#   scripts/verify.sh                          phases 1-3, 57 checks
+#   scripts/verify.sh phase6                   the collector and the four stores, 19 checks
+#   scripts/verify.sh phase5                   failure and recovery, 7 checks; stops and restarts containers on purpose
+#   bash tests/r1-2/test_store_routes.sh       Envoy refuses the stores' admin and write paths
+#   python3 tests/dashboard_queries.py --minutes 5
+#                                              every dashboard query against the lab's Prometheus
+#   ~/.local/share/diagram-kit/.venv/bin/python tests/browser_flows.py out/ secrets/admin-token
+#   ~/.local/share/diagram-kit/.venv/bin/python tests/grafana_capture.py out/
+#   ~/.local/share/diagram-kit/.venv/bin/python tests/sprint1_walk.py docs/screenshots/sprint1 <run> <trace-id>
+#                                              the three browser walks also need Playwright and
+#                                              Chromium, from diagram-kit's environment
+#
+# spike-container-tests (AC 3): the tests that need Podman and the lab's images but start nothing
+# of the lab's, each on its own step with continue-on-error, so every result is reported and none
+# turns the pull request red. What each needs, read from the test (local times: the Mac, Podman
+# 6.1.2, images already present; the runner's times are read from this job's run):
+#   bash tests/r1-1/test_compose_collector.sh compose.yaml observability/otel-collector.yaml
+#       `podman compose config` and python3; no image, no network. Local: 1 s.
+#   python3 tests/scripts/test_key_isolation.py compose.yaml
+#       certs/ and secrets/ generated; `podman image inspect` of every service without a `user:`
+#       (web, postgres, mq, prometheus pulled; tcp-svc, orders-api, worker, grafana built);
+#       init-volumes.sh run twice in a throwaway alpine container, --network none, tmpfs
+#       volumes, init's capabilities, chowning to the lab's UIDs. Local: 2 s.
+#   bash tests/scripts/test_status_auth.sh services/orders-api/app certs/ca/ca.crt
+#       localhost/fabric-orders-api:dev built (pip downloads); one --network none --read-only
+#       container, run as the image's UID 10002, reading a temporary directory. Local: under 1 s.
+#   bash tests/scripts/test_prometheus_baseline.sh scripts/verify.sh
+#       docker.io/prom/prometheus:v3.15.0; two throwaway Prometheus containers, each publishing a
+#       loopback port; the host's curl. Local: 15 s.
+#   bash tests/r1-2/test_plugin_checksum.sh observability/grafana/image
+#       `podman build --no-cache` with a wrong SHA-256: pulls alpine, downloads the plugin and its
+#       checksums file from GitHub, and must fail at sha256sum. Not run locally (it builds).
+# Every one that passes on the runner moves into lab-free; the rest stay listed here with the
+# reason the run measured.
+#
+# Every action is pinned by the full commit of its release tag (a tag can be moved, a commit
+# cannot), the tag beside it: the newest release at least two weeks old on 2026-10-22.
+name: demo57-ci
+
+on:
+  pull_request:
+    paths:
+      - 'demos/57-sni-fabric-lab/**'
+      - '.github/workflows/demo57-ci.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'demos/57-sni-fabric-lab/**'
+      - '.github/workflows/demo57-ci.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DEMO: demos/57-sni-fabric-lab
+  # 3.12.14: the Python the demo's three services run (python:3.12.14-slim-bookworm).
+  PYTHON_VERSION: '3.12.14'
+  # markdownlint-cli2 0.23.3 needs Node 22 or later; 24.21.0 is the newest Node 24 LTS at least two weeks old.
+  NODE_VERSION: '24.21.0'
+  # The newest markdownlint-cli2 at least two weeks old (2026-09-20), the engine of scripts/mdfmt.
+  MARKDOWNLINT_CLI2_VERSION: '0.23.3'
+  # The newest ShellCheck release (2025-08-04); the runner's own is 0.9.0 and moves with the image.
+  SHELLCHECK_IMAGE: docker.io/koalaman/shellcheck:v0.11.0
+
+jobs:
+  lab-free:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+        working-directory: demos/57-sni-fabric-lab
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: shellcheck, every shell script of the demo
+        run: |
+          # Found by their shebang, so a new script is checked without a list to keep up to date.
+          mapfile -t scripts < <(git ls-files | while read -r f; do
+            head -n1 "${f}" | grep -qE '^#!.*[/ ](ba)?sh$' && echo "${f}"; done)
+          echo "${#scripts[@]} scripts"
+          docker run --rm -v "${PWD}:/mnt:ro" -w /mnt "${SHELLCHECK_IMAGE}" "${scripts[@]}"
+
+      - name: Install markdownlint-cli2
+        run: npm install --global --no-audit --no-fund "markdownlint-cli2@${MARKDOWNLINT_CLI2_VERSION}"
+
+      # From the repository root: mdfmt reads .markdownlint-cli2.yaml there.
+      - name: mdfmt check, the demo's Markdown
+        working-directory: ${{ github.workspace }}
+        run: |
+          mapfile -t pages < <(git ls-files "${DEMO}/*.md")
+          scripts/mdfmt check "${pages[@]}"
+
+      - name: docker compose config
+        run: docker compose -f compose.yaml --profile tools config --quiet
+
+      - name: Envoy --mode validate, envoy/envoy.yaml
+        run: |
+          # Envoy loads the trusted_ca file the config names even to validate it: the demo's own CA.
+          scripts/gen-certs.sh >/dev/null
+          config="$(docker compose -f compose.yaml config --format json)"
+          docker run --rm --user "$(jq -r '.services.envoy.user' <<<"${config}")" \
+            -v "${PWD}/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro" -v "${PWD}/certs/ca/ca.crt:/tls/ca/ca.crt:ro" \
+            --entrypoint envoy "$(jq -r '.services.envoy.image' <<<"${config}")" \
+            --mode validate -c /etc/envoy/envoy.yaml
+
+      - name: otelcol validate, observability/otel-collector.yaml
+        run: |
+          config="$(docker compose -f compose.yaml config --format json)"
+          docker run --rm --user "$(jq -r '.services["otel-collector"].user' <<<"${config}")" \
+            -v "${PWD}/observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro" \
+            "$(jq -r '.services["otel-collector"].image' <<<"${config}")" \
+            validate --config=/etc/otelcol-contrib/config.yaml
+
+      - name: test_verify_false_pass.sh, no verify.sh check passes on a substring or a missing value
+        run: bash tests/scripts/test_verify_false_pass.sh scripts/verify.sh
+
+      - name: test_run_sh.sh, run.sh stops on a failed build and keeps random secrets out of the transcript
+        run: bash tests/scripts/test_run_sh.sh scripts/run.sh
+
+      - name: test_recap_counts.sh, RECAP's numbers come from the recorded run
+        run: bash tests/scripts/test_recap_counts.sh .
+
+      - name: test_checks_kept.sh, every check the base's transcript passed still passes
+        env:
+          # The pull request's base, the previous tip of main on a push, or main when run by hand.
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before || github.event.repository.default_branch }}
+        run: |
+          git fetch --no-tags --depth=1 origin "${BASE}"
+          git show "FETCH_HEAD:${DEMO}/output/transcript.txt" > "${RUNNER_TEMP}/base-transcript.txt"
+          bash tests/scripts/test_checks_kept.sh "${RUNNER_TEMP}/base-transcript.txt" output/transcript.txt
+
+      - name: test_collector_ports.sh, every collector port is routed by Envoy
+        run: bash tests/r1-1/test_collector_ports.sh observability/otel-collector.yaml envoy/envoy.yaml
+
+      - name: test_phase6.sh, phase6's verdicts against fake podman and curl
+        run: bash tests/r1-1/test_phase6.sh scripts/verify.sh
+
+      - name: test_usage_docs.sh, usage.md's span count and ports match the code
+        run: bash tests/r1-1/test_usage_docs.sh docs/usage.md envoy/envoy.yaml observability/otel-collector.yaml
+
+      - name: test_dashboard.py, both dashboard forms
+        run: python3 tests/test_dashboard.py
+
+  diagrams:
+    uses: ephico2real2/diagram-kit/.github/workflows/check-diagrams.yml@26b7c19791159929c76a264ea3d5274bef72e9f6 # v0.2.5
+    with:
+      # The commit of v0.2.5 as well, so the kit the job installs cannot move either.
+      kit: 26b7c19791159929c76a264ea3d5274bef72e9f6
+      pages: ':(glob)demos/57-sni-fabric-lab/docs/diagrams/**/source.html'
+
+  spike-container-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+        working-directory: demos/57-sni-fabric-lab
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Podman, its compose provider and its user namespace
+        id: engine
+        continue-on-error: true
+        run: |
+          podman version
+          podman compose version
+          podman info --format 'rootless={{.Host.Security.Rootless}} network={{.Host.NetworkBackend}}'
+          grep "^$(id -un):" /etc/subuid /etc/subgid
+          sysctl kernel.apparmor_restrict_unprivileged_userns
+
+      # Ubuntu 24.04 lets only AppArmor-profiled programs create user namespaces, which rootless
+      # Podman needs (actions/runner-images#10443); this runner is thrown away after the job.
+      - name: Allow unprivileged user namespaces
+        id: userns
+        continue-on-error: true
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Certificates and secrets
+        id: secrets
+        continue-on-error: true
+        run: |
+          scripts/gen-certs.sh
+          scripts/gen-secrets.sh
+
+      - name: The lab's images the tests read, built and pulled with Podman
+        id: images
+        continue-on-error: true
+        run: |
+          config="$(docker compose -f compose.yaml --profile tools config --format json)"
+          # Built as compose would tag them; test_key_isolation.py inspects each.
+          jq -r '.services[] | select(.build) | "\(.image) \(.build.context)"' <<<"${config}" | sort -u |
+            while read -r image context; do podman build -q -t "${image}" "${context}" </dev/null; done
+          # Pulled: the images of the services without a user of their own, whose UID it reads from the image.
+          jq -r '.services[] | select((.build | not) and (.user | not)) | .image' <<<"${config}" | sort -u |
+            xargs -n1 podman pull -q
+
+      - name: test_compose_collector.sh
+        id: compose_collector
+        continue-on-error: true
+        run: bash tests/r1-1/test_compose_collector.sh compose.yaml observability/otel-collector.yaml
+
+      - name: test_key_isolation.py
+        id: key_isolation
+        continue-on-error: true
+        run: python3 tests/scripts/test_key_isolation.py compose.yaml
+
+      - name: test_status_auth.sh
+        id: status_auth
+        continue-on-error: true
+        run: bash tests/scripts/test_status_auth.sh services/orders-api/app certs/ca/ca.crt
+
+      - name: test_prometheus_baseline.sh
+        id: prometheus_baseline
+        continue-on-error: true
+        run: bash tests/scripts/test_prometheus_baseline.sh scripts/verify.sh
+
+      - name: test_plugin_checksum.sh
+        id: plugin_checksum
+        continue-on-error: true
+        run: bash tests/r1-2/test_plugin_checksum.sh observability/grafana/image
+
+      - name: The spike's results
+        if: always()
+        env:
+          RESULTS: ${{ toJSON(steps) }}
+        run: |
+          {
+            echo "## Spike: the tests that need Podman and the lab's images"
+            echo
+            echo "| step | outcome |"
+            echo "|---|---|"
+            jq -r 'to_entries[] | "| `\(.key)` | \(.value.outcome) |"' <<<"${RESULTS}"
+          } | tee -a "${GITHUB_STEP_SUMMARY}"

@@ -324,6 +324,10 @@ python3 tests/test_dashboard.py
 
 The two browser tests need Playwright and Chromium, from diagram-kit's environment.
 
+CI runs the tests that need nothing of the lab running, with shellcheck, mdfmt, compose config
+and the Envoy and collector validations, on every pull request that touches this demo:
+[`.github/workflows/demo57-ci.yaml`](../../../.github/workflows/demo57-ci.yaml).
+
 ## 7. Operate the lab
 
 ### 7.1 Containers
