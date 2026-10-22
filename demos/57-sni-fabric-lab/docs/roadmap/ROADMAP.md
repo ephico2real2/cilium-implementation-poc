@@ -143,7 +143,8 @@ that time.
 - **Sprints** of one to two sessions: a sprint goal (a chapter or half of one), a review page
   (`docs/story/NN-*.md`: what changed, screenshots, measured numbers) and a short retro.
 - **Definition of Ready:** acceptance criteria written; the mock, if any, approved; the facts it
-  relies on verified (versions, endpoints); its test named.
+  relies on verified (versions, endpoints); the behaviour it depends on measured on the live lab and
+  recorded (sprint 1's retro); its test named.
 - **Definition of Done (story):**
   1. Code, config and docs in one change; no placeholder or dead code; lint and shellcheck
      clean; pins at least two weeks old.

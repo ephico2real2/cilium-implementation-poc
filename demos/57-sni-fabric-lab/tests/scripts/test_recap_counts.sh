@@ -135,8 +135,9 @@ if missing:
     sys.exit(1)
 PY
 check "README text blocks are exact recorded slices" "$?"
-# The fresh run's duration, from its first to its last step, is the one RECAP and run.sh state.
-python3 - "${t}" "$1/RECAP.md" "$1/scripts/run.sh" <<'PY'
+# The fresh run's duration, from its first to its last step, is the one RECAP, run.sh and the CI
+# workflow's header state.
+python3 - "${t}" "$1/RECAP.md" "$1/scripts/run.sh" "$1/../../.github/workflows/demo57-ci.yaml" <<'PY'
 import re
 import sys
 from datetime import datetime
@@ -150,10 +151,13 @@ want = f"{seconds // 60} min {seconds % 60} s"
 recap = re.search(r"^Result: (\d+ min \d+ s);", Path(sys.argv[2]).read_text(), re.MULTILINE)
 header = re.search(r"^# Takes about \d+ minutes \((\d+ min \d+ s) recorded\)",
                    Path(sys.argv[3]).read_text(), re.MULTILINE)
-got = (recap.group(1) if recap else None, header.group(1) if header else None)
-if got != (want, want):
-    print(f"duration: transcript {want}; RECAP {got[0]}; run.sh {got[1]}", file=sys.stderr)
+workflow = re.search(r"^# starts the \d+ services, (\d+ min \d+ s) recorded on the Mac\)",
+                     Path(sys.argv[4]).read_text(), re.MULTILINE)
+got = tuple(m.group(1) if m else None for m in (recap, header, workflow))
+if got != (want, want, want):
+    print(f"duration: transcript {want}; RECAP {got[0]}; run.sh {got[1]}; demo57-ci.yaml {got[2]}",
+          file=sys.stderr)
     sys.exit(1)
 PY
-check "duration: the transcript's, in RECAP and run.sh's header" "$?"
+check "duration: the transcript's, in RECAP, run.sh's and the CI workflow's headers" "$?"
 echo "mismatches: ${bad}"; exit "${bad}"

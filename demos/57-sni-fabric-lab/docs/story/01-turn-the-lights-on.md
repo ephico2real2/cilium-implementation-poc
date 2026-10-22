@@ -12,15 +12,17 @@ numbers come from the review records in [../reviews/](../reviews/), the pictures
 |---|---|---|---|---|
 | 1 | R1.1 The collector is the one pipeline | done | Codex, OB3 | [R1.1](../reviews/R1.1.md) |
 | 1 | R1.2 The stores are running | done | OB3, Codex | [R1.2](../reviews/R1.2.md) |
-| 1 | R1.3 Side by side, compared | built and measured; in review | Codex, OB3 and OB1-lite | [R1.3](../reviews/R1.3.md) |
-| 1 | E1 CI checks demo 57 on every pull request | built, green on GitHub; in review | OB3, Codex and OB1-lite | [E1](../reviews/E1.md) |
+| 1 | R1.3 Side by side, compared | done | Codex, OB3 and OB1-lite | [R1.3](../reviews/R1.3.md) |
+| 1 | E1 CI checks demo 57 on every pull request | done | OB3, Codex and OB1-lite | [E1](../reviews/E1.md) |
+| 1 | R1.10 VictoriaMetrics' own UI from the Mac | done (#93) | the orchestrator; Codex and OB1-lite | [R1.10](../reviews/R1.10.md) |
 | 2 | R1.4–R1.9 One order, one story | not started; its two mocks await approval | — | [BACKLOG](../roadmap/BACKLOG.md) |
 
-## Sprint 1, so far: the pipeline and the stores
+## Sprint 1: the pipeline and the stores
 
 Every signal reaches the collector only through Envoy (`otlp.mesh`), and the collector reaches
 each store only through Envoy too; Envoy routes each store's write path, the read API Grafana
-uses and its readiness probe, and nothing else.
+uses and its readiness probe, and nothing else. From the Mac, Grafana, Prometheus and
+VictoriaMetrics are each the whole app.
 
 ![Signals pass Envoy twice: from telemetrygen to the collector through otlp.mesh, and from the collector to Tempo, VictoriaTraces, VictoriaMetrics and VictoriaLogs through their own aliases; Prometheus scrapes every component through Envoy and remote-writes every sample through Envoy to VictoriaMetrics; Grafana reads every store through Envoy.](../diagrams/layers/telemetry.light.png)
 
@@ -35,12 +37,12 @@ starting again from zero.*
 
 | What was measured | Result |
 |---|---|
-| `verify.sh phase6` | 19 of 19: the collector, each store's readiness and metrics through Envoy, all five datasources, one run found in every store |
+| `verify.sh phase6` | 22 of 22: the collector, each store's readiness and metrics through Envoy, all five datasources, one run found in every store, the same metric jobs and MQ samples in both metric stores |
 | One run's 5 traces | the same 5 trace ids in Tempo and VictoriaTraces |
 | VictoriaTraces stopped for 3 min 40 s while traces were sent | all 5 delivered after it returned; the collector retried 57 times and dropped nothing |
-| Envoy and the stores' admin and delete APIs | 29 of 29 route checks: refused with Envoy's own 404, reads allowed |
+| The stores' routes | 45 of 45 route checks: on the mesh, 16 refused with Envoy's own 404 (5 admin or delete APIs, a write and a read path the route does not allow, and 9 allowed paths asked with the wrong method) and 13 allowed (the read APIs, the readiness probes and remote write); from the Mac, VictoriaMetrics' whole app; from a container, its read API only (4 refusals) |
 | Tempo 3.1 single binary | 25 ms to start, 32 MB idle, no Kafka |
-| Memory in the 3887 MB Podman VM | 1255 MB still available with all four stores running |
+| Memory in the 3887 MB Podman VM | 1098 to 1203 MB available (three samples, 13:52 to 13:53 UTC) with all 15 long-running services up (the 16th, `init`, exits once it has prepared the volumes); MQ 1.18 GB, every other service under 200 MB |
 | `scripts/run.sh --fresh`, everything from nothing | 11 min 7 s, 87 checks, 0 failures (`output/transcript.txt`, 2026-10-22, with R1.10) |
 
 ## The walk: one run, followed through every store
@@ -164,6 +166,22 @@ for the rest it is Prometheus's own value. Each is matched to float precision:
 
 Traces: one of the run's traces holds 2 spans in Tempo and 2 in VictoriaTraces (`phase6`).
 
+## R1.10: VictoriaMetrics' own UI
+
+VictoriaMetrics ships a web app of its own, vmui. Envoy now passes every path on
+`victoriametrics.fabric.localtest.me:8080` to it, as it does for Prometheus, so its query page
+and cardinality explorer open from the Mac
+(<http://victoriametrics.fabric.localtest.me:8080/vmui/>). Only the Mac gets the whole app: a
+container asking the same host name gets the read API alone, and a component on the mesh still
+gets only what `victoriametrics.mesh` routed before (the read API, remote write, OpenTelemetry
+metrics and the readiness probe). The review found that Envoy's ops listener is on every network
+Envoy joins, so Envoy now tells the Mac's connections from a container's.
+
+![vmui's query page graphing the shop's requests per second through Envoy, one line per application upstream.](../screenshots/vmui-query.light.png)
+
+*vmui on the lab, 2026-10-22, taken by `tests/vmui_capture.py`; more on
+[the remote-write page](../remote-write.md#see-it-in-victoriametrics-own-ui).*
+
 ## Found by looking
 
 The walk found what the checks and both reviews had not.
@@ -178,6 +196,68 @@ its settings page opens, which R1.2's route list did not allow; Envoy answered w
 `not routed` text, which the plugin tried to parse as JSON. Grafana's alerting view likewise
 asks VictoriaMetrics for `GET /api/v1/rules`. Both are read-only, and both are now routed, with
 three route tests; step 3 above shows the page after the fix.
+
+## Sprint 1 review
+
+The sprint's goal, "every store up behind Envoy, fed by the collector, compared side by side",
+is met. Each story is in [the backlog](../roadmap/BACKLOG.md) with its measured status, and in
+its review record.
+
+| Story | What it added |
+|---|---|
+| R1.1 | One OpenTelemetry Collector, reached only through Envoy's `otlp.mesh`, its own metrics scraped |
+| R1.2 | Tempo, VictoriaTraces, VictoriaMetrics and VictoriaLogs, each on its own network behind Envoy; five Grafana datasources |
+| R1.3 | Prometheus as the one scraper, remote-writing to VictoriaMetrics; ten dashboard queries compared exactly; the dashboard on either store |
+| E1 | CI on every pull request that touches the demo: three jobs, every test named or run |
+| R1.10 | VictoriaMetrics' own UI from the Mac |
+
+How the recorded run changed across sprint 1: `output/transcript.txt` at each commit named in
+the table; the checks are its `PASS` lines, the time runs from its first step to its last.
+
+| | Demo 57's first commit (`6d5a505`) | R1.1 and R1.2 merged (`3968e47`) | R1.3 and E1 merged (`289e0b9`) | R1.10 merged (this page's run) |
+|---|---:|---:|---:|---:|
+| Checks passing | 65 | 84 | 87 | 87 |
+| `scripts/run.sh --fresh` | 5 min 35 s | 8 min 6 s | 11 min 1 s | 11 min 7 s |
+
+The first column is the run recorded in demo 57's first commit, which predates the collector and
+the stores that the same commit added; there is no earlier merge to read.
+
+R1.1 and R1.2 added 2 min 31 s, most of it phase 6's checks of the collector and the four stores
+(1 min 49 s). R1.3 added 2 min 55 s: its new comparison step waits for a full five-minute rate
+window in both stores before it compares, so that the comparison is exact rather than within a
+tolerance. That step takes 3 min 16 s (14:25:01 to 14:28:17 UTC in this page's run); the rest of
+the run was 21 s faster.
+
+## Sprint 1 retro
+
+**What helped**
+
+- Measuring on the live lab, not only reading the change. The MQ gauges VictoriaMetrics took from
+  Prometheus (136 samples a scrape fell to 108) were found in Prometheus's own scrape counts; the
+  VictoriaLogs `not routed` error was found by the browser walk, after the data source test and
+  both reviews had passed it.
+- Two reviewers who did not write the change, then a second pass on the fixed head. R1.3's
+  comparison went from a tolerance that could hide a difference to an exact one over four passes.
+- CI from the middle of the sprint: R1.3 could not merge until its three new tests were named.
+
+**What hurt**
+
+- The fresh run doubled, from 5 min 35 s to 11 min 7 s: phase 6's checks of the collector and
+  the stores added 1 min 49 s, and R1.3's wait for a full rate window 3 min 16 s (MQ's two-minute
+  start under emulation was already in the 5 min 35 s), so every full check costs eleven minutes.
+- Switching the lab's checkout between branches left running containers on old bind-mounted
+  files (an empty web root, empty Grafana dashboards, an old `prometheus.yml`) until `run.sh`
+  learned to recreate them.
+- Numbers in prose drifted from the run they describe: the CI workflow's header said 11 min 22 s
+  for a run of 11 min 1 s, found only while closing the sprint. `tests/scripts/test_recap_counts.sh`
+  now pins that number too.
+
+**One change for sprint 2:** a story is ready only when the behaviour it depends on has been
+measured on the live lab and recorded, not only its versions and endpoints. R1.3's first design
+assumed that a second scraper sees the same data; IBM MQ's exporter does not allow that. Sprint
+2's stories already name their spikes (MQ user properties, Envoy's per-attempt spans,
+trace-to-logs); this makes it the rule, in [ROADMAP.md](../roadmap/ROADMAP.md)'s Definition of
+Ready.
 
 ## Re-taking the pictures
 
