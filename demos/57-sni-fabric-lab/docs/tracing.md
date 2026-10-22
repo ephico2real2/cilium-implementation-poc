@@ -36,8 +36,8 @@ which would guess them, is not used.
 
 | Service | Instrumentations | What gets a span |
 |---|---|---|
-| orders-api | `fastapi`, `httpx`, `psycopg` (all 0.66b1) | every request it serves, every HTTP call it makes, every SQL statement |
-| worker | `httpx` | every HTTP call it makes: its MQ gets and its status updates to orders-api |
+| orders-api | `fastapi`, `httpx`, `psycopg` (all 0.66b1) | every request it serves except the three routes excluded below, every HTTP call it makes, every SQL statement |
+| worker | `httpx` | every HTTP call it makes: its MQ gets, its status updates to orders-api, and the puts that requeue or dead-letter an event |
 | tcp-svc | none (the distro only) | nothing: it serves raw TCP, which no instrumentation covers |
 
 All three take the same settings from one YAML anchor in [`compose.yaml`](../compose.yaml):
@@ -71,8 +71,8 @@ R1.6.*
 5 READ    Grafana --> Envoy (tempo.mesh, victoriatraces.mesh) --> the trace, by id or by search
 ```
 
-Every span passes Envoy twice and no service talks to the collector or a store directly: each
-sits on its own network with Envoy alone. The collector's trace pipeline is in
+Every span passes Envoy twice on its way to each store, and no service talks to the collector or a
+store directly: each sits on its own network with Envoy alone. The collector's trace pipeline is in
 [`observability/otel-collector.yaml`](../observability/otel-collector.yaml) (`exporters:
 [otlp_http/tempo, otlp_http/victoriatraces]`); Envoy's route is the `otlp` virtual host in
 [`envoy/envoy.yaml`](../envoy/envoy.yaml).
@@ -84,15 +84,15 @@ itself, as `phase6` does, so the trace id is known before any store is asked. It
 [`output/trace-capture.txt`](../output/trace-capture.txt):
 
 ```text
-order   43 placed, HTTP 201, traceparent 00-7945020a9c8a42a3832fee834b539648-a55f642024a3439f-01
-tempo   order trace 7945020a9c8a42a3832fee834b539648: 12 spans, client=7 internal=4 server=1
-vtraces order trace 7945020a9c8a42a3832fee834b539648: 12 spans
+order   50 placed, HTTP 201, traceparent 00-fd54cc7b01db4b0ab40e0fcdde5c0870-297c6a4785f04003-01
+tempo   order trace fd54cc7b01db4b0ab40e0fcdde5c0870: 12 spans, client=7 internal=4 server=1
+vtraces order trace fd54cc7b01db4b0ab40e0fcdde5c0870: the same 12 span ids
 ```
 
-![Grafana Explore on the Tempo datasource showing trace 7945020a…, orders-api: POST /orders, 29.8 ms, 12 spans: the server span with its receive and three send spans, three spans named fabric, INSERT, a 23.58 ms POST, UPDATE and SELECT.](screenshots/trace-order-tempo.light.png)
+![Grafana Explore on the Tempo datasource showing trace fd54cc7b…, orders-api: POST /orders, 26.3 ms, 12 spans: the server span with its receive and three send spans, three spans named fabric, INSERT, an 18.97 ms POST, UPDATE and SELECT.](screenshots/trace-order-tempo.light.png)
 
 *The order's trace in Tempo, 2026-10-22. All 12 spans are orders-api's. The long bar is the
-event put on IBM MQ through Envoy (`POST`, 23.58 ms of the request's 29.8 ms).*
+event put on IBM MQ through Envoy (`POST`, 18.97 ms of the request's 26.3 ms).*
 
 The 12 spans, read back from Tempo's API:
 
@@ -104,12 +104,15 @@ The 12 spans, read back from Tempo's API:
 | 3 × `fabric` | client | psycopg | the connection pool's check before each of those three (`check=AsyncConnectionPool.check_connection` in `app/db.py` runs an empty statement; an empty statement's span takes the database's name) |
 | `POST` | client | httpx | the `order.created` event put on `DEV.QUEUE.1` through `mqrest.mesh` |
 
-These are the counts `phase6` checks: one server span, at least one HTTP client span and at least
-one database span under it, all in the requested trace, `server=1 client=1 database=6 traces=1
-spans=12`.
+`phase6` checks the same kind of trace: exactly one server span, and under it at least one HTTP
+client span and at least one database span, all in the requested trace. Its summary counts
+differently from the table: `client` is the HTTP client spans only (the `POST` to MQ) and
+`database` the six psycopg spans, so it reads `server=1 client=1 database=6 traces=1 spans=12`; the
+total is printed, not checked.
 
 A trace started by a caller's `traceparent` has its root in the caller, which sends no span, so
-Tempo's search lists it as `<root span not yet received>`; opened by its id, it shows as above.
+Tempo's search lists it as `<root span not yet received>` (`output/tracing-measurements.txt`,
+section 5); opened by its id, it shows as above.
 An order placed with no `traceparent` (the Orders page's `fetch` sets none, nor does `curl`
 alone) starts a trace of its own: `POST /orders` with no parent and the same 12 spans
 ([`output/tracing-measurements.txt`](../output/tracing-measurements.txt), section 2).
@@ -117,9 +120,9 @@ alone) starts a trace of its own: `POST /orders` with no parent and the same 12 
 The collector sends the same spans to VictoriaTraces, which Grafana reads with its Jaeger
 datasource:
 
-![Grafana Explore on the VictoriaTraces datasource showing the same trace id, orders-api: POST /orders, 29.8 ms, 12 spans in the same order as in Tempo.](screenshots/trace-order-victoriatraces.light.png)
+![Grafana Explore on the VictoriaTraces datasource showing the same trace id, orders-api: POST /orders, 26.3 ms, 12 spans in the same order as in Tempo.](screenshots/trace-order-victoriatraces.light.png)
 
-*The same trace in VictoriaTraces: the same 12 spans and durations.*
+*The same trace in VictoriaTraces: the same 12 span ids, names and durations.*
 
 ## The worker's half: a trace of its own until R1.5
 
@@ -127,13 +130,14 @@ The worker gets the event from MQ and reports the order processed with
 `PUT /orders/{id}/status`, through Envoy's `mesh_http`. httpx writes `traceparent` on that call,
 Envoy passes the header through unchanged, and orders-api continues the worker's trace:
 
-![Grafana Explore on Tempo showing trace d3cc7be6…, worker: PUT, 2 services: the worker's PUT client span with orders-api's PUT /orders/{order_id}/status server span under it, then a fabric check, an UPDATE and the receive and send spans.](screenshots/trace-worker-tempo.light.png)
+![Grafana Explore on Tempo showing trace 9e44a6fa…, worker: PUT, 2 services: the worker's PUT client span with orders-api's PUT /orders/{order_id}/status server span under it, then a fabric check, an UPDATE and the receive and send spans.](screenshots/trace-worker-tempo.light.png)
 
-*The worker's trace for order 43: 8 spans, 2 services. The worker's `PUT` is the root;
-orders-api's server span and its `UPDATE` are its children, across Envoy.*
+*The worker's trace for order 50: 8 spans, 2 services. The worker's `PUT` is the root; orders-api's
+server span is its child, across Envoy, and orders-api's other six spans, the `UPDATE` among them,
+sit under that server span.*
 
 ```text
-tempo   worker trace d3cc7be687fc14478770de511a899209: 8 spans, client=3 internal=4 server=1
+tempo   worker trace 9e44a6fa8b95f8ae8a42d43108b863c2: 8 spans, client=3 internal=4 server=1
 ```
 
 So trace context already crosses every HTTP hop on the mesh. What it does not cross is IBM MQ:
@@ -153,7 +157,7 @@ so one order becomes one trace.
 |---|---|---|
 | The browser, the Orders page | no | Envoy's edge passes TLS through on SNI, so nothing at the edge sees the request; browser tracing is out of R1's scope |
 | Envoy itself | no | `mesh_http` forwards `traceparent` but makes no span of its own; R1.6 (#99) adds that, and the spike measured one span per retry attempt (`output/spike-r1-6-envoy-attempt-spans.txt`) |
-| IBM MQ, Postgres | no | they make no spans; orders-api's client spans time each call to them |
+| IBM MQ, Postgres | no | they make no spans; the calling service's client spans time each call (orders-api for Postgres and its event puts, the worker for its MQ gets and requeues) |
 | orders-api's `/metrics`, `/healthz`, `/readyz` | no | excluded; 0 traces in 30 minutes for each (reviews/R1.4.md) |
 | tcp-svc | no span | instrumented, but nothing instruments a raw TCP server; `phase6` checks that it starts under `opentelemetry-instrument` |
 | orders-api's background work | yes | the sweeper's `SELECT` every 15 s (`SWEEP_EVERY_S`) and its pool checks are traces of their own (38 and 42 in 10 minutes, reviews/R1.4.md) |
@@ -166,15 +170,16 @@ fixes, in [`output/phase6-tracing.txt`](../output/phase6-tracing.txt), `failures
 
 | Check | What it proves | Result |
 |---|---|---|
-| `otel: a span reaches the collector through Envoy` | telemetrygen's 10 spans are accepted by the collector through `otlp.mesh` | accepted spans 19627 → 19643 |
+| `otel: a span reaches the collector through Envoy` | telemetrygen sends 10 spans through `otlp.mesh` with no export error, and the collector's accepted-span counter rises by at least 10 (the services' own spans count too, so here it rose by 16) | accepted spans 19627 → 19643 |
 | `otel: the three services run instrumented` | each service's process 1 has the installed hook directory on its `PYTHONPATH`, and its log holds no `Failed to auto initialize OpenTelemetry` | `orders-api:orders-api:instrumented worker:worker:instrumented tcp-svc:tcp-svc:instrumented` |
 | `otel: one order's trace has server, client and database spans` | an order placed with the check's own `traceparent` has, in that trace and under orders-api's server span, orders-api's HTTP and database client spans | `server=1 client=1 database=6 traces=1 spans=12` |
-| `otel: resource has service, version, env=lab` | every orders-api and worker span carries a name, a version and `deployment.environment=lab` | `orders-api=dev/lab worker=dev/lab spans=13 missing=0` |
+| `otel: resource has service, version, env=lab` | every span of the order's trace and of one worker trace (13 here) has `service.name` orders-api or worker, a version and `deployment.environment=lab` | `orders-api=dev/lab worker=dev/lab spans=13 missing=0` |
 
-The checks cannot pass by accident. `tests/scripts/test_verify_false_pass.sh` feeds each one the
-cases R1.4's reviewers found would fool it, and wants the right verdict: a service whose hook
-loaded but failed to start, a look-alike path on `PYTHONPATH`, another service's or another
-trace's spans in the order's slots, a resource without `service.name`. It needs no lab:
+`tests/scripts/test_verify_false_pass.sh` feeds the checks the cases R1.4's reviewers found would
+fool them, and wants the right verdict: a service whose hook loaded but failed to start, a
+look-alike path on `PYTHONPATH`, another service's or another trace's spans in the order's slots,
+a resource without `service.name`. It guards against those known cases, not every possible one,
+and needs no lab:
 
 ```bash
 bash tests/scripts/test_verify_false_pass.sh scripts/verify.sh   # last line: mismatches: 0
@@ -187,21 +192,26 @@ From the demo directory, with the lab running:
 ```bash
 # Place an order with a trace id you choose, through Envoy's edge
 trace_id="$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]')"
-curl -s --cacert certs/ca/ca.crt -X POST https://api.fabric.localtest.me:8443/orders \
+curl -s -w '\n' --cacert certs/ca/ca.crt -X POST https://api.fabric.localtest.me:8443/orders \
   -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
   -H "traceparent: 00-${trace_id}-$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]' | cut -c1-16)-01" \
   -d '{"item":"flat white","quantity":1}'
-echo "${trace_id}"
+echo "trace id: ${trace_id}"
 
-# A few seconds later, its spans in Tempo (from Grafana's container, which holds tempo.mesh)
+# Its spans in Tempo (from Grafana's container, which holds tempo.mesh). The services export
+# every 5 s, so wait first; Tempo answers a trace it does not hold yet with an empty one.
+sleep 10
 podman exec fabric-grafana-1 curl -fsS "http://tempo.mesh:18080/api/v2/traces/${trace_id}" \
-  | python3 -c 'import json,sys; print(sorted(s["name"] for r in json.load(sys.stdin)["trace"]["resourceSpans"] for x in r["scopeSpans"] for s in x["spans"]))'
+  | python3 -c 'import json,sys; print(sorted(s["name"] for r in json.load(sys.stdin)["trace"].get("resourceSpans", []) for x in r["scopeSpans"] for s in x["spans"]))'
 ```
 
-To see it, open <http://grafana.fabric.localtest.me:8080/explore>, choose **Tempo**, then
-**TraceQL**, paste the trace id and run the query. The pictures on this page are taken by
-`tests/trace_capture.py`, which fails rather than takes them when a trace or a span name is
-missing:
+The last command prints the twelve span names of the table above, `fabric` three times; `[]`
+means they have not reached Tempo yet, so run it again. To see the trace, open
+<http://grafana.fabric.localtest.me:8080/explore>, choose **Tempo**, then **TraceQL**, paste the
+trace id and run the query. The pictures on this page are taken by `tests/trace_capture.py`. It
+takes them only once each trace is whole: the order's server span under the `traceparent` it sent,
+the same span ids in VictoriaTraces, and orders-api's server span under the worker's `PUT`. Each
+page must then show its span count and names, and a run that fails half-way keeps the last set:
 
 ```bash
 ~/.local/share/diagram-kit/.venv/bin/python tests/trace_capture.py docs/screenshots
@@ -210,12 +220,12 @@ missing:
 ## The twelve factors it touches
 
 The roadmap scores the lab against the twelve factors ([ROADMAP.md](roadmap/ROADMAP.md)). Tracing
-as built moves three of them:
+as built touches three of them:
 
 | Factor | What R1.4 did |
 |---|---|
 | II Dependencies | each instrumentation named in `requirements.txt` and pinned with hashes in `requirements.lock`; nothing installed by guessing (`opentelemetry-bootstrap`) |
-| III Config | tracing is switched on and pointed at the collector by `OTEL_*` variables in `compose.yaml` alone; the code does not change |
+| III Config | the image's `CMD` starts each service under `opentelemetry-instrument`; everything else (exporter, endpoint, protocol, sampler, resource) is `OTEL_*` variables in `compose.yaml`; the code does not change |
 | XI Logs | still open: logs go to stdout as JSON without a trace id; R1.7 adds it and sends them to VictoriaLogs |
 
 ## What comes next
