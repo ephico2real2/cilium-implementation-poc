@@ -122,6 +122,7 @@ retry panels are flat: nothing failed. Step 7 below makes them move.*
 | `mqconsole.fabric.localtest.me` | `127.0.0.1:8443` | MQ web console | MQ web server |
 | `grafana.fabric.localtest.me` | `127.0.0.1:8080` | Dashboard | Grafana |
 | `prometheus.fabric.localtest.me` | `127.0.0.1:8080` | Metrics | Prometheus |
+| `victoriametrics.fabric.localtest.me` | `127.0.0.1:8080` | Metrics, vmui at `/vmui/`; the whole app from this Mac, the read API from a container | VictoriaMetrics |
 
 ## Prerequisites
 
@@ -269,7 +270,7 @@ in Keychain Access.
 | `edge_sni` | 10443 (8443) | SNI | 3 connect attempts |
 | `mesh_http` | 18080 | `Host` and path | `PUT`: 5xx, reset, connect failure, 3 times; `POST` and MQ's destructive `DELETE`: only if the request never left |
 | `mesh_pg` | 15432 | port | 3 connect attempts |
-| `ops_http` | 10080 (8080) | `Host` | none |
+| `ops_http` | 10080 (8080) | `Host`, and the source: this Mac or a container | VictoriaMetrics `GET`: 5xx, reset, connect failure, 3 times; its other methods: only if the request never left; Grafana and Prometheus: none |
 | `stats` | 9902 | path | none |
 
 | Login | User | Lab value |
