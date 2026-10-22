@@ -1,0 +1,1534 @@
+{
+  "display": {
+    "name": "SNI Fabric Lab"
+  },
+  "panels": {
+    "0_0": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "Each component, now",
+          "description": "Prometheus's own up series per scrape job, all scraped through Envoy's mesh_http listener. Up means the last scrape of that component's metrics succeeded through Envoy; Down means it did not, which is either the component or its Envoy route."
+        },
+        "plugin": {
+          "kind": "Table",
+          "spec": {
+            "columnSettings": [
+              {
+                "hide": true,
+                "name": "timestamp"
+              },
+              {
+                "header": "Component",
+                "name": "job"
+              },
+              {
+                "cellSettings": [
+                  {
+                    "backgroundColor": "#59a14f",
+                    "condition": {
+                      "kind": "Value",
+                      "spec": {
+                        "value": "1"
+                      }
+                    },
+                    "text": "Up",
+                    "textColor": "#000000"
+                  },
+                  {
+                    "backgroundColor": "#e15759",
+                    "condition": {
+                      "kind": "Value",
+                      "spec": {
+                        "value": "0"
+                      }
+                    },
+                    "text": "Down",
+                    "textColor": "#000000"
+                  }
+                ],
+                "header": "State",
+                "name": "value"
+              }
+            ],
+            "density": "compact"
+          }
+        },
+        "queries": [
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "max by (job) (up)",
+                  "seriesNameFormat": ""
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "0_1": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "Each component, over time",
+          "description": "The same up series over the time range: green while the scrape through Envoy succeeds, red while it fails. A red stripe on every component at once points at Envoy or Prometheus."
+        },
+        "plugin": {
+          "kind": "StatusHistoryChart",
+          "spec": {
+            "legend": {
+              "mode": "list",
+              "position": "bottom"
+            },
+            "mappings": [
+              {
+                "kind": "Value",
+                "spec": {
+                  "result": {
+                    "color": "#59a14f",
+                    "value": "Up"
+                  },
+                  "value": "1"
+                }
+              },
+              {
+                "kind": "Value",
+                "spec": {
+                  "result": {
+                    "color": "#e15759",
+                    "value": "Down"
+                  },
+                  "value": "0"
+                }
+              }
+            ],
+            "sorting": "asc"
+          }
+        },
+        "queries": [
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "max by (job) (up)",
+                  "seriesNameFormat": "{{job}}"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "0_2": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "In short"
+        },
+        "plugin": {
+          "kind": "Markdown",
+          "spec": {
+            "text": "Every component is scraped **through Envoy**, so *Up* also proves Envoy's route to it works."
+          }
+        }
+      }
+    },
+    "1_0": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "New connections per tenant (per second)",
+          "description": "Connections Envoy's edge_sni listener accepted and passed through, per tenant hostname (its filter chain), rate over 5m. Stacked: the bands add up to all accepted connections. TLS is not ended at Envoy, so this counts connections, not requests."
+        },
+        "plugin": {
+          "kind": "TimeSeriesChart",
+          "spec": {
+            "legend": {
+              "mode": "list",
+              "position": "bottom"
+            },
+            "querySettings": [
+              {
+                "areaOpacity": 0.3,
+                "colorMode": "fixed",
+                "colorValue": "#4e79a7",
+                "queryIndex": 0
+              },
+              {
+                "areaOpacity": 0.3,
+                "colorMode": "fixed",
+                "colorValue": "#e15759",
+                "lineStyle": "dashed",
+                "queryIndex": 1
+              },
+              {
+                "areaOpacity": 0.3,
+                "colorMode": "fixed",
+                "colorValue": "#edc948",
+                "lineStyle": "dotted",
+                "queryIndex": 2
+              },
+              {
+                "areaOpacity": 0.3,
+                "colorMode": "fixed",
+                "colorValue": "#b07aa1",
+                "queryIndex": 3
+              },
+              {
+                "areaOpacity": 0.3,
+                "colorMode": "fixed",
+                "colorValue": "#76b7b2",
+                "lineStyle": "dashed",
+                "queryIndex": 4
+              }
+            ],
+            "visual": {
+              "areaOpacity": 0.3,
+              "lineWidth": 1,
+              "stack": "all"
+            },
+            "yAxis": {
+              "format": {
+                "unit": "counts/sec"
+              },
+              "min": 0
+            }
+          }
+        },
+        "queries": [
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(envoy_tcp_downstream_cx_total{envoy_tcp_prefix=\"web\"}[5m]))",
+                  "seriesNameFormat": "web"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(envoy_tcp_downstream_cx_total{envoy_tcp_prefix=\"orders_api\"}[5m]))",
+                  "seriesNameFormat": "orders-api"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(envoy_tcp_downstream_cx_total{envoy_tcp_prefix=\"tcp_svc\"}[5m]))",
+                  "seriesNameFormat": "tcp-svc"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(envoy_tcp_downstream_cx_total{envoy_tcp_prefix=\"mq_qm1\"}[5m]))",
+                  "seriesNameFormat": "MQ listener"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(envoy_tcp_downstream_cx_total{envoy_tcp_prefix=\"mq_console\"}[5m]))",
+                  "seriesNameFormat": "MQ console"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "1_1": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "Connections reset: unknown or missing SNI (per second)",
+          "description": "Connections whose TLS hostname matched no tenant, so Envoy reset them; rate over 5m. Normal is 0 apart from probes. A client that sends MQ's channel-based SNI (OutboundSNI=CHANNEL) lands here."
+        },
+        "plugin": {
+          "kind": "TimeSeriesChart",
+          "spec": {
+            "legend": {
+              "mode": "list",
+              "position": "bottom"
+            },
+            "querySettings": [
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#e15759",
+                "queryIndex": 0
+              }
+            ],
+            "visual": {
+              "areaOpacity": 0.1,
+              "lineWidth": 1
+            },
+            "yAxis": {
+              "format": {
+                "unit": "counts/sec"
+              },
+              "min": 0
+            }
+          }
+        },
+        "queries": [
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(envoy_listener_no_filter_chain_match_total{envoy_listener_address=\"0.0.0.0_10443\"}[5m]))",
+                  "seriesNameFormat": "reset, no tenant matched"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "1_2": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "In short"
+        },
+        "plugin": {
+          "kind": "Markdown",
+          "spec": {
+            "text": "Each band is one tenant hostname on the **one** port; anything that matches none is reset (right)."
+          }
+        }
+      }
+    },
+    "2_0": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "Status updates: 5xx answered vs. 5xx that reached the worker (per second)",
+          "description": "The worker's PUT /orders/{id}/status, rate over 5m. Answered by orders-api counts every attempt orders-api itself answered with a 5xx (its own request counter). Reached the worker counts the 5xx Envoy passed back after its retries: Envoy's upstream_rq_xx counts only that final answer, not each attempt. The gap between the two lines is what the retries absorbed."
+        },
+        "plugin": {
+          "kind": "TimeSeriesChart",
+          "spec": {
+            "legend": {
+              "mode": "list",
+              "position": "bottom"
+            },
+            "querySettings": [
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#e15759",
+                "queryIndex": 0
+              },
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#f28e2b",
+                "lineStyle": "dashed",
+                "queryIndex": 1
+              }
+            ],
+            "visual": {
+              "areaOpacity": 0.1,
+              "lineWidth": 1
+            },
+            "yAxis": {
+              "format": {
+                "unit": "requests/sec"
+              },
+              "min": 0
+            }
+          }
+        },
+        "queries": [
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(orders_api_http_requests_total{server=\"internal\",route=\"/orders/{order_id}/status\",status=~\"5..\"}[5m]))",
+                  "seriesNameFormat": "5xx answered by orders-api (every attempt)"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(envoy_cluster_upstream_rq_xx_total{envoy_cluster_name=\"orders_api_internal\",envoy_response_code_class=\"5\"}[5m]))",
+                  "seriesNameFormat": "5xx that reached the worker (after retries)"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "2_1": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "Envoy's retries to orders-api (per second)",
+          "description": "Envoy's mesh_http cluster orders_api_internal, rate over 5m. Retries: extra attempts Envoy made after a failed one. Retried and succeeded: requests a retry rescued. The admin portal's chaos switch makes these move; normal is 0."
+        },
+        "plugin": {
+          "kind": "TimeSeriesChart",
+          "spec": {
+            "legend": {
+              "mode": "list",
+              "position": "bottom"
+            },
+            "querySettings": [
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#f28e2b",
+                "queryIndex": 0
+              },
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#59a14f",
+                "lineStyle": "dashed",
+                "queryIndex": 1
+              }
+            ],
+            "visual": {
+              "areaOpacity": 0.1,
+              "lineWidth": 1
+            },
+            "yAxis": {
+              "format": {
+                "unit": "requests/sec"
+              },
+              "min": 0
+            }
+          }
+        },
+        "queries": [
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(envoy_cluster_upstream_rq_retry_total{envoy_cluster_name=\"orders_api_internal\"}[5m]))",
+                  "seriesNameFormat": "retries"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(envoy_cluster_upstream_rq_retry_success_total{envoy_cluster_name=\"orders_api_internal\"}[5m]))",
+                  "seriesNameFormat": "retried and succeeded"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "2_2": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "In short"
+        },
+        "plugin": {
+          "kind": "Markdown",
+          "spec": {
+            "text": "Envoy retries only what is safe: PUTs on failure; POSTs and MQ's destructive DELETE only if the request never reached the service. The gap on the left is what retries absorbed."
+          }
+        }
+      }
+    },
+    "3_0": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "Orders created, replayed and processed (per second)",
+          "description": "Created: new orders (orders-api). Replayed: repeats of a POST with the same Idempotency-Key, answered from the stored order. Processed: orders the worker marked processed after taking their event off IBM MQ. Rate over 5m. Created and processed should run level."
+        },
+        "plugin": {
+          "kind": "TimeSeriesChart",
+          "spec": {
+            "legend": {
+              "mode": "list",
+              "position": "bottom"
+            },
+            "querySettings": [
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#4e79a7",
+                "queryIndex": 0
+              },
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#59a14f",
+                "lineStyle": "dashed",
+                "queryIndex": 1
+              },
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#edc948",
+                "lineStyle": "dotted",
+                "queryIndex": 2
+              }
+            ],
+            "visual": {
+              "areaOpacity": 0.1,
+              "lineWidth": 1
+            },
+            "yAxis": {
+              "format": {
+                "unit": "ops/sec"
+              },
+              "min": 0
+            }
+          }
+        },
+        "queries": [
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(orders_api_orders_created_total[5m]))",
+                  "seriesNameFormat": "created"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(worker_messages_total{result=\"processed\"}[5m]))",
+                  "seriesNameFormat": "processed"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(orders_api_orders_replayed_total[5m]))",
+                  "seriesNameFormat": "replayed (same key)"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "3_1": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "Events that needed another try (per second)",
+          "description": "Requeued: the worker's update still failed after Envoy's retries, so it put the event back. Dead-lettered: given up after 5 attempts, or the order was missing. Lost: even the put-back failed. Re-sent by the sweeper: orders still created 60 s after their last event. Rate over 5m; normal is 0."
+        },
+        "plugin": {
+          "kind": "TimeSeriesChart",
+          "spec": {
+            "legend": {
+              "mode": "list",
+              "position": "bottom"
+            },
+            "querySettings": [
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#f28e2b",
+                "queryIndex": 0
+              },
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#e15759",
+                "lineStyle": "dashed",
+                "queryIndex": 1
+              },
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#b07aa1",
+                "lineStyle": "dotted",
+                "queryIndex": 2
+              }
+            ],
+            "visual": {
+              "areaOpacity": 0.1,
+              "lineWidth": 1
+            },
+            "yAxis": {
+              "format": {
+                "unit": "ops/sec"
+              },
+              "min": 0
+            }
+          }
+        },
+        "queries": [
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(worker_messages_total{result=\"requeued\"}[5m]))",
+                  "seriesNameFormat": "requeued by the worker"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(worker_messages_total{result=\"dead_lettered\"}[5m]))",
+                  "seriesNameFormat": "dead-lettered"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(orders_api_sweep_republish_total[5m]))",
+                  "seriesNameFormat": "re-sent by the sweeper"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "3_2": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "In short"
+        },
+        "plugin": {
+          "kind": "Markdown",
+          "spec": {
+            "text": "An order is saved in Postgres, announced on IBM MQ, and marked processed by the worker: every hop through Envoy."
+          }
+        }
+      }
+    },
+    "4_0": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "orders-api request duration, 95th percentile (seconds)",
+          "description": "From orders-api's own request-duration buckets, 95th percentile over 5m, for the public server (browser and Swagger, through edge_sni) and the internal one (worker and Prometheus, through mesh_http). Empty while a server had no requests."
+        },
+        "plugin": {
+          "kind": "TimeSeriesChart",
+          "spec": {
+            "legend": {
+              "mode": "list",
+              "position": "bottom"
+            },
+            "querySettings": [
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#4e79a7",
+                "queryIndex": 0
+              },
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#e15759",
+                "lineStyle": "dashed",
+                "queryIndex": 1
+              }
+            ],
+            "visual": {
+              "areaOpacity": 0.1,
+              "lineWidth": 1
+            },
+            "yAxis": {
+              "format": {
+                "unit": "seconds"
+              },
+              "min": 0
+            }
+          }
+        },
+        "queries": [
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "histogram_quantile(0.95, sum by (le) (rate(orders_api_http_request_seconds_bucket{server=\"public\"}[5m])))",
+                  "seriesNameFormat": "public (TLS)"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "histogram_quantile(0.95, sum by (le) (rate(orders_api_http_request_seconds_bucket{server=\"internal\"}[5m])))",
+                  "seriesNameFormat": "internal (mesh)"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "4_1": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "Worker status update, retries included (seconds)",
+          "description": "How long the worker's PUT /orders/{id}/status took as the worker saw it, Envoy's retries and their back-off included; 50th and 95th percentile over 5m. Retries show here as a longer tail."
+        },
+        "plugin": {
+          "kind": "TimeSeriesChart",
+          "spec": {
+            "legend": {
+              "mode": "list",
+              "position": "bottom"
+            },
+            "querySettings": [
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#4e79a7",
+                "queryIndex": 0
+              },
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#e15759",
+                "lineStyle": "dashed",
+                "queryIndex": 1
+              }
+            ],
+            "visual": {
+              "areaOpacity": 0.1,
+              "lineWidth": 1
+            },
+            "yAxis": {
+              "format": {
+                "unit": "seconds"
+              },
+              "min": 0
+            }
+          }
+        },
+        "queries": [
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "histogram_quantile(0.5, sum by (le) (rate(worker_status_update_seconds_bucket[5m])))",
+                  "seriesNameFormat": "50th percentile"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "histogram_quantile(0.95, sum by (le) (rate(worker_status_update_seconds_bucket[5m])))",
+                  "seriesNameFormat": "95th percentile"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "4_2": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "In short"
+        },
+        "plugin": {
+          "kind": "Markdown",
+          "spec": {
+            "text": "Percentiles from buckets, not averages: the slow tail is where retries show."
+          }
+        }
+      }
+    },
+    "5_0": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "Queue manager: messages put and got (per second)",
+          "description": "Queue manager QM1, all queues: messages put (MQPUT and MQPUT1) and destructively got, rate over 5m. The container's metrics are queue-manager-wide only; per-queue counts are in the admin portal."
+        },
+        "plugin": {
+          "kind": "TimeSeriesChart",
+          "spec": {
+            "legend": {
+              "mode": "list",
+              "position": "bottom"
+            },
+            "querySettings": [
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#4e79a7",
+                "queryIndex": 0
+              },
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#e15759",
+                "lineStyle": "dashed",
+                "queryIndex": 1
+              }
+            ],
+            "visual": {
+              "areaOpacity": 0.1,
+              "lineWidth": 1
+            },
+            "yAxis": {
+              "format": {
+                "unit": "ops/sec"
+              },
+              "min": 0
+            }
+          }
+        },
+        "queries": [
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(ibmmq_qmgr_mqput_mqput1_total[5m]))",
+                  "seriesNameFormat": "put"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(ibmmq_qmgr_destructive_get_total[5m]))",
+                  "seriesNameFormat": "got"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "5_1": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "Queue manager: recovery log write latency, now (seconds)",
+          "description": "QM1's own measure of how long a write to its recovery log takes; the last value, with its trend. Every persistent put waits for it, so this is MQ's saturation signal. This lab runs MQ under amd64 emulation: read it as a trend, not as a production number."
+        },
+        "plugin": {
+          "kind": "StatChart",
+          "spec": {
+            "calculation": "last-number",
+            "colorMode": "value",
+            "format": {
+              "unit": "seconds"
+            },
+            "sparkline": {},
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "#59a14f",
+                  "value": 0
+                },
+                {
+                  "color": "#f28e2b",
+                  "value": 0.01
+                },
+                {
+                  "color": "#e15759",
+                  "value": 0.05
+                }
+              ]
+            }
+          }
+        },
+        "queries": [
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "max(ibmmq_qmgr_log_write_latency_seconds)",
+                  "seriesNameFormat": ""
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "5_2": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "In short"
+        },
+        "plugin": {
+          "kind": "Markdown",
+          "spec": {
+            "text": "MQ's metrics are scraped through Envoy too (`/metrics/mq`); MQ itself sees only Envoy."
+          }
+        }
+      }
+    },
+    "6_0": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "Postgres: transactions (per second)",
+          "description": "Database fabric, from postgres-exporter (which also reaches Postgres through Envoy's mesh_pg): commits and rollbacks, rate over 5m. Rollbacks should stay near 0."
+        },
+        "plugin": {
+          "kind": "TimeSeriesChart",
+          "spec": {
+            "legend": {
+              "mode": "list",
+              "position": "bottom"
+            },
+            "querySettings": [
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#4e79a7",
+                "queryIndex": 0
+              },
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#e15759",
+                "lineStyle": "dashed",
+                "queryIndex": 1
+              }
+            ],
+            "visual": {
+              "areaOpacity": 0.1,
+              "lineWidth": 1
+            },
+            "yAxis": {
+              "format": {
+                "unit": "ops/sec"
+              },
+              "min": 0
+            }
+          }
+        },
+        "queries": [
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(pg_stat_database_xact_commit_total{datname=\"fabric\"}[5m]))",
+                  "seriesNameFormat": "commits"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(pg_stat_database_xact_rollback_total{datname=\"fabric\"}[5m]))",
+                  "seriesNameFormat": "rollbacks"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "6_1": {
+      "kind": "Panel",
+      "spec": {
+        "display": {
+          "name": "tcp-svc: commands (per second)",
+          "description": "Commands tcp-svc answered over its TLS line protocol, by command, rate over 5m. The Orders page's Ping button and the API's health check send PING."
+        },
+        "plugin": {
+          "kind": "TimeSeriesChart",
+          "spec": {
+            "legend": {
+              "mode": "list",
+              "position": "bottom"
+            },
+            "querySettings": [
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#4e79a7",
+                "queryIndex": 0
+              },
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#e15759",
+                "lineStyle": "dashed",
+                "queryIndex": 1
+              },
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#edc948",
+                "lineStyle": "dotted",
+                "queryIndex": 2
+              },
+              {
+                "areaOpacity": 0.1,
+                "colorMode": "fixed",
+                "colorValue": "#b07aa1",
+                "queryIndex": 3
+              }
+            ],
+            "visual": {
+              "areaOpacity": 0.1,
+              "lineWidth": 1
+            },
+            "yAxis": {
+              "format": {
+                "unit": "ops/sec"
+              },
+              "min": 0
+            }
+          }
+        },
+        "queries": [
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(tcp_svc_commands_total{command=\"ping\"}[5m]))",
+                  "seriesNameFormat": "PING"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(tcp_svc_commands_total{command=\"echo\"}[5m]))",
+                  "seriesNameFormat": "ECHO"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(tcp_svc_commands_total{command=\"time\"}[5m]))",
+                  "seriesNameFormat": "TIME"
+                }
+              }
+            }
+          },
+          {
+            "kind": "TimeSeriesQuery",
+            "spec": {
+              "plugin": {
+                "kind": "PrometheusTimeSeriesQuery",
+                "spec": {
+                  "datasource": {
+                    "kind": "PrometheusDatasource",
+                    "name": "prometheus"
+                  },
+                  "query": "sum(rate(tcp_svc_commands_total{command=\"unknown\"}[5m]))",
+                  "seriesNameFormat": "UNKNOWN"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "layouts": [
+    {
+      "kind": "Grid",
+      "spec": {
+        "display": {
+          "title": "Is every part of the lab up?",
+          "collapse": {
+            "open": true
+          }
+        },
+        "items": [
+          {
+            "x": 0,
+            "y": 1,
+            "width": 12,
+            "height": 9,
+            "content": {
+              "$ref": "#/spec/panels/0_0"
+            }
+          },
+          {
+            "x": 12,
+            "y": 1,
+            "width": 12,
+            "height": 9,
+            "content": {
+              "$ref": "#/spec/panels/0_1"
+            }
+          },
+          {
+            "x": 0,
+            "y": 10,
+            "width": 24,
+            "height": 3,
+            "content": {
+              "$ref": "#/spec/panels/0_2"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "Grid",
+      "spec": {
+        "display": {
+          "title": "Who uses the shared TLS port?",
+          "collapse": {
+            "open": true
+          }
+        },
+        "items": [
+          {
+            "x": 0,
+            "y": 14,
+            "width": 12,
+            "height": 8,
+            "content": {
+              "$ref": "#/spec/panels/1_0"
+            }
+          },
+          {
+            "x": 12,
+            "y": 14,
+            "width": 12,
+            "height": 8,
+            "content": {
+              "$ref": "#/spec/panels/1_1"
+            }
+          },
+          {
+            "x": 0,
+            "y": 22,
+            "width": 24,
+            "height": 3,
+            "content": {
+              "$ref": "#/spec/panels/1_2"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "Grid",
+      "spec": {
+        "display": {
+          "title": "Do calls between services fail, and do Envoy's retries save them?",
+          "collapse": {
+            "open": true
+          }
+        },
+        "items": [
+          {
+            "x": 0,
+            "y": 26,
+            "width": 12,
+            "height": 8,
+            "content": {
+              "$ref": "#/spec/panels/2_0"
+            }
+          },
+          {
+            "x": 12,
+            "y": 26,
+            "width": 12,
+            "height": 8,
+            "content": {
+              "$ref": "#/spec/panels/2_1"
+            }
+          },
+          {
+            "x": 0,
+            "y": 34,
+            "width": 24,
+            "height": 3,
+            "content": {
+              "$ref": "#/spec/panels/2_2"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "Grid",
+      "spec": {
+        "display": {
+          "title": "Are orders flowing end to end?",
+          "collapse": {
+            "open": true
+          }
+        },
+        "items": [
+          {
+            "x": 0,
+            "y": 38,
+            "width": 12,
+            "height": 8,
+            "content": {
+              "$ref": "#/spec/panels/3_0"
+            }
+          },
+          {
+            "x": 12,
+            "y": 38,
+            "width": 12,
+            "height": 8,
+            "content": {
+              "$ref": "#/spec/panels/3_1"
+            }
+          },
+          {
+            "x": 0,
+            "y": 46,
+            "width": 24,
+            "height": 3,
+            "content": {
+              "$ref": "#/spec/panels/3_2"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "Grid",
+      "spec": {
+        "display": {
+          "title": "Is it fast?",
+          "collapse": {
+            "open": true
+          }
+        },
+        "items": [
+          {
+            "x": 0,
+            "y": 50,
+            "width": 12,
+            "height": 8,
+            "content": {
+              "$ref": "#/spec/panels/4_0"
+            }
+          },
+          {
+            "x": 12,
+            "y": 50,
+            "width": 12,
+            "height": 8,
+            "content": {
+              "$ref": "#/spec/panels/4_1"
+            }
+          },
+          {
+            "x": 0,
+            "y": 58,
+            "width": 24,
+            "height": 3,
+            "content": {
+              "$ref": "#/spec/panels/4_2"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "Grid",
+      "spec": {
+        "display": {
+          "title": "Is IBM MQ busy and healthy?",
+          "collapse": {
+            "open": true
+          }
+        },
+        "items": [
+          {
+            "x": 0,
+            "y": 62,
+            "width": 12,
+            "height": 8,
+            "content": {
+              "$ref": "#/spec/panels/5_0"
+            }
+          },
+          {
+            "x": 12,
+            "y": 62,
+            "width": 12,
+            "height": 8,
+            "content": {
+              "$ref": "#/spec/panels/5_1"
+            }
+          },
+          {
+            "x": 0,
+            "y": 70,
+            "width": 24,
+            "height": 3,
+            "content": {
+              "$ref": "#/spec/panels/5_2"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "Grid",
+      "spec": {
+        "display": {
+          "title": "Are Postgres and the TCP service answering?",
+          "collapse": {
+            "open": true
+          }
+        },
+        "items": [
+          {
+            "x": 0,
+            "y": 74,
+            "width": 12,
+            "height": 8,
+            "content": {
+              "$ref": "#/spec/panels/6_0"
+            }
+          },
+          {
+            "x": 12,
+            "y": 74,
+            "width": 12,
+            "height": 8,
+            "content": {
+              "$ref": "#/spec/panels/6_1"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "duration": "1h",
+  "variables": []
+}

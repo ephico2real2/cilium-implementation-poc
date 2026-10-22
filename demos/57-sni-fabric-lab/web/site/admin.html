@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fabric Admin</title>
+  <link rel="stylesheet" href="/app.css">
+  <script type="module" src="/admin.js"></script>
+</head>
+<body>
+  <header class="top">
+    <span class="brand">SNI Fabric Lab</span>
+    <nav aria-label="Pages">
+      <a href="/">Orders</a>
+      <a href="/admin" aria-current="page">Admin</a>
+    </nav>
+    <span class="api">API <span data-api></span></span>
+  </header>
+  <main>
+    <section class="card gate" id="gate" aria-labelledby="gate-h">
+      <h2 id="gate-h">Admin token</h2>
+      <p>The lab token is <code>fabric-admin</code> (from <code>secrets/admin-token</code>). It is kept in this tab's session storage only.</p>
+      <form class="row" id="gate-form">
+        <label>Token <input name="token" type="password" autocomplete="off" required></label>
+        <button type="submit">Open</button>
+      </form>
+      <div class="notice" id="gate-notice" role="status"></div>
+    </section>
+
+    <div id="portal" hidden>
+      <div class="notice" id="portal-notice" role="status"></div>
+      <div class="grid">
+        <section class="card" aria-labelledby="health-h">
+          <h2 id="health-h">Health</h2>
+          <ul class="health" id="health"></ul>
+        </section>
+        <section class="card" aria-labelledby="fabric-h">
+          <h2 id="fabric-h">Fabric</h2>
+          <p>Connections per SNI tenant and retries per Envoy cluster, from Prometheus.</p>
+          <dl class="kv" id="fabric"></dl>
+        </section>
+        <section class="card" aria-labelledby="mq-h">
+          <h2 id="mq-h">MQ</h2>
+          <dl class="kv" id="mq"></dl>
+        </section>
+        <section class="card" aria-labelledby="chaos-h">
+          <h2 id="chaos-h">Chaos</h2>
+          <p>Makes the API's internal status updates fail or slow down, so Envoy's retries show in the Fabric panel.</p>
+          <form id="chaos-form" class="row">
+            <label>Failure rate <output id="fail-out">0 %</output>
+              <input name="fail_rate" type="range" min="0" max="100" step="5" value="0">
+            </label>
+            <label>Added delay (ms)
+              <input name="delay_ms" type="number" min="0" max="5000" step="50" value="0">
+            </label>
+            <button type="submit">Apply</button>
+          </form>
+          <div class="notice" id="chaos-notice" role="status"></div>
+        </section>
+        <section class="card" aria-labelledby="links-h">
+          <h2 id="links-h">Links</h2>
+          <div class="links" id="links"></div>
+        </section>
+      </div>
+      <section class="card" aria-labelledby="aorders-h">
+        <h2 id="aorders-h">Orders</h2>
+        <form class="row" id="filter-form">
+          <label>Status
+            <select name="status">
+              <option value="">all</option>
+              <option>created</option>
+              <option>processed</option>
+              <option>failed</option>
+            </select>
+          </label>
+        </form>
+        <dl class="kv" id="order-counts"></dl>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Status</th><th>Created</th><th>Processed</th><th>Events sent</th><th></th></tr></thead>
+            <tbody id="admin-orders"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

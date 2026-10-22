@@ -1,0 +1,495 @@
+<!-- SPDX-License-Identifier: MIT-0. Started from the diagram-kit template, https://github.com/ephico2real2/diagram-kit -->
+<title>Fabric Lab Layers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  --ground: #f5f6f8; --surface: #ffffff; --ink: #18212c; --muted: #58636f; --rule: #d7dce3;
+  --host: #a55a0b; --host-wash: #fbf1e4; --remote: #0e6f68; --remote-wash: #e3f3f1;
+  --gap: #b3261e; --gap-wash: #fbe9e7; --none: #5f6a77; --none-wash: #eef0f3;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ground: #0e131a; --surface: #151c25; --ink: #e5e9ef; --muted: #9aa5b3; --rule: #2a3440;
+    --host: #f0a53c; --host-wash: #2a2014; --remote: #3fcfc0; --remote-wash: #122a28;
+    --gap: #f2857c; --gap-wash: #2d1614; --none: #9aa5b3; --none-wash: #1b232d;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0e131a; --surface: #151c25; --ink: #e5e9ef; --muted: #9aa5b3; --rule: #2a3440;
+  --host: #f0a53c; --host-wash: #2a2014; --remote: #3fcfc0; --remote-wash: #122a28;
+  --gap: #f2857c; --gap-wash: #2d1614; --none: #9aa5b3; --none-wash: #1b232d;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55; margin: 0; }
+.page { max-width: 1060px; margin: 0 auto; padding-inline: 16px; padding-block: 40px 72px; display: grid; gap: 44px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.15; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0 0 6px; font-weight: 600; text-wrap: balance; }
+p { margin: 0; max-width: 72ch; }
+.lede { font-size: 17px; max-width: 70ch; }
+.muted { color: var(--muted); }
+code { font-family: var(--font-mono); font-size: .9em; }
+section { display: grid; gap: 14px; }
+figure { margin: 0; display: grid; gap: 10px; }
+.fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 12px; }
+.fig-scroll svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--ink); }
+figcaption { font-size: 13.5px; color: var(--muted); max-width: 80ch; }
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+th { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--ground); }
+tr:last-child td { border-bottom: 0; }
+.yes { color: var(--remote); font-weight: 600; } .no { color: var(--gap); font-weight: 600; }
+.cell-gap { background: var(--gap-wash); }
+.decisions { display: grid; gap: 12px; }
+.decision { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 20px; display: grid; gap: 8px; }
+.decision .id { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.decision .q { font-weight: 600; }
+.decision .rec { font-size: 14px; border-left: 3px solid var(--remote); padding-left: 10px; }
+.decision .rec.warn { border-left-color: var(--host); }
+a { color: var(--remote); }
+:focus-visible { outline: 2px solid var(--remote); outline-offset: 2px; }
+</style>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">sni fabric lab · architecture by layer · 2026-10-22</div>
+    <h1>The lab, layer by layer: what is built and what Release 1 adds</h1>
+    <p class="lede">One high-level figure, then the edge, the mesh and the telemetry layers, and the network table that
+      makes Envoy the only path. Solid is built and checked (phases 1–6, R1.1 and R1.2); dashed is sprint
+      2.</p>
+  </header>
+
+  <section>
+    <h2>1. High level</h2>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 980 700" role="img" aria-label="Eight layers from clients to Grafana: clients reach Envoy&#x27;s edge on 8443 and 8080; the services sit behind it; Envoy&#x27;s mesh carries every call between services and to Postgres and IBM MQ; the collector and Prometheus form the telemetry layer; the four stores form the R1.2 store layer; Grafana reads them all. Every hop between layers goes through Envoy.">
+          <defs><marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+          <g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
+            <text x="24" y="63" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">CLIENTS</text>
+<rect x="175.0" y="30" width="185.8" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5"/>
+<text x="189.0" y="53" font-weight="600">Browser</text>
+<text x="189.0" y="71" fill="var(--muted)">orders, admin, Swagger</text>
+<rect x="374.8" y="30" width="185.8" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5"/>
+<text x="388.8" y="53" font-weight="600">MQ client</text>
+<text x="388.8" y="71" fill="var(--muted)">amqsputc, SNI qm1.…</text>
+<rect x="574.5" y="30" width="185.8" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5"/>
+<text x="588.5" y="53" font-weight="600">TLS client</text>
+<text x="588.5" y="71" fill="var(--muted)">openssl → tcp.…</text>
+<rect x="774.2" y="30" width="185.8" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5"/>
+<text x="788.2" y="53" font-weight="600">Browser (ops)</text>
+<text x="788.2" y="71" fill="var(--muted)">Grafana, Prometheus</text>
+<line x1="567.5" y1="88" x2="567.5" y2="106" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah1)"/>
+<text x="24" y="141" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">EDGE · ENVOY</text>
+<rect x="175.0" y="108" width="385.5" height="56" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+<text x="189.0" y="131" font-weight="600">edge_sni  :8443</text>
+<text x="189.0" y="149" fill="var(--muted)">TLS passed through, routed on SNI</text>
+<rect x="574.5" y="108" width="385.5" height="56" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+<text x="588.5" y="131" font-weight="600">ops_http  :8080</text>
+<text x="588.5" y="149" fill="var(--muted)">Grafana and Prometheus, by Host</text>
+<line x1="567.5" y1="166" x2="567.5" y2="184" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah1)"/>
+<text x="24" y="219" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">SERVICES</text>
+<rect x="175.0" y="186" width="185.8" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+<text x="189.0" y="209" font-weight="600">web</text>
+<text x="189.0" y="227" fill="var(--muted)">nginx; TLS ends here</text>
+<rect x="374.8" y="186" width="185.8" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+<text x="388.8" y="209" font-weight="600">orders-api</text>
+<text x="388.8" y="227" fill="var(--muted)">FastAPI; TLS ends here</text>
+<rect x="574.5" y="186" width="185.8" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+<text x="588.5" y="209" font-weight="600">worker</text>
+<text x="588.5" y="227" fill="var(--muted)">MQ events → status</text>
+<rect x="774.2" y="186" width="185.8" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+<text x="788.2" y="209" font-weight="600">tcp-svc</text>
+<text x="788.2" y="227" fill="var(--muted)">TLS line protocol</text>
+<line x1="567.5" y1="244" x2="567.5" y2="262" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah1)"/>
+<text x="24" y="297" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">MESH · ENVOY</text>
+<rect x="175.0" y="264" width="252.3" height="56" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+<text x="189.0" y="287" font-weight="600">mesh_http  :18080</text>
+<text x="189.0" y="305" fill="var(--muted)">Host + path, safe retries</text>
+<rect x="441.3" y="264" width="252.3" height="56" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+<text x="455.3" y="287" font-weight="600">mesh_pg  :15432</text>
+<text x="455.3" y="305" fill="var(--muted)">3 connect attempts</text>
+<rect x="707.7" y="264" width="252.3" height="56" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+<text x="721.7" y="287" font-weight="600">stats  :9902</text>
+<text x="721.7" y="305" fill="var(--muted)">/stats/prometheus only</text>
+<line x1="567.5" y1="322" x2="567.5" y2="340" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah1)"/>
+<text x="24" y="375" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">BACKING</text>
+<rect x="175.0" y="342" width="385.5" height="56" rx="8" fill="var(--none-wash)" stroke="var(--none)" stroke-width="1.5"/>
+<text x="189.0" y="365" font-weight="600">Postgres 17</text>
+<text x="189.0" y="383" fill="var(--muted)">orders, through mesh_pg</text>
+<rect x="574.5" y="342" width="385.5" height="56" rx="8" fill="var(--none-wash)" stroke="var(--none)" stroke-width="1.5"/>
+<text x="588.5" y="365" font-weight="600">IBM MQ  QM1</text>
+<text x="588.5" y="383" fill="var(--muted)">mutual TLS; REST; amd64 emulated</text>
+<line x1="567.5" y1="400" x2="567.5" y2="418" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah1)"/>
+<text x="24" y="453" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">TELEMETRY</text>
+<rect x="175.0" y="420" width="252.3" height="56" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+<text x="189.0" y="443" font-weight="600">otel-collector 0.162</text>
+<text x="189.0" y="461" fill="var(--muted)">OTLP/HTTP via otlp.mesh (R1.1)</text>
+<rect x="441.3" y="420" width="252.3" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+<text x="455.3" y="443" font-weight="600">Prometheus 3.15</text>
+<text x="455.3" y="461" fill="var(--muted)">scrapes via metrics.mesh</text>
+<rect x="707.7" y="420" width="252.3" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+<text x="721.7" y="443" font-weight="600">auto-instrumentation</text>
+<text x="721.7" y="461" fill="var(--muted)">sprint 2: R1.4–R1.8</text>
+<line x1="567.5" y1="478" x2="567.5" y2="496" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah1)"/>
+<text x="24" y="531" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">STORES</text>
+<rect x="175.0" y="498" width="185.8" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+<text x="189.0" y="521" font-weight="600">Tempo 3.1</text>
+<text x="189.0" y="539" fill="var(--muted)">traces · standard</text>
+<rect x="374.8" y="498" width="185.8" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+<text x="388.8" y="521" font-weight="600">VictoriaTraces 0.12</text>
+<text x="388.8" y="539" fill="var(--muted)">traces · compared</text>
+<rect x="574.5" y="498" width="185.8" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+<text x="588.5" y="521" font-weight="600">VictoriaMetrics 1.153</text>
+<text x="588.5" y="539" fill="var(--muted)">metrics</text>
+<rect x="774.2" y="498" width="185.8" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+<text x="788.2" y="521" font-weight="600">VictoriaLogs 1.53</text>
+<text x="788.2" y="539" fill="var(--muted)">logs</text>
+<line x1="567.5" y1="556" x2="567.5" y2="574" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah1)"/>
+<text x="24" y="609" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">VIEW</text>
+<rect x="175.0" y="576" width="785.0" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+<text x="189.0" y="599" font-weight="600">Grafana 12.4</text>
+<text x="189.0" y="617" fill="var(--muted)">dashboard; a datasource for every store</text>
+<text x="24" y="660" fill="var(--muted)">Every arrow between layers is a hop through Envoy; no component shares a network with another, only with Envoy.</text>
+<text x="24" y="682" fill="var(--host)" font-weight="600">Dashed = not built yet: auto-instrumentation of the services is sprint 2 (R1.4–R1.8).</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Every hop between layers goes through Envoy. The stores (Tempo, VictoriaTraces, VictoriaMetrics,
+        VictoriaLogs) came with R1.2; auto-instrumentation of the services is sprint 2.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>2. Edge layer: one TLS port, routed on the SNI</h2>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 980 604" role="img" aria-label="Browsers, an openssl client and a native MQ client all connect to one port, 8443. Envoy's edge_sni listener reads the TLS SNI and passes each connection, still encrypted, to web, orders-api, tcp-svc or the MQ queue manager; any other SNI, or none, is reset. Grafana and Prometheus are reached over plain HTTP on port 8080 through Envoy's ops_http listener.">
+          <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+          <g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600">
+            <rect x="20" y="14" width="280" height="30" rx="6" fill="var(--host-wash)" stroke="var(--host)"/>
+            <text x="160" y="34" text-anchor="middle" fill="var(--host)">CLIENTS  ·  this Mac</text>
+            <rect x="330" y="14" width="320" height="30" rx="6" fill="var(--remote-wash)" stroke="var(--remote)"/>
+            <text x="490" y="34" text-anchor="middle" fill="var(--remote)">ENVOY  ·  the only path</text>
+            <rect x="680" y="14" width="280" height="30" rx="6" fill="var(--none-wash)" stroke="var(--none)"/>
+            <text x="820" y="34" text-anchor="middle" fill="var(--none)">BACKENDS  ·  one network each</text>
+          </g>
+          <line x1="315" y1="14" x2="315" y2="540" stroke="var(--rule)" stroke-width="1.5" stroke-dasharray="6 5"/>
+          <line x1="665" y1="14" x2="665" y2="540" stroke="var(--rule)" stroke-width="1.5" stroke-dasharray="6 5"/>
+          <g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
+            <text x="268" y="152" fill="var(--muted)" font-size="11.5">TLS · SNI</text>
+            <text x="268" y="238" fill="var(--muted)" font-size="11.5">TLS · SNI</text>
+            <text x="268" y="324" fill="var(--muted)" font-size="11.5">TLS · SNI</text>
+            <text x="268" y="454" fill="var(--muted)" font-size="11.5">HTTP · Host</text>
+
+            <rect x="30" y="120" width="230" height="78" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="46" y="142" font-weight="600">Browser</text>
+            <text x="46" y="160" font-family="IBM Plex Mono, monospace" font-size="11.5">web.… · web.…/admin</text>
+            <text x="46" y="177" font-family="IBM Plex Mono, monospace" font-size="11.5">api.…/docs · mqconsole.…</text>
+            <rect x="30" y="214" width="230" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="46" y="236" font-weight="600">openssl s_client</text>
+            <text x="46" y="253" font-family="IBM Plex Mono, monospace" font-size="11.5">-servername tcp.…</text>
+            <text x="46" y="269" fill="var(--muted)">PING → PONG</text>
+            <rect x="30" y="292" width="230" height="78" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="46" y="314" font-weight="600">mq-client · amqsputc</text>
+            <text x="46" y="331" font-family="IBM Plex Mono, monospace" font-size="11.5">qm1.…(10443) in the lab</text>
+            <text x="46" y="348" font-family="IBM Plex Mono, monospace" font-size="11.5">OutboundSNI=HOSTNAME</text>
+            <rect x="30" y="430" width="230" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="46" y="452" font-weight="600">Browser (operations)</text>
+            <text x="46" y="469" font-family="IBM Plex Mono, monospace" font-size="11.5">grafana.… · prometheus.…</text>
+            <text x="46" y="485" fill="var(--muted)">plain HTTP, port 8080</text>
+
+            <rect x="340" y="60" width="300" height="474" rx="10" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+            <text x="356" y="82" font-weight="600" fill="var(--remote)">envoy v1.36.11</text>
+            <rect x="355" y="96" width="270" height="300" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+            <text x="367" y="116" font-weight="600">edge_sni · host :8443</text>
+            <text x="367" y="133" fill="var(--muted)">reads the SNI · decrypts nothing</text>
+            <g font-family="IBM Plex Mono, monospace" font-size="11.5">
+              <text x="367" y="164">web.…        → web:8443</text>
+              <text x="367" y="224">api.…        → orders-api:8443</text>
+              <text x="367" y="284">tcp.…        → tcp-svc:9000</text>
+              <text x="367" y="348">qm1.…        → mq:1414</text>
+              <text x="367" y="366">mqconsole.…  → mq:9443</text>
+              <text x="367" y="386" fill="var(--gap)">other or none → reset</text>
+            </g>
+            <rect x="355" y="412" width="270" height="110" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+            <text x="367" y="432" font-weight="600">ops_http · host :8080</text>
+            <g font-family="IBM Plex Mono, monospace" font-size="11.5">
+              <text x="367" y="452">grafana.…    → grafana:3000</text>
+              <text x="367" y="512">prometheus.… → prometheus:9090</text>
+            </g>
+
+            <rect x="690" y="135" width="260" height="50" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="706" y="155" font-weight="600">web · nginx :8443</text>
+            <text x="706" y="173" fill="var(--muted)">Orders page + Admin portal</text>
+            <rect x="690" y="195" width="260" height="50" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="706" y="215" font-weight="600">orders-api · FastAPI :8443</text>
+            <text x="706" y="233" fill="var(--muted)">/orders · /admin/* · /docs</text>
+            <rect x="690" y="255" width="260" height="50" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="706" y="275" font-weight="600">tcp-svc :9000</text>
+            <text x="706" y="293" fill="var(--muted)">TLS line protocol, not HTTP</text>
+            <rect x="690" y="315" width="260" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="706" y="335" font-weight="600">mq · QM1 (amd64, emulated)</text>
+            <text x="706" y="352" font-family="IBM Plex Mono, monospace" font-size="11.5">1414 DEV.APP.SVRCONN TLS</text>
+            <text x="706" y="369" font-family="IBM Plex Mono, monospace" font-size="11.5">9443 console + REST</text>
+            <rect x="690" y="424" width="260" height="48" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="706" y="444" font-weight="600">grafana :3000</text>
+            <text x="706" y="462" fill="var(--muted)">the lab's dashboard</text>
+            <rect x="690" y="484" width="260" height="48" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="706" y="504" font-weight="600">prometheus :9090</text>
+            <text x="706" y="522" fill="var(--muted)">scrapes through Envoy (below)</text>
+
+            <text x="30" y="566" fill="var(--muted)">… = .fabric.localtest.me, which resolves to 127.0.0.1. TLS ends at each backend, never at Envoy.</text>
+            <text x="30" y="588" fill="var(--host)" font-weight="600">Built and checked: run.sh --fresh, 84 checks (output/transcript.txt, 2026-10-22). Host ports on 127.0.0.1 only.</text>
+          </g>
+          <g fill="none" stroke-width="1.4" marker-end="url(#ah)">
+            <line x1="260" y1="159" x2="353" y2="159" stroke="var(--remote)"/>
+            <line x1="260" y1="245" x2="353" y2="245" stroke="var(--remote)"/>
+            <line x1="260" y1="331" x2="353" y2="331" stroke="var(--remote)"/>
+            <line x1="260" y1="461" x2="353" y2="461" stroke="currentColor"/>
+            <line x1="625" y1="160" x2="688" y2="160" stroke="var(--remote)"/>
+            <line x1="625" y1="220" x2="688" y2="220" stroke="var(--remote)"/>
+            <line x1="625" y1="280" x2="688" y2="280" stroke="var(--remote)"/>
+            <line x1="625" y1="344" x2="688" y2="344" stroke="var(--remote)"/>
+            <line x1="625" y1="362" x2="688" y2="362" stroke="var(--remote)"/>
+            <line x1="625" y1="448" x2="688" y2="448" stroke="currentColor"/>
+            <line x1="625" y1="508" x2="688" y2="508" stroke="currentColor"/>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Built. Every client uses 127.0.0.1:8443 and is routed on the hostname it sends; Envoy decrypts nothing, and
+        an unknown or missing SNI is reset. The operations UIs use 8080.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>3. Mesh layer: every call between services goes through Envoy</h2>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 980 660" role="img" aria-label="Inside the lab every call goes through an Envoy listener: orders-api reaches Postgres through mesh_pg with three connect attempts, tcp-svc through edge_sni, and the MQ REST API, Prometheus and the other services through mesh_http, which retries PUTs on failures but retries POSTs and the destructive MQ DELETE only when the request never left. Prometheus scrapes every metrics endpoint through mesh_http and Envoy itself through the stats listener. orders-api cannot reach Postgres directly because they share no network.">
+          <defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+          <g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600">
+            <rect x="20" y="14" width="280" height="30" rx="6" fill="var(--host-wash)" stroke="var(--host)"/>
+            <text x="160" y="34" text-anchor="middle" fill="var(--host)">CALLERS</text>
+            <rect x="330" y="14" width="320" height="30" rx="6" fill="var(--remote-wash)" stroke="var(--remote)"/>
+            <text x="490" y="34" text-anchor="middle" fill="var(--remote)">ENVOY  ·  listeners</text>
+            <rect x="680" y="14" width="280" height="30" rx="6" fill="var(--none-wash)" stroke="var(--none)"/>
+            <text x="820" y="34" text-anchor="middle" fill="var(--none)">TARGETS</text>
+          </g>
+          <line x1="315" y1="14" x2="315" y2="580" stroke="var(--rule)" stroke-width="1.5" stroke-dasharray="6 5"/>
+          <line x1="665" y1="14" x2="665" y2="580" stroke="var(--rule)" stroke-width="1.5" stroke-dasharray="6 5"/>
+          <g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
+            <rect x="30" y="66" width="240" height="214" rx="8" fill="none" stroke="var(--host)" stroke-width="1.5"/>
+            <text x="46" y="88" font-weight="600" fill="var(--host)">orders-api</text>
+            <text x="46" y="112">① insert the order</text>
+            <text x="46" y="182">⑤ /tcp/ping</text>
+            <text x="46" y="243">② put the order event</text>
+            <text x="46" y="270">⑦ admin portal metrics</text>
+            <rect x="30" y="296" width="240" height="72" rx="8" fill="none" stroke="var(--remote)" stroke-width="1.5"/>
+            <text x="46" y="316" font-weight="600" fill="var(--remote)">worker</text>
+            <text x="46" y="335">③ get the event</text>
+            <text x="46" y="361">④ mark the order processed</text>
+            <rect x="30" y="392" width="240" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="46" y="414" font-weight="600">grafana</text>
+            <text x="46" y="432">⑧ dashboard queries</text>
+            <rect x="30" y="462" width="240" height="98" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="46" y="484" font-weight="600">prometheus</text>
+            <text x="46" y="502">⑥ scrape every /metrics</text>
+            <text x="46" y="544">⑥ scrape Envoy itself</text>
+
+            <rect x="340" y="60" width="300" height="520" rx="10" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+            <rect x="355" y="80" width="270" height="56" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+            <text x="367" y="102" font-weight="600">mesh_pg · :15432 · L4</text>
+            <text x="367" y="122" fill="var(--muted)">3 connect attempts, back-off</text>
+            <rect x="355" y="150" width="270" height="56" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+            <text x="367" y="172" font-weight="600">edge_sni · SNI tcp.…</text>
+            <text x="367" y="192" fill="var(--muted)">the browser's port, east-west too</text>
+            <rect x="355" y="220" width="270" height="286" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+            <text x="367" y="242" font-weight="600">mesh_http · :18080 · L7</text>
+            <text x="367" y="260" fill="var(--muted)">routes on Host and path</text>
+            <g font-family="IBM Plex Mono, monospace" font-size="11.5">
+              <text x="367" y="296">PUT    retry 5xx, reset ×3</text>
+              <text x="367" y="314">POST   connect-failure only</text>
+              <text x="367" y="332">DELETE connect-failure only</text>
+            </g>
+            <text x="367" y="350" fill="var(--muted)">(an MQ REST get is a DELETE)</text>
+            <text x="367" y="376">outlier detection per cluster</text>
+            <text x="367" y="394">circuit breakers per cluster</text>
+            <text x="367" y="420" fill="var(--muted)">/metrics/&lt;target&gt; → each /metrics</text>
+            <rect x="355" y="518" width="270" height="50" rx="8" fill="var(--surface)" stroke="currentColor" stroke-width="1.2"/>
+            <text x="367" y="538" font-weight="600">stats · :9902</text>
+            <text x="367" y="556" fill="var(--muted)">/stats/prometheus only</text>
+
+            <text x="646" y="101" fill="var(--muted)" font-size="11.5">①</text>
+            <text x="646" y="171" fill="var(--muted)" font-size="11.5">⑤</text>
+            <text x="646" y="241" fill="var(--muted)" font-size="11.5">②③</text>
+            <text x="646" y="311" fill="var(--muted)" font-size="11.5">④</text>
+            <text x="646" y="381" fill="var(--muted)" font-size="11.5">⑦⑧</text>
+            <text x="646" y="454" fill="var(--muted)" font-size="11.5">⑥</text>
+            <text x="646" y="533" fill="var(--muted)" font-size="11.5">⑥</text>
+
+            <rect x="690" y="80" width="260" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="706" y="102" font-weight="600">postgres :5432</text>
+            <text x="706" y="122" fill="var(--muted)">orders table, unique Idempotency-Key</text>
+            <rect x="690" y="150" width="260" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="706" y="172" font-weight="600">tcp-svc :9000</text>
+            <text x="706" y="192" fill="var(--muted)">TLS ends here · PONG</text>
+            <rect x="690" y="220" width="260" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="706" y="242" font-weight="600">mq · REST :9443</text>
+            <text x="706" y="262" fill="var(--muted)">Envoy opens TLS to it</text>
+            <rect x="690" y="290" width="260" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="706" y="312" font-weight="600">orders-api :8080</text>
+            <text x="706" y="332" fill="var(--muted)">PUT /orders/{id}/status</text>
+            <rect x="690" y="360" width="260" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="706" y="382" font-weight="600">prometheus :9090</text>
+            <text x="706" y="402" fill="var(--muted)">PromQL for grafana and the portal</text>
+            <rect x="690" y="430" width="260" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="706" y="450" font-weight="600">every /metrics</text>
+            <text x="706" y="467" fill="var(--muted)">api, worker, tcp-svc, otel, stores</text>
+            <text x="706" y="483" fill="var(--muted)">mq :9157, postgres-exporter</text>
+            <rect x="690" y="515" width="260" height="50" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="706" y="535" font-weight="600">Envoy admin 127.0.0.1:9901</text>
+            <text x="706" y="553" fill="var(--muted)">reachable only this way</text>
+
+            <text x="30" y="606" fill="var(--none)">orders-api cannot reach postgres directly: they share no network, so the name does not resolve.</text>
+            <text x="30" y="626" fill="var(--muted)">Arrows are coloured by caller: amber orders-api, teal worker; ink for grafana, prometheus and shared exits.</text>
+            <text x="30" y="646" fill="var(--host)" font-weight="600">Built and checked: run.sh --fresh, 84 checks (output/transcript.txt, 2026-10-22). Host ports on 127.0.0.1 only.</text>
+          </g>
+          <g fill="none" stroke-width="1.4" marker-end="url(#ah2)">
+            <line x1="270" y1="108" x2="353" y2="108" stroke="var(--host)"/>
+            <line x1="270" y1="178" x2="353" y2="178" stroke="var(--host)"/>
+            <line x1="270" y1="248" x2="353" y2="248" stroke="var(--host)"/>
+            <line x1="270" y1="266" x2="353" y2="266" stroke="var(--host)"/>
+            <line x1="270" y1="326" x2="353" y2="326" stroke="var(--remote)"/>
+            <line x1="270" y1="352" x2="353" y2="352" stroke="var(--remote)"/>
+            <line x1="270" y1="420" x2="353" y2="420" stroke="currentColor"/>
+            <line x1="270" y1="480" x2="353" y2="480" stroke="currentColor"/>
+            <line x1="270" y1="540" x2="353" y2="540" stroke="currentColor"/>
+            <line x1="625" y1="108" x2="688" y2="108" stroke="var(--host)"/>
+            <line x1="625" y1="178" x2="688" y2="178" stroke="var(--host)"/>
+            <line x1="625" y1="248" x2="688" y2="248" stroke="currentColor"/>
+            <line x1="625" y1="318" x2="688" y2="318" stroke="var(--remote)"/>
+            <line x1="625" y1="388" x2="688" y2="388" stroke="currentColor"/>
+            <line x1="625" y1="461" x2="688" y2="461" stroke="currentColor"/>
+            <line x1="625" y1="540" x2="688" y2="540" stroke="currentColor"/>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Built. Retries happen where they are safe: connect attempts for TCP, failures of idempotent PUTs for HTTP,
+        never a POST or MQ's destructive get once the request was sent.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>4. Telemetry layer: one pipeline, four stores</h2>
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 980 530" role="img" aria-label="Signals reach the OpenTelemetry Collector only through Envoy&#x27;s otlp.mesh; the collector exports through Envoy to Tempo and VictoriaTraces for traces, VictoriaMetrics for metrics and VictoriaLogs for logs, which R1.2 added. Prometheus scrapes every component&#x27;s metrics through Envoy. Grafana reads every store through Envoy aliases.">
+          <defs><marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+          <g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
+            <line x1="230" y1="88" x2="288" y2="140" stroke="var(--host)" stroke-width="1.4" marker-end="url(#ah4)"/>
+            <line x1="230" y1="164" x2="288" y2="164" stroke="var(--host)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ah4)"/>
+            <text x="236" y="157" font-size="11" fill="var(--muted)">sprint 2</text>
+            <line x1="230" y1="240" x2="288" y2="190" stroke="var(--host)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#ah4)"/>
+            <text x="236" y="252" font-size="11" fill="var(--muted)">sprint 2</text>
+            <line x1="450" y1="164" x2="498" y2="164" stroke="var(--remote)" stroke-width="1.4" marker-end="url(#ah4)"/>
+            <line x1="680" y1="66" x2="738" y2="66" stroke="var(--remote)" stroke-width="1.4" marker-end="url(#ah4)"/>
+            <line x1="680" y1="128" x2="738" y2="128" stroke="var(--remote)" stroke-width="1.4" marker-end="url(#ah4)"/>
+            <line x1="680" y1="190" x2="738" y2="190" stroke="var(--remote)" stroke-width="1.4" marker-end="url(#ah4)"/>
+            <line x1="680" y1="252" x2="738" y2="252" stroke="var(--remote)" stroke-width="1.4" marker-end="url(#ah4)"/>
+            <rect x="30" y="60" width="200" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5"/>
+            <text x="44" y="83" font-weight="600">telemetrygen v0.162</text>
+            <text x="44" y="101" fill="var(--muted)">synthetic spans (phase6)</text>
+            <rect x="30" y="136" width="200" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="44" y="159" font-weight="600">orders-api · worker · tcp-svc</text>
+            <text x="44" y="177" fill="var(--muted)">OTel SDK</text>
+            <rect x="30" y="212" width="200" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
+            <text x="44" y="235" font-weight="600">Envoy mesh spans</text>
+            <text x="44" y="253" fill="var(--muted)">R1.6</text>
+            <rect x="290" y="110" width="160" height="108" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+            <text x="304" y="133" font-weight="600">Envoy mesh_http</text>
+            <text x="304" y="151" fill="var(--muted)">otlp.mesh/v1/*</text>
+            <text x="304" y="171" fill="var(--muted)">POST: safe retry</text>
+            <rect x="500" y="40" width="180" height="238" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+            <text x="514" y="63" font-weight="600">otel-collector</text>
+            <text x="514" y="81" fill="var(--muted)">otlp receiver :4318</text>
+            <text x="514" y="108" fill="var(--muted)">memory_limiter → batch</text>
+            <text x="514" y="128" fill="var(--muted)">GOMEMLIMIT 204MiB</text>
+            <text x="514" y="148" fill="var(--muted)">own /metrics :8888</text>
+            <text x="514" y="168" fill="var(--muted)">exports through Envoy</text>
+            <rect x="740" y="40" width="220" height="52" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="754" y="63" font-weight="600">Tempo 3.1 · standard</text>
+            <text x="754" y="81" fill="var(--muted)">tempo.mesh</text>
+            <rect x="740" y="102" width="220" height="52" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="754" y="125" font-weight="600">VictoriaTraces 0.12</text>
+            <text x="754" y="143" fill="var(--muted)">victoriatraces.mesh</text>
+            <rect x="740" y="164" width="220" height="52" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="754" y="187" font-weight="600">VictoriaMetrics 1.153</text>
+            <text x="754" y="205" fill="var(--muted)">victoriametrics.mesh</text>
+            <rect x="740" y="226" width="220" height="52" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="754" y="249" font-weight="600">VictoriaLogs 1.53</text>
+            <text x="754" y="267" fill="var(--muted)">victorialogs.mesh</text>
+            <line x1="230" y1="348" x2="288" y2="348" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah4)"/>
+            <line x1="450" y1="348" x2="498" y2="348" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah4)"/>
+            <rect x="30" y="320" width="200" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="44" y="343" font-weight="600">Prometheus 3.15</text>
+            <text x="44" y="361" fill="var(--muted)">11 scrape jobs</text>
+            <rect x="290" y="320" width="160" height="56" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+            <text x="304" y="343" font-weight="600">Envoy mesh_http</text>
+            <text x="304" y="361" fill="var(--muted)">metrics.mesh/metrics/…</text>
+            <rect x="500" y="320" width="460" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="514" y="343" font-weight="600">every component&#x27;s own /metrics</text>
+            <text x="514" y="361" fill="var(--muted)">envoy, orders-api, worker, tcp-svc, mq, postgres, collector, 4 stores</text>
+            <line x1="230" y1="428" x2="288" y2="428" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah4)"/>
+            <rect x="30" y="400" width="200" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="44" y="423" font-weight="600">Grafana 12.4</text>
+            <text x="44" y="441" fill="var(--muted)">VictoriaLogs plugin baked in</text>
+            <rect x="290" y="400" width="670" height="56" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+            <text x="304" y="423" font-weight="600">Envoy aliases on net-grafana</text>
+            <text x="304" y="441" fill="var(--muted)">prometheus.mesh · tempo.mesh · victoriatraces.mesh · victoriametrics.mesh · victorialogs.mesh</text>
+            <text x="30" y="492" fill="var(--muted)">Every signal passes Envoy twice: from its source to the collector (otlp.mesh), and from the collector to each store.</text>
+            <text x="30" y="514" fill="var(--host)" font-weight="600">Solid = built and checked (R1.1, R1.2). Dashed = sprint 2.</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Built and checked: telemetrygen → Envoy → collector → Envoy → the four stores, Prometheus scraping
+        through Envoy, Grafana reading every store through Envoy. Sprint 2: the services' own telemetry and Envoy's
+        spans.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>5. Network layer: Envoy is the only shared member</h2>
+    <p>Each network below is <code>internal: true</code> (no route out) except <code>edge</code>. Its only members are the
+      component named and Envoy; Envoy's aliases on it are the only names that component can reach.</p>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Network</th><th>Its one component</th><th>Envoy's aliases there</th></tr></thead>
+        <tbody>
+          <tr><td><code>edge</code></td><td>—</td><td>(published) 127.0.0.1:8443 → 10443, 127.0.0.1:8080 → 10080</td></tr>
+          <tr><td><code>net-web</code></td><td>web</td><td>—</td></tr>
+          <tr><td><code>net-api</code></td><td>orders-api</td><td>postgres.mesh, envoy.mesh, mqrest.mesh, metrics.mesh, prometheus.mesh, otlp.mesh, tcp.…, web.…</td></tr>
+          <tr><td><code>net-worker</code></td><td>worker</td><td>api.mesh, mqrest.mesh, otlp.mesh</td></tr>
+          <tr><td><code>net-tcp</code></td><td>tcp-svc</td><td>otlp.mesh</td></tr>
+          <tr><td><code>net-db</code></td><td>postgres</td><td>—</td></tr>
+          <tr><td><code>net-mq</code></td><td>mq</td><td>—</td></tr>
+          <tr><td><code>net-mqclient</code></td><td>mq-client (on demand)</td><td>qm1.…</td></tr>
+          <tr><td><code>net-pgexp</code></td><td>postgres-exporter</td><td>postgres.mesh</td></tr>
+          <tr><td><code>net-obs</code></td><td>prometheus</td><td>metrics.mesh</td></tr>
+          <tr><td><code>net-grafana</code></td><td>grafana</td><td>prometheus.mesh, tempo.mesh, victoriatraces.mesh, victoriametrics.mesh, victorialogs.mesh</td></tr>
+          <tr><td><code>net-otel</code></td><td>otel-collector</td><td>tempo.mesh, victoriatraces.mesh, victoriametrics.mesh, victorialogs.mesh</td></tr>
+          <tr><td><code>net-otelsend</code></td><td>telemetrygen (on demand)</td><td>otlp.mesh</td></tr>
+          <tr><td><code>net-tempo · net-vtraces · net-vmetrics · net-vlogs</code></td><td>one store each</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>

@@ -1,0 +1,26 @@
+# Tempo 3.1 in monolithic mode (-target=all, the default): the distributor pushes in-process to
+# the live-store, so no Kafka. Envoy routes tempo.mesh/v1/traces to 4318 and reads to 3200.
+server:
+  http_listen_port: 3200
+  # gRPC carries only Tempo's own querier-to-frontend traffic: keep it off the network.
+  grpc_listen_address: 127.0.0.1
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+
+# Local storage, on the tempodata volume: fine for one node, not for production.
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/data/wal
+    local:
+      path: /var/tempo/data/blocks
+
+# No internet in the lab, and no reason to report usage from it.
+usage_report:
+  reporting_enabled: false

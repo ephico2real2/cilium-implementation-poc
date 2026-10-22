@@ -1,0 +1,409 @@
+# SNI fabric lab. Envoy is the only path between any two components: each component has its
+# own internal network, shared with Envoy alone, and reaches every peer through an Envoy
+# alias (*.fabric.localtest.me through edge_sni, *.mesh through mesh_http / mesh_pg).
+# Run with: podman compose up -d --build   (after scripts/gen-certs.sh and scripts/gen-secrets.sh)
+name: fabric
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+
+x-after-init: &after-init
+  init: {condition: service_completed_successfully}
+
+services:
+  # One-shot: gives each component its own copy of its key and secrets, owned by its UID
+  # (scripts/init-volumes.sh). Everything else waits for it. It runs as root with only the
+  # three capabilities that creating, replacing and chowning other UIDs' files needs; it has
+  # no network and exits when done.
+  init:
+    image: docker.io/library/alpine:3.24.2
+    command: ["sh", "/init-volumes.sh"]
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+    volumes:
+      # Each component's folder, never ./certs itself: certs/ca/ holds the CA's private key.
+      - ./certs/web:/src/certs/web:ro
+      - ./certs/orders-api:/src/certs/orders-api:ro
+      - ./certs/tcp-svc:/src/certs/tcp-svc:ro
+      - ./certs/mq:/src/certs/mq:ro
+      - ./certs/mq-client:/src/certs/mq-client:ro
+      - ./secrets:/src/secrets:ro
+      - ./scripts/init-volumes.sh:/init-volumes.sh:ro
+      - tls:/tls
+      - secrets:/secrets
+      - pg-secrets:/pg-secrets
+      - mq-pki:/mq-pki
+      - mq-secrets:/mq-secrets
+      - tempodata:/stores/tempo
+      - vtracesdata:/stores/victoria-traces
+      - vmetricsdata:/stores/victoria-metrics
+      - vlogsdata:/stores/victoria-logs
+
+  envoy:
+    <<: *hardening
+    image: docker.io/envoyproxy/envoy:v1.36.11
+    # Not the image's 101: that is web's UID (nginx-unprivileged), and the tls volume keeps
+    # each key readable by its owner's UID only. Envoy passes TLS through and needs no key.
+    user: "10008:10008"
+    entrypoint: ["envoy"]
+    # Flush the access log every second (default 10 s), so a hop shows up while you look for it.
+    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info", "--disable-hot-restart",
+              "--file-flush-interval-msec", "1000"]
+    volumes:
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - tls:/tls:ro
+    tmpfs: [/tmp]
+    depends_on: *after-init
+    # Published on this Mac's loopback only, never on the LAN.
+    ports:
+      - "127.0.0.1:${FABRIC_TLS_PORT:-8443}:10443"
+      - "127.0.0.1:${FABRIC_OPS_PORT:-8080}:10080"
+    networks:
+      edge: {}
+      net-web: {}
+      net-tcp:
+        aliases: [otlp.mesh]
+      net-db: {}
+      net-mq: {}
+      net-api:
+        aliases: [postgres.mesh, envoy.mesh, mqrest.mesh, metrics.mesh, prometheus.mesh, otlp.mesh, tcp.fabric.localtest.me, web.fabric.localtest.me]
+      net-otel:
+        aliases: [tempo.mesh, victoriatraces.mesh, victoriametrics.mesh, victorialogs.mesh]
+      net-otelsend:
+        aliases: [otlp.mesh]
+      net-obs:
+        aliases: [metrics.mesh]
+      net-pgexp:
+        aliases: [postgres.mesh]
+      net-grafana:
+        aliases: [prometheus.mesh, victoriametrics.mesh, victorialogs.mesh, tempo.mesh, victoriatraces.mesh]
+      net-worker:
+        aliases: [api.mesh, mqrest.mesh, otlp.mesh]
+      net-mqclient:
+        aliases: [qm1.fabric.localtest.me]
+      net-tempo: {}
+      net-vtraces: {}
+      net-vmetrics: {}
+      net-vlogs: {}
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9901 && printf 'GET /ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q LIVE <&3"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  web:
+    <<: *hardening
+    image: docker.io/nginxinc/nginx-unprivileged:1.30.6-alpine3.24
+    volumes:
+      - ./web/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./web/site:/usr/share/nginx/html:ro
+      - tls:/tls:ro
+    tmpfs: [/tmp]
+    depends_on: *after-init
+    networks: [net-web]
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "8443"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  tcp-svc:
+    <<: *hardening
+    build: ./services/tcp-svc
+    image: localhost/fabric-tcp-svc:dev
+    volumes:
+      - tls:/tls:ro
+    depends_on: *after-init
+    networks: [net-tcp]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 9000), 2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  orders-api:
+    <<: *hardening
+    build: ./services/orders-api
+    image: localhost/fabric-orders-api:dev
+    environment:
+      ENVOY_READY_URL: http://envoy.mesh:18080/ready
+      MQ_REST_URL: http://mqrest.mesh:18080/ibmmq/rest/v3
+      WORKER_METRICS_URL: http://metrics.mesh:18080/metrics/worker
+      PROMETHEUS_URL: http://prometheus.mesh:18080
+    volumes:
+      - tls:/tls:ro
+      - secrets:/secrets:ro
+    depends_on: *after-init
+    networks: [net-api]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/readyz', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+
+  postgres:
+    <<: *hardening
+    image: docker.io/library/postgres:17.11-alpine3.24
+    # The entrypoint starts as root to prepare the data directory, then drops to postgres.
+    # DAC_READ_SEARCH lets that root read past file modes, so Postgres mounts pg-secrets, which
+    # holds its own password only, never the shared secrets volume.
+    cap_add: [CHOWN, DAC_READ_SEARCH, FOWNER, SETUID, SETGID]
+    environment:
+      POSTGRES_USER: fabric
+      POSTGRES_DB: fabric
+      POSTGRES_PASSWORD_FILE: /secrets/postgres/postgres-password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - pg-secrets:/secrets:ro
+    tmpfs: [/tmp, /var/run/postgresql]
+    depends_on: *after-init
+    networks: [net-db]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "fabric", "-d", "fabric"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  mq:
+    image: icr.io/ibm-messaging/mq:10.0.1.0-r1
+    # IBM publishes no arm64 image; on Apple silicon this runs under amd64 emulation.
+    platform: linux/amd64
+    # Not read-only: at start the image rewrites /etc/passwd and writes under /run and /tmp
+    # (podman diff fabric-mq-1, measured 2026-10-21).
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    environment:
+      LICENSE: accept
+      MQ_QMGR_NAME: QM1
+      MQ_ENABLE_METRICS: "true"
+    volumes:
+      - mqdata:/mnt/mqm
+      - mq-pki:/etc/mqm/pki:ro
+      - mq-secrets:/run/secrets:ro
+      - ./mq/30-fabric.mqsc:/etc/mqm/30-fabric.mqsc:ro
+    depends_on: *after-init
+    networks: [net-mq]
+    healthcheck:
+      # The web server (console and REST API) starts after the queue manager: wait for both.
+      test: ["CMD", "bash", "-c", "chkmqready && exec 3<>/dev/tcp/127.0.0.1/9443"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  worker:
+    <<: *hardening
+    build: ./services/worker
+    image: localhost/fabric-worker:dev
+    volumes:
+      - secrets:/secrets:ro
+    depends_on: *after-init
+    networks: [net-worker]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 9100), 2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # A native MQ client, run on demand: podman compose run --rm mq-client [hostname|channel|nocert]
+  mq-client:
+    <<: *hardening
+    image: icr.io/ibm-messaging/mq:10.0.1.0-r1
+    platform: linux/amd64
+    profiles: [tools]
+    user: "1001"
+    restart: "no"
+    # mq-client.sh builds its key database in a mktemp folder, and the MQ client library writes
+    # its error log under /mnt/mqm/data/errors (AMQ6300E on a read-only root, measured).
+    tmpfs: [/tmp, /mnt/mqm]
+    entrypoint: ["bash", "/mq/mq-client.sh"]
+    command: ["hostname"]
+    volumes:
+      - tls:/tls:ro
+      - secrets:/secrets:ro
+      - ./mq/mq-client.sh:/mq/mq-client.sh:ro
+      - ./mq/ccdt.json:/mq/ccdt.json:ro
+    networks: [net-mqclient]
+
+  otel-collector:
+    <<: *hardening
+    image: docker.io/otel/opentelemetry-collector-contrib:0.162.0
+    # The image's UID 10001 is tcp-svc's in this lab.
+    user: "10009:10009"
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    environment:
+      # The memory_limiter README asks for GOMEMLIMIT at 80% of its hard limit (limit_mib 256).
+      GOMEMLIMIT: 204MiB
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    networks: [net-otel]
+    # The distroless image has no shell or HTTP client, so it has no health check; phase6
+    # checks it through Envoy (its OTLP route and /metrics/otel-collector) and Prometheus.
+
+  telemetrygen:
+    <<: *hardening
+    image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.162.0
+    # The image's UID 10001 is tcp-svc's in this lab.
+    user: "10011:10011"
+    profiles: [tools]
+    restart: "no"
+    networks: [net-otelsend]
+
+  prometheus:
+    <<: *hardening
+    image: docker.io/prom/prometheus:v3.15.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=2d
+      - --web.external-url=http://prometheus.fabric.localtest.me:8080
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    networks: [net-obs]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  postgres-exporter:
+    <<: *hardening
+    image: docker.io/prometheuscommunity/postgres-exporter:v0.20.1
+    # The image's nobody (65534) is Prometheus's too; the init container gives this UID its password.
+    user: "10010:10010"
+    environment:
+      DATA_SOURCE_URI: postgres.mesh:15432/fabric?sslmode=disable
+      DATA_SOURCE_USER: fabric
+      DATA_SOURCE_PASS_FILE: /secrets/postgres-exporter/postgres-password
+    volumes:
+      - secrets:/secrets:ro
+    depends_on: *after-init
+    networks: [net-pgexp]
+
+  grafana:
+    <<: *hardening
+    # grafana/grafana:12.4.12 with the VictoriaLogs plugin baked in: the lab has no internet.
+    build: ./observability/grafana/image
+    image: localhost/fabric-grafana:dev
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /secrets/grafana/grafana-admin-password
+      GF_SERVER_ROOT_URL: http://grafana.fabric.localtest.me:8080
+      # Read-only viewing without a login; changing anything needs the admin password.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/fabric.json
+    volumes:
+      - grafdata:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - secrets:/secrets:ro
+    tmpfs: [/tmp]
+    depends_on: *after-init
+    networks: [net-grafana]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+
+  # The telemetry stores. Each has its own internal network shared with Envoy alone: the
+  # collector writes and Grafana reads through Envoy aliases on mesh_http. Each runs as its own
+  # UID, which the init container gives the store's data volume.
+  tempo:
+    <<: *hardening
+    image: docker.io/grafana/tempo:3.1.0
+    # The image's UID 10001 is tcp-svc's in this lab.
+    user: "10004:10004"
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempodata:/var/tempo
+    depends_on: *after-init
+    networks: [net-tempo]
+    # Distroless (no shell or HTTP client): no health check; phase6 reads /ready through Envoy.
+
+  victoria-traces:
+    <<: *hardening
+    image: docker.io/victoriametrics/victoria-traces:v0.12.0
+    user: "10005:10005"
+    command: ["-storageDataPath=/storage/data"]
+    volumes:
+      - vtracesdata:/storage
+    depends_on: *after-init
+    networks: [net-vtraces]
+    # Distroless: no health check; phase6 reads /health through Envoy.
+
+  victoria-metrics:
+    <<: *hardening
+    image: docker.io/victoriametrics/victoria-metrics:v1.153.0
+    user: "10006:10006"
+    command: ["-storageDataPath=/storage/data"]
+    volumes:
+      - vmetricsdata:/storage
+    depends_on: *after-init
+    networks: [net-vmetrics]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8428/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  victoria-logs:
+    <<: *hardening
+    image: docker.io/victoriametrics/victoria-logs:v1.53.0
+    user: "10007:10007"
+    command: ["-storageDataPath=/storage/data"]
+    volumes:
+      - vlogsdata:/storage
+    depends_on: *after-init
+    networks: [net-vlogs]
+    # Distroless: no health check; phase6 reads /health through Envoy.
+
+volumes:
+  tls: {}
+  secrets: {}
+  pg-secrets: {}
+  pgdata: {}
+  mq-pki: {}
+  mq-secrets: {}
+  mqdata: {}
+  promdata: {}
+  grafdata: {}
+  tempodata: {}
+  vtracesdata: {}
+  vmetricsdata: {}
+  vlogsdata: {}
+
+networks:
+  # The only network with a route out: Envoy's published port lives here.
+  edge: {}
+  net-web: {internal: true}
+  net-tcp: {internal: true}
+  net-api: {internal: true}
+  net-db: {internal: true}
+  net-mq: {internal: true}
+  net-worker: {internal: true}
+  net-mqclient: {internal: true}
+  net-obs: {internal: true}
+  net-pgexp: {internal: true}
+  net-grafana: {internal: true}
+  net-otel: {internal: true}
+  net-otelsend: {internal: true}
+  net-tempo: {internal: true}
+  net-vtraces: {internal: true}
+  net-vmetrics: {internal: true}
+  net-vlogs: {internal: true}

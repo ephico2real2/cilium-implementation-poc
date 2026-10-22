@@ -1,0 +1,131 @@
+# cert-manager equivalent of scripts/gen-certs.sh, for when the lab moves to Kubernetes.
+# Not applied to any cluster yet; validated offline against the cert-manager v1.21.2 and
+# trust-manager v0.25.0 CRD schemas (docs/kubernetes-certs.md, "How this was checked").
+#
+# Order: the bootstrap issuer signs the root CA, the CA issuer signs every component, and
+# trust-manager copies the CA certificate to every namespace that needs to trust it.
+
+# 1. A self-signed issuer, used only to create the root CA below.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: fabric-selfsigned-bootstrap
+spec:
+  selfSigned: {}
+---
+# 2. The root CA. A ClusterIssuer reads its CA Secret from the cert-manager namespace.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: fabric-root-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: SNI Fabric Lab Root CA
+  subject:
+    organizations: [SNI Fabric Lab]
+  secretName: fabric-root-ca
+  duration: 87600h                     # 10 years, as in gen-certs.sh
+  privateKey:
+    algorithm: RSA
+    size: 3072
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: fabric-selfsigned-bootstrap
+---
+# 3. The issuer every component's certificate comes from.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: fabric-ca
+spec:
+  ca:
+    secretName: fabric-root-ca
+---
+# 4. One Certificate per component. Each Secret holds tls.crt, tls.key and ca.crt, the same
+#    files gen-certs.sh writes to certs/<component>/.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: web
+  namespace: fabric
+spec:
+  secretName: web-tls
+  dnsNames: [web.fabric.localtest.me]
+  usages: [digital signature, key encipherment, server auth]
+  privateKey: {algorithm: RSA, size: 2048, encoding: PKCS1, rotationPolicy: Always}
+  issuerRef: {group: cert-manager.io, kind: ClusterIssuer, name: fabric-ca}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: orders-api
+  namespace: fabric
+spec:
+  secretName: orders-api-tls
+  dnsNames: [api.fabric.localtest.me]
+  usages: [digital signature, key encipherment, server auth]
+  privateKey: {algorithm: RSA, size: 2048, encoding: PKCS1, rotationPolicy: Always}
+  issuerRef: {group: cert-manager.io, kind: ClusterIssuer, name: fabric-ca}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: tcp-svc
+  namespace: fabric
+spec:
+  secretName: tcp-svc-tls
+  dnsNames: [tcp.fabric.localtest.me]
+  usages: [digital signature, key encipherment, server auth]
+  privateKey: {algorithm: RSA, size: 2048, encoding: PKCS1, rotationPolicy: Always}
+  issuerRef: {group: cert-manager.io, kind: ClusterIssuer, name: fabric-ca}
+---
+# The queue manager's listener and its web console share one identity, as in gen-certs.sh.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: mq
+  namespace: fabric
+spec:
+  secretName: mq-tls
+  dnsNames: [qm1.fabric.localtest.me, mqconsole.fabric.localtest.me]
+  usages: [digital signature, key encipherment, server auth, client auth]
+  privateKey: {algorithm: RSA, size: 2048, encoding: PKCS1, rotationPolicy: Always}
+  issuerRef: {group: cert-manager.io, kind: ClusterIssuer, name: fabric-ca}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: mq-client
+  namespace: fabric
+spec:
+  secretName: mq-client-tls
+  dnsNames: [mq-client.fabric.localtest.me]
+  usages: [digital signature, key encipherment, client auth]
+  privateKey: {algorithm: RSA, size: 2048, encoding: PKCS1, rotationPolicy: Always}
+  # Adds keystore.p12 to the Secret, the bundle the MQ client imports into its GSKit keystore
+  # (gen-certs.sh writes the same as tls.p12). Modern2023 is PBES2 / AES-256-CBC, which GSKit
+  # was measured to accept; the password matches gen-certs.sh's P12_PASSWORD.
+  keystores:
+    pkcs12: {create: true, profile: Modern2023, password: fabric-lab}
+  issuerRef: {group: cert-manager.io, kind: ClusterIssuer, name: fabric-ca}
+---
+# 5. The CA certificate, copied as ConfigMap "fabric-ca-bundle" (key ca.crt) into every
+#    namespace labelled fabric.localtest.me/trust=ca, for clients and for Envoy's upstream TLS.
+#    trust-manager reads its sources from its trust namespace (cert-manager by default).
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: fabric-ca-bundle
+spec:
+  sources:
+  - secret:
+      name: fabric-root-ca
+      key: ca.crt
+  target:
+    configMap:
+      key: ca.crt
+    namespaceSelector:
+      matchLabels:
+        fabric.localtest.me/trust: ca

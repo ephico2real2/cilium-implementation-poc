@@ -1,0 +1,33 @@
+$ podman compose run --rm mq-client hostname
+
+mode=hostname OutboundSNI=HOSTNAME -> qm1.fabric.localtest.me:10443 (Envoy edge_sni) -> QM1
+  put: Sample AMQSPUT0 start
+  put: target queue is DEV.QUEUE.2
+  put: Sample AMQSPUT0 end
+  get: Sample AMQSGET0 start
+  get: message <fabric 20261021T221803Z-11733 one>
+  get: message <fabric 20261021T221803Z-11733 two>
+  get: no more messages
+  get: Sample AMQSGET0 end
+RESULT ok: both messages put and got back through Envoy with OutboundSNI=HOSTNAME
+(exit 0)
+
+$ podman compose run --rm mq-client channel
+
+mode=channel OutboundSNI=CHANNEL -> qm1.fabric.localtest.me:10443 (Envoy edge_sni) -> QM1
+  put: Sample AMQSPUT0 start
+  put: MQCONNX ended with reason code 2393
+RESULT ok: refused as expected for mode channel
+(exit 0)
+
+$ podman compose run --rm mq-client nocert
+
+mode=nocert OutboundSNI=HOSTNAME -> qm1.fabric.localtest.me:10443 (Envoy edge_sni) -> QM1
+  put: Sample AMQSPUT0 start
+  put: MQCONNX ended with reason code 2393
+RESULT ok: refused as expected for mode nocert
+(exit 0)
+
+$ podman exec fabric-mq-1 grep -h -E "^AMQ9(637|999)" /var/mqm/qmgrs/QM1/errors/AMQERR01.LOG | tail -2
+AMQ9637E: During handshake, the remote partner sent no certificate.
+AMQ9999E: Channel 'DEV.APP.SVRCONN' to host 'fabric-envoy-1 (10.89.9.2)' ended
