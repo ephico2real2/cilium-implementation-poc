@@ -132,10 +132,10 @@ that the regressions two reviews kept finding are caught by a machine on every c
   breaks one check on purpose (a substring comparison put back in `verify.sh`), it is red and
   names the step. Run time recorded.
 - **Seats:** OB3 builds; Codex and OB1-lite review.
-- **Status (2026-10-22): built, measured locally; not yet run on GitHub.** The workflow is
+- **Status (2026-10-22): built, measured locally and on GitHub.** The workflow is
   [`.github/workflows/demo57-ci.yaml`](../../../../.github/workflows/demo57-ci.yaml): a job
   `lab-free` (AC 1, one step per check), diagram-kit's own job for the three diagram pages,
-  and the spike `spike-container-tests` (AC 3). As measured locally:
+  and `container-tests` (AC 3). As measured locally:
   - `lab-free`: every step's script run verbatim from the workflow file (Docker Compose 2.38.2,
     the runner's version; images through Podman): 14 steps, 0 failed, about 80 s, of which
     `test_phase6.sh` takes 41 s and `test_verify_false_pass.sh` 26 s. The eight tests also pass
@@ -160,8 +160,13 @@ that the regressions two reviews kept finding are caught by a machine on every c
     3.12.14. `actionlint` 1.7.12: no finding.
   - AC 4: `git diff --stat main -- .github/` is empty, so no existing workflow changed;
     `git status --short -- .github/` lists the new workflow as the one file added.
-  - To be measured on GitHub by the orchestrator: each job's run time, the diagram job on the
-    runner, and the spike's five results (the tests that pass move into `lab-free`).
+  - On GitHub (run 39741285766, pull request #90): `lab-free` 1 min 14 s, `diagrams` 1 min 2 s,
+    and the spike 1 min 31 s, in which all five container tests passed on the runner
+    (`test_status_auth.sh` 9 of 9, `test_prometheus_baseline.sh` 2 of 2,
+    `test_plugin_checksum.sh` refused at `sha256`); so the spike became the required job
+    `container-tests`, every step without `continue-on-error`. Kubernetes (kind) was not
+    needed: rootless Podman runs all five once Ubuntu 24.04's user-namespace restriction is
+    lifted.
 
 ## Closing sprint 1
 

@@ -12,8 +12,8 @@
 # Docker Server 28.0.4 with Docker Compose 2.38.2 (installed as the plugin in
 # /usr/libexec/docker/cli-plugins), and Podman 4.9.3, which has no compose of its own: its
 # `podman compose` runs the first provider it finds, and that plugin path is on its default list
-# (containers/common v0.57.4, pkg/config/default.go:120-128). So lab-free uses docker; the spike
-# uses podman, because the tests it runs call podman.
+# (containers/common v0.57.4, pkg/config/default.go:120-128). So lab-free uses docker;
+# container-tests uses podman, because the tests it runs call podman.
 #
 # Not in CI: the checks that need the running lab (scripts/run.sh --fresh builds four images and
 # starts the 16 services, 8 min 6 s recorded on the Mac), which this workflow does not bring up.
@@ -30,10 +30,10 @@
 #                                              the three browser walks also need Playwright and
 #                                              Chromium, from diagram-kit's environment
 #
-# spike-container-tests (AC 3): the tests that need Podman and the lab's images but start nothing
-# of the lab's, each on its own step with continue-on-error, so every result is reported and none
-# turns the pull request red. What each needs, read from the test (local times: the Mac, Podman
-# 6.1.2, images already present; the runner's times are read from this job's run):
+# container-tests (AC 3): the tests that need Podman and the lab's images but start nothing of the
+# lab's. A spike ran each on this runner first (run 39741285766, 2026-10-22: all five passed, the
+# job 1 min 31 s, 47 s of it building and pulling images), so each is now a required step. What
+# each needs, read from the test (local times: the Mac, Podman 6.1.2, images already present):
 #   bash tests/r1-1/test_compose_collector.sh compose.yaml observability/otel-collector.yaml
 #       `podman compose config` and python3; no image, no network. Local: 1 s.
 #   python3 tests/scripts/test_key_isolation.py compose.yaml
@@ -50,8 +50,6 @@
 #   bash tests/r1-2/test_plugin_checksum.sh observability/grafana/image
 #       `podman build --no-cache` with a wrong SHA-256: pulls alpine, downloads the plugin and its
 #       checksums file from GitHub, and must fail at sha256sum. Not run locally (it builds).
-# Every one that passes on the runner moves into lab-free; the rest stay listed here with the
-# reason the run measured.
 #
 # Every action is pinned by the full commit of its release tag (a tag can be moved, a commit
 # cannot), the tag beside it: the newest release at least two weeks old on 2026-10-22.
@@ -180,7 +178,7 @@ jobs:
       kit: 26b7c19791159929c76a264ea3d5274bef72e9f6
       pages: ':(glob)demos/57-sni-fabric-lab/docs/diagrams/**/source.html'
 
-  spike-container-tests:
+  container-tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     defaults:
@@ -197,8 +195,6 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Podman, its compose provider and its user namespace
-        id: engine
-        continue-on-error: true
         run: |
           podman version
           podman compose version
@@ -209,20 +205,14 @@ jobs:
       # Ubuntu 24.04 lets only AppArmor-profiled programs create user namespaces, which rootless
       # Podman needs (actions/runner-images#10443); this runner is thrown away after the job.
       - name: Allow unprivileged user namespaces
-        id: userns
-        continue-on-error: true
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - name: Certificates and secrets
-        id: secrets
-        continue-on-error: true
         run: |
           scripts/gen-certs.sh
           scripts/gen-secrets.sh
 
       - name: The lab's images the tests read, built and pulled with Podman
-        id: images
-        continue-on-error: true
         run: |
           config="$(docker compose -f compose.yaml --profile tools config --format json)"
           # Built as compose would tag them; test_key_isolation.py inspects each.
@@ -233,39 +223,17 @@ jobs:
             xargs -n1 podman pull -q
 
       - name: test_compose_collector.sh
-        id: compose_collector
-        continue-on-error: true
         run: bash tests/r1-1/test_compose_collector.sh compose.yaml observability/otel-collector.yaml
 
       - name: test_key_isolation.py
-        id: key_isolation
-        continue-on-error: true
         run: python3 tests/scripts/test_key_isolation.py compose.yaml
 
       - name: test_status_auth.sh
-        id: status_auth
-        continue-on-error: true
         run: bash tests/scripts/test_status_auth.sh services/orders-api/app certs/ca/ca.crt
 
       - name: test_prometheus_baseline.sh
-        id: prometheus_baseline
-        continue-on-error: true
         run: bash tests/scripts/test_prometheus_baseline.sh scripts/verify.sh
 
       - name: test_plugin_checksum.sh
-        id: plugin_checksum
-        continue-on-error: true
         run: bash tests/r1-2/test_plugin_checksum.sh observability/grafana/image
 
-      - name: The spike's results
-        if: always()
-        env:
-          RESULTS: ${{ toJSON(steps) }}
-        run: |
-          {
-            echo "## Spike: the tests that need Podman and the lab's images"
-            echo
-            echo "| step | outcome |"
-            echo "|---|---|"
-            jq -r 'to_entries[] | "| `\(.key)` | \(.value.outcome) |"' <<<"${RESULTS}"
-          } | tee -a "${GITHUB_STEP_SUMMARY}"
