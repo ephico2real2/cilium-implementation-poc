@@ -13,6 +13,7 @@ numbers come from the review records in [../reviews/](../reviews/), the pictures
 | 1 | R1.1 The collector is the one pipeline | done | Codex, OB3 | [R1.1](../reviews/R1.1.md) |
 | 1 | R1.2 The stores are running | done | OB3, Codex | [R1.2](../reviews/R1.2.md) |
 | 1 | R1.3 Side by side, compared | next | Codex, OB3 | — |
+| 1 | E1 CI checks demo 57 on every pull request | next | OB3, Codex | — |
 | 2 | R1.4–R1.9 One order, one story | not started; its two mocks await approval | — | [BACKLOG](../roadmap/BACKLOG.md) |
 
 ## Sprint 1, so far: the pipeline and the stores
