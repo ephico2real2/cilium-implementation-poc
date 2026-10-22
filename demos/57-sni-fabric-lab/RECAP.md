@@ -46,12 +46,13 @@ shared-SNI design for exposing IBM MQ through Envoy.
 ## Architecture
 
 ```text
-browser, openssl, MQ client                 grafana.*, prometheus.* (browser)
+browser, openssl, MQ client                 grafana.*, prometheus.*, victoriametrics.*
         │ TLS, SNI = <name>.fabric.localtest.me    │ HTTP, Host header
         ▼ 127.0.0.1:8443                           ▼ 127.0.0.1:8080
 ┌──────────────────────────── Envoy v1.36.11 ────────────────────────────┐
 │ edge_sni :10443  reads the SNI, passes TLS through, resets the rest    │
-│ ops_http :10080  Grafana and Prometheus                                │
+│ ops_http :10080  Grafana, Prometheus; VictoriaMetrics: the whole app   │
+│                  from this Mac, the read API from a container          │
 │ mesh_http :18080 east-west HTTP, retries, /metrics/<component>         │
 │ mesh_pg  :15432  Postgres, 3 connect attempts                          │
 │ stats    :9902   /stats/prometheus only                                │
@@ -67,7 +68,7 @@ The same, layer by layer (source: `docs/diagrams/layers/source.html`, drawn with
 
 *Every arrow between layers is a hop through Envoy. Dashed: auto-instrumentation, sprint 2.*
 
-![Clients on this Mac reach Envoy's edge_sni listener on 127.0.0.1:8443, which reads the SNI and passes the TLS through to web, orders-api, tcp-svc or the MQ queue manager; an unknown or missing SNI is reset. Grafana and Prometheus are on 127.0.0.1:8080.](docs/diagrams/layers/edge.light.png)
+![Clients on this Mac reach Envoy's edge_sni listener on 127.0.0.1:8443, which reads the SNI and passes the TLS through to web, orders-api, tcp-svc or the MQ queue manager; an unknown or missing SNI is reset. Grafana, Prometheus and VictoriaMetrics are on 127.0.0.1:8080; VictoriaMetrics is its whole app from this Mac and only its read API from a container.](docs/diagrams/layers/edge.light.png)
 
 *Into the lab: one TLS port, routed on the hostname each client sends. Envoy decrypts nothing.*
 
