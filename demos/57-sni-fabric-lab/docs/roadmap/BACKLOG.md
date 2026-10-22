@@ -299,6 +299,12 @@ call that created the event, so that one order is one trace.
 - **Test:** `phase6` "otel: the worker's span joins the order's trace".
 - **Spike first:** does the MQ REST v3 user-property header (`ibm-mq-usr`) carry `traceparent`
   on put and return it on get? Fallback: a `traceparent` field in the event body.
+- **Spike answered (2026-10-22, #107): yes, the header carries it.** From inside the worker,
+  through Envoy's `mqrest.mesh`, a put to `DEV.QUEUE.3` with
+  `ibm-mq-usr: traceparent;"<traceparent>";string` answered 201. The destructive get answered 200,
+  and its `ibm-mq-usr` response header returned the same property, value and type
+  (`tests/spikes/r1-5_mq_traceparent.sh`, recorded in `output/spike-r1-5-mq-traceparent.txt`).
+  R1.5 uses the header; the event body stays as it is.
 
 ## R1.6 Envoy's spans on the mesh
 
