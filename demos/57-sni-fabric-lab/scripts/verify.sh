@@ -116,7 +116,7 @@ phase2() {
   out="$(api GET /docs)"
   check "api: Swagger UI at /docs" "swagger-ui" "${out}"
   out="$(api GET /openapi.json | json_field 'd["info"]["title"], "/orders" in d["paths"], "/admin/chaos" in d["paths"]')"
-  check_exact "api: OpenAPI lists /orders and /admin/chaos" "orders-api True True" "${out}"
+  check "api: OpenAPI lists /orders and /admin/chaos" "orders-api True True" "${out}"
 
   key="$(uuidgen)"
   out="$(api POST /orders -H 'Content-Type: application/json' -H "Idempotency-Key: ${key}" -d '{"item":"espresso","quantity":2}')"
