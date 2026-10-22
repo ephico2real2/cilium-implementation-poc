@@ -320,6 +320,20 @@ in the fabric is visible.
 - **Test:** `phase6` "otel: Envoy spans on mesh_http"; the retry check under chaos.
 - **Open:** whether Envoy draws one span per upstream attempt by default, or needs its upstream
   span option: measured, not assumed.
+- **Spike answered (2026-10-22, #109): it needs the option.** A throwaway Envoy v1.36.11 (the lab's
+  image) retried one request to a closed port 3 times and sent its spans through `otlp.mesh` to
+  Tempo. With `spawn_upstream_span` false the trace held 1 span, the ingress (503); with it true, 5:
+  the ingress and one `router <cluster> egress` span per attempt, the retries tagged
+  `retry.count` 1 to 3 (`tests/spikes/r1-6_envoy_attempt_spans.sh`, recorded in
+  `output/spike-r1-6-envoy-attempt-spans.txt`; the source reading is on #99). R1.6 sets
+  `spawn_upstream_span: true` on `mesh_http`.
+- **Still open after the spike** (#109 does not settle these): which of `mesh_http`'s virtual
+  hosts are traced, and at what sampling. The listener carries the telemetry routes too (`otlp`,
+  `metrics`, `prometheus`, `tempo`, `victoria_*`, `envoy`; `envoy/envoy.yaml:191-332`), and the
+  connection manager samples 100% by default, so the collector's own exports to `tempo.mesh` would
+  be traced and their spans exported again. The worker's parent across MQ (#98): Envoy rewrites
+  `traceparent` but not `ibm-mq-usr`. The spike retried on connect failure; AC 2's retries under
+  chaos at 50% are R1.6's own test.
 
 ## R1.7 Structured logs with trace ids
 
