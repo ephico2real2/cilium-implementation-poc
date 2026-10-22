@@ -51,9 +51,9 @@ sleep 15; echo "after:  $(count)"
 **Expect:**
 
 ```text
-before: 28
+before: 3
 no peer certificate available
-after:  29
+after:  4
 ```
 
 ### 3. Follow one order through Envoy
@@ -68,12 +68,12 @@ python3 scripts/trace_order.py
 **Expect:**
 
 ```text
-order 516 created: created, events sent 1
-order 516 now: processed
-2026-10-21T22:18:47.517Z  DELETE mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message -> 200 attempts=1 cluster=mq_web
-2026-10-21T22:18:50.439Z  TLS    api.fabric.localtest.me -> orders_api_tls (passed through, 1940 bytes in)
-2026-10-21T22:18:50.443Z  POST   mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message -> 201 attempts=1 cluster=mq_web
-2026-10-21T22:18:50.478Z  PUT    api.mesh:18080/orders/516/status -> 200 attempts=1 cluster=orders_api_internal
+order 40 created: created, events sent 1
+order 40 now: processed
+2026-10-22T01:57:53.846Z  DELETE mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message -> 200 attempts=1 cluster=mq_web
+2026-10-22T01:57:54.988Z  TLS    api.fabric.localtest.me -> orders_api_tls (passed through, 1940 bytes in)
+2026-10-22T01:57:54.993Z  POST   mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message -> 201 attempts=1 cluster=mq_web
+2026-10-22T01:57:55.047Z  PUT    api.mesh:18080/orders/40/status -> 200 attempts=1 cluster=orders_api_internal
 ```
 
 ### 4. Make Envoy's retries visible (changes the lab: chaos on for 20 s, then off)
@@ -98,14 +98,14 @@ sleep 15; echo "retries after:  $(count)"
 **Expect:**
 
 ```text
-retries before: 9
+retries before: 8
 {"fail_rate":0.5,"delay_ms":0}
     40  GET /tcp/ping -> 200
     40  POST /orders new -> 201
     40  POST /orders replay -> 200
      4  unknown SNI -> reset
 {"fail_rate":0.0,"delay_ms":0}
-retries after:  36
+retries after:  43
 ```
 
 ### 5. Run the dashboard's queries against Prometheus
@@ -119,7 +119,7 @@ python3 tests/dashboard_queries.py --minutes 5 | tail -1
 **Expect:**
 
 ```text
-31 queries, 0 with errors or warnings, 0 empty, 0.06 s in all
+31 queries, 0 with errors or warnings, 0 empty, 0.07 s in all
 ```
 
 ## Clean up

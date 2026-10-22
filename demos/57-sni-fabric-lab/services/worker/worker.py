@@ -28,6 +28,8 @@ DEAD_LETTER_QUEUE = os.environ.get("MQ_DEAD_LETTER_QUEUE", "DEV.DEAD.LETTER.QUEU
 API_URL = os.environ.get("API_URL", "http://api.mesh:18080")
 MQ_USER = os.environ.get("MQ_APP_USER", "app")
 MQ_PASSWORD_FILE = os.environ.get("MQ_APP_PASSWORD_FILE", "/secrets/worker/mq-app-password")
+# orders-api accepts a status update only with this bearer token.
+WORKER_TOKEN_FILE = os.environ.get("WORKER_TOKEN_FILE", "/secrets/worker/worker-token")
 METRICS_PORT = int(os.environ.get("METRICS_PORT", "9100"))
 MAX_ATTEMPTS = int(os.environ.get("MAX_ATTEMPTS", "5"))
 GET_WAIT_MS = int(os.environ.get("GET_WAIT_MS", "5000"))
@@ -80,7 +82,9 @@ def main() -> None:
     # The MQ REST API refuses POST and DELETE without this header (any value).
     mq_headers = {"ibm-mq-rest-csrf-token": "fabric"}
     mq = httpx.Client(auth=auth, headers=mq_headers, timeout=httpx.Timeout(GET_WAIT_MS / 1000 + 5, connect=2))
-    api = httpx.Client(timeout=httpx.Timeout(15, connect=2))
+    with open(WORKER_TOKEN_FILE, encoding="utf-8") as handle:
+        api_headers = {"Authorization": f"Bearer {handle.read().strip()}"}
+    api = httpx.Client(headers=api_headers, timeout=httpx.Timeout(15, connect=2))
 
     def put(queue: str, event: dict) -> bool:
         try:

@@ -24,6 +24,7 @@ postgres-password=fabric-postgres
 mq-admin-password=fabric-mq-admin
 mq-app-password=fabric-mq-app
 grafana-admin-password=fabric-grafana
+worker-token=fabric-worker
 "
 
 usage() { awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; }

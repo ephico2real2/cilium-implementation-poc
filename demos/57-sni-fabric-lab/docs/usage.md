@@ -19,7 +19,7 @@ Mac, IBM MQ under amd64 emulation); `output/transcript.txt` holds the full recor
 
 ```bash
 cd demos/57-sni-fabric-lab
-scripts/run.sh --fresh                 # build from nothing and check everything (about 6 min)
+scripts/run.sh --fresh                 # build from nothing and check everything (about 8 min)
 python3 scripts/load.py --seconds 300  # five minutes of traffic, so the dashboard has data
 ```
 
@@ -92,8 +92,8 @@ The steps, in order:
 5. Print the memory in use, and the URLs with their logins
 
 Everything is also written to `output/transcript.txt`. It stops at the first failed step.
-Measured on the recorded run: 5 min 35 s from nothing; MQ healthy after 124 s. That run predates
-the telemetry stores; `verify.sh phase6` alone now takes 1 min 49 s (measured 2026-10-22).
+Measured on the recorded run (2026-10-22): 7 min 52 s from nothing; MQ healthy after 130 s;
+phase 6 took 1 min 49 s of that.
 
 ### 4.2 `scripts/gen-certs.sh`: the CA and certificates
 
@@ -142,6 +142,7 @@ scripts/gen-secrets.sh --force --random   # overwrite with random values
 | `mq-admin-password` | `fabric-mq-admin` | MQ console user `admin` |
 | `mq-app-password` | `fabric-mq-app` | MQ user `app`: orders-api, worker, mq-client |
 | `grafana-admin-password` | `fabric-grafana` | Grafana user `admin` |
+| `worker-token` | `fabric-worker` | the worker's status updates to orders-api (`PUT /orders/{id}/status`) |
 
 After changing them, rebuild with `scripts/run.sh --fresh`: Postgres and Grafana take their
 password only when their data volumes are first created.

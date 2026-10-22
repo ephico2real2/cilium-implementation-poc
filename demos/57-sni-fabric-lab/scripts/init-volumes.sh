@@ -6,6 +6,9 @@
 #           folder 0500; the CA certificate at /tls/ca/ca.crt, readable by everyone.
 # /secrets  each consumer gets its own copy of each secret it uses in /secrets/<consumer>/,
 #           owned by its UID, 0400.
+# /pg-secrets  Postgres's password alone, in /pg-secrets/postgres/. Postgres's entrypoint runs
+#           as root with DAC_READ_SEARCH, which reads past file modes, so it must not mount
+#           the shared /secrets.
 # /mq-pki, /mq-secrets  the queue manager's identity and passwords, in the layout the IBM MQ
 #           container reads (/etc/mqm/pki/keys/<label>/, /run/secrets/mq*Password). Only the
 #           queue manager mounts these: it shares UID 1001 with mq-client, so a shared volume
@@ -16,7 +19,8 @@ set -eu
 
 die() { echo "init-volumes: $*" >&2; exit 1; }
 
-[ -s /src/certs/ca/ca.crt ] || die "/src/certs/ca/ca.crt missing; run scripts/gen-certs.sh"
+# Only the components' folders are mounted (certs/ca/ holds the CA key); each has ca.crt.
+[ -s /src/certs/web/ca.crt ] || die "/src/certs/web/ca.crt missing; run scripts/gen-certs.sh"
 
 # Copies one file and sets owner and mode.
 put() {  # put <src> <dst> <uid> <mode>
@@ -41,18 +45,16 @@ for entry in web:101 tcp-svc:10001 orders-api:10002 mq-client:1001; do
   echo "init-volumes: tls/${name} -> uid ${uid}"
 done
 mkdir -p /tls/ca
-put /src/certs/ca/ca.crt /tls/ca/ca.crt 0 0444
+put /src/certs/web/ca.crt /tls/ca/ca.crt 0 0444
 chmod 0555 /tls/ca
 echo "init-volumes: tls/ca/ca.crt -> everyone"
 
 # ---------------------------------------------------------------- /secrets
-# consumer:uid:secret,...  Postgres reads its password as root before dropping to its own
-# user, so its copy is owned by root.
+# consumer:uid:secret,...
 for entry in \
-  orders-api:10002:admin-token,postgres-password,mq-app-password \
-  worker:10003:mq-app-password \
-  postgres:0:postgres-password \
-  postgres-exporter:65534:postgres-password \
+  orders-api:10002:admin-token,postgres-password,mq-app-password,worker-token \
+  worker:10003:mq-app-password,worker-token \
+  postgres-exporter:10010:postgres-password \
   mq-client:1001:mq-app-password \
   grafana:472:grafana-admin-password
 do
@@ -69,6 +71,14 @@ do
   chmod 0500 "/secrets/${consumer}"
   echo "init-volumes: secrets/${consumer} -> uid ${uid} (${list})"
 done
+
+# ---------------------------------------------------------------- /pg-secrets
+# Postgres reads its password as root before dropping to its own user, so its copy is owned by root.
+rm -rf /pg-secrets/postgres
+mkdir -p /pg-secrets/postgres
+put /src/secrets/postgres-password /pg-secrets/postgres/postgres-password 0 0400
+chmod 0500 /pg-secrets/postgres
+echo "init-volumes: pg-secrets/postgres -> uid 0 (Postgres only)"
 
 # ---------------------------------------------------------------- /mq-pki, /mq-secrets
 rm -rf /mq-pki/keys

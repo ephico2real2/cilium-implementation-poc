@@ -48,6 +48,8 @@ class Settings:
     prometheus_url: str = field(default_factory=lambda: _env("PROMETHEUS_URL"))
 
     admin_token_file: str = field(default_factory=lambda: _env("ADMIN_TOKEN_FILE", "/secrets/orders-api/admin-token"))
+    # The worker's bearer token for PUT /orders/{id}/status on the internal server.
+    worker_token_file: str = field(default_factory=lambda: _env("WORKER_TOKEN_FILE", "/secrets/orders-api/worker-token"))
 
     # Orders still "created" this long after their last event get their event sent again.
     sweep_after_s: float = field(default_factory=lambda: float(_env("SWEEP_AFTER_S", "60")))
@@ -64,6 +66,10 @@ class Settings:
     @property
     def admin_token(self) -> str:
         return _read_secret(self.admin_token_file)
+
+    @property
+    def worker_token(self) -> str:
+        return _read_secret(self.worker_token_file)
 
 
 settings = Settings()

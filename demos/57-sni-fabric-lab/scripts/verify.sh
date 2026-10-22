@@ -31,6 +31,10 @@ fail() { printf 'FAIL  %-46s %s\n' "$1" "$2"; FAILURES=$((FAILURES + 1)); }
 check() {  # check <name> <expected substring> <actual>
   if [[ "$3" == *"$2"* ]]; then pass "$1" "$(echo "$3" | grep -F -m1 -- "$2" | cut -c1-70)"; else fail "$1" "expected '$2', got '$(echo "$3" | head -3 | tr '\n' ' ' | cut -c1-90)'"; fi
 }
+# For values where a substring would lie (2 inside 12, "processed 1" inside "processed 10").
+check_exact() {  # check_exact <name> <expected> <actual>
+  if [ "$3" = "$2" ]; then pass "$1" "$3"; else fail "$1" "expected exactly '$2', got '${3:-<empty>}'"; fi
+}
 
 # Sends lines to a TLS service through Envoy and prints its replies.
 tls_lines() {  # tls_lines <sni> <line>...
@@ -79,7 +83,12 @@ phase1() {
   out="$("${OPENSSL}" s_client -connect "127.0.0.1:${PORT}" -noservername </dev/null 2>&1 | grep -E 'errno|peer certificate' | head -2 | tr '\n' ' ')"
   check "edge_sni: missing SNI is reset" "no peer certificate available" "${out}"
   after="$(envoy_stat 'listener.0.0.0.0_10443.no_filter_chain_match')"
-  check "envoy: no_filter_chain_match rose by 2" "$((before + 2))" "${after}"
+  # Compared exactly: as a substring, 1 -> 13 would have passed "rose by 2".
+  if [[ "${before}" =~ ^[0-9]+$ ]] && [ "${after}" = "$((before + 2))" ]; then
+    pass "envoy: no_filter_chain_match rose by 2" "${before} -> ${after}"
+  else
+    fail "envoy: no_filter_chain_match rose by 2" "${before:-missing} -> ${after:-missing}"
+  fi
 
   out="$(in_container tcp-svc python -c "import socket; socket.create_connection(('web', 8443), 2)")"
   check "isolation: tcp-svc cannot resolve web" "Name or service not known" "${out}"
@@ -105,8 +114,8 @@ phase2() {
   local out key id token
   out="$(api GET /docs)"
   check "api: Swagger UI at /docs" "swagger-ui" "${out}"
-  out="$(api GET /openapi.json | json_field 'd["info"]["title"], sorted(d["paths"])')"
-  check "api: OpenAPI lists /orders and /admin/chaos" "/admin/chaos" "${out}"
+  out="$(api GET /openapi.json | json_field 'd["info"]["title"], "/orders" in d["paths"], "/admin/chaos" in d["paths"]')"
+  check_exact "api: OpenAPI lists /orders and /admin/chaos" "orders-api True True" "${out}"
 
   key="$(uuidgen)"
   out="$(api POST /orders -H 'Content-Type: application/json' -H "Idempotency-Key: ${key}" -d '{"item":"espresso","quantity":2}')"
@@ -204,7 +213,11 @@ phase3() {
     [[ "${status}" == processed* ]] && break
     sleep 1
   done
-  check "flow: order ${id} created -> processed" "processed 1" "${status} (after ${i}s)"
+  if [ "${status}" = "processed 1" ]; then
+    pass "flow: order ${id} created -> processed" "${status} (after ${i}s)"
+  else
+    fail "flow: order ${id} created -> processed" "expected exactly 'processed 1', got '${status:-<empty>}' (after ${i}s)"
+  fi
 
   out="$(api GET /admin/overview -H "Authorization: Bearer ${token}" | json_field '" ".join(h["name"] + "=" + str(h["ok"]) for h in d["health"])')"
   check "admin: every component up" "envoy=True postgres=True web=True tcp-svc=True mq=True worker=True" "${out}"
@@ -213,12 +226,18 @@ phase3() {
     out="$(mesh_get "http://metrics.mesh:18080/metrics/${target}" | grep -c '^[a-z]' || true)"
     if [ "${out:-0}" -gt 10 ]; then pass "metrics: /metrics/${target} through mesh_http" "${out} samples"; else fail "metrics: /metrics/${target} through mesh_http" "${out:-0} samples"; fi
   done
-  out="$(mesh_get "http://metrics.mesh:18080/metrics/worker" | grep '^worker_messages_total{result="processed"}')"
-  check "worker: processed counter" 'worker_messages_total{result="processed"}' "${out}"
+  # Present and above zero: the flow above has just been processed.
+  out="$(mesh_get "http://metrics.mesh:18080/metrics/worker" | sed -n 's/^worker_messages_total{result="processed"} //p')"
+  if awk -v value="${out}" 'BEGIN { exit !(value ~ /^[0-9]+([.][0-9]+)?$/ && value > 0) }'; then
+    pass "worker: processed counter" "worker_messages_total{result=\"processed\"} ${out}"
+  else
+    fail "worker: processed counter" "expected a positive counter, got '${out:-missing}'"
+  fi
   out="$(envoy_stat 'cluster.mq_web.ssl.handshake')"
   if [ "${out:-0}" -gt 0 ]; then pass "envoy: verified TLS to the MQ REST API" "cluster.mq_web.ssl.handshake=${out}"; else fail "envoy: verified TLS to the MQ REST API" "${out:-missing}"; fi
+  # Exactly 0, and present: as a substring, 10 would have passed, and so would a missing stat.
   out="$(envoy_stat 'cluster.mq_web.ssl.fail_verify_san')"
-  check "envoy: MQ certificate name matched" "0" "${out:-0}"
+  if [ "${out}" = "0" ]; then pass "envoy: MQ certificate name matched" "fail_verify_san=0"; else fail "envoy: MQ certificate name matched" "fail_verify_san=${out:-missing}"; fi
 
   out="$(in_container worker python -c "import socket; socket.create_connection(('mq', 9443), 2)")"
   check "isolation: worker cannot resolve mq" "Name or service not known" "${out}"
@@ -452,7 +471,7 @@ phase5() {
     [[ "${id}" =~ ^[0-9]+$ ]] && { out="order ${id} created ${i} attempt(s) after the restart"; break; }
     sleep 2
   done
-  check "postgres restart: API recovers on its own" "created" "${out:-no order created}"
+  check "postgres restart: API recovers on its own" "created" "${out:-no order in 20 attempts}"
 
   # 3. MQ restarts: an order created while MQ is down gets its event from the sweeper.
   podman stop fabric-mq-1 >/dev/null
@@ -479,6 +498,13 @@ case "${1:-}" in -h|--help) usage; exit 0 ;; esac
 [ -s "${CA}" ] || { echo "verify: ${CA} missing; run scripts/gen-certs.sh" >&2; exit 1; }
 phases=("$@")
 [ ${#phases[@]} -gt 0 ] || phases=(phase1 phase2 phase3)
+# An unknown name would otherwise run nothing, count no failure and exit 0.
+for p in "${phases[@]}"; do
+  case "${p}" in
+    phase1|phase2|phase3|phase5|phase6) ;;
+    *) echo "verify: unknown phase: ${p} (see --help)" >&2; exit 1 ;;
+  esac
+done
 for p in "${phases[@]}"; do "${p}"; done
 echo
 echo "failures: ${FAILURES}"

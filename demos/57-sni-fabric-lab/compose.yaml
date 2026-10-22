@@ -15,17 +15,30 @@ x-after-init: &after-init
 
 services:
   # One-shot: gives each component its own copy of its key and secrets, owned by its UID
-  # (scripts/init-volumes.sh). Everything else waits for it.
+  # (scripts/init-volumes.sh). Everything else waits for it. It runs as root with only the
+  # three capabilities that creating, replacing and chowning other UIDs' files needs; it has
+  # no network and exits when done.
   init:
     image: docker.io/library/alpine:3.24.2
     command: ["sh", "/init-volumes.sh"]
     network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
     volumes:
-      - ./certs:/src/certs:ro
+      # Each component's folder, never ./certs itself: certs/ca/ holds the CA's private key.
+      - ./certs/web:/src/certs/web:ro
+      - ./certs/orders-api:/src/certs/orders-api:ro
+      - ./certs/tcp-svc:/src/certs/tcp-svc:ro
+      - ./certs/mq:/src/certs/mq:ro
+      - ./certs/mq-client:/src/certs/mq-client:ro
       - ./secrets:/src/secrets:ro
       - ./scripts/init-volumes.sh:/init-volumes.sh:ro
       - tls:/tls
       - secrets:/secrets
+      - pg-secrets:/pg-secrets
       - mq-pki:/mq-pki
       - mq-secrets:/mq-secrets
       - tempodata:/stores/tempo
@@ -36,7 +49,9 @@ services:
   envoy:
     <<: *hardening
     image: docker.io/envoyproxy/envoy:v1.36.11
-    user: "101:101"
+    # Not the image's 101: that is web's UID (nginx-unprivileged), and the tls volume keeps
+    # each key readable by its owner's UID only. Envoy passes TLS through and needs no key.
+    user: "10008:10008"
     entrypoint: ["envoy"]
     # Flush the access log every second (default 10 s), so a hop shows up while you look for it.
     command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info", "--disable-hot-restart",
@@ -137,6 +152,8 @@ services:
     <<: *hardening
     image: docker.io/library/postgres:17.11-alpine3.24
     # The entrypoint starts as root to prepare the data directory, then drops to postgres.
+    # DAC_READ_SEARCH lets that root read past file modes, so Postgres mounts pg-secrets, which
+    # holds its own password only, never the shared secrets volume.
     cap_add: [CHOWN, DAC_READ_SEARCH, FOWNER, SETUID, SETGID]
     environment:
       POSTGRES_USER: fabric
@@ -144,7 +161,7 @@ services:
       POSTGRES_PASSWORD_FILE: /secrets/postgres/postgres-password
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - secrets:/secrets:ro
+      - pg-secrets:/secrets:ro
     tmpfs: [/tmp, /var/run/postgresql]
     depends_on: *after-init
     networks: [net-db]
@@ -158,6 +175,8 @@ services:
     image: icr.io/ibm-messaging/mq:10.0.1.0-r1
     # IBM publishes no arm64 image; on Apple silicon this runs under amd64 emulation.
     platform: linux/amd64
+    # Not read-only: at start the image rewrites /etc/passwd and writes under /run and /tmp
+    # (podman diff fabric-mq-1, measured 2026-10-21).
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
@@ -196,12 +215,15 @@ services:
 
   # A native MQ client, run on demand: podman compose run --rm mq-client [hostname|channel|nocert]
   mq-client:
+    <<: *hardening
     image: icr.io/ibm-messaging/mq:10.0.1.0-r1
     platform: linux/amd64
     profiles: [tools]
     user: "1001"
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+    # mq-client.sh builds its key database in a mktemp folder, and the MQ client library writes
+    # its error log under /mnt/mqm/data/errors (AMQ6300E on a read-only root, measured).
+    tmpfs: [/tmp, /mnt/mqm]
     entrypoint: ["bash", "/mq/mq-client.sh"]
     command: ["hostname"]
     volumes:
@@ -214,6 +236,8 @@ services:
   otel-collector:
     <<: *hardening
     image: docker.io/otel/opentelemetry-collector-contrib:0.162.0
+    # The image's UID 10001 is tcp-svc's in this lab.
+    user: "10009:10009"
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     environment:
       # The memory_limiter README asks for GOMEMLIMIT at 80% of its hard limit (limit_mib 256).
@@ -227,6 +251,8 @@ services:
   telemetrygen:
     <<: *hardening
     image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:v0.162.0
+    # The image's UID 10001 is tcp-svc's in this lab.
+    user: "10011:10011"
     profiles: [tools]
     restart: "no"
     networks: [net-otelsend]
@@ -252,6 +278,8 @@ services:
   postgres-exporter:
     <<: *hardening
     image: docker.io/prometheuscommunity/postgres-exporter:v0.20.1
+    # The image's nobody (65534) is Prometheus's too; the init container gives this UID its password.
+    user: "10010:10010"
     environment:
       DATA_SOURCE_URI: postgres.mesh:15432/fabric?sslmode=disable
       DATA_SOURCE_USER: fabric
@@ -348,6 +376,7 @@ services:
 volumes:
   tls: {}
   secrets: {}
+  pg-secrets: {}
   pgdata: {}
   mq-pki: {}
   mq-secrets: {}

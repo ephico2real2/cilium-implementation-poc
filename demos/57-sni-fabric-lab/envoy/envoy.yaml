@@ -276,9 +276,10 @@ static_resources:
                   path: /opentelemetry/v1/metrics
                   headers: [{name: ":method", string_match: {exact: POST}}]
                 route: {cluster: victoria_metrics, retry_policy: *safe_retry}
-              # The Prometheus query API Grafana uses; /api/v1/admin, import and write stay out.
+              # The Prometheus query API Grafana uses (rules and alerts: Grafana's alerting view, which
+              # VictoriaMetrics answers empty without vmalert); /api/v1/admin, import and write stay out.
               - match:
-                  safe_regex: &vm_read_api {regex: "/api/v1/(query|query_range|query_exemplars|labels|label/[^/]+/values|series|metadata|status/buildinfo)"}
+                  safe_regex: &vm_read_api {regex: "/api/v1/(query|query_range|query_exemplars|labels|label/[^/]+/values|series|metadata|status/buildinfo|rules|alerts)"}
                   headers: [{name: ":method", string_match: {exact: GET}}]
                 route: {cluster: victoria_metrics, timeout: 30s, retry_policy: *idempotent_retry}
               - match:
@@ -304,6 +305,11 @@ static_resources:
                 route: {cluster: victoria_logs, timeout: 30s, retry_policy: *idempotent_retry}
               - match:
                   prefix: /select/logsql/
+                  headers: [{name: ":method", string_match: {exact: POST}}]
+                route: {cluster: victoria_logs, timeout: 30s, retry_policy: *safe_retry}
+              # The plugin lists tenants (read-only) when its settings page opens.
+              - match:
+                  path: /select/tenant_ids
                   headers: [{name: ":method", string_match: {exact: POST}}]
                 route: {cluster: victoria_logs, timeout: 30s, retry_policy: *safe_retry}
               - match:

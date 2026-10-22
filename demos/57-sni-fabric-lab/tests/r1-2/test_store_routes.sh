@@ -41,6 +41,10 @@ refuse POST victorialogs.mesh /health
 expect 200 GET victoriametrics.mesh '/api/v1/query?query=1'
 expect 200 POST victoriametrics.mesh '/api/v1/query?query=1'
 expect 200 GET victorialogs.mesh '/select/logsql/query?query=*&limit=1'
+# Reads Grafana makes on its own: the VictoriaLogs plugin's tenant list, the alerting view's rules.
+expect 200 POST victorialogs.mesh /select/tenant_ids
+expect 200 GET victoriametrics.mesh /api/v1/rules
+expect 200 GET victoriametrics.mesh /api/v1/alerts
 expect 200 GET tempo.mesh /api/echo
 expect 200 GET victoriatraces.mesh /select/jaeger/api/services
 expect 200 GET tempo.mesh /ready

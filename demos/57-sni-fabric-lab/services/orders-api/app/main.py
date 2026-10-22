@@ -337,7 +337,16 @@ async def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-@internal.put("/orders/{order_id}/status", dependencies=[Depends(require_db)])
+def require_worker(authorization: Annotated[str | None, Header()] = None) -> None:
+    """Envoy routes api.mesh from every lab network, so reaching this server says nothing about
+    who is calling: only the worker holds the token that may change an order's status."""
+    expected = settings.worker_token
+    supplied = (authorization or "").removeprefix("Bearer ")
+    if not expected or not hmac.compare_digest(supplied.encode(), expected.encode()):
+        raise HTTPException(401, "worker token required", headers={"WWW-Authenticate": "Bearer"})
+
+
+@internal.put("/orders/{order_id}/status", dependencies=[Depends(require_worker), Depends(require_db)])
 async def update_status(order_id: int, body: StatusIn):
     """Idempotent: repeating the same update leaves the order as it is, so Envoy may retry it."""
     if chaos["delay_ms"]:

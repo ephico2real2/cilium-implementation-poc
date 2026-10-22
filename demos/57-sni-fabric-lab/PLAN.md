@@ -18,7 +18,7 @@ All hostnames are under `*.fabric.localtest.me`, which public DNS resolves to `1
 
 | # | Component | What it is | Image (arch) | Browser / client entry |
 |---|---|---|---|---|
-| 1 | `envoy` | The fabric: every listener below | `envoyproxy/envoy:v1.36.2` (arm64) | — |
+| 1 | `envoy` | The fabric: every listener below | `envoyproxy/envoy:v1.36.11` (arm64) | — |
 | 2 | `web` | Front end over TLS, two pages: **Orders** (create orders, watch their status, ping the TCP service) and the **Admin portal** (section 4a) | `nginxinc/nginx-unprivileged` (arm64) | `https://web.fabric.localtest.me` and `/admin` |
 | 3 | `orders-api` | REST API (FastAPI): orders CRUD, `/admin/*` for the portal, `/docs` (Swagger UI), `/openapi.json`, `/metrics` | Python 3.12 slim (arm64) | `https://api.fabric.localtest.me/docs` |
 | 4 | `worker` | Takes order events off MQ, marks each order processed through the API | Python 3.12 slim (arm64) | — (metrics only) |
@@ -151,7 +151,7 @@ generic default.
 | Memory | `QM1` alone used 981.5 MB of the 4 GiB VM. Measured again after phase 4; if it is tight, raising the VM's memory restarts the VM and the `secure-notes` containers, so that needs your go-ahead. |
 | MQ under emulation | Start-up worked; throughput is not a goal. Each MQ step has a timeout so a hang fails loudly. |
 | MQ TLS in the developer image | Keys go in `/etc/mqm/pki/keys/<label>`; the exact channel settings are confirmed in phase 3 against the image's own docs. |
-| Passwords | Fixed, documented lab credentials (`scripts/gen-secrets.sh`, operator's choice 2026-10-21), written to `secrets/` and handed to each component by the init container; MQ 9.4 reads its own from files (`MQ_ADMIN_PASSWORD` / `MQ_APP_PASSWORD` are deprecated). Public, so for this loopback-only lab only; `--random` writes random ones |
+| Passwords | Fixed, documented lab credentials (`scripts/gen-secrets.sh`, operator's choice 2026-10-21), written to `secrets/` and handed to each component by the init container; MQ 10.0.1 reads its own from files (`MQ_ADMIN_PASSWORD` / `MQ_APP_PASSWORD` are deprecated). Public, so for this loopback-only lab only; `--random` writes random ones |
 | Browser trust | The lab's CA is generated locally. Trusting it in the macOS keychain removes the browser warnings; that step is yours, and the README gives the command. |
 
 ## 10. What building changed

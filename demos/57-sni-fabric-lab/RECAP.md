@@ -108,7 +108,7 @@ Result: every health check passes; Envoy after 6 s, Postgres after 13 s, MQ and 
 scripts/verify.sh
 ```
 
-Result: phases 1 to 3, 58 checks, `failures: 0`.
+Result: phases 1 to 3, 57 checks, `failures: 0`.
 
 ### 5. Put and get with the native MQ client
 
@@ -134,7 +134,7 @@ scripts/verify.sh phase5
 ```
 
 Result: 7 checks, `failures: 0`; under 50% chaos `processed=10 of 10 after 3s`, and the order
-taken while MQ was down `processed=1 of 1 after 6s` once the sweeper re-sent it.
+taken while MQ was down `processed=1 of 1 after 15s` once the sweeper re-sent it.
 
 ## Verify
 
@@ -144,7 +144,7 @@ Rebuild from nothing and run every check, recorded to `output/transcript.txt`:
 scripts/run.sh --fresh
 ```
 
-Result: 5 min 35 s; 65 checks pass, `31 queries, 0 with errors or warnings`, and
+Result: 7 min 52 s; 84 checks pass, `31 queries, 0 with errors or warnings`, and
 `PASS  14 charts in 7 sections; both forms agree on colours, styles, units, legends`.
 
 Then open <https://web.fabric.localtest.me:8443/admin> with the token `fabric-admin`, and
