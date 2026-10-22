@@ -6,7 +6,7 @@
 #                a rebuild from nothing; Postgres, MQ, Prometheus, Grafana and the telemetry
 #                stores' data are lost
 #   -h, --help   print this help
-# Takes about 9 minutes (8 min 54 s recorded): MQ starts in about 2 under amd64 emulation,
+# Takes about 12 minutes (11 min 31 s recorded): MQ starts in about 2 under amd64 emulation,
 # phase 6 waits up to 90 s for the stores to show new data, and parity waits until every selected
 # rate's exact cross-engine value is comparable. Exits non-zero at the first failed step.
 # Steps: certificates, secrets, images and containers, wait for every health check, then

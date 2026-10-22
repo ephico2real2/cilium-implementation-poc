@@ -140,11 +140,12 @@ def compare_series(previous: Series, prometheus: Series, following: Series,
                               "a value in the comparison is not finite")
         scale = max(abs(current), abs(want), abs(right))
         float_allowance = FLOAT_ALLOWANCE * scale
-        tolerance = abs(current - want) + float_allowance
-        difference = abs(current - right)
+        # Report what is checked: VictoriaMetrics' distance from the expected value, against float
+        # noise (for a rate, the expected value is Prometheus's [W+s] rate, not its [5m] one).
+        difference = abs(want - right)
         differences.append(difference)
-        tolerances.append(tolerance)
-        if abs(want - right) > float_allowance:
+        tolerances.append(float_allowance)
+        if difference > float_allowance:
             outside += 1
 
     maximum = max(differences)
@@ -268,7 +269,7 @@ def format_number(value: float | None) -> str:
 
 def print_table(rows: list[tuple[str, Comparison]], markdown: bool) -> None:
     if markdown:
-        print("| Query | Prometheus series | VictoriaMetrics series | Max difference | Verdict |")
+        print("| Query | Prometheus series | VictoriaMetrics series | Max difference from the expected value | Verdict |")
         print("|---|---:|---:|---:|---|")
         for name, result in rows:
             difference = format_number(result.max_difference)
@@ -279,9 +280,9 @@ def print_table(rows: list[tuple[str, Comparison]], markdown: bool) -> None:
                   f"{difference} | {verdict} |")
         return
 
-    widths = (58, 10, 15, 27)
+    widths = (58, 10, 15, 30)
     print(f"{'query':{widths[0]}}  {'Prometheus':>{widths[1]}}  "
-          f"{'VictoriaMetrics':>{widths[2]}}  {'max difference':>{widths[3]}}  verdict")
+          f"{'VictoriaMetrics':>{widths[2]}}  {'max difference from expected':>{widths[3]}}  verdict")
     for name, result in rows:
         difference = format_number(result.max_difference)
         if result.max_tolerance is not None:
