@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Fake curl: each Prometheus query returns the next value from SCEN_VALUES (state in SCEN_STATE).
+n=$(cat "${SCEN_STATE}" 2>/dev/null || echo 0); echo $((n + 1)) > "${SCEN_STATE}"
+read -r -a vals <<<"${SCEN_VALUES}"
+printf '{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1,"%s"]}]}}\n' "${vals[$n]}"

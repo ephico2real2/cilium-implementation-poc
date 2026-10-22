@@ -1,0 +1,165 @@
+
+==== Remove the lab's containers and volumes  (2026-10-21T22:10:12Z)
+objects removed: 30
+
+==== Create the CA and certificates  (2026-10-21T22:10:13Z)
+kept CA           /Users/olasumbo/gitRepos/cilium-implementation-poc/demos/57-sni-fabric-lab/certs/ca/ca.crt
+kept   web        web.fabric.localtest.me
+kept   orders-api api.fabric.localtest.me
+kept   tcp-svc    tcp.fabric.localtest.me
+kept   mq         qm1.fabric.localtest.me,mqconsole.fabric.localtest.me
+kept   mq-client  mq-client.fabric.localtest.me
+
+COMPONENT   CHAIN    NAMES                                                  USAGE                  EXPIRES
+web         ok       web.fabric.localtest.me                                Server                 Nov 22 20:38:05 2027 GMT
+orders-api  ok       api.fabric.localtest.me                                Server                 Nov 22 20:38:05 2027 GMT
+tcp-svc     ok       tcp.fabric.localtest.me                                Server                 Nov 22 20:38:06 2027 GMT
+mq          ok       mqconsole.fabric.localtest.me,qm1.fabric.localtest.me  Server, Client         Nov 22 20:38:06 2027 GMT
+mq-client   ok       mq-client.fabric.localtest.me                          Client                 Nov 22 20:38:06 2027 GMT
+
+CA certificate: /Users/olasumbo/gitRepos/cilium-implementation-poc/demos/57-sni-fabric-lab/certs/ca/ca.crt
+To trust it in this Mac's login keychain (browsers stop warning), run it yourself:
+  security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db /Users/olasumbo/gitRepos/cilium-implementation-poc/demos/57-sni-fabric-lab/certs/ca/ca.crt
+
+==== Create the secrets  (2026-10-21T22:10:13Z)
+kept    admin-token
+kept    postgres-password
+kept    mq-admin-password
+kept    mq-app-password
+kept    grafana-admin-password
+
+==== Build and start every container  (2026-10-21T22:10:13Z)
+ Image localhost/fabric-worker:dev Built 
+ Image localhost/fabric-worker:dev Built 
+ Image localhost/fabric-orders-api:dev Built 
+ Image localhost/fabric-orders-api:dev Built 
+ Image localhost/fabric-tcp-svc:dev Built 
+ Image localhost/fabric-tcp-svc:dev Built 
+ Container fabric-prometheus-1 Started 
+ Container fabric-init-1 Started 
+ Container fabric-grafana-1 Started 
+ Container fabric-envoy-1 Started 
+ Container fabric-orders-api-1 Started 
+ Container fabric-worker-1 Started 
+ Container fabric-web-1 Started 
+ Container fabric-postgres-exporter-1 Started 
+ Container fabric-mq-1 Started 
+ Container fabric-postgres-1 Started 
+ Container fabric-tcp-svc-1 Started 
+
+==== Wait for every health check  (2026-10-21T22:10:16Z)
+envoy       healthy after 6s
+web         healthy after 6s
+tcp-svc     healthy after 6s
+orders-api  healthy after 13s
+postgres    healthy after 13s
+mq          healthy after 124s
+worker      healthy after 124s
+prometheus  healthy after 124s
+grafana     healthy after 124s
+
+==== Check phases 1-3  (2026-10-21T22:12:20Z)
+== Phase 1: edge_sni, web, tcp-svc
+PASS  web: Orders page over TLS, CA-verified         200 0
+PASS  web: Admin portal page                         <title>Fabric Admin</title>
+PASS  web: Content-Security-Policy header            content-security-policy: default-src 'self'; connect-src 'self' https:
+PASS  edge_sni: TLS ends at web, not Envoy           subject=O=SNI Fabric Lab, CN=web.fabric.localtest.me
+PASS  tcp-svc: PING                                  PONG
+PASS  tcp-svc: ECHO                                  hello fabric
+PASS  tcp-svc: HELP                                  COMMANDS PING TIME ECHO HELP QUIT
+PASS  tcp-svc: unknown command                       ERR unknown command
+PASS  tcp-svc: QUIT                                  BYE
+PASS  tcp-svc: TIME is today's UTC date              2026-10-21T22:12:22+00:00
+PASS  tcp-svc: over-long line refused                ERR line too long
+PASS  edge_sni: unknown SNI is reset                 no peer certificate available 
+PASS  edge_sni: missing SNI is reset                 no peer certificate available 
+PASS  envoy: no_filter_chain_match rose by 2         2
+PASS  isolation: tcp-svc cannot resolve web          socket.gaierror: [Errno -2] Name or service not known
+PASS  isolation: web cannot reach tcp-svc            nc: bad address 'tcp-svc'
+PASS  isolation: tcp-svc has no route out            socket.gaierror: [Errno -2] Name or service not known
+PASS  isolation: tcp-svc cannot read web's key       cat: /tls/web/tls.key: Permission denied
+== Phase 2: orders-api, postgres, mesh_pg
+PASS  api: Swagger UI at /docs                           <link type="text/css" rel="stylesheet" href="https://cdn.jsdelivr.
+PASS  api: OpenAPI lists /orders and /admin/chaos    orders-api ['/admin/chaos', '/admin/orders', '/admin/orders/{order_id}
+PASS  orders: POST creates (201)                     HTTP 201
+PASS  orders: same key replays (200)                 HTTP 200
+PASS  orders: replay header                          idempotent-replayed: true
+PASS  orders: replay returns the same order          {"id":1,"item":"espresso","quantity":2,"status":"created","created_at"
+PASS  orders: same key, other body refused (422)     HTTP 422
+PASS  orders: missing Idempotency-Key refused        HTTP 422
+PASS  orders: quantity over 20 refused               HTTP 422
+PASS  orders: GET by id                              espresso 2
+PASS  orders: status update not exposed publicly     HTTP 404
+PASS  tcp: API pings tcp-svc through edge_sni        {"reply":"PONG","latency_ms":2.0,"attempts":1}
+PASS  admin: no token refused                        HTTP 401
+PASS  admin: wrong token refused                     HTTP 401
+PASS  admin: envoy, postgres, web, tcp-svc up        envoy=True postgres=True web=True tcp-svc=True mq=True worker=True
+PASS  admin: chaos rejects a rate over 1             HTTP 422
+PASS  cors: web origin allowed                       access-control-allow-origin: https://web.fabric.localtest.me:8443
+PASS  cors: other origin not allowed                 no allow-origin header
+PASS  isolation: orders-api cannot resolve postgres  socket.gaierror: [Errno -2] Name or service not known
+PASS  envoy: Postgres traffic went through mesh_pg   tcp.postgres.downstream_cx_total=27
+== Phase 3: IBM MQ, worker, mesh_http
+PASS  mq: put and get with OutboundSNI=HOSTNAME      RESULT ok: both messages put and got back through Envoy with OutboundS
+PASS  mq: channel-name SNI refused                   RESULT ok: refused as expected for mode channel
+PASS  envoy: channel SNI had no chain                no_filter_chain_match 2 -> 3
+PASS  mq: no client certificate refused              RESULT ok: refused as expected for mode nocert
+PASS  mq console: TLS ends at MQ, name verified          Verify return code: 0 (ok)
+PASS  mq console: redirects to its login page        302 https://mqconsole.fabric.localtest.me:8443/ibmmq/console/login.htm
+PASS  mq: REST API reachable through mesh_http       True (after 0s)
+PASS  flow: order 4 created -> processed             processed 1 (after 1s)
+PASS  admin: every component up                      envoy=True postgres=True web=True tcp-svc=True mq=True worker=True
+PASS  metrics: /metrics/envoy through mesh_http      4108 samples
+PASS  metrics: /metrics/orders-api through mesh_http 231 samples
+PASS  metrics: /metrics/tcp-svc through mesh_http    39 samples
+PASS  metrics: /metrics/worker through mesh_http     43 samples
+PASS  metrics: /metrics/mq through mesh_http         136 samples
+PASS  worker: processed counter                      worker_messages_total{result="processed"} 2.0
+PASS  envoy: verified TLS to the MQ REST API         cluster.mq_web.ssl.handshake=11
+PASS  envoy: MQ certificate name matched             0
+PASS  isolation: worker cannot resolve mq            socket.gaierror: [Errno -2] Name or service not known
+PASS  isolation: worker cannot resolve orders-api    socket.gaierror: [Errno -2] Name or service not known
+
+failures: 0
+
+==== Check the dashboard: every query, both forms  (2026-10-21T22:13:58Z)
+EMPTY  Status updates: 5xx answered vs. 5xx that reached the work  A  series=0  
+EMPTY  Status updates: 5xx answered vs. 5xx that reached the work  B  series=0  
+31 queries, 0 with errors or warnings, 2 empty, 0.07 s in all
+PASS  14 charts in 7 sections; both forms agree on colours, styles, units, legends
+
+==== Check failures and recovery (phase 5)  (2026-10-21T22:13:58Z)
+== Phase 5: failures and recovery
+PASS  chaos 50%: every order still processed         processed=10 of 10 after 3s
+PASS  chaos 50%: Envoy retried the failed PUTs       upstream_rq_retry 0 -> 9
+PASS  postgres restart: API recovers on its own      order 34 created 1 attempt(s) after the restart
+PASS  mq down: order still accepted, no event yet    created 0
+PASS  mq back: the sweeper's resend gets it processed processed=1 of 1 after 6s
+PASS  tcp-svc down: ping fails cleanly               HTTP 502
+PASS  tcp-svc back: ping works again                 {"reply":"PONG","latency_ms":3.3,"attempts":1}
+
+failures: 0
+
+==== Memory in use  (2026-10-21T22:15:47Z)
+fabric-envoy-1 24.13MB / 4.076GB
+fabric-grafana-1 104.6MB / 4.076GB
+fabric-mq-1 1.139GB / 4.076GB
+fabric-orders-api-1 63.63MB / 4.076GB
+fabric-postgres-1 35.82MB / 4.076GB
+fabric-postgres-exporter-1 11.62MB / 4.076GB
+fabric-prometheus-1 77.14MB / 4.076GB
+fabric-tcp-svc-1 21.73MB / 4.076GB
+fabric-web-1 6.3MB / 4.076GB
+fabric-worker-1 23.4MB / 4.076GB
+
+==== Where to log in (lab credentials, from secrets/)  (2026-10-21T22:15:47Z)
+Orders page     https://web.fabric.localtest.me:8443/
+Admin portal    https://web.fabric.localtest.me:8443/admin            token  fabric-admin
+Swagger         https://api.fabric.localtest.me:8443/docs
+MQ console      https://mqconsole.fabric.localtest.me:8443/ibmmq/console  admin / fabric-mq-admin
+MQ app user     (REST API, MQ clients)                                app / fabric-mq-app
+Grafana         http://grafana.fabric.localtest.me:8080              anonymous viewer; admin / fabric-grafana
+Prometheus      http://prometheus.fabric.localtest.me:8080
+Postgres        (through Envoy only)                                  fabric / fabric-postgres
+
+==== Done  (2026-10-21T22:15:47Z)

@@ -1,0 +1,4 @@
+* Applied after the developer defaults (10-dev, 20-dev-tls), which already set
+* SSLCIPH(ANY_TLS12_OR_HIGHER) on DEV.APP.SVRCONN once TLS keys are present.
+* Require a client certificate as well (mutual TLS); the app user's password is still checked.
+ALTER CHANNEL('DEV.APP.SVRCONN') CHLTYPE(SVRCONN) SSLCAUTH(REQUIRED)

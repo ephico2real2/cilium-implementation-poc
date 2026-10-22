@@ -1,0 +1,5 @@
+$ python3 scripts/load.py --seconds 120  (2026-10-21T22:15:47Z)
+   240  GET /tcp/ping -> 200
+   240  POST /orders new -> 201
+   240  POST /orders replay -> 200
+    24  unknown SNI -> reset

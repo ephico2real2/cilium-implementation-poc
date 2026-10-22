@@ -1,0 +1,17 @@
+{
+  "channel": [
+    {
+      "name": "DEV.APP.SVRCONN",
+      "type": "clientConnection",
+      "clientConnection": {
+        "connection": [
+          { "host": "qm1.fabric.localtest.me", "port": 10443 }
+        ],
+        "queueManager": "QM1"
+      },
+      "transmissionSecurity": {
+        "cipherSpecification": "ANY_TLS12_OR_HIGHER"
+      }
+    }
+  ]
+}

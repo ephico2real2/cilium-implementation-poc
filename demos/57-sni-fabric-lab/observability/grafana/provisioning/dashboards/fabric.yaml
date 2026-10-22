@@ -1,0 +1,11 @@
+apiVersion: 1
+providers:
+  - name: fabric
+    folder: SNI Fabric Lab
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    # Measured on Grafana 12.4.12 here: a changed file is not reloaded while Grafana runs
+    # (even with version bumped), so restart Grafana after regenerating fabric.json.
+    options:
+      path: /var/lib/grafana/dashboards

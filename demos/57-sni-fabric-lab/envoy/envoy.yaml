@@ -1,0 +1,570 @@
+# The lab's only path between any two components. Listeners:
+#   edge_sni   :10443  L4  TLS passthrough, routed on SNI      (host port 8443)
+#   mesh_http  :18080  L7  east-west HTTP, routed on Host and path, with retries
+#   mesh_pg    :15432  L4  to Postgres, with connect retries
+#   ops_http   :10080  L7  Grafana and Prometheus for the browser   (host port 8080)
+#   stats      :9902   L7  /stats/prometheus only
+# The admin API itself stays on 127.0.0.1:9901.
+admin:
+  address:
+    socket_address: {address: 127.0.0.1, port_value: 9901}
+
+# A ceiling on open downstream connections across all listeners, so a flood cannot exhaust
+# the process; connections over it are refused and counted.
+overload_manager:
+  resource_monitors:
+  - name: envoy.resource_monitors.global_downstream_max_connections
+    typed_config:
+      "@type": type.googleapis.com/envoy.extensions.resource_monitors.downstream_connections.v3.DownstreamConnectionsConfig
+      max_active_downstream_connections: 10000
+
+static_resources:
+  listeners:
+  # ------------------------------------------------------------------ edge_sni
+  - name: edge_sni
+    address:
+      socket_address: {address: 0.0.0.0, port_value: 10443}
+    listener_filters:
+    # Reads the SNI from the TLS ClientHello; nothing is decrypted.
+    - name: envoy.filters.listener.tls_inspector
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.filters.listener.tls_inspector.v3.TlsInspector
+    filter_chains:
+    # One chain per tenant hostname; a connection whose SNI matches no chain is reset.
+    - name: web
+      filter_chain_match: {server_names: ["web.fabric.localtest.me"]}
+      filters:
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: web
+          cluster: web
+          max_connect_attempts: 3
+          backoff_options: {base_interval: 0.1s, max_interval: 1s}
+          access_log: &tcp_access_log
+          - name: envoy.access_loggers.stdout
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+              log_format:
+                json_format:
+                  kind: tcp
+                  start: "%START_TIME%"
+                  sni: "%REQUESTED_SERVER_NAME%"
+                  client: "%DOWNSTREAM_REMOTE_ADDRESS%"
+                  upstream: "%UPSTREAM_HOST%"
+                  cluster: "%UPSTREAM_CLUSTER%"
+                  bytes_in: "%BYTES_RECEIVED%"
+                  bytes_out: "%BYTES_SENT%"
+                  duration_ms: "%DURATION%"
+                  flags: "%RESPONSE_FLAGS%"
+    - name: orders-api
+      filter_chain_match: {server_names: ["api.fabric.localtest.me"]}
+      filters:
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: orders_api
+          cluster: orders_api_tls
+          max_connect_attempts: 3
+          backoff_options: {base_interval: 0.1s, max_interval: 1s}
+          access_log: *tcp_access_log
+    - name: tcp-svc
+      filter_chain_match: {server_names: ["tcp.fabric.localtest.me"]}
+      filters:
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: tcp_svc
+          cluster: tcp_svc
+          max_connect_attempts: 3
+          backoff_options: {base_interval: 0.1s, max_interval: 1s}
+          access_log: *tcp_access_log
+
+    - name: mq-listener
+      filter_chain_match: {server_names: ["qm1.fabric.localtest.me"]}
+      filters:
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: mq_qm1
+          cluster: mq_listener
+          max_connect_attempts: 3
+          backoff_options: {base_interval: 0.1s, max_interval: 1s}
+          access_log: *tcp_access_log
+    - name: mq-console
+      filter_chain_match: {server_names: ["mqconsole.fabric.localtest.me"]}
+      filters:
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: mq_console
+          cluster: mq_web_passthrough
+          max_connect_attempts: 3
+          backoff_options: {base_interval: 0.1s, max_interval: 1s}
+          access_log: *tcp_access_log
+
+  # ------------------------------------------------------------------ mesh_pg
+  - name: mesh_pg
+    address:
+      socket_address: {address: 0.0.0.0, port_value: 15432}
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: postgres
+          cluster: postgres
+          # Connect failures only: no bytes have reached Postgres yet, so a retry is safe.
+          max_connect_attempts: 3
+          backoff_options: {base_interval: 0.1s, max_interval: 1s}
+          access_log: *tcp_access_log
+
+  # ------------------------------------------------------------------ mesh_http
+  - name: mesh_http
+    address:
+      socket_address: {address: 0.0.0.0, port_value: 18080}
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: mesh_http
+          access_log:
+          - name: envoy.access_loggers.stdout
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+              log_format:
+                json_format:
+                  kind: http
+                  start: "%START_TIME%"
+                  host: "%REQ(:AUTHORITY)%"
+                  method: "%REQ(:METHOD)%"
+                  path: "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+                  status: "%RESPONSE_CODE%"
+                  upstream: "%UPSTREAM_HOST%"
+                  cluster: "%UPSTREAM_CLUSTER%"
+                  attempts: "%UPSTREAM_REQUEST_ATTEMPT_COUNT%"
+                  duration_ms: "%DURATION%"
+                  flags: "%RESPONSE_FLAGS%"
+          route_config:
+            virtual_hosts:
+            - name: orders_api
+              domains: ["api.mesh", "api.mesh:*"]
+              routes:
+              # PUT /orders/{id}/status is idempotent: retry it on failures and resets.
+              - match:
+                  prefix: /
+                  headers: [{name: ":method", string_match: {exact: PUT}}]
+                route:
+                  cluster: orders_api_internal
+                  timeout: 10s
+                  retry_policy: &idempotent_retry
+                    retry_on: "connect-failure,refused-stream,reset,5xx"
+                    num_retries: 3
+                    per_try_timeout: 3s
+                    retry_back_off: {base_interval: 0.1s, max_interval: 1s}
+                    retry_host_predicate:
+                    - name: envoy.retry_host_predicates.previous_hosts
+                      typed_config:
+                        "@type": type.googleapis.com/envoy.extensions.retry.host.previous_hosts.v3.PreviousHostsPredicate
+                    host_selection_retry_max_attempts: 3
+              # Anything else: retry only if the request never reached the app.
+              - match: {prefix: /}
+                route:
+                  cluster: orders_api_internal
+                  timeout: 10s
+                  retry_policy: &safe_retry
+                    retry_on: "connect-failure,refused-stream"
+                    num_retries: 3
+                    retry_back_off: {base_interval: 0.1s, max_interval: 1s}
+            - name: mq_rest
+              domains: ["mqrest.mesh", "mqrest.mesh:*"]
+              routes:
+              # A browse (GET .../messagelist) changes nothing: retry it like any idempotent call.
+              - match:
+                  prefix: /ibmmq/rest/
+                  headers: [{name: ":method", string_match: {exact: GET}}]
+                route: {cluster: mq_web, timeout: 15s, retry_policy: *idempotent_retry}
+              # POST puts a message and DELETE is a destructive get: retry only if MQ never saw them.
+              - match: {prefix: /ibmmq/rest/}
+                route: {cluster: mq_web, timeout: 15s, retry_policy: *safe_retry}
+            - name: otlp
+              domains: ["otlp.mesh", "otlp.mesh:*"]
+              routes:
+              # OTLP export is a POST, so retry only when the collector never received it.
+              - match: {prefix: /v1/}
+                route: {cluster: otel_collector_otlp_http, retry_policy: *safe_retry}
+            - name: metrics
+              domains: ["metrics.mesh", "metrics.mesh:*"]
+              routes:
+              - match: {path: /metrics/envoy}
+                route: {cluster: envoy_admin, prefix_rewrite: /stats/prometheus, retry_policy: *idempotent_retry}
+              - match: {path: /metrics/orders-api}
+                route: {cluster: orders_api_internal, prefix_rewrite: /metrics, retry_policy: *idempotent_retry}
+              - match: {path: /metrics/tcp-svc}
+                route: {cluster: tcp_svc_metrics, prefix_rewrite: /metrics, retry_policy: *idempotent_retry}
+              - match: {path: /metrics/worker}
+                route: {cluster: worker_metrics, prefix_rewrite: /metrics, retry_policy: *idempotent_retry}
+              - match: {path: /metrics/mq}
+                route: {cluster: mq_metrics, prefix_rewrite: /metrics, timeout: 20s, retry_policy: *safe_retry}
+              - match: {path: /metrics/postgres}
+                route: {cluster: postgres_exporter, prefix_rewrite: /metrics, retry_policy: *idempotent_retry}
+              - match: {path: /metrics/otel-collector}
+                route: {cluster: otel_collector_metrics, prefix_rewrite: /metrics, retry_policy: *idempotent_retry}
+              - match: {path: /metrics/tempo}
+                route: {cluster: tempo, prefix_rewrite: /metrics, retry_policy: *idempotent_retry}
+              - match: {path: /metrics/victoria-traces}
+                route: {cluster: victoria_traces, prefix_rewrite: /metrics, retry_policy: *idempotent_retry}
+              - match: {path: /metrics/victoria-metrics}
+                route: {cluster: victoria_metrics, prefix_rewrite: /metrics, retry_policy: *idempotent_retry}
+              - match: {path: /metrics/victoria-logs}
+                route: {cluster: victoria_logs, prefix_rewrite: /metrics, retry_policy: *idempotent_retry}
+              - match: {prefix: /}
+                direct_response: {status: 404, body: {inline_string: "unknown metrics target\n"}}
+            - name: prometheus
+              domains: ["prometheus.mesh", "prometheus.mesh:*"]
+              routes:
+              - match:
+                  prefix: /
+                  headers: [{name: ":method", string_match: {exact: GET}}]
+                route: {cluster: prometheus, timeout: 30s, retry_policy: *idempotent_retry}
+              # Grafana sends range queries as POST; they change nothing, but stay conservative.
+              - match: {prefix: /}
+                route: {cluster: prometheus, timeout: 30s, retry_policy: *safe_retry}
+            # The telemetry stores: the collector writes (POST, retried only if the store never got
+            # it), Grafana reads (GET retried like any idempotent call; a POST query, like
+            # Prometheus's, only on connect failure). Only those paths and the readiness probe
+            # are routed: a store's admin and delete APIs stay out of reach.
+            - name: tempo
+              domains: ["tempo.mesh", "tempo.mesh:*"]
+              routes:
+              - match:
+                  path: /v1/traces
+                  headers: [{name: ":method", string_match: {exact: POST}}]
+                route: {cluster: tempo_otlp_http, retry_policy: *safe_retry}
+              - match:
+                  prefix: /api/
+                  headers: [{name: ":method", string_match: {exact: GET}}]
+                route: {cluster: tempo, timeout: 30s, retry_policy: *idempotent_retry}
+              - match:
+                  path: /ready
+                  headers: [{name: ":method", string_match: {exact: GET}}]
+                route: {cluster: tempo, retry_policy: *idempotent_retry}
+              - match: {prefix: /}
+                direct_response: {status: 404, body: {inline_string: "not routed on tempo.mesh\n"}}
+            - name: victoria_traces
+              domains: ["victoriatraces.mesh", "victoriatraces.mesh:*"]
+              routes:
+              - match:
+                  path: /insert/opentelemetry/v1/traces
+                  headers: [{name: ":method", string_match: {exact: POST}}]
+                route: {cluster: victoria_traces, retry_policy: *safe_retry}
+              - match:
+                  prefix: /select/jaeger/
+                  headers: [{name: ":method", string_match: {exact: GET}}]
+                route: {cluster: victoria_traces, timeout: 30s, retry_policy: *idempotent_retry}
+              - match:
+                  path: /health
+                  headers: [{name: ":method", string_match: {exact: GET}}]
+                route: {cluster: victoria_traces, retry_policy: *idempotent_retry}
+              - match: {prefix: /}
+                direct_response: {status: 404, body: {inline_string: "not routed on victoriatraces.mesh\n"}}
+            - name: victoria_metrics
+              domains: ["victoriametrics.mesh", "victoriametrics.mesh:*"]
+              routes:
+              - match:
+                  path: /opentelemetry/v1/metrics
+                  headers: [{name: ":method", string_match: {exact: POST}}]
+                route: {cluster: victoria_metrics, retry_policy: *safe_retry}
+              # The Prometheus query API Grafana uses; /api/v1/admin, import and write stay out.
+              - match:
+                  safe_regex: &vm_read_api {regex: "/api/v1/(query|query_range|query_exemplars|labels|label/[^/]+/values|series|metadata|status/buildinfo)"}
+                  headers: [{name: ":method", string_match: {exact: GET}}]
+                route: {cluster: victoria_metrics, timeout: 30s, retry_policy: *idempotent_retry}
+              - match:
+                  safe_regex: *vm_read_api
+                  headers: [{name: ":method", string_match: {exact: POST}}]
+                route: {cluster: victoria_metrics, timeout: 30s, retry_policy: *safe_retry}
+              - match:
+                  path: /health
+                  headers: [{name: ":method", string_match: {exact: GET}}]
+                route: {cluster: victoria_metrics, retry_policy: *idempotent_retry}
+              - match: {prefix: /}
+                direct_response: {status: 404, body: {inline_string: "not routed on victoriametrics.mesh\n"}}
+            - name: victoria_logs
+              domains: ["victorialogs.mesh", "victorialogs.mesh:*"]
+              routes:
+              - match:
+                  path: /insert/opentelemetry/v1/logs
+                  headers: [{name: ":method", string_match: {exact: POST}}]
+                route: {cluster: victoria_logs, retry_policy: *safe_retry}
+              - match:
+                  prefix: /select/logsql/
+                  headers: [{name: ":method", string_match: {exact: GET}}]
+                route: {cluster: victoria_logs, timeout: 30s, retry_policy: *idempotent_retry}
+              - match:
+                  prefix: /select/logsql/
+                  headers: [{name: ":method", string_match: {exact: POST}}]
+                route: {cluster: victoria_logs, timeout: 30s, retry_policy: *safe_retry}
+              - match:
+                  path: /health
+                  headers: [{name: ":method", string_match: {exact: GET}}]
+                route: {cluster: victoria_logs, retry_policy: *idempotent_retry}
+              - match: {prefix: /}
+                direct_response: {status: 404, body: {inline_string: "not routed on victorialogs.mesh\n"}}
+            - name: envoy
+              domains: ["envoy.mesh", "envoy.mesh:*"]
+              routes:
+              - match: {path: /ready}
+                route: {cluster: envoy_admin}
+              - match: {prefix: /}
+                direct_response: {status: 404, body: {inline_string: "only /ready is served here\n"}}
+          http_filters:
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  # ------------------------------------------------------------------ ops_http
+  - name: ops_http
+    address:
+      socket_address: {address: 0.0.0.0, port_value: 10080}
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ops_http
+          access_log:
+          - name: envoy.access_loggers.stdout
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+              log_format:
+                json_format:
+                  kind: http
+                  listener: ops_http
+                  start: "%START_TIME%"
+                  host: "%REQ(:AUTHORITY)%"
+                  method: "%REQ(:METHOD)%"
+                  path: "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+                  status: "%RESPONSE_CODE%"
+                  cluster: "%UPSTREAM_CLUSTER%"
+                  duration_ms: "%DURATION%"
+                  flags: "%RESPONSE_FLAGS%"
+          upgrade_configs: [{upgrade_type: websocket}]
+          route_config:
+            virtual_hosts:
+            - name: grafana
+              domains: ["grafana.fabric.localtest.me", "grafana.fabric.localtest.me:*"]
+              routes:
+              - match: {prefix: /}
+                route: {cluster: grafana, timeout: 60s}
+            - name: prometheus
+              domains: ["prometheus.fabric.localtest.me", "prometheus.fabric.localtest.me:*"]
+              routes:
+              - match: {prefix: /}
+                route: {cluster: prometheus, timeout: 60s}
+          http_filters:
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  # ------------------------------------------------------------------ stats
+  - name: stats
+    address:
+      socket_address: {address: 0.0.0.0, port_value: 9902}
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: stats
+          route_config:
+            virtual_hosts:
+            - name: stats
+              domains: ["*"]
+              routes:
+              - match: {path: /stats/prometheus}
+                route: {cluster: envoy_admin}
+              - match: {prefix: /}
+                direct_response: {status: 404, body: {inline_string: "only /stats/prometheus is served here\n"}}
+          http_filters:
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  clusters:
+  - name: web
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: web
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: web, port_value: 8443}}}}]}]
+  - name: orders_api_tls
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: orders_api_tls
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: orders-api, port_value: 8443}}}}]}]
+  - name: orders_api_internal
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    # Generous limits for a lab; the point is that they exist and are counted when hit.
+    circuit_breakers:
+      thresholds: [{max_connections: 100, max_pending_requests: 100, max_requests: 200, max_retries: 10}]
+    # Five 5xx in a row ejects the host for 30 s. With a single host Envoy's panic threshold
+    # still routes to it, so ejections show in the metrics without black-holing traffic.
+    outlier_detection: {consecutive_5xx: 5, interval: 10s, base_ejection_time: 30s}
+    load_assignment:
+      cluster_name: orders_api_internal
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: orders-api, port_value: 8080}}}}]}]
+  - name: tcp_svc
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: tcp_svc
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: tcp-svc, port_value: 9000}}}}]}]
+  - name: postgres
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: postgres
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: postgres, port_value: 5432}}}}]}]
+  - name: mq_listener
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: mq_listener
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: mq, port_value: 1414}}}}]}]
+  # The MQ web server, reached two ways: passed through untouched for browsers (edge_sni) ...
+  - name: mq_web_passthrough
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: mq_web_passthrough
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: mq, port_value: 9443}}}}]}]
+  # ... and with Envoy opening TLS itself for the REST API calls on mesh_http, checking the
+  # server's certificate against the lab CA and its name.
+  - name: mq_web
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    circuit_breakers:
+      thresholds: [{max_connections: 50, max_pending_requests: 50, max_requests: 100, max_retries: 10}]
+    transport_socket:
+      name: envoy.transport_sockets.tls
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+        sni: mqconsole.fabric.localtest.me
+        common_tls_context:
+          validation_context:
+            trusted_ca: {filename: /tls/ca/ca.crt}
+            match_typed_subject_alt_names:
+            - san_type: DNS
+              matcher: {exact: mqconsole.fabric.localtest.me}
+    load_assignment:
+      cluster_name: mq_web
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: mq, port_value: 9443}}}}]}]
+  - name: mq_metrics
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: mq_metrics
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: mq, port_value: 9157}}}}]}]
+  - name: tcp_svc_metrics
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: tcp_svc_metrics
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: tcp-svc, port_value: 9100}}}}]}]
+  - name: worker_metrics
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: worker_metrics
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: worker, port_value: 9100}}}}]}]
+  - name: postgres_exporter
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: postgres_exporter
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: postgres-exporter, port_value: 9187}}}}]}]
+  - name: otel_collector_otlp_http
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: otel_collector_otlp_http
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: otel-collector, port_value: 4318}}}}]}]
+  - name: otel_collector_metrics
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: otel_collector_metrics
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: otel-collector, port_value: 8888}}}}]}]
+  - name: prometheus
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: prometheus
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: prometheus, port_value: 9090}}}}]}]
+  - name: grafana
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: grafana
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: grafana, port_value: 3000}}}}]}]
+  - name: tempo
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: tempo
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: tempo, port_value: 3200}}}}]}]
+  - name: tempo_otlp_http
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: tempo_otlp_http
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: tempo, port_value: 4318}}}}]}]
+  - name: victoria_traces
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: victoria_traces
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: victoria-traces, port_value: 10428}}}}]}]
+  - name: victoria_metrics
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: victoria_metrics
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: victoria-metrics, port_value: 8428}}}}]}]
+  - name: victoria_logs
+    type: STRICT_DNS
+    connect_timeout: 2s
+    dns_lookup_family: V4_ONLY
+    load_assignment:
+      cluster_name: victoria_logs
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: victoria-logs, port_value: 9428}}}}]}]
+  - name: envoy_admin
+    type: STATIC
+    connect_timeout: 1s
+    load_assignment:
+      cluster_name: envoy_admin
+      endpoints: [{lb_endpoints: [{endpoint: {address: {socket_address: {address: 127.0.0.1, port_value: 9901}}}}]}]

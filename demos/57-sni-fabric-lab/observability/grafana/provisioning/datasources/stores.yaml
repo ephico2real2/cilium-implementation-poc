@@ -1,0 +1,31 @@
+# The telemetry stores, each read through its Envoy alias on mesh_http, like Prometheus.
+apiVersion: 1
+datasources:
+  - name: VictoriaMetrics
+    uid: victoriametrics
+    type: prometheus
+    access: proxy
+    url: http://victoriametrics.mesh:18080
+    editable: false
+    jsonData:
+      timeInterval: 10s
+  - name: VictoriaLogs
+    uid: victorialogs
+    # The plugin baked into localhost/fabric-grafana (observability/grafana/image).
+    type: victoriametrics-logs-datasource
+    access: proxy
+    url: http://victorialogs.mesh:18080
+    editable: false
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo.mesh:18080
+    editable: false
+  - name: VictoriaTraces
+    uid: victoriatraces
+    # VictoriaTraces serves the Jaeger query API, which Grafana reads with its Jaeger datasource.
+    type: jaeger
+    access: proxy
+    url: http://victoriatraces.mesh:18080/select/jaeger
+    editable: false

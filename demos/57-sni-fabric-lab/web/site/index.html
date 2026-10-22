@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fabric Orders</title>
+  <link rel="stylesheet" href="/app.css">
+  <script type="module" src="/orders.js"></script>
+</head>
+<body>
+  <header class="top">
+    <span class="brand">SNI Fabric Lab</span>
+    <nav aria-label="Pages">
+      <a href="/" aria-current="page">Orders</a>
+      <a href="/admin">Admin</a>
+    </nav>
+    <span class="api">API <span data-api></span></span>
+  </header>
+  <main>
+    <div class="grid">
+      <section class="card" aria-labelledby="place-h">
+        <h2 id="place-h">Place an order</h2>
+        <p>Saved in Postgres, announced on IBM MQ, then marked processed by the worker. Every hop goes through Envoy.</p>
+        <form class="row" id="order-form">
+          <label>Item
+            <select name="item" required>
+              <option>espresso</option>
+              <option>flat white</option>
+              <option>cortado</option>
+              <option>matcha latte</option>
+            </select>
+          </label>
+          <label>Quantity
+            <input name="quantity" type="number" min="1" max="20" value="1" required>
+          </label>
+          <button type="submit">Order</button>
+        </form>
+        <div class="notice" id="order-notice" role="status" aria-live="polite"></div>
+      </section>
+      <section class="card" aria-labelledby="tcp-h">
+        <h2 id="tcp-h">TCP service</h2>
+        <p>The API opens a TLS connection to <code>tcp.fabric.localtest.me</code> through Envoy's shared port and sends <code>PING</code>.</p>
+        <div><button type="button" class="ghost" id="ping">Ping over TCP</button></div>
+        <div class="notice" id="ping-notice" role="status" aria-live="polite"></div>
+      </section>
+    </div>
+    <section class="card" aria-labelledby="orders-h">
+      <h2 id="orders-h">Recent orders</h2>
+      <div class="notice" id="list-notice" role="status"></div>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>#</th><th>Item</th><th>Qty</th><th>Status</th><th>Created</th><th>Processed</th></tr></thead>
+          <tbody id="orders"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

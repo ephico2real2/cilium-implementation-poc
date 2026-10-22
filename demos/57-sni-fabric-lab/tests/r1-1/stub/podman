@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Fake podman for the phase6 harness: answers only the calls phase6 makes.
+case "$1 $2" in
+  "compose run") cat "${SCEN_TG_OUT}"; exit "${SCEN_TG_EXIT:-0}" ;;
+  "inspect fabric-otel-collector-1") echo '[{"NetworkSettings":{"Networks":{"fabric_net-otel":{}}}}]' ;;
+  "network inspect")
+    printf '[{"name":"%s","internal":%s,"containers":{"a":{"name":"fabric-envoy-1"},"b":{"name":"fabric-otel-collector-1"}}}]\n' "$3" "${SCEN_INTERNAL}" ;;
+  "exec fabric-orders-api-1") for i in $(seq 1 44); do echo "otelcol_sample_${i} 1"; done ;;
+  *) echo "fake podman: unexpected: $*" >&2; exit 99 ;;
+esac

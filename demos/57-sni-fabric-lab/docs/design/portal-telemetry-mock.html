@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Portal Telemetry Mock</title>
+  <!-- The portal's own stylesheet, so the mock looks like the page it will become. -->
+  <link rel="stylesheet" href="../../web/site/app.css">
+  <style>
+    .mock { padding: 8px 12px; border: 2px dashed var(--warn); border-radius: 8px; color: var(--warn); font-weight: 600; }
+    .grid2 { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+    .bar { display: inline-block; height: 10px; border-radius: 3px; vertical-align: middle; }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <span class="brand">SNI Fabric Lab</span>
+    <nav aria-label="Pages">
+      <a href="#">Orders</a>
+      <a href="#">Admin</a>
+      <a href="#" aria-current="page">Telemetry</a>
+    </nav>
+    <span class="api">API <span>https://api.fabric.localtest.me:8443</span></span>
+  </header>
+  <main>
+    <div class="mock" role="note">MOCK for Release 1 (R1.3, R1.7, R1.8, R1.9): sample data, nothing here is built yet. For approval before sprint 2.</div>
+
+    <div class="grid2">
+      <section class="card" aria-labelledby="pipe-h">
+        <h2 id="pipe-h">Pipeline: the collector</h2>
+        <p>What the OpenTelemetry Collector accepted, refused and dropped in the last 5 minutes.</p>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>Signal</th><th>Accepted</th><th>Refused</th><th>Dropped</th></tr></thead>
+            <tbody>
+              <tr><td>spans</td><td class="mono">48 210</td><td class="mono">0</td><td class="mono">0</td></tr>
+              <tr><td>metric points</td><td class="mono">91 840</td><td class="mono">0</td><td class="mono">0</td></tr>
+              <tr><td>log records</td><td class="mono">12 306</td><td class="mono">0</td><td class="mono">0</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="side-h">
+        <h2 id="side-h">Stores, side by side</h2>
+        <p>The same data in the standard and the store it is compared with.</p>
+        <dl class="kv">
+          <dt>Prometheus · VictoriaMetrics</dt><dd>6 of 6 targets up in both · 10 of 10 panel queries agree</dd>
+          <dt>Tempo · VictoriaTraces</dt><dd>last 50 traces found in both · span counts equal</dd>
+          <dt>VictoriaLogs</dt><dd>log lines with a trace id: 99.8 %</dd>
+        </dl>
+      </section>
+    </div>
+
+    <section class="card" aria-labelledby="find-h">
+        <h2 id="find-h">Find a trace</h2>
+        <p>Paste a trace id from a log line, an order, or a dashboard exemplar.</p>
+        <form class="row">
+          <label>Trace id <input value="4bf92f3577b34da6a3ce929d0e0e4736" aria-label="trace id"></label>
+          <button type="button">Open in Tempo</button>
+          <button type="button" class="ghost">VictoriaTraces</button>
+          <button type="button" class="ghost">Its logs</button>
+        </form>
+    </section>
+
+    <section class="card" aria-labelledby="traced-h">
+      <h2 id="traced-h">Last orders, traced</h2>
+      <p>One row per order: its trace across orders-api, Postgres, MQ, the worker and Envoy, and where to read it.</p>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>#</th><th>Status</th><th>End to end</th><th>Spans</th><th>Where the time went</th><th>Open</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">516</td><td><span class="chip processed">processed</span></td><td class="mono">48 ms</td><td class="mono">10</td>
+              <td><span class="bar" style="width:60px;background:var(--accent)"></span> <span class="bar" style="width:8px;background:var(--idle)"></span> <span class="bar" style="width:34px;background:var(--warn)"></span></td>
+              <td><a href="#">Tempo</a> · <a href="#">VictoriaTraces</a> · <a href="#">logs</a></td></tr>
+            <tr><td class="mono">515</td><td><span class="chip processed">processed</span></td><td class="mono">1 214 ms</td><td class="mono">14</td>
+              <td><span class="bar" style="width:20px;background:var(--accent)"></span> <span class="bar" style="width:8px;background:var(--idle)"></span> <span class="bar" style="width:130px;background:var(--bad)"></span></td>
+              <td><a href="#">Tempo</a> · <a href="#">VictoriaTraces</a> · <a href="#">logs</a> <span class="chip warn">2 retries</span></td></tr>
+            <tr><td class="mono">514</td><td><span class="chip created">created</span></td><td class="mono">—</td><td class="mono">5</td>
+              <td><span class="bar" style="width:60px;background:var(--accent)"></span> <span class="bar" style="width:8px;background:var(--idle)"></span> <span class="chip bad">event not picked up</span></td>
+              <td><a href="#">Tempo</a> · <a href="#">logs</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Bar colours: <span class="chip ok">orders-api</span> <span class="chip idle">Postgres and MQ</span> <span class="chip warn">worker</span>; red marks time spent in retries.</p>
+    </section>
+  </main>
+</body>
+</html>
