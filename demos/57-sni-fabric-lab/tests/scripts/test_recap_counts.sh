@@ -38,17 +38,36 @@ grep -Fq "On VictoriaMetrics: \`${vm_dashboard}\`" "$1/docs/roadmap/BACKLOG.md";
   "VictoriaMetrics dashboard: ${vm_dashboard}" "$?"
 # The readiness gate's reads, and the chapter's parity table: the transcript's own.
 gate_reads="$(grep -c '^rate window samples at T' "${t}")"
-grep -Fq "(${gate_reads} checks)" "$1/docs/reviews/R1.3.md"; check \
-  "readiness gate: ${gate_reads} reads in the transcript, named in the review record" "$?"
-table_ok=0 rows=0
-while IFS= read -r row; do
-  rows=$((rows + 1))
-  grep -Fq "${row}" "$1/docs/story/01-turn-the-lights-on.md" || table_ok=1
-done < <(awk '/^Evaluation timestamp/{on=1} on && /  PASS$|  FAIL/{print}' "${t}" \
+gate_ok=1
+if grep -Fq "fresh run (${gate_reads} checks)" "$1/docs/reviews/R1.3.md" \
+    && grep -Fq "gate's (${gate_reads} checks)" "$1/docs/reviews/R1.3.md"; then
+  gate_ok=0
+fi
+check "readiness gate: ${gate_reads} reads in the transcript, named in both review results" \
+  "${gate_ok}"
+transcript_rows="$(awk '
+  /^Evaluation timestamp/ { on=1; current=""; next }
+  on && /^[0-9][0-9]* queries,/ { last=current; on=0; next }
+  on && ($0 ~ /  PASS$/ || $0 ~ /  FAIL/) { current=current $0 ORS }
+  END { printf "%s", last }
+' "${t}" \
   | sed -n 's/^\(.\{58\}\) *\([0-9][0-9]*\) *\([0-9][0-9]*\) *\([^ ]*\) <= \([^ ]*\)  \(.*\)$/\1|\2|\3|\4|\5|\6/p' \
-  | awk -F'|' '{sub(/ +$/, "", $1); printf "| %s | %s | %s | %s (allowed %s) | %s |\n", $1, $2, $3, $4, $5, $6}')
-[ "${rows}" -eq 10 ] || table_ok=1
-check "chapter parity table: the transcript's ${rows} rows" "${table_ok}"
+  | awk -F'|' '{sub(/ +$/, "", $1); printf "| %s | %s | %s | %s (allowed %s) | %s |\n", $1, $2, $3, $4, $5, $6}')"
+rows="$(printf '%s\n' "${transcript_rows}" | grep -c '^|')"
+expected_table="$(printf '%s\n%s\n%s' \
+  '| Query | Prometheus series | VictoriaMetrics series | Max difference from the expected value | Verdict |' \
+  '|---|---:|---:|---:|---|' "${transcript_rows}")"
+chapter_table="$(awk '
+  $0 == "| Query | Prometheus series | VictoriaMetrics series | Max difference from the expected value | Verdict |" {
+    on=1; current=$0 ORS; next
+  }
+  on && /^\|/ { current=current $0 ORS; next }
+  on { last=current; on=0 }
+  END { if (on) last=current; printf "%s", last }
+' "$1/docs/story/01-turn-the-lights-on.md")"
+table_ok=1
+if [ "${rows}" -eq 10 ] && [ "${chapter_table}" = "${expected_table}" ]; then table_ok=0; fi
+check "chapter parity table: exactly the transcript's last ${rows} rows" "${table_ok}"
 grep -Fq "processed, after ${retries} Envoy retries." "$1/RECAP.md"; check \
   "retry delta: ${retry_before} -> ${retry_after} is ${retries}" "$?"
 # The secrets the run wrote or kept, each named in step 2's result, and no other.

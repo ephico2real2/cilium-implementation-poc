@@ -18,11 +18,11 @@ MetricsQL result from the same regular samples: MetricsQL includes the last samp
 the left edge, while Prometheus's widened range includes that sample and extrapolates its sampled
 interval over W+s. The values at T-s and T+s belong to different windows and are not an
 allowance: accepting either would hide a store one scrape behind. ``--window-ready`` waits until
-this exact cross-engine comparison succeeds for every selected rate. It is not defined while a
-series is younger than the window, while a counter's window starts at zero before its first
-increase (Prometheus stops extrapolating at the zero point), or while a target's outage crosses
-the window's edge; a label set that keeps changing would therefore hold the gate until it times
-out.
+this exact cross-engine comparison succeeds and the raw sample counts match for every selected
+rate. It is not defined while a series is younger than the window, while a counter's window
+starts at zero before its first increase (Prometheus stops extrapolating at the zero point), or
+while a target's outage crosses the window's edge; a label set that keeps changing would
+therefore hold the gate until it times out.
 
 A rate reads only each series' first and last sample, so for every selected rate the number of
 raw samples in (T-W-s, T] must also match per label set: a copy that lost or repeated an
@@ -210,7 +210,8 @@ def incomplete_windows(prometheus_base: str, victoria_base: str,
         rate_selectors(expression)
         expected = instant_query(prometheus_base, widened_expression(expression), timestamp)
         actual = instant_query(victoria_base, expression, timestamp)
-        if not series_match(expected, actual):
+        if (not series_match(expected, actual)
+                or raw_samples_differ(prometheus_base, victoria_base, expression, timestamp)):
             shortfalls.append(expression)
     return shortfalls
 
@@ -323,7 +324,8 @@ def main() -> int:
     parser.add_argument("--markdown", action="store_true", help="print the result table as Markdown")
     parser.add_argument("--window-ready", action="store_true",
                         help="only check readiness: a complete five-minute up window in both "
-                             "stores and every selected rate exactly comparable")
+                             "stores, every selected rate exactly comparable, and its raw "
+                             "sample counts equal")
     args = parser.parse_args()
 
     evaluation_time = time.time() - EVALUATION_MARGIN_SECONDS

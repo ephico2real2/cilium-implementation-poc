@@ -204,6 +204,23 @@ finally:
 gate_cases.append(("the one rate not yet exactly comparable is named, nothing else",
                    gaps == ["sum(rate(ibmmq_qmgr_mqput_mqput1_total[5m]))"]))
 
+
+def fake_interior_gap(base: str, expression: str, _timestamp: float):
+    """Keep the derived zero rate equal while VictoriaMetrics lacks one raw sample."""
+    if expression.startswith("count_over_time("):
+        return {(): 31.0 if base == "prometheus" else 30.0}
+    return {(): 0.0}
+
+
+parity.instant_query = fake_interior_gap
+try:
+    gaps = parity.incomplete_windows(
+        "prometheus", "victoria", ["sum(rate(requests_total[5m]))"], 0.0)
+finally:
+    parity.instant_query = real_query
+gate_cases.append(("a raw-sample lag holds the retry gate even when the derived rate is equal",
+                   gaps == ["sum(rate(requests_total[5m]))"]))
+
 # A shared gauge hole agrees only if VictoriaMetrics has both neighbouring values too.
 shared_gap = compare({job: 0.000282}, {}, {job: 0.000282}, {}, False, None,
                      ({job: 0.000282}, {job: 0.000282}))
