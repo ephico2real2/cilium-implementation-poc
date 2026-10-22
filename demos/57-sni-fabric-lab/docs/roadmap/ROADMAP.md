@@ -1,6 +1,6 @@
 # Roadmap: "Fabric Coffee" grows up, observably
 
-**Status:** approved by the operator 2026-10-21. Nothing in it is built yet; Release 1's stories are in
+**Status:** approved by the operator 2026-10-21; R1.1 and R1.2 done 2026-10-22. Release 1's stories are in
 [BACKLOG.md](BACKLOG.md), the prompt that drives the work in [PROMPT.md](PROMPT.md), and the story so far in
 [../story/](../story/).
 
@@ -149,7 +149,9 @@ that time.
      clean; pins at least two weeks old.
   2. Its acceptance tests in `scripts/verify.sh` pass; `scripts/run.sh --fresh` passes from
      nothing, and `scripts/run.sh` over the existing lab (the upgrade path) passes too.
-     **Nothing existing stops:** no check is removed, skipped or weakened.
+     **Nothing existing stops:** every check that passed in the committed `output/transcript.txt`
+     passes in the new one (`tests/scripts/test_checks_kept.sh`); a check is loosened only when
+     its stricter form is measured failing on a healthy lab, the measurement in `docs/reviews/`.
   3. It emits traces, metrics and JSON logs with trace ids; every new query is run against the
      real stores (dashboard skill §1 and §9).
   4. Envoy is still the only path: the isolation checks pass for every new component.

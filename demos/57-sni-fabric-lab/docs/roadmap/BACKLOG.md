@@ -20,7 +20,7 @@ Done in [ROADMAP.md](ROADMAP.md) ("Ways of working") applies to all of them.
 
 | Given | When | Then |
 |---|---|---|
-| the lab as it was before the story | the story's change is applied | `scripts/run.sh --fresh` passes, `scripts/run.sh` over the existing lab (the upgrade path) passes, and no existing check is removed, skipped or weakened: the count of checks only grows |
+| the lab as it was before the story | the story's change is applied | `scripts/run.sh --fresh` passes, `scripts/run.sh` over the existing lab (the upgrade path) passes, and every check that passed in the committed `output/transcript.txt` passes in the new one (`tests/scripts/test_checks_kept.sh <old> <new>`), so the count of checks only grows; a check's condition is loosened only when its stricter form is measured failing on a healthy lab, the measurement recorded in `docs/reviews/` (as PR88's "rose by 2": exactly 2 became at least 2) |
 
 Before sprint 2, both mocks approved by the operator:
 
@@ -103,15 +103,16 @@ VictoriaTraces, fed the same data and compared, so that the choice rests on meas
 | 2 | one trace sent through the collector | it is looked up by id | it is found in Tempo and in VictoriaTraces with the same span count |
 | 3 | the existing dashboard | its datasource is switched to VictoriaMetrics | every panel still draws (`tests/dashboard_queries.py --prometheus <vm>` passes) |
 | 4 | Prometheus feeds the dashboard today | R1.3 lands | Prometheus stays the dashboard's default; VictoriaMetrics is a choice beside it, nothing is replaced |
-| 5 | VictoriaMetrics scrapes the same targets | it does so | it reads the same `observability/prometheus.yml`, through Envoy's `metrics.mesh` like Prometheus, and stays on its own internal network |
+| 5 | VictoriaMetrics scrapes the same targets | it does so | it reads the same `observability/prometheus.yml` (VictoriaMetrics v1.153.0 refuses its unused `evaluation_interval` today, measured by OB3: R1.3 removes it and adds a dry-run test) through Envoy's `metrics.mesh` like Prometheus, an alias Envoy gains on `net-vmetrics`; that network stays internal and shared with Envoy alone (phase6's isolation check unchanged) |
 | 6 | metrics that arrive over OTLP keep OpenTelemetry's dotted label names in VictoriaMetrics (`service.name`, measured in R1.2) | the parity table is written | it compares the scraped series, which share Prometheus's names, and states what was left out and why |
 
 - **Test:** `tests/parity.py` (new), and `phase6` checks for the trace lookup.
-- **Seats:** Codex builds (Podman through the machine socket), OB3 reviews; a second pass on
-  the fixed head.
+- **Seats:** Codex builds (Podman through the machine socket); OB3 and OB1-lite review, and a
+  second pass on the fixed head.
 - **Pictures:** the parity table and the dashboard on each datasource, added to chapter 1.
 - **Open:** whether VictoriaMetrics scrapes with its own `-promscrape.config` or a vmagent; the
-  smaller change that meets AC 5 wins, measured.
+  smaller change that meets AC 5 wins, measured. Either way the scraper's network needs Envoy's
+  `metrics.mesh` alias: today Envoy has it on `net-api` and `net-obs` only (`podman inspect`).
 
 ## E1 CI checks demo 57 on every pull request
 
@@ -121,16 +122,16 @@ that the regressions two reviews kept finding are caught by a machine on every c
 
 | # | Given | When | Then |
 |---|---|---|---|
-| 1 | a pull request that changes `demos/57-sni-fabric-lab/**` | it is opened or updated | a workflow runs shellcheck on every script, `mdfmt check` on the demo's Markdown, `compose config`, Envoy's `--mode validate`, the collector's `validate`, and the tests that need no running lab: `test_verify_false_pass.sh`, `test_run_sh.sh`, `test_recap_counts.sh`, and the diagram-kit check of the demo's diagram pages |
+| 1 | a pull request that changes `demos/57-sni-fabric-lab/**` | it is opened or updated | a workflow runs shellcheck on every script, `mdfmt check` on the demo's Markdown (it needs markdownlint-cli2), `compose config`, Envoy's `--mode validate`, the collector's `validate`, the diagram-kit check of the demo's diagram pages, and the tests that need nothing running: `tests/scripts/test_verify_false_pass.sh`, `tests/scripts/test_run_sh.sh`, `tests/scripts/test_recap_counts.sh`, `tests/scripts/test_checks_kept.sh`, `tests/r1-1/test_collector_ports.sh`, `tests/r1-1/test_phase6.sh`, `tests/r1-1/test_usage_docs.sh` and `tests/test_dashboard.py` |
 | 2 | any of them fails | the workflow finishes | the pull request's check is red and its log names the failing step |
-| 3 | the tests that need the running lab (the `verify.sh` phases, `test_store_routes.sh`, `test_key_isolation.py`, `test_status_auth.sh`, `test_plugin_checksum.sh`) | the workflow is read | its header lists them as run locally, with the command for each; a spike measures which of them a GitHub runner can run (Podman, image builds, the plugin download) |
+| 3 | the tests that need a container engine and the lab's images but start nothing of the lab's (`tests/r1-1/test_compose_collector.sh`, `tests/scripts/test_key_isolation.py`, `tests/scripts/test_status_auth.sh`, `tests/scripts/test_prometheus_baseline.sh`, `tests/r1-2/test_plugin_checksum.sh`), and those that need the running lab (the `verify.sh` phases, `tests/r1-2/test_store_routes.sh`, `tests/dashboard_queries.py`, `tests/browser_flows.py`, `tests/grafana_capture.py`, `tests/sprint1_walk.py`) | the workflow is read | its header lists each with the command that runs it; a spike runs each of the first group on a GitHub runner (Podman, image builds, the plugin download), and every one that passes there moves into AC 1 |
 | 4 | the repository's other workflows | E1 lands | they are unchanged; the new one runs only on demo 57's paths |
-| 5 | the actions it uses | they are pinned | by the release tag's commit, the repository's rule; it needs no secret |
+| 5 | the actions it uses | they are pinned | each by the full commit SHA of its release tag, the tag in a comment (a tag can be moved, a commit cannot); stricter than the repository's other workflows, which pin major tags and stay as they are (AC 4); it needs no secret |
 
 - **Test:** the workflow on this story's pull request is green; on a throwaway branch that
   breaks one check on purpose (a substring comparison put back in `verify.sh`), it is red and
   names the step. Run time recorded.
-- **Seats:** OB3 builds, Codex reviews.
+- **Seats:** OB3 builds; Codex and OB1-lite review.
 
 ## Closing sprint 1
 
