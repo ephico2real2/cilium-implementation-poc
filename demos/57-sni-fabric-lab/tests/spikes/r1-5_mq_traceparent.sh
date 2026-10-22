@@ -3,7 +3,8 @@
 # Spike for R1.5 (#107): does MQ REST API v3 carry a W3C traceparent as a user property, through
 # Envoy, from a put to a destructive get? Runs inside the worker, which reaches MQ only as
 # mqrest.mesh, with the worker's own app credentials, on DEV.QUEUE.3, which nothing in the lab
-# reads. Writes the request and response headers to output/spike-r1-5-mq-traceparent.txt.
+# reads. Writes the request and response headers to output/spike-r1-5-mq-traceparent.txt, and
+# exits 1 unless the get answers 200 with exactly the property it put.
 set -euo pipefail
 out="output/spike-r1-5-mq-traceparent.txt"
 podman exec -i fabric-worker-1 python - <<'PY' | tee "${out}"
@@ -37,8 +38,10 @@ try:
         if name.lower().startswith("ibm-mq"):
             print(f"header  {name}: {value}")
     back = got.headers.get("ibm-mq-usr", "")
-    # The same message, and the same property, value and type, exactly.
-    carried = got.status_code == 200 and got.headers.get("ibm-mq-md-messageId") == message_id and back == sent
+    # The same message, and the same property, value and type as one ibm-mq-usr instance: MQ
+    # returns one header per property, and httpx joins several with commas in get().
+    carried = (got.status_code == 200 and got.headers.get("ibm-mq-md-messageId") == message_id
+               and sent in got.headers.get_list("ibm-mq-usr"))
     print(f"verdict {'CARRIED' if carried else 'NOT CARRIED'}: sent {traceparent}, got back {back!r}")
 finally:
     if not removed:
