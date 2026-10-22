@@ -351,7 +351,9 @@ that I never grep three containers by hand again.
   built from the trace id.
 - **Spike answered (2026-10-22, #111): the link works once `service.name` is mapped to its own
   name.** Grafana 12.4.12 builds a LogsQL query for VictoriaLogs itself (`createSpanLink.tsx`
-  `getQueryForVictoriaLogs`). In Chromium, phase 6's trace, a span, "Logs for this span":
+  `getQueryForVictoriaLogs`); with no tags configured it uses its default tags, which rename
+  `service.name` to `service_name` (`formatDefaultKeys`). In Chromium, phase 6's trace, a span,
+  "Logs for this span", both cases with `filterByTraceID` and a time shift of -5m and +5m:
   - with Grafana's default tags the query is `trace_id:="<id>" AND service_name:="<service>"`, and
     VictoriaLogs finds nothing, because it keeps the attribute's dotted name `service.name`;
   - with `tags: [{key: service.name, value: service.name}]` the query is
@@ -359,7 +361,14 @@ that I never grep three containers by hand again.
 
   `tests/spikes/r1-7_trace_to_logs.py`, recorded in `output/spike-r1-7-trace-to-logs.txt`, with a
   light picture of each case. R1.7 provisions Tempo's `tracesToLogsV2` with that mapping; the
-  fallback is not needed.
+  fallback is not needed. Still open for R1.7:
+  - span scope: the spike matched the trace id only. Phase 6's lines carry no `span_id`, so
+    `filterBySpanID` (it adds `span_id:="${__span.spanId}"`) is untested until the services write
+    `span_id` (AC 1);
+  - the time shift: without one, Grafana searches the span's own interval. Phase 6 writes its lines
+    71.6 to 74.6 s after its 123 µs span, which that interval misses, so R1.7 sets the shift its
+    services' lines need;
+  - configured tags replace all six defaults, so any other tag the link should match is listed too.
 
 ## R1.8 Metrics linked to traces
 

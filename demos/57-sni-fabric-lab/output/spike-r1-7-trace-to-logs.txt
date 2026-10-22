@@ -3,9 +3,11 @@ case    defaults: datasource spike-r1-7-tempo created, HTTP 200
 query   trace_id:="409dbbbe2bdef21288b5c8c6c4ba0b39" AND service_name:="phase6-271f2130"
 logs    No logs found; picture: output/spike-r1-7-trace-to-logs.defaults.light.png
 case    defaults: datasource deleted, HTTP 200
+case    defaults: Explore query history removed, 2 of 2
 verdict defaults: NOT LINKED (as expected)
 case    service.name mapped to its own name: datasource spike-r1-7-tempo created, HTTP 200
 query   trace_id:="409dbbbe2bdef21288b5c8c6c4ba0b39" AND service.name:="phase6-271f2130"
 logs    phase 6 lines shown; picture: output/spike-r1-7-trace-to-logs.mapped.light.png
 case    service.name mapped to its own name: datasource deleted, HTTP 200
+case    service.name mapped to its own name: Explore query history removed, 2 of 2
 verdict service.name mapped to its own name: LINKED (as expected)

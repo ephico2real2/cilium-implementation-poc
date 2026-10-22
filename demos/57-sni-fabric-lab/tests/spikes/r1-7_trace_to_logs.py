@@ -5,7 +5,9 @@ Needs Playwright with Chromium (diagram-kit's environment). Takes the trace id p
 recorded in output/transcript.txt, whose log lines carry the same trace_id. Creates a temporary
 Tempo datasource with tracesToLogsV2 pointing at the provisioned VictoriaLogs (the provisioned
 Tempo datasource is read-only), opens the trace in Explore, clicks a span, follows "Logs for this
-span", and requires the log lines to appear. The temporary datasource is deleted on any exit.
+span", and reads the logs pane the link opened: the run's lines, or Grafana's "No logs found.";
+anything else is UNKNOWN and fails the run. The temporary datasource, and the Explore query
+history the run wrote, are deleted on any exit; a failed deletion fails the run.
 Two settings are measured: Grafana's defaults, and service.name mapped to its own name.
 Writes output/spike-r1-7-trace-to-logs.txt and a light picture of each case's logs pane.
 """
@@ -13,6 +15,7 @@ import base64
 import json
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -49,6 +52,7 @@ def main() -> int:
     found = re.findall(r"with trace_id ([0-9a-f]{32})", (DEMO / "output" / "transcript.txt").read_text())
     if not found:
         say("verdict UNKNOWN: no phase 6 trace id in output/transcript.txt")
+        OUT.write_text("\n".join(lines) + "\n")
         return 1
     trace_id = found[-1]
     say(f"trace   {trace_id} (phase 6's last run, from output/transcript.txt)")
@@ -63,14 +67,18 @@ def main() -> int:
         got = follow(password, trace_id, label, extra)
         ok = got == want
         unexpected += not ok
-        say(f"verdict {label}: {'LINKED' if got else 'NOT LINKED'} ({'as expected' if ok else 'UNEXPECTED'})")
+        verdict = {True: "LINKED", False: "NOT LINKED", None: "UNKNOWN (a step failed)"}[got]
+        say(f"verdict {label}: {verdict} ({'as expected' if ok else 'UNEXPECTED'})")
     OUT.write_text("\n".join(lines) + "\n")
     return 1 if unexpected else 0
 
 
-def follow(password: str, trace_id: str, label: str, extra: dict) -> bool:
-    """One temporary Tempo datasource with these trace-to-logs settings; True if the logs appear."""
+def follow(password: str, trace_id: str, label: str, extra: dict) -> bool | None:
+    """One temporary Tempo datasource with these trace-to-logs settings: True if the run's lines
+    show in the logs pane the link opened, False if that pane says "No logs found.", None if a
+    step or the cleanup failed, or the pane shows neither (then no verdict is claimed)."""
     api("DELETE", f"/api/datasources/uid/{UID}", password)  # a leftover from an interrupted run
+    started_ms = (int(time.time()) - 1) * 1000
     settings = {"datasourceUid": "victorialogs", "filterByTraceID": True,
                 "spanStartTimeShift": "-5m", "spanEndTimeShift": "5m", **extra}
     status, _ = api("POST", "/api/datasources", password, {
@@ -78,9 +86,9 @@ def follow(password: str, trace_id: str, label: str, extra: dict) -> bool:
         "jsonData": {"tracesToLogsV2": settings}})
     say(f"case    {label}: datasource {UID} created, HTTP {status}")
     if status != 200:
-        return False
+        return None
     shot = DEMO / "output" / f"spike-r1-7-trace-to-logs.{'mapped' if extra else 'defaults'}.light.png"
-    found = False
+    found = None
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch()
@@ -99,26 +107,42 @@ def follow(password: str, trace_id: str, label: str, extra: dict) -> bool:
             link = page.get_by_text("Logs for this span", exact=False).first
             link.wait_for(timeout=20000)
             link.click()
-            # The link opens VictoriaLogs in a second pane; its query is what Grafana built.
-            page.get_by_text("trace_id:=", exact=False).first.wait_for(timeout=20000)
-            # The query Grafana built, from the VictoriaLogs pane's editor (the last one on the page);
-            # the editor wraps it on screen, so its lines are joined back.
-            query = page.locator(".monaco-editor .view-lines").last.inner_text()
+            # The link opens VictoriaLogs in a second Explore pane (each pane is a
+            # data-testid="data-testid Explore" container); everything below is read in that pane.
+            logs_pane = page.get_by_test_id("data-testid Explore").nth(1)
+            logs_pane.get_by_text("trace_id:=", exact=False).first.wait_for(timeout=20000)
+            # The query Grafana built, from that pane's editor; the editor wraps it on screen, so
+            # its lines are joined back.
+            query = logs_pane.locator(".monaco-editor .view-lines").last.inner_text()
             say(f"query   {''.join(query.split(chr(10))).replace(chr(160), ' ')}")
             try:
-                page.get_by_text("the message", exact=False).first.wait_for(timeout=20000)
+                logs_pane.get_by_text("the message", exact=False).first.wait_for(timeout=20000)
                 found = True
             except Exception:
-                pass
+                # Not linked only when Grafana itself says so in this pane; an error is no verdict.
+                # The text shares its element with the "Scan for older logs" button: match a pattern.
+                empty = logs_pane.get_by_text(re.compile(r"No logs found")).first
+                found = False if empty.is_visible() else None
             page.wait_for_timeout(1500)
             page.screenshot(path=str(shot))
-            say(f"logs    {'phase 6 lines shown' if found else 'No logs found'}; picture: output/{shot.name}")
+            shown = {True: "phase 6 lines shown", False: "No logs found", None: "neither lines nor No logs found"}
+            say(f"logs    {shown[found]}; picture: output/{shot.name}")
             browser.close()
     except Exception as error:
         say(f"step failed: {type(error).__name__}: {str(error).splitlines()[0]}")
+        found = None
     finally:
         status, _ = api("DELETE", f"/api/datasources/uid/{UID}", password)
         say(f"case    {label}: datasource deleted, HTTP {status}")
+        # Explore saved this case's queries in admin's query history; each names the trace id.
+        _, history = api("GET", f"/api/query-history?searchString={trace_id}&from={started_ms}&limit=100",
+                         password)
+        rows = (history.get("result") or {}).get("queryHistory") or []
+        removed = sum(api("DELETE", f"/api/query-history/{row['uid']}", password)[0] == 200 for row in rows)
+        say(f"case    {label}: Explore query history removed, {removed} of {len(rows)}")
+        if status not in (200, 404) or removed != len(rows):
+            say(f"case    {label}: cleanup incomplete, so no verdict")
+            found = None
     return found
 
 
