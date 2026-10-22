@@ -29,6 +29,8 @@
 #                                              every dashboard query against the lab's Prometheus
 #   bash tests/spikes/r1-5_mq_traceparent.sh  spike for R1.5: MQ REST carries traceparent; puts
 #                                              and gets one message on DEV.QUEUE.3
+#   bash tests/spikes/r1-6_envoy_attempt_spans.sh  spike for R1.6: one span per attempt; runs a
+#                                              throwaway Envoy on fabric_net-otelsend, removed on exit
 #   ~/.local/share/diagram-kit/.venv/bin/python tests/browser_flows.py out/ secrets/admin-token
 #   ~/.local/share/diagram-kit/.venv/bin/python tests/grafana_capture.py out/
 #   ~/.local/share/diagram-kit/.venv/bin/python tests/sprint1_walk.py docs/screenshots/sprint1 <run> <trace-id>
