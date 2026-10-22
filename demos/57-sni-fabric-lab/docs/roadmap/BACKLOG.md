@@ -11,7 +11,7 @@ Given / When / Then, the test that proves it (a check in a new `scripts/verify.s
 
 | Sprint | Goal | Stories |
 |---|---|---|
-| 1 | "The pipeline and the stores": every store up behind Envoy, fed by the collector, compared side by side | R1.1 (done), R1.2 (done), R1.3 (done), E1 (done), R1.10 |
+| 1 | "The pipeline and the stores": every store up behind Envoy, fed by the collector, compared side by side | R1.1 (done), R1.2 (done), R1.3 (done), E1 (done), R1.10 (done) |
 | 2 | "One order, one story": an order's trace, logs and metrics, linked | R1.4, R1.5, R1.6, R1.7, R1.8, R1.9 |
 
 **Every story is an enhancement: nothing that works today stops.** Each one carries the
@@ -110,8 +110,9 @@ VictoriaTraces, fed the same data and compared, so that the choice rests on meas
 - **Seats:** Codex builds (Podman through the machine socket); OB3 and OB1-lite review, and a
   second pass on the fixed head.
 - **Pictures:** the parity table and the dashboard on each datasource, added to chapter 1.
-- **Status (2026-10-22): built in two rounds, measured on the live lab, first and second review
-  passes applied.**
+- **Status (2026-10-22): done, merged in #92.** Built in two rounds, measured on the live lab,
+  reviewed in four passes (first, second, third and verification; record:
+  [../reviews/R1.3.md](../reviews/R1.3.md)).
   - AC 5: with two scrapers, Prometheus's MQ scrape fell from 136 samples to 108 and lost all
     28 `ibmmq_qmgr_*` publication gauges; two back-to-back reads returned the recovery-log
     latency gauge once, then not at all. In `github.com/ibm-messaging/mq-container` under
@@ -179,7 +180,8 @@ that the regressions two reviews kept finding are caught by a machine on every c
   breaks one check on purpose (a substring comparison put back in `verify.sh`), it is red and
   names the step. Run time recorded.
 - **Seats:** OB3 builds; Codex and OB1-lite review.
-- **Status (2026-10-22): built, measured locally and on GitHub.** The workflow is
+- **Status (2026-10-22): done, merged in #90** (record: [../reviews/E1.md](../reviews/E1.md));
+  built, measured locally and on GitHub. The workflow is
   [`.github/workflows/demo57-ci.yaml`](../../../../.github/workflows/demo57-ci.yaml): a job
   `lab-free` (AC 1, one step per check), diagram-kit's own job for the three diagram pages,
   and `container-tests` (AC 3). As measured locally:
@@ -242,7 +244,7 @@ without going through Grafana.
 - **Out of scope:** a health dashboard for VictoriaMetrics in Grafana (the operator,
   2026-10-22: settled); Prometheus already scrapes its own metrics through Envoy.
 - **Seats:** the orchestrator builds; Codex and OB1-lite review.
-- **Status (2026-10-22): built, reviewed in two passes, merge-ready** (record:
+- **Status (2026-10-22): done, merged in #93 after two review passes** (record:
   [../reviews/R1.10.md](../reviews/R1.10.md)). Both first-pass reviewers found that Envoy's ops
   listener is on every network Envoy joins, so the whole app was open to every container too
   (AC 5 added); fixed by telling the Mac's forwarded connections, which arrive from Envoy's own
@@ -260,8 +262,9 @@ sprint 2 starts only on the operator's go, with its two mocks approved.
     [../story/01-turn-the-lights-on.md](../story/01-turn-the-lights-on.md) ("Sprint 1 review",
     "Sprint 1 retro"). The retro's one change for sprint 2 is in [ROADMAP.md](ROADMAP.md)'s
     Definition of Ready: the behaviour a story depends on is measured on the live lab first.
-  - Memory, with every one of the 15 services running: the Podman VM (3887 MB) had 1098 to 1203
-    MB available over three samples (13:52 to 13:53 UTC), above the 500 MB floor; no resize.
+  - Memory, with all 15 long-running services up (the 16th, `init`, exits once it has prepared
+    the volumes): the Podman VM (3887 MB) had 1098 to 1203 MB available over three samples
+    (13:52 to 13:53 UTC), above the 500 MB floor; no resize.
   - The closing fresh run is R1.10's, with every sprint 1 story in place: 11 min 7 s, 87
     checks, 0 failures (`output/transcript.txt`).
   - Found while closing: the CI workflow's header gave the run as 11 min 22 s; it now states the
