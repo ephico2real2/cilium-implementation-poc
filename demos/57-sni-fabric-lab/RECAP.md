@@ -70,7 +70,12 @@ The same, layer by layer (source: `docs/diagrams/layers/source.html`, drawn with
 
 ![Clients on this Mac reach Envoy's edge_sni listener on 127.0.0.1:8443, which reads the SNI and passes the TLS through to web, orders-api, tcp-svc or the MQ queue manager; an unknown or missing SNI is reset. Grafana, Prometheus and VictoriaMetrics are on 127.0.0.1:8080; VictoriaMetrics is its whole app from this Mac and only its read API from a container.](docs/diagrams/layers/edge.light.png)
 
-*Into the lab: one TLS port, routed on the hostname each client sends. Envoy decrypts nothing.*
+*Into the lab: one TLS port, routed on the hostname each client sends. Envoy decrypts nothing.
+On 8080, ops_http tells the Mac from a container by the connection's source: Podman's forwarder
+connects from Envoy's own address (`10.89.18.3` to `10.89.18.3` when R1.10 was verified; the
+addresses change when the lab is rebuilt) and gets VictoriaMetrics' whole app; a container
+connects from its own (`10.89.17.2` to `10.89.17.3`) and gets the read API only. The route test
+checks both: 12 checks from this Mac, 4 refusals from a container.*
 
 ![Inside the lab every call goes through an Envoy listener: Postgres through mesh_pg, the MQ REST API, the API and every metrics endpoint through mesh_http, Envoy's own metrics through stats.](docs/diagrams/layers/mesh.light.png)
 

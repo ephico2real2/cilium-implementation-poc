@@ -427,7 +427,7 @@ plugin is allowed.
 | Variable | Default | Read by |
 |---|---|---|
 | `FABRIC_TLS_PORT` | 8443 | compose (Envoy's published TLS port), `verify.sh`, `load.py` |
-| `FABRIC_OPS_PORT` | 8080 | compose (Envoy's published Grafana and Prometheus port) |
+| `FABRIC_OPS_PORT` | 8080 | compose (Envoy's published port for Grafana, Prometheus and VictoriaMetrics) |
 | `OPENSSL` | `openssl` | `gen-certs.sh`, `verify.sh` |
 
 Only the defaults are tested. Another TLS port also needs orders-api's `CORS_ORIGINS`

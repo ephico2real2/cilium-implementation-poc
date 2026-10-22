@@ -86,7 +86,7 @@ a { color: var(--remote); }
 <text x="588.5" y="71" fill="var(--muted)">openssl → tcp.…</text>
 <rect x="774.2" y="30" width="185.8" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5"/>
 <text x="788.2" y="53" font-weight="600">Browser (ops)</text>
-<text x="788.2" y="71" fill="var(--muted)">Grafana, Prometheus</text>
+<text x="788.2" y="71" fill="var(--muted)">Grafana, Prometheus, vmui</text>
 <line x1="567.5" y1="88" x2="567.5" y2="106" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah1)"/>
 <text x="24" y="141" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">EDGE · ENVOY</text>
 <rect x="175.0" y="108" width="385.5" height="56" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
@@ -94,7 +94,7 @@ a { color: var(--remote); }
 <text x="189.0" y="149" fill="var(--muted)">TLS passed through, routed on SNI</text>
 <rect x="574.5" y="108" width="385.5" height="56" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
 <text x="588.5" y="131" font-weight="600">ops_http  :8080</text>
-<text x="588.5" y="149" fill="var(--muted)">Grafana and Prometheus, by Host</text>
+<text x="588.5" y="149" fill="var(--muted)">Grafana, Prometheus, VictoriaMetrics, by Host</text>
 <line x1="567.5" y1="166" x2="567.5" y2="184" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah1)"/>
 <text x="24" y="219" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">SERVICES</text>
 <rect x="175.0" y="186" width="185.8" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
@@ -202,10 +202,11 @@ a { color: var(--remote); }
             <text x="46" y="314" font-weight="600">mq-client · amqsputc</text>
             <text x="46" y="331" font-family="IBM Plex Mono, monospace" font-size="11.5">qm1.…(10443) in the lab</text>
             <text x="46" y="348" font-family="IBM Plex Mono, monospace" font-size="11.5">OutboundSNI=HOSTNAME</text>
-            <rect x="30" y="430" width="230" height="62" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="30" y="430" width="230" height="78" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
             <text x="46" y="452" font-weight="600">Browser (operations)</text>
             <text x="46" y="469" font-family="IBM Plex Mono, monospace" font-size="11.5">grafana.… · prometheus.…</text>
-            <text x="46" y="485" fill="var(--muted)">plain HTTP, port 8080</text>
+            <text x="46" y="485" font-family="IBM Plex Mono, monospace" font-size="11.5">victoriametrics.…/vmui/</text>
+            <text x="46" y="501" fill="var(--muted)">plain HTTP, port 8080</text>
 
             <rect x="340" y="60" width="300" height="474" rx="10" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
             <text x="356" y="82" font-weight="600" fill="var(--remote)">envoy v1.36.11</text>
