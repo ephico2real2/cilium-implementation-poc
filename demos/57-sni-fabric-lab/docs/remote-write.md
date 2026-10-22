@@ -146,7 +146,7 @@ readers. IBM MQ's exporter is consume-on-read: two scrapers each get part of the
 | The alias | [`compose.yaml`](../compose.yaml) | Envoy answers as `victoriametrics.mesh` on `net-obs`, Prometheus's only network |
 | The route | [`envoy/envoy.yaml`](../envoy/envoy.yaml) | on `victoriametrics.mesh`, `POST /api/v1/write` to VictoriaMetrics, retried only if the request never reached it |
 | No scraper | [`compose.yaml`](../compose.yaml) | VictoriaMetrics runs with `-storageDataPath` only: no `-promscrape.config` |
-| The host gets the whole app | [`envoy/envoy.yaml`](../envoy/envoy.yaml) | `victoriametrics.fabric.localtest.me:8080` routes everything, vmui included, as `prometheus.fabric.localtest.me` does; on the mesh only Prometheus's remote write and the collector's OTLP write reach the store |
+| The host gets the whole app | [`envoy/envoy.yaml`](../envoy/envoy.yaml) | from this Mac, `victoriametrics.fabric.localtest.me:8080` routes everything, vmui included, as `prometheus.fabric.localtest.me` does; a container gets only the read API there, and on the mesh only Prometheus's remote write and the collector's OTLP write reach the store |
 
 ```yaml
 # observability/prometheus.yml
@@ -185,11 +185,11 @@ write.
 Envoy, one line per application upstream. The worker getting messages through MQ's REST API
 (`mq_web`) and Prometheus scraping orders-api every 10 s (`orders_api_internal`) keep it moving.*
 
-![vmui's cardinality explorer: 10,670 series and 1,584 metric names in total, with the metric names and labels that have the most series.](screenshots/vmui-cardinality.light.png)
+![vmui's cardinality explorer: 10,689 series and 1,584 metric names in total, with the metric names and labels that have the most series.](screenshots/vmui-cardinality.light.png)
 
-*The cardinality explorer, the same day: 10,670 series under 1,584 metric names; the most
+*The cardinality explorer, the same day: 10,689 series under 1,584 metric names; the most
 series belong to the `flag` metric, which VictoriaMetrics, VictoriaLogs and VictoriaTraces
-each expose about themselves, and to Envoy's latency buckets.*
+each expose about themselves, and to Envoy's histogram buckets.*
 
 Both pictures are taken by `tests/vmui_capture.py`, which fails rather than takes them when a
 page errors, a request answers 400 or more, or the expected text is missing:

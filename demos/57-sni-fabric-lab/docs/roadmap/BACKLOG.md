@@ -230,9 +230,10 @@ without going through Grafana.
 | # | Given | When | Then |
 |---|---|---|---|
 | 1 | the lab is up | `http://victoriametrics.fabric.localtest.me:8080/vmui/` is opened | vmui loads, every request it makes answers below 400, and a query of the shop's traffic draws a graph |
-| 2 | that host | any path is asked | Envoy passes it to VictoriaMetrics, admin and write calls included, as `prometheus.fabric.localtest.me` does for Prometheus (the operator's decision, 2026-10-22: "We dont need to block any path") |
+| 2 | that host, from the Mac | any path is asked | Envoy passes it to VictoriaMetrics, admin and write calls included, as `prometheus.fabric.localtest.me` does for Prometheus (the operator's decision, 2026-10-22: "We dont need to block any path") |
 | 3 | the mesh alias `victoriametrics.mesh` | a component asks for an admin or write path other than its own | it is still Envoy's 404: only the host-facing route changes |
 | 4 | a GET on the host route | the store does not answer | Envoy retries it as it retried the read API before; anything else is retried only if it never reached the store |
+| 5 | a container on a network Envoy shares | it asks ops_http's `victoriametrics.fabric.localtest.me` for an admin or write path | Envoy's 404: the host name is no way round the mesh alias (found in review: ops_http listens on every network Envoy joins) |
 
 - **Test:** `tests/r1-2/test_store_routes.sh` asks the host route for vmui, its script bundle,
   the root page, the status and admin pages, and an empty import, none of which changes data

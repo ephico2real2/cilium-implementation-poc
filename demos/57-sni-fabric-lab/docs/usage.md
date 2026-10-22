@@ -57,7 +57,7 @@ values written by `scripts/gen-secrets.sh`; they are public, so use them for thi
 | MQ web console | <https://mqconsole.fabric.localtest.me:8443/ibmmq/console> | `admin` / `fabric-mq-admin` |
 | Grafana | <http://grafana.fabric.localtest.me:8080/d/sni-fabric-lab/sni-fabric-lab> | none to view; `admin` / `fabric-grafana` to edit |
 | Prometheus | <http://prometheus.fabric.localtest.me:8080> | none |
-| VictoriaMetrics | <http://victoriametrics.fabric.localtest.me:8080/vmui/> | none; its whole app, as Prometheus's: the vmui query and cardinality pages, every API, admin calls included |
+| VictoriaMetrics | <http://victoriametrics.fabric.localtest.me:8080/vmui/> | none; its whole app from this Mac, as Prometheus's: the vmui query and cardinality pages, every API, admin calls included; a container asking the same host name gets only the read API |
 | Tempo, VictoriaTraces, VictoriaLogs | through Envoy only; read them in Grafana's **Explore** | Grafana's `admin` / `fabric-grafana` |
 | MQ REST API and MQ clients | through Envoy only | `app` / `fabric-mq-app` |
 | Postgres | through Envoy only | `fabric` / `fabric-postgres` |
@@ -96,12 +96,12 @@ The steps, in order:
    stores (one retry, once that wait passes again), and run every dashboard query on
    VictoriaMetrics; before phase 5, whose outages leave gaps the two engines bridge differently
 6. `verify.sh` phase 5, then `tests/r1-2/test_store_routes.sh` (Envoy refuses admin and
-   unapproved write paths) and the Prometheus dashboard tests
+   unapproved write paths to the containers; this Mac gets VictoriaMetrics' whole app) and the Prometheus dashboard tests
 7. Print the memory in use, and the URLs with their logins
 
 Everything is also written to `output/transcript.txt`. It stops at the first failed step.
-Measured on 2026-10-22: 11 min 1 s from nothing, 87 checks, 0 failures. Parity waited 3 min
-20 s: a counter that sat at zero until phases 1-3 (orders created, unknown-SNI resets) is
+Measured on 2026-10-22: 11 min 7 s from nothing, 87 checks, 0 failures. The comparison step
+took 3 min 16 s, nearly all of it waiting: a counter that sat at zero until phases 1-3 (orders created, unknown-SNI resets) is
 exactly comparable only once its last zero sample has left the 310 s window, because Prometheus
 stops extrapolating at a counter's zero point and VictoriaMetrics never extrapolates.
 
