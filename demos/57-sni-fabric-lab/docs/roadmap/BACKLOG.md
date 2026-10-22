@@ -335,6 +335,17 @@ that I never grep three containers by hand again.
 - **Test:** `phase6` "logs: one order's trace id finds lines from orders-api and worker".
 - **Spike:** Tempo's trace-to-logs link with the VictoriaLogs datasource; fallback: a link
   built from the trace id.
+- **Spike answered (2026-10-22, #111): the link works once `service.name` is mapped to its own
+  name.** Grafana 12.4.12 builds a LogsQL query for VictoriaLogs itself (`createSpanLink.tsx`
+  `getQueryForVictoriaLogs`). In Chromium, phase 6's trace, a span, "Logs for this span":
+  - with Grafana's default tags the query is `trace_id:="<id>" AND service_name:="<service>"`, and
+    VictoriaLogs finds nothing, because it keeps the attribute's dotted name `service.name`;
+  - with `tags: [{key: service.name, value: service.name}]` the query is
+    `... AND service.name:="<service>"`, and the run's 5 log lines appear.
+
+  `tests/spikes/r1-7_trace_to_logs.py`, recorded in `output/spike-r1-7-trace-to-logs.txt`, with a
+  light picture of each case. R1.7 provisions Tempo's `tracesToLogsV2` with that mapping; the
+  fallback is not needed.
 
 ## R1.8 Metrics linked to traces
 
