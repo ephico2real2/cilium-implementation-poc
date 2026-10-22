@@ -22,7 +22,12 @@ mq = httpx.Client(auth=("app", password), headers={"ibm-mq-rest-csrf-token": "sp
 sent = f'traceparent;"{traceparent}";string'
 put = mq.post(url, content="spike r1.5", headers={"Content-Type": "text/plain", "ibm-mq-usr": sent})
 print(f"put     {put.status_code}  ibm-mq-usr: {sent}")
-got = mq.delete(url, params={"wait": "5000"}, headers={"Accept": "text/plain"})
+# Get this message by its id, so a message left on the queue by an earlier run cannot answer.
+message_id = put.headers.get("ibm-mq-md-messageId", "")
+print(f"put     ibm-mq-md-messageId: {message_id}")
+if put.status_code != 201 or not message_id:
+    raise SystemExit("verdict UNKNOWN: the put failed or returned no message id")
+got = mq.delete(url, params={"messageId": message_id, "wait": "5000"}, headers={"Accept": "text/plain"})
 print(f"get     {got.status_code}  body: {got.text!r}")
 for name, value in got.headers.items():
     if name.lower().startswith("ibm-mq"):
