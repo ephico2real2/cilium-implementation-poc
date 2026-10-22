@@ -250,6 +250,19 @@ measured numbers, the pictures), a short retro (what helped, what hurt, one chan
 2), memory measured with everything running, and `scripts/run.sh --fresh` once more. Then
 sprint 2 starts only on the operator's go, with its two mocks approved.
 
+- **Status (2026-10-22): done, on the operator's word ("You can close sprint 1 now").**
+  - The review and the retro are on the chapter page,
+    [../story/01-turn-the-lights-on.md](../story/01-turn-the-lights-on.md) ("Sprint 1 review",
+    "Sprint 1 retro"). The retro's one change for sprint 2 is in [ROADMAP.md](ROADMAP.md)'s
+    Definition of Ready: the behaviour a story depends on is measured on the live lab first.
+  - Memory, with every one of the 15 services running: the Podman VM (3887 MB) had 1098 to 1203
+    MB available over three samples (13:52 to 13:53 UTC), above the 500 MB floor; no resize.
+  - The closing fresh run is R1.10's, with every sprint 1 story in place: 11 min 7 s, 87
+    checks, 0 failures (`output/transcript.txt`).
+  - Found while closing: the CI workflow's header gave the run as 11 min 22 s; it now states the
+    transcript's, and `tests/scripts/test_recap_counts.sh` checks it with RECAP's and
+    `run.sh`'s.
+
 ## R1.4 Zero-code auto-instrumentation
 
 As a developer, I want spans from the services without editing their code, so that
