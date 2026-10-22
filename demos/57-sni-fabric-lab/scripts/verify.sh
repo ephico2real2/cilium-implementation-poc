@@ -7,8 +7,8 @@
 #   phase3   IBM MQ and the worker: native client in three SNI modes, the order flow,
 #            metrics through mesh_http, Envoy's TLS to the MQ REST API
 #   phase6   OpenTelemetry: spans enter through Envoy, collector isolation and metrics; the
-#            four stores ready and isolated, Grafana's datasources, and one run of traces,
-#            metrics and logs found in the stores
+#            four stores ready and isolated, equal healthy metric jobs, MQ gauge preservation,
+#            Grafana's datasources, and one run of traces (same ids and span count), metrics and logs
 #   phase5   failures: 50% chaos, Postgres restart, MQ stop and start, tcp-svc stop and start.
 #            It stops and restarts containers on purpose, so it is never part of the default.
 #   (no argument)  phase1 phase2 phase3. Phase 4 (metrics) is checked by tests/dashboard_*.py.
@@ -284,6 +284,73 @@ vtraces_ids() {  # vtraces_ids <service>  -> the same from VictoriaTraces' Jaege
     | python3 -c 'import json,sys; print(" ".join(sorted(t["traceID"].rjust(32, "0") for t in json.load(sys.stdin).get("data") or [])))' 2>/dev/null
 }
 
+tempo_span_count() {  # tempo_span_count <trace id>  -> spans in Tempo's OTLP response
+  store_get "http://tempo.mesh:18080/api/v2/traces/$1" \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin).get("trace", {}); print(sum(len(s.get("spans", [])) for r in d.get("resourceSpans", []) for s in r.get("scopeSpans", [])))'
+}
+
+vtraces_span_count() {  # vtraces_span_count <trace id>  -> spans in its Jaeger response
+  store_get "http://victoriatraces.mesh:18080/select/jaeger/api/traces/$1" \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin).get("data") or []; print(sum(len(t.get("spans", [])) for t in d))'
+}
+
+trace_span_verdict() {  # trace_span_verdict <Tempo count> <VictoriaTraces count>
+  local tempo_spans="${1:-}" vtraces_spans="${2:-}"
+  # Both must be the generator's parent plus one child: equality alone would let 0 = 0 pass.
+  if [ "${tempo_spans}" = 2 ] && [ "${vtraces_spans}" = 2 ]; then
+    pass "stores: one trace has two spans" "Tempo=${tempo_spans}, VictoriaTraces=${vtraces_spans} (parent + child)"
+  else
+    fail "stores: one trace has two spans" "Tempo=${tempo_spans:-missing}, VictoriaTraces=${vtraces_spans:-missing}; want 2 and 2"
+  fi
+}
+
+healthy_jobs() {  # healthy_jobs <prometheus|victoriametrics>  -> sorted job values with up == 1
+  store_get -G --data-urlencode 'query=up == 1' "http://$1.mesh:18080/api/v1/query" \
+    | python3 -c 'import json,sys; r=json.load(sys.stdin).get("data", {}).get("result", []); print(" ".join(sorted({s.get("metric", {}).get("job", "") for s in r} - {""})))'
+}
+
+metric_jobs_verdict() {  # metric_jobs_verdict <expected count> <Prometheus jobs> <VictoriaMetrics jobs>
+  local expected="${1:-}" prometheus_jobs="${2:-}" victoria_jobs="${3:-}"
+  local prometheus_count=0 victoria_count=0
+  local -a prometheus_set=() victoria_set=()
+  [ -z "${prometheus_jobs}" ] || read -r -a prometheus_set <<<"${prometheus_jobs}"
+  [ -z "${victoria_jobs}" ] || read -r -a victoria_set <<<"${victoria_jobs}"
+  prometheus_count="${#prometheus_set[@]}"
+  victoria_count="${#victoria_set[@]}"
+  if [[ "${expected}" =~ ^[1-9][0-9]*$ ]] && [ "${prometheus_count}" -eq "${expected}" ] && \
+     [ "${victoria_count}" -eq "${expected}" ] && [ "${prometheus_jobs}" = "${victoria_jobs}" ]; then
+    pass "stores: same healthy metric jobs" "${expected} jobs: ${prometheus_jobs}"
+  else
+    fail "stores: same healthy metric jobs" \
+      "want ${expected:-missing}; Prometheus (${prometheus_count}) [${prometheus_jobs}], VictoriaMetrics (${victoria_count}) [${victoria_jobs}]"
+  fi
+}
+
+metric_value() {  # metric_value <prometheus|victoriametrics> <PromQL> -> the one sample, or fail
+  store_get -G --data-urlencode "query=$2" "http://$1.mesh:18080/api/v1/query" \
+    | python3 -c 'import json,sys; r=json.load(sys.stdin).get("data", {}).get("result", []); print(r[0]["value"][1]) if len(r) == 1 else sys.exit(1)'
+}
+
+mq_metrics_verdict() {  # mq_metrics_verdict <fresh gauges> <Prometheus samples> <VictoriaMetrics samples> <its fresh gauges>
+  local gauge_count="${1:-}" prometheus_samples="${2:-}" victoria_samples="${3:-}" victoria_gauges="${4:-}"
+  # A positive fresh gauge count catches MQ's consume-on-read exporter; the same count in
+  # VictoriaMetrics catches a copy without the gauge (scrape_samples_scraped is Prometheus's own
+  # series, copied either way); equal sample counts catch a second scraper.
+  if awk -v gauge="${gauge_count}" -v copied="${victoria_gauges}" -v prometheus="${prometheus_samples}" \
+      -v victoria="${victoria_samples}" 'BEGIN {
+        number = "^[0-9]+([.][0-9]+)?$"
+        exit !(gauge ~ number && gauge > 0 && copied ~ number && copied == gauge &&
+               prometheus ~ number && prometheus > 0 && victoria ~ number &&
+               victoria == prometheus)
+      }'; then
+    pass "stores: MQ gauge and sample count copied" \
+      "fresh gauges=${gauge_count} in both; scrape_samples_scraped=${prometheus_samples} in both"
+  else
+    fail "stores: MQ gauge and sample count copied" \
+      "fresh gauges Prometheus=${gauge_count:-no answer}, VictoriaMetrics=${victoria_gauges:-no answer}; scrape_samples_scraped Prometheus=${prometheus_samples:-no answer}, VictoriaMetrics=${victoria_samples:-no answer}"
+  fi
+}
+
 phase6() {
   echo "== Phase 6: OpenTelemetry collector and the telemetry stores"
   # Each telemetrygen trace is a parent and one child span (--child-spans defaults to 1), and
@@ -291,7 +358,8 @@ phase6() {
   # errors. Its metrics and logs commands exit non-zero instead.
   local traces=5 out before after before_status generator_status after_status export_errors \
     isolated collector_networks peers internal entry store network url want i uid run tempo vtraces \
-    tempo_list first log_trace_id value
+    tempo_list first log_trace_id value tempo_spans vtraces_spans expected_jobs prometheus_jobs \
+    victoria_jobs mq_gauges prometheus_mq_samples victoria_mq_samples victoria_mq_gauges
   local sent=$((traces * 2))
   # <service> <its network> <readiness URL through Envoy> <the answer when ready>
   local stores=(
@@ -352,6 +420,36 @@ phase6() {
     if [ "${out:-0}" -gt 10 ]; then pass "metrics: /metrics/${store} through mesh_http" "${out} samples"; else fail "metrics: /metrics/${store} through mesh_http" "${out:-0} samples"; fi
   done
 
+  # Count the committed jobs instead of pinning 11; remote write must copy every healthy target.
+  expected_jobs="$(grep -c '^[[:space:]]*- job_name:' "${DEMO_DIR}/observability/prometheus.yml")"
+  for i in $(seq 1 30); do
+    prometheus_jobs="$(healthy_jobs prometheus 2>/dev/null)"
+    victoria_jobs="$(healthy_jobs victoriametrics 2>/dev/null)"
+    [ "${prometheus_jobs}" = "${victoria_jobs}" ] && \
+      [ "$(wc -w <<<"${prometheus_jobs}" | tr -d ' ')" = "${expected_jobs}" ] && break
+    sleep 3
+  done
+  metric_jobs_verdict "${expected_jobs}" "${prometheus_jobs}" "${victoria_jobs}"
+
+  # MQ resource gauges are consumed by a scrape, so require a fresh gauge and the same complete
+  # scrape size in the source and its remote-written copy. Retry only while that copy is ingesting.
+  for i in $(seq 1 30); do
+    mq_gauges="$(metric_value prometheus \
+      'count(last_over_time(ibmmq_qmgr_log_write_latency_seconds[1m]))' 2>/dev/null)"
+    prometheus_mq_samples="$(metric_value prometheus \
+      'last_over_time(scrape_samples_scraped{job="mq"}[1m])' 2>/dev/null)"
+    victoria_mq_samples="$(metric_value victoriametrics \
+      'last_over_time(scrape_samples_scraped{job="mq"}[1m])' 2>/dev/null)"
+    victoria_mq_gauges="$(metric_value victoriametrics \
+      'count(last_over_time(ibmmq_qmgr_log_write_latency_seconds[1m]))' 2>/dev/null)"
+    [ -n "${mq_gauges}" ] && [ "${mq_gauges}" = "${victoria_mq_gauges}" ] && \
+      [ -n "${prometheus_mq_samples}" ] && \
+      [ "${prometheus_mq_samples}" = "${victoria_mq_samples}" ] && break
+    sleep 3
+  done
+  mq_metrics_verdict "${mq_gauges}" "${prometheus_mq_samples}" "${victoria_mq_samples}" \
+    "${victoria_mq_gauges}"
+
   # Grafana's own test of each datasource, the one its "Save & test" button runs.
   # Bounded, and the status must be exactly OK; no -f, because an unhealthy datasource's reason
   # comes back in the body of an HTTP error and is what the FAIL line should show.
@@ -386,6 +484,10 @@ phase6() {
     fail "stores: the same ${traces} trace ids in Tempo and VictoriaTraces" \
       "${run}: generator=${generator_status}, export errors=${export_errors}, Tempo [${tempo}], VictoriaTraces [${vtraces}]"
   fi
+
+  tempo_spans="$(tempo_span_count "${first}" 2>/dev/null)"
+  vtraces_spans="$(vtraces_span_count "${first}" 2>/dev/null)"
+  trace_span_verdict "${tempo_spans}" "${vtraces_spans}"
 
   out="$(generate metrics --metrics 5 --service "${run}")"; generator_status=$?
   for i in $(seq 1 30); do

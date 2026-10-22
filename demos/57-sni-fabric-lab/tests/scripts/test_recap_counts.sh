@@ -24,8 +24,52 @@ check() {  # check <description> <command status: 0 means match>
   printf '%-9s %s\n' "${verdict}" "${description}"
 }
 
-[ "${phases}" = "${got_phases}" ] && [ "${total}" = "${got_total}" ]; check \
-  "counts: phases 1-3 ${phases}, whole run ${total}" "$?"
+if [ "${phases}" = "${got_phases}" ] && [ "${total}" = "${got_total}" ]; then
+  check "counts: phases 1-3 ${phases}, whole run ${total}" 0
+else
+  check "counts: phases 1-3 ${phases}, whole run ${total}" 1
+fi
+# BACKLOG's VictoriaMetrics dashboard result is the one inside the comparison step, before phase 5
+# creates the two status-update series. Drop only dashboard_queries.py's elapsed-time suffix.
+vm_dashboard="$(awk '/^==== Compare Prometheus/{on=1; next} /^==== /{on=0} on' "${t}" \
+  | sed -n 's/^\([0-9][0-9]* queries, [0-9][0-9]* with errors or warnings, [0-9][0-9]* empty\), .*$/\1/p' \
+  | tail -1)"
+grep -Fq "On VictoriaMetrics: \`${vm_dashboard}\`" "$1/docs/roadmap/BACKLOG.md"; check \
+  "VictoriaMetrics dashboard: ${vm_dashboard}" "$?"
+# The readiness gate's reads, and the chapter's parity table: the transcript's own.
+gate_reads="$(grep -c '^rate window samples at T' "${t}")"
+# Only the record's "The recorded run" section describes this transcript; earlier sections keep
+# the numbers of the runs they describe. Exactly one gate count there, and it is the transcript's.
+# The section is joined into one line first: Markdown wraps a sentence wherever it likes.
+recorded="$(awk '/^## The recorded run/{on=1; next} /^## /{on=0} on' "$1/docs/reviews/R1.3.md" | tr '\n' ' ')"
+gate_counts="$(grep -oE 'the gate made [0-9]+ reads' <<<"${recorded}" || true)"
+gate_ok=1
+[ "${gate_counts}" != "the gate made ${gate_reads} reads" ] || gate_ok=0
+check "readiness gate: ${gate_reads} reads in the transcript, named in the review's recorded run" \
+  "${gate_ok}"
+transcript_rows="$(awk '
+  /^Evaluation timestamp/ { on=1; current=""; next }
+  on && /^[0-9][0-9]* queries,/ { last=current; on=0; next }
+  on && ($0 ~ /  PASS$/ || $0 ~ /  FAIL/) { current=current $0 ORS }
+  END { printf "%s", last }
+' "${t}" \
+  | sed -n 's/^\(.\{58\}\) *\([0-9][0-9]*\) *\([0-9][0-9]*\) *\([^ ]*\) <= \([^ ]*\)  \(.*\)$/\1|\2|\3|\4|\5|\6/p' \
+  | awk -F'|' '{sub(/ +$/, "", $1); printf "| %s | %s | %s | %s (allowed %s) | %s |\n", $1, $2, $3, $4, $5, $6}')"
+rows="$(printf '%s\n' "${transcript_rows}" | grep -c '^|')"
+expected_table="$(printf '%s\n%s\n%s' \
+  '| Query | Prometheus series | VictoriaMetrics series | Max difference from the expected value | Verdict |' \
+  '|---|---:|---:|---:|---|' "${transcript_rows}")"
+chapter_table="$(awk '
+  $0 == "| Query | Prometheus series | VictoriaMetrics series | Max difference from the expected value | Verdict |" {
+    on=1; current=$0 ORS; next
+  }
+  on && /^\|/ { current=current $0 ORS; next }
+  on { last=current; on=0 }
+  END { if (on) last=current; printf "%s", last }
+' "$1/docs/story/01-turn-the-lights-on.md")"
+table_ok=1
+if [ "${rows}" -eq 10 ] && [ "${chapter_table}" = "${expected_table}" ]; then table_ok=0; fi
+check "chapter parity table: exactly the transcript's last ${rows} rows" "${table_ok}"
 grep -Fq "processed, after ${retries} Envoy retries." "$1/RECAP.md"; check \
   "retry delta: ${retry_before} -> ${retry_after} is ${retries}" "$?"
 # The secrets the run wrote or kept, each named in step 2's result, and no other.
@@ -91,4 +135,25 @@ if missing:
     sys.exit(1)
 PY
 check "README text blocks are exact recorded slices" "$?"
+# The fresh run's duration, from its first to its last step, is the one RECAP and run.sh state.
+python3 - "${t}" "$1/RECAP.md" "$1/scripts/run.sh" <<'PY'
+import re
+import sys
+from datetime import datetime
+from pathlib import Path
+
+stamps = re.findall(r"^==== .*\((\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)\)$",
+                    Path(sys.argv[1]).read_text(), re.MULTILINE)
+first, last = (datetime.fromisoformat(stamp.replace("Z", "+00:00")) for stamp in (stamps[0], stamps[-1]))
+seconds = int((last - first).total_seconds())
+want = f"{seconds // 60} min {seconds % 60} s"
+recap = re.search(r"^Result: (\d+ min \d+ s);", Path(sys.argv[2]).read_text(), re.MULTILINE)
+header = re.search(r"^# Takes about \d+ minutes \((\d+ min \d+ s) recorded\)",
+                   Path(sys.argv[3]).read_text(), re.MULTILINE)
+got = (recap.group(1) if recap else None, header.group(1) if header else None)
+if got != (want, want):
+    print(f"duration: transcript {want}; RECAP {got[0]}; run.sh {got[1]}", file=sys.stderr)
+    sys.exit(1)
+PY
+check "duration: the transcript's, in RECAP and run.sh's header" "$?"
 echo "mismatches: ${bad}"; exit "${bad}"

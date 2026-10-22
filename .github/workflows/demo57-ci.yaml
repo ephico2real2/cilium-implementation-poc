@@ -16,12 +16,14 @@
 # container-tests uses podman, because the tests it runs call podman.
 #
 # Not in CI: the checks that need the running lab (scripts/run.sh --fresh builds four images and
-# starts the 16 services, 8 min 6 s recorded on the Mac), which this workflow does not bring up.
+# starts the 16 services, 11 min 22 s recorded on the Mac), which this workflow does not bring up.
 # Each runs on the lab's machine, from the demo directory, once the lab is up:
 #   scripts/verify.sh                          phases 1-3, 57 checks
-#   scripts/verify.sh phase6                   the collector and the four stores, 19 checks
+#   scripts/verify.sh phase6                   the collector and the four stores, 22 checks
 #   scripts/verify.sh phase5                   failure and recovery, 7 checks; stops and restarts containers on purpose
-#   bash tests/r1-2/test_store_routes.sh       Envoy refuses the stores' admin and write paths
+#   bash tests/r1-2/test_store_routes.sh       the stores' allowed routes; Envoy refuses admin and host-write paths
+#   python3 tests/parity.py --window-ready && python3 tests/parity.py
+#                                              ten dashboard queries, Prometheus against VictoriaMetrics
 #   python3 tests/dashboard_queries.py --minutes 5
 #                                              every dashboard query against the lab's Prometheus
 #   ~/.local/share/diagram-kit/.venv/bin/python tests/browser_flows.py out/ secrets/admin-token
@@ -50,6 +52,9 @@
 #   bash tests/r1-2/test_plugin_checksum.sh observability/grafana/image
 #       `podman build --no-cache` with a wrong SHA-256: pulls alpine, downloads the plugin and its
 #       checksums file from GitHub, and must fail at sha256sum. Not run locally (it builds).
+#   bash tests/r1-3/test_prometheus_config.sh
+#       docker.io/prom/prometheus:v3.15.0's promtool, two throwaway --rm containers reading the
+#       committed prometheus.yml and a corrupted copy. Local: under 1 s.
 #
 # Every action is pinned by the full commit of its release tag (a tag can be moved, a commit
 # cannot), the tag beside it: the newest release at least two weeks old on 2026-10-22.
@@ -188,6 +193,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 tests/test_dashboard.py
 
+      - name: test_parity.py, the exact cross-engine comparison and its readiness gate
+        if: ${{ !cancelled() }}
+        run: python3 tests/r1-3/test_parity.py
+
       - name: every test of the demo is a step here or listed in this file's header
         if: ${{ !cancelled() }}
         run: |
@@ -272,3 +281,5 @@ jobs:
       - name: test_plugin_checksum.sh
         run: bash tests/r1-2/test_plugin_checksum.sh observability/grafana/image
 
+      - name: test_prometheus_config.sh
+        run: bash tests/r1-3/test_prometheus_config.sh

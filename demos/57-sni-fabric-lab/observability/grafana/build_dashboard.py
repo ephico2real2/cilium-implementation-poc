@@ -12,7 +12,8 @@ import json
 from pathlib import Path
 
 OUT = Path(__file__).resolve().parent / "dashboards" / "fabric.json"
-DS = {"type": "prometheus", "uid": "prometheus"}
+# Prometheus remains the variable's default; every chart can switch beside it to VictoriaMetrics.
+DS = {"type": "prometheus", "uid": "${datasource}"}
 
 BLUE, RED, YELLOW, PURPLE = "#4e79a7", "#e15759", "#edc948", "#b07aa1"
 GREEN, ORANGE, TEAL = "#59a14f", "#f28e2b", "#76b7b2"
@@ -281,7 +282,12 @@ dashboard = {
     "graphTooltip": 1,
     "refresh": "10s",
     "time": {"from": "now-30m", "to": "now"},
-    "templating": {"list": []},
+    "templating": {"list": [{
+        "name": "datasource", "label": "Datasource", "type": "datasource",
+        "query": "prometheus", "regex": "", "refresh": 1, "hide": 0,
+        "current": {"selected": True, "text": "Prometheus", "value": "prometheus"},
+        "options": [],
+    }]},
     "annotations": {"list": []},
     "links": [],
     "panels": panels,

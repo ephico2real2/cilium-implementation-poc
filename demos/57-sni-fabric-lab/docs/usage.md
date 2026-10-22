@@ -39,6 +39,7 @@ Then open the [URLs](#3-urls-and-logins).
 | `python3 scripts/trace_order.py [--item NAME] [--wait N] [--port N]` | Place one order and print every hop it took through Envoy | [5.4](#54-scriptstrace_orderpy-follow-one-order) |
 | `podman compose run --rm telemetrygen traces ...` | Send synthetic OTLP spans through Envoy | [5.5](#55-telemetrygen-send-test-telemetry) |
 | `scripts/verify.sh [phase1\|phase2\|phase3\|phase5\|phase6 ...]` | Run the checks | [6.1](#61-scriptsverifysh-the-checks) |
+| `python3 tests/parity.py [--markdown]` | Compare ten dashboard queries in both metric stores | [6.2](#62-the-tests) |
 | `python3 tests/...` | Dashboard, browser and Grafana tests | [6.2](#62-the-tests) |
 | `podman compose ...` | Status, logs, restart, stop, remove | [7.1](#71-containers) |
 | `python3 observability/grafana/build_dashboard.py` | Regenerate the dashboard | [7.2](#72-the-dashboard) |
@@ -56,7 +57,8 @@ values written by `scripts/gen-secrets.sh`; they are public, so use them for thi
 | MQ web console | <https://mqconsole.fabric.localtest.me:8443/ibmmq/console> | `admin` / `fabric-mq-admin` |
 | Grafana | <http://grafana.fabric.localtest.me:8080/d/sni-fabric-lab/sni-fabric-lab> | none to view; `admin` / `fabric-grafana` to edit |
 | Prometheus | <http://prometheus.fabric.localtest.me:8080> | none |
-| Tempo, VictoriaTraces, VictoriaMetrics, VictoriaLogs | through Envoy only; read them in Grafana's **Explore** | Grafana's `admin` / `fabric-grafana` |
+| VictoriaMetrics | <http://victoriametrics.fabric.localtest.me:8080> | none; Envoy exposes only its Prometheus-compatible read API |
+| Tempo, VictoriaTraces, VictoriaLogs | through Envoy only; read them in Grafana's **Explore** | Grafana's `admin` / `fabric-grafana` |
 | MQ REST API and MQ clients | through Envoy only | `app` / `fabric-mq-app` |
 | Postgres | through Envoy only | `fabric` / `fabric-postgres` |
 
@@ -87,14 +89,21 @@ The steps, in order:
 
 1. `gen-certs.sh` and `gen-secrets.sh` (create only what is missing)
 2. `podman compose up -d --build`
-3. Wait for every health check
-4. `verify.sh` phases 1–3, phase 6, `tests/r1-2/test_store_routes.sh` (Envoy refuses the
-   stores' admin and write paths), then the dashboard tests and `verify.sh` phase 5
-5. Print the memory in use, and the URLs with their logins
+3. Recreate any running service whose bind-mounted file, directory, or a file below that
+   directory is newer than its container, then wait for every health check
+4. `verify.sh` phases 1–3 and phase 6
+5. Wait until every compared rate is exactly comparable in both metric stores, compare the
+   stores (one retry, once that wait passes again), and run every dashboard query on
+   VictoriaMetrics; before phase 5, whose outages leave gaps the two engines bridge differently
+6. `verify.sh` phase 5, then `tests/r1-2/test_store_routes.sh` (Envoy refuses admin and
+   unapproved write paths) and the Prometheus dashboard tests
+7. Print the memory in use, and the URLs with their logins
 
 Everything is also written to `output/transcript.txt`. It stops at the first failed step.
-Measured on the recorded run (2026-10-22): 8 min 6 s from nothing; MQ healthy after 143 s;
-phase 6 took 1 min 49 s of that.
+Measured on 2026-10-22: 11 min 1 s from nothing, 87 checks, 0 failures. Parity waited 3 min
+20 s: a counter that sat at zero until phases 1-3 (orders created, unknown-SNI resets) is
+exactly comparable only once its last zero sample has left the 310 s window, because Prometheus
+stops extrapolating at a counter's zero point and VictoriaMetrics never extrapolates.
 
 ### 4.2 `scripts/gen-certs.sh`: the CA and certificates
 
@@ -300,7 +309,7 @@ scripts/verify.sh phase1 phase5   # several, in that order
 | `phase2` | 20 | Swagger; idempotent orders; validation; the admin token; CORS; Postgres only through `mesh_pg` |
 | `phase3` | 19 | The native MQ client in all three SNI modes; an order from created to processed; every `/metrics` through Envoy; Envoy's verified TLS to the MQ REST API |
 | `phase5` | 7 | 50% chaos, a Postgres restart, MQ stopped and started, tcp-svc stopped and started: everything recovers by itself. **Stops and restarts containers on purpose** |
-| `phase6` | 19 | Five synthetic traces (ten spans) reach the collector through Envoy with no export error; the collector shares only the internal `net-otel` with Envoy; its internal metrics return through `mesh_http`. Each store is ready when read through Envoy, sits on an internal network shared with Envoy alone, and its own metrics return through `mesh_http`. Grafana's test of each datasource answers OK. One named run: its five trace ids are the same in Tempo and VictoriaTraces, its five metric samples are in VictoriaMetrics, its five log lines (carrying one of those trace ids) are in VictoriaLogs |
+| `phase6` | 22 | Five synthetic traces (ten spans) reach the collector through Envoy with no export error; the collector shares only the internal `net-otel` with Envoy; its internal metrics return through `mesh_http`. Each store is ready when read through Envoy, sits on an internal network shared with Envoy alone, and its own metrics return through `mesh_http`. Both metric stores have the same complete set of healthy jobs, the same positive MQ scrape sample count, and the same positive count of fresh MQ recovery-log gauges. Grafana's test of each datasource answers OK. One named run: its five trace ids are the same in Tempo and VictoriaTraces, one trace has exactly two spans in both, its five metric samples are in VictoriaMetrics, and its five log lines (carrying one of those trace ids) are in VictoriaLogs |
 | (none) | 57 | `phase1 phase2 phase3` |
 
 Each check prints `PASS` or `FAIL` with what it saw. Phase 4 (metrics) is checked by the
@@ -310,6 +319,9 @@ dashboard tests below.
 
 ```bash
 python3 tests/dashboard_queries.py
+python3 tests/dashboard_queries.py --prometheus http://victoriametrics.fabric.localtest.me:8080
+python3 tests/parity.py
+python3 tests/parity.py --markdown
 python3 tests/test_dashboard.py
 ~/.local/share/diagram-kit/.venv/bin/python tests/browser_flows.py out/ secrets/admin-token
 ~/.local/share/diagram-kit/.venv/bin/python tests/grafana_capture.py out/
@@ -318,9 +330,12 @@ python3 tests/test_dashboard.py
 | Test | Arguments | Checks |
 |---|---|---|
 | `tests/dashboard_queries.py` | `[dashboard.json] [--prometheus URL] [--minutes N]` | Every dashboard query returns without error or warning; lists each series' latest value; flags empty ones |
+| `tests/parity.py` | `[dashboard.json] [--prometheus URL] [--victoriametrics URL] [--markdown] [--window-ready]` | Ten exact dashboard queries at one timestamp have identical label sets. Gauges match at T; rates match Prometheus at T with only `rate`'s range widened to `[310s]`, the exact MetricsQL value for the same regular samples. Each rate's raw samples in `[310s]` must also match in count per label set, which an interior lost or repeated sample, or a label renamed under `sum()`, would break. A shared gauge hole at T passes only when both stores agree at T−s and T+s. Empty queries fail, OTLP-only dotted labels are excluded, and `--window-ready` requires a complete `up` window, every selected rate's exact cross-engine comparison, and its raw-sample counts to be ready |
 | `tests/test_dashboard.py` | `[grafana.json] [perses.json]` | Sections, charts, colours, line styles, units, legends and `[5m]` windows, in both dashboard forms |
+| `tests/r1-3/test_prometheus_config.sh` | none | `promtool` accepts the committed scrape-and-remote-write config; a malformed `remote_write` copy is a failing negative control |
+| `tests/r1-3/test_parity.py` | none | Lab-free controls for all measured value pairs, exact gauge copies and cross-engine rates, dropped/stale/duplicated samples, shared one-scrape gauge holes, one-sided and empty comparisons |
 | `tests/browser_flows.py` | `<out-dir> <admin-token-file>` | In Chromium, light and dark: places an order, pings over TCP, refuses a wrong token, opens the portal; no console error or CSP violation |
-| `tests/grafana_capture.py` | `<out-dir>` | The dashboard as an anonymous viewer, dark and light: every chart present, no "No data", "NaN", "not found" or error |
+| `tests/grafana_capture.py` | `<out-dir> [prometheus\|victoriametrics]` | The dashboard as an anonymous viewer, dark and light: every chart present, no "No data", "NaN", "not found" or error; with a datasource uid, opened on that datasource with its name in the Datasource menu |
 
 The two browser tests need Playwright and Chromium, from diagram-kit's environment.
 
@@ -365,21 +380,30 @@ podman compose restart grafana
 ```
 
 `build_dashboard.py` is the source: edit it, never the JSON. The second command generates the
-Perses form. Grafana 12.4.12 did not reload a changed dashboard file while running, so restart
-it. What each chart shows and why: `docs/metrics/dashboard-choices.md`.
+Perses form. In Grafana, the **Datasource** menu defaults to **Prometheus** and offers
+**VictoriaMetrics** beside it; every chart follows that selection. The Perses converter does
+not preserve Grafana's datasource variable: it emits an empty `variables` list and fixes its
+queries to the `prometheus` datasource supplied by `--datasource`, so that form remains
+Prometheus-only and was not hand-edited. Grafana 12.4.12 did not reload a changed dashboard
+file while running, so restart it. What each chart shows and why:
+`docs/metrics/dashboard-choices.md`.
 
 ### 7.3 The telemetry stores
 
 Each store has its own internal network, shared with Envoy alone. The collector writes and
-Grafana reads through Envoy aliases on `mesh_http`; Envoy routes only the write path, the read
-API Grafana uses and the readiness probe (anything else, such as an admin or delete API, gets
-Envoy's 404). Prometheus scrapes each store's own metrics at `metrics.mesh/metrics/<store>`.
+Grafana reads through Envoy aliases on `mesh_http`; Envoy routes only the approved write paths,
+the read API Grafana uses and the readiness probe (anything else, such as an admin or delete API,
+gets Envoy's 404). Prometheus is the sole scraper through `metrics.mesh` and remote-writes every
+sample through Envoy's mesh-only `victoriametrics.mesh/api/v1/write` route. This matters because
+MQ's exporter consumes its queue-manager gauges on read: a second scraper made Prometheus fall
+from 136 to 108 MQ samples and lose the recovery-log latency gauge. VictoriaMetrics runs no
+scraper; each store's own metrics remain at `/metrics/<store>`.
 
 | Container | Image | Alias on `mesh_http` | Writes | Reads (Grafana datasource `uid`) | Ready | UID |
 |---|---|---|---|---|---|---|
 | `tempo` | `grafana/tempo:3.1.0`, monolithic, local storage | `tempo.mesh` | `/v1/traces` (to its port 4318) | `/api/` (`tempo`) | `/ready` | 10004 |
 | `victoria-traces` | `victoriametrics/victoria-traces:v0.12.0` | `victoriatraces.mesh` | `/insert/opentelemetry/v1/traces` | `/select/jaeger/` (`victoriatraces`, Jaeger type) | `/health` | 10005 |
-| `victoria-metrics` | `victoriametrics/victoria-metrics:v1.153.0` | `victoriametrics.mesh` | `/opentelemetry/v1/metrics` | the Prometheus query API (`victoriametrics`) | `/health`, and a Compose health check | 10006 |
+| `victoria-metrics` | `victoriametrics/victoria-metrics:v1.153.0` | `victoriametrics.mesh`; host read API at `victoriametrics.fabric.localtest.me` | `/api/v1/write` from Prometheus and `/opentelemetry/v1/metrics` from the collector | the Prometheus query API (`victoriametrics`) | `/health`, and a Compose health check | 10006 |
 | `victoria-logs` | `victoriametrics/victoria-logs:v1.53.0` | `victorialogs.mesh` | `/insert/opentelemetry/v1/logs` | `/select/logsql/` (`victorialogs`, plugin v0.32.0) | `/health` | 10007 |
 
 Data lives on the volumes `tempodata`, `vtracesdata`, `vmetricsdata` and `vlogsdata`, each

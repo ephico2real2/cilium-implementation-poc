@@ -172,7 +172,7 @@ a { color: var(--remote); }
     <h2>2. Edge layer: one TLS port, routed on the SNI</h2>
     <figure>
       <div class="fig-scroll">
-        <svg viewBox="0 0 980 604" role="img" aria-label="Browsers, an openssl client and a native MQ client all connect to one port, 8443. Envoy's edge_sni listener reads the TLS SNI and passes each connection, still encrypted, to web, orders-api, tcp-svc or the MQ queue manager; any other SNI, or none, is reset. Grafana and Prometheus are reached over plain HTTP on port 8080 through Envoy's ops_http listener.">
+        <svg viewBox="0 0 980 604" role="img" aria-label="Browsers, an openssl client and a native MQ client all connect to one port, 8443. Envoy's edge_sni listener reads the TLS SNI and passes each connection, still encrypted, to web, orders-api, tcp-svc or the MQ queue manager; any other SNI, or none, is reset. Grafana, Prometheus and VictoriaMetrics' read API are reached over plain HTTP on port 8080 through Envoy's ops_http listener.">
           <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
           <g font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600">
             <rect x="20" y="14" width="280" height="30" rx="6" fill="var(--host-wash)" stroke="var(--host)"/>
@@ -224,6 +224,7 @@ a { color: var(--remote); }
             <text x="367" y="432" font-weight="600">ops_http · host :8080</text>
             <g font-family="IBM Plex Mono, monospace" font-size="11.5">
               <text x="367" y="452">grafana.…    → grafana:3000</text>
+              <text x="367" y="482">victoriametrics.… → read API only</text>
               <text x="367" y="512">prometheus.… → prometheus:9090</text>
             </g>
 
@@ -248,7 +249,7 @@ a { color: var(--remote); }
             <text x="706" y="522" fill="var(--muted)">scrapes through Envoy (below)</text>
 
             <text x="30" y="566" fill="var(--muted)">… = .fabric.localtest.me, which resolves to 127.0.0.1. TLS ends at each backend, never at Envoy.</text>
-            <text x="30" y="588" fill="var(--host)" font-weight="600">Built and checked: run.sh --fresh, 84 checks (output/transcript.txt, 2026-10-22). Host ports on 127.0.0.1 only.</text>
+            <text x="30" y="588" fill="var(--host)" font-weight="600">Built and checked: run.sh --fresh, 87 checks (output/transcript.txt, 2026-10-22). Host ports on 127.0.0.1 only.</text>
           </g>
           <g fill="none" stroke-width="1.4" marker-end="url(#ah)">
             <line x1="260" y1="159" x2="353" y2="159" stroke="var(--remote)"/>
@@ -361,7 +362,7 @@ a { color: var(--remote); }
 
             <text x="30" y="606" fill="var(--none)">orders-api cannot reach postgres directly: they share no network, so the name does not resolve.</text>
             <text x="30" y="626" fill="var(--muted)">Arrows are coloured by caller: amber orders-api, teal worker; ink for grafana, prometheus and shared exits.</text>
-            <text x="30" y="646" fill="var(--host)" font-weight="600">Built and checked: run.sh --fresh, 84 checks (output/transcript.txt, 2026-10-22). Host ports on 127.0.0.1 only.</text>
+            <text x="30" y="646" fill="var(--host)" font-weight="600">Built and checked: run.sh --fresh, 87 checks (output/transcript.txt, 2026-10-22). Host ports on 127.0.0.1 only.</text>
           </g>
           <g fill="none" stroke-width="1.4" marker-end="url(#ah2)">
             <line x1="270" y1="108" x2="353" y2="108" stroke="var(--host)"/>
@@ -392,7 +393,7 @@ a { color: var(--remote); }
     <h2>4. Telemetry layer: one pipeline, four stores</h2>
     <figure>
       <div class="fig-scroll">
-        <svg viewBox="0 0 980 530" role="img" aria-label="Signals reach the OpenTelemetry Collector only through Envoy&#x27;s otlp.mesh; the collector exports through Envoy to Tempo and VictoriaTraces for traces, VictoriaMetrics for metrics and VictoriaLogs for logs, which R1.2 added. Prometheus scrapes every component&#x27;s metrics through Envoy. Grafana reads every store through Envoy aliases.">
+        <svg viewBox="0 0 980 598" role="img" aria-label="Signals reach the OpenTelemetry Collector only through Envoy&#x27;s otlp.mesh; the collector exports through Envoy to Tempo and VictoriaTraces for traces, VictoriaMetrics for metrics and VictoriaLogs for logs, which R1.2 added. Prometheus is the one scraper of every component&#x27;s metrics through Envoy, and remote-writes every sample through Envoy to VictoriaMetrics, which R1.3 compares with Prometheus. Grafana reads every store through Envoy aliases.">
           <defs><marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
           <g font-family="IBM Plex Sans, sans-serif" font-size="12.5" fill="currentColor">
             <line x1="230" y1="88" x2="288" y2="140" stroke="var(--host)" stroke-width="1.4" marker-end="url(#ah4)"/>
@@ -448,20 +449,32 @@ a { color: var(--remote); }
             <rect x="500" y="320" width="460" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
             <text x="514" y="343" font-weight="600">every component&#x27;s own /metrics</text>
             <text x="514" y="361" fill="var(--muted)">envoy, orders-api, worker, tcp-svc, mq, postgres, collector, 4 stores</text>
-            <line x1="230" y1="428" x2="288" y2="428" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah4)"/>
-            <rect x="30" y="400" width="200" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
-            <text x="44" y="423" font-weight="600">Grafana 12.4</text>
-            <text x="44" y="441" fill="var(--muted)">VictoriaLogs plugin baked in</text>
-            <rect x="290" y="400" width="670" height="56" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
-            <text x="304" y="423" font-weight="600">Envoy aliases on net-grafana</text>
-            <text x="304" y="441" fill="var(--muted)">prometheus.mesh · tempo.mesh · victoriatraces.mesh · victoriametrics.mesh · victorialogs.mesh</text>
-            <text x="30" y="492" fill="var(--muted)">Every signal passes Envoy twice: from its source to the collector (otlp.mesh), and from the collector to each store.</text>
-            <text x="30" y="514" fill="var(--host)" font-weight="600">Solid = built and checked (R1.1, R1.2). Dashed = sprint 2.</text>
+            <line x1="230" y1="416" x2="288" y2="416" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah4)"/>
+            <line x1="450" y1="416" x2="498" y2="416" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah4)"/>
+            <rect x="30" y="388" width="200" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="44" y="411" font-weight="600">Prometheus remote_write</text>
+            <text x="44" y="429" fill="var(--muted)">every sample it scraped</text>
+            <rect x="290" y="388" width="160" height="56" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+            <text x="304" y="411" font-weight="600">Envoy mesh_http</text>
+            <text x="304" y="429" fill="var(--muted)">POST /api/v1/write</text>
+            <rect x="500" y="388" width="460" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="514" y="411" font-weight="600">VictoriaMetrics 1.153: the same samples</text>
+            <text x="514" y="429" fill="var(--muted)">one scraper (MQ hands each gauge to one reader); parity.py compares</text>
+            <line x1="230" y1="496" x2="288" y2="496" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah4)"/>
+            <rect x="30" y="468" width="200" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="44" y="491" font-weight="600">Grafana 12.4</text>
+            <text x="44" y="509" fill="var(--muted)">VictoriaLogs plugin baked in</text>
+            <rect x="290" y="468" width="670" height="56" rx="8" fill="var(--remote-wash)" stroke="var(--remote)" stroke-width="1.5"/>
+            <text x="304" y="491" font-weight="600">Envoy aliases on net-grafana</text>
+            <text x="304" y="509" fill="var(--muted)">prometheus.mesh · tempo.mesh · victoriatraces.mesh · victoriametrics.mesh · victorialogs.mesh</text>
+            <text x="30" y="560" fill="var(--muted)">Every signal passes Envoy twice: from its source to the collector (otlp.mesh), and from the collector to each store.</text>
+            <text x="30" y="582" fill="var(--host)" font-weight="600">Solid = built and checked (R1.1, R1.2, R1.3). Dashed = sprint 2.</text>
           </g>
         </svg>
       </div>
       <figcaption>Built and checked: telemetrygen → Envoy → collector → Envoy → the four stores, Prometheus scraping
-        through Envoy, Grafana reading every store through Envoy. Sprint 2: the services' own telemetry and Envoy's
+        through Envoy and remote-writing every sample through Envoy to VictoriaMetrics, Grafana reading every store
+        through Envoy. Sprint 2: the services' own telemetry and Envoy's
         spans.</figcaption>
     </figure>
   </section>
@@ -483,7 +496,7 @@ a { color: var(--remote); }
           <tr><td><code>net-mq</code></td><td>mq</td><td>—</td></tr>
           <tr><td><code>net-mqclient</code></td><td>mq-client (on demand)</td><td>qm1.…</td></tr>
           <tr><td><code>net-pgexp</code></td><td>postgres-exporter</td><td>postgres.mesh</td></tr>
-          <tr><td><code>net-obs</code></td><td>prometheus</td><td>metrics.mesh</td></tr>
+          <tr><td><code>net-obs</code></td><td>prometheus</td><td>metrics.mesh, victoriametrics.mesh</td></tr>
           <tr><td><code>net-grafana</code></td><td>grafana</td><td>prometheus.mesh, tempo.mesh, victoriatraces.mesh, victoriametrics.mesh, victorialogs.mesh</td></tr>
           <tr><td><code>net-otel</code></td><td>otel-collector</td><td>tempo.mesh, victoriatraces.mesh, victoriametrics.mesh, victorialogs.mesh</td></tr>
           <tr><td><code>net-otelsend</code></td><td>telemetrygen (on demand)</td><td>otlp.mesh</td></tr>

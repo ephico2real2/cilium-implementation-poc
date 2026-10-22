@@ -4,7 +4,8 @@ Usage: python tests/test_dashboard.py [grafana.json] [perses.json]
 Checks: the sections and charts are there in order; every chart has a description, a unit, a
 legend below and line width 1; every line has its own fixed colour from the Tableau 10 set,
 the second dashed and the third dotted; every rate uses the fixed [5m] window and says so;
-and the Perses form carries the same colours, line styles, units and legends.
+the Prometheus datasource is the default dashboard variable and every chart uses it; and the
+Perses form carries the same colours, line styles, units and legends.
 Exits non-zero on the first failure, naming it.
 """
 import json
@@ -41,12 +42,28 @@ perses = json.loads(PERSES.read_text())
 panels = grafana["panels"]
 charts = [p for p in panels if p["type"] not in ("row", "text")]
 
+variables = grafana.get("templating", {}).get("list", [])
+datasource_variables = [v for v in variables if v.get("name") == "datasource"]
+expect(len(datasource_variables) == 1, "expected one datasource variable named datasource")
+if datasource_variables:
+    variable = datasource_variables[0]
+    expect(variable.get("type") == "datasource" and variable.get("query") == "prometheus",
+           "datasource variable is not a Prometheus datasource picker")
+    current = variable.get("current", {})
+    expect(current.get("text") == "Prometheus" and current.get("value") == "prometheus",
+           "datasource variable does not default to Prometheus (uid prometheus)")
+
 expect([p["title"] for p in panels if p["type"] == "row"] == SECTIONS, "sections differ from the expected seven, in order")
 expect(len(charts) == 14, f"expected 14 charts, found {len(charts)}")
 expect([c["title"] for c in charts[:3]] == FIRST_CHARTS, "the first three charts changed")
 
 for chart in charts:
     name = chart["title"]
+    expect(chart.get("datasource") == {"type": "prometheus", "uid": "${datasource}"},
+           f"{name}: panel datasource is not $datasource")
+    for panel_target in chart.get("targets", []):
+        expect(panel_target.get("datasource") == {"type": "prometheus", "uid": "${datasource}"},
+               f"{name} {panel_target.get('refId', '?')}: target datasource is not $datasource")
     expect(len(chart.get("description", "")) > 40, f"{name}: description missing or too short")
     if chart["type"] != "timeseries":
         continue

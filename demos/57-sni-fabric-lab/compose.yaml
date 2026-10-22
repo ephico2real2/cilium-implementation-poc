@@ -79,7 +79,8 @@ services:
       net-otelsend:
         aliases: [otlp.mesh]
       net-obs:
-        aliases: [metrics.mesh]
+        # Prometheus remote-writes through Envoy, preserving the lab's only-path rule.
+        aliases: [metrics.mesh, victoriametrics.mesh]
       net-pgexp:
         aliases: [postgres.mesh]
       net-grafana:
@@ -351,6 +352,7 @@ services:
     <<: *hardening
     image: docker.io/victoriametrics/victoria-metrics:v1.153.0
     user: "10006:10006"
+    # MQ gauges are consumed on read, so only Prometheus scrapes and this store receives its copy.
     command: ["-storageDataPath=/storage/data"]
     volumes:
       - vmetricsdata:/storage
