@@ -354,13 +354,23 @@ mq_metrics_verdict() {  # mq_metrics_verdict <fresh gauges> <Prometheus samples>
 }
 
 # PID 1's environment as it was exec'd: opentelemetry-instrument puts its auto_instrumentation
-# directory first on PYTHONPATH and then execs python in place, so that entry is the proof.
-instrumented_process() {  # instrumented_process <service>  -> "<service>:<its OTEL_SERVICE_NAME>:<instrumented|plain>"
-  in_container "$1" python -c 'import sys
+# directory (the installed one, not any path that ends the same way) first on PYTHONPATH and then
+# execs python in place, so that entry proves the hook was loaded. The hook swallows its own failure
+# (auto_instrumentation/__init__.py, _initialize) and the service runs on uninstrumented, so the
+# container's log must not hold that failure either; the log spans every start of the container.
+instrumented_process() {  # instrumented_process <service>  -> "<service>:<its OTEL_SERVICE_NAME>:<instrumented|plain|failed>"
+  local state failures
+  state="$(in_container "$1" python -c 'import importlib.util, os, sys
 env = dict(v.split("=", 1) for v in open("/proc/1/environ").read().split("\0") if "=" in v)
-paths = env.get("PYTHONPATH", "").split(":")
-hooked = any(p.endswith("/opentelemetry/instrumentation/auto_instrumentation") for p in paths)
-print(sys.argv[1] + ":" + env.get("OTEL_SERVICE_NAME", "none") + ":" + ("instrumented" if hooked else "plain"))' "$1"
+hook = os.path.dirname(importlib.util.find_spec("opentelemetry.instrumentation.auto_instrumentation").origin)
+hooked = hook in env.get("PYTHONPATH", "").split(":")
+print(sys.argv[1] + ":" + env.get("OTEL_SERVICE_NAME", "none") + ":" + ("instrumented" if hooked else "plain"))' "$1")"
+  # grep -c reads the whole log: under pipefail, grep -q's early exit would fail podman logs on SIGPIPE.
+  failures="$(podman logs "fabric-$1-1" 2>&1 | grep -c 'Failed to auto initialize OpenTelemetry')"
+  if [[ "${state}" == *:instrumented ]] && [ "${failures:-0}" -gt 0 ]; then
+    state="${state%:instrumented}:failed"
+  fi
+  echo "${state}"
 }
 
 instrumented_verdict() {  # instrumented_verdict <instrumented_process output for orders-api, worker, tcp-svc>
@@ -372,13 +382,21 @@ instrumented_verdict() {  # instrumented_verdict <instrumented_process output fo
   fi
 }
 
-# Tempo's OTLP JSON writes ids in base64 and kinds as SPAN_KIND_*. Counted under the one orders-api
-# server span for POST /orders whose parent is the check's own span: spans of another request, or
-# loose in the same document, are not under it. Old and stable semantic-convention names both count.
-order_trace_summary() {  # order_trace_summary <Tempo /api/v2/traces JSON> <the check's parent span id, 16 hex>
+# Tempo's OTLP JSON writes ids in base64 and kinds as SPAN_KIND_*. Only orders-api descendants, in
+# the requested trace, of the one orders-api server span for POST /orders whose parent is the check's
+# own span count: loose spans, another request and another service cannot fill a slot. Old and
+# stable semantic-convention names both count.
+order_trace_summary() {  # order_trace_summary <Tempo JSON> <trace id, 32 hex> <the check's parent span id, 16 hex>
   python3 -c 'import base64, json, sys
-hex_parent = sys.argv[1]
-parent = base64.b64encode(bytes.fromhex(hex_parent)).decode() if len(hex_parent) == 16 else "-"
+
+def encoded(hex_value, length):
+    try:
+        return base64.b64encode(bytes.fromhex(hex_value)).decode() if len(hex_value) == length else "-"
+    except ValueError:
+        return "-"
+
+expected_trace = encoded(sys.argv[1], 32)
+expected_parent = encoded(sys.argv[2], 16)
 try:
     resources = json.loads(sys.stdin.read() or "{}").get("trace", {}).get("resourceSpans", [])
 except ValueError:
@@ -391,21 +409,23 @@ for resource in resources:
             attrs = {a["key"]: next(iter(a["value"].values()), None) for a in span.get("attributes", [])}
             spans.append((names.get("service.name"), span, attrs))
 servers = [span["spanId"] for service, span, attrs in spans
-           if service == "orders-api" and span.get("kind") == "SPAN_KIND_SERVER"
-           and span.get("parentSpanId") == parent and attrs.get("http.route") == "/orders"]
+           if service == "orders-api" and span.get("traceId") == expected_trace
+           and span.get("kind") == "SPAN_KIND_SERVER"
+           and span.get("parentSpanId") == expected_parent and attrs.get("http.route") == "/orders"]
 children = {}
 for service, span, attrs in spans:
-    children.setdefault(span.get("parentSpanId"), []).append((span, attrs))
+    children.setdefault(span.get("parentSpanId"), []).append((service, span, attrs))
 under, todo, seen = [], list(servers), set(servers)
 while todo:
-    for span, attrs in children.get(todo.pop(), []):
-        if span["spanId"] not in seen:
-            seen.add(span["spanId"]); todo.append(span["spanId"]); under.append((span, attrs))
-clients = [attrs for span, attrs in under if span.get("kind") == "SPAN_KIND_CLIENT"]
+    for service, span, attrs in children.get(todo.pop(), []):
+        if span.get("spanId") not in seen:
+            seen.add(span.get("spanId")); todo.append(span.get("spanId")); under.append((service, span, attrs))
+clients = [attrs for service, span, attrs in under
+           if service == "orders-api" and span.get("traceId") == expected_trace and span.get("kind") == "SPAN_KIND_CLIENT"]
 http = sum(1 for a in clients if "http.method" in a or "http.request.method" in a)
 database = sum(1 for a in clients if "postgresql" in (a.get("db.system"), a.get("db.system.name")))
 traces = len({span.get("traceId") for service, span, attrs in spans})
-print("server=%d client=%d database=%d traces=%d spans=%d" % (len(servers), http, database, traces, len(spans)))' "$2" <<<"${1:-}"
+print("server=%d client=%d database=%d traces=%d spans=%d" % (len(servers), http, database, traces, len(spans)))' "$2" "$3" <<<"${1:-}"
 }
 
 order_trace_verdict() {  # order_trace_verdict <the POST's "HTTP <code>" line> <order_trace_summary output>
@@ -419,7 +439,8 @@ order_trace_verdict() {  # order_trace_verdict <the POST's "HTTP <code>" line> <
 }
 
 # The resource of every orders-api and worker span in the given traces (tcp-svc sends none; other
-# senders, such as Envoy from R1.6, are not this story's). A span without a field counts as missing.
+# named senders, such as Envoy from R1.6, are not this story's). A span without a field counts as
+# missing, and so does every span whose resource has no service.name at all.
 resource_summary() {  # resource_summary <Tempo /api/v2/traces JSON>...  -> "<service>=<version>/<environment> ... spans=<n> missing=<n>"
   python3 -c 'import json, sys
 seen, spans, missing = set(), 0, 0
@@ -430,13 +451,17 @@ for document in sys.argv[1:]:
         resources = []
     for resource in resources:
         a = {x["key"]: x["value"].get("stringValue") for x in resource.get("resource", {}).get("attributes", [])}
-        if a.get("service.name") not in ("orders-api", "worker", "tcp-svc"):
-            continue
         count = sum(len(scope.get("spans", [])) for scope in resource.get("scopeSpans", []))
+        service = a.get("service.name")
+        if count and not service:
+            spans += count; missing += count; seen.add("unknown=none/none")
+            continue
+        if service not in ("orders-api", "worker", "tcp-svc"):
+            continue
         spans += count
         if not (a.get("service.version") and a.get("deployment.environment")):
             missing += count
-        seen.add("%s=%s/%s" % (a["service.name"], a.get("service.version") or "none", a.get("deployment.environment") or "none"))
+        seen.add("%s=%s/%s" % (service, a.get("service.version") or "none", a.get("deployment.environment") or "none"))
 print(" ".join(sorted(seen) + ["spans=%d" % spans, "missing=%d" % missing]))' "$@"
 }
 
@@ -627,7 +652,8 @@ phase6() {
 
   # One order through Envoy's edge, carrying the check's own sampled trace context, so its trace id
   # is known before Tempo is asked: no search, and no other request's trace can be picked. The
-  # services' batch span processors export every 5 s, so each lookup waits up to 60 s.
+  # services' batch span processors export every 5 s; 20 lookups 3 s apart, each bounded by
+  # store_get's own timeout, so at most about 260 s when Tempo hangs.
   order_trace_id="$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]')"
   order_parent="$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]' | cut -c1-16)"
   out="$(api POST /orders -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
@@ -635,7 +661,7 @@ phase6() {
   order_status="$(tail -1 <<<"${out}")"
   for i in $(seq 1 20); do
     order_trace="$(store_get "http://tempo.mesh:18080/api/v2/traces/${order_trace_id}" 2>/dev/null)"
-    summary="$(order_trace_summary "${order_trace}" "${order_parent}" 2>/dev/null)"
+    summary="$(order_trace_summary "${order_trace}" "${order_trace_id}" "${order_parent}" 2>/dev/null)"
     [[ "${summary}" =~ ^server=1\ client=[1-9][0-9]*\ database=[1-9] ]] && break
     sleep 3
   done

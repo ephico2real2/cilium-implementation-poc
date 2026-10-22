@@ -114,12 +114,14 @@ a { color: var(--remote); }
             <text x="40" y="462">Logs: every line orders-api and the worker wrote in these spans, from VictoriaLogs by trace id (R1.7).</text>
             <text x="40" y="484">Metrics: a duration exemplar in Prometheus opens this trace; VictoriaMetrics correlates by labels (R1.8).</text>
             <text x="40" y="510" fill="var(--muted)">Colour by service: <tspan fill="var(--remote)" font-weight="600">teal orders-api</tspan>, <tspan fill="var(--host)" font-weight="600">amber worker</tspan>, ink Envoy, <tspan fill="var(--none)" font-weight="600">grey Postgres</tspan>. Indent = parent and child.</text>
-            <text x="40" y="534" fill="var(--host)" font-weight="600">Solid = built (R1.4): server=1 client=1 database=6, one trace of 12 spans (phase6). Dashed = R1.5, R1.6.</text>
+            <text x="40" y="526" fill="var(--host)" font-weight="600">Solid = built (R1.4), four of the measured trace's 12 spans: 1 server, 1 HTTP, 6 database, 4 ASGI internal.</text>
+            <text x="40" y="548" fill="var(--host)" font-weight="600">Dashed = proposed: R1.5, R1.6.</text>
           </g>
         </svg>
       </div>
-      <figcaption>Since R1.4 the API's spans exist (solid): phase 6 found one order's trace with its server span, one
-        HTTP client span and six database spans (its statements and the connection pool's checks), 12 spans in all.
+      <figcaption>The mock draws the order's business path, not every span instrumentation makes. Since R1.4 the
+        API's part of it exists (solid): phase 6 found one order's trace of 12 spans, its server span, one HTTP client
+        span, six database spans (its statements and the connection pool's checks) and four ASGI internal spans.
         Still proposed (dashed): the MQ hand-off by traceparent and the worker's spans in the same trace (R1.5),
         Envoy's mesh hops (R1.6). Release 1 is done when the real trace matches this tree, with its logs and an
         exemplar linked. Bar lengths are the mock's, from the hops measured on 2026-10-21.</figcaption>

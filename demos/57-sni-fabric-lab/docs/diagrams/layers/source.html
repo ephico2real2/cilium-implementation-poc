@@ -138,7 +138,7 @@ a { color: var(--remote); }
 <text x="455.3" y="461" fill="var(--muted)">scrapes via metrics.mesh</text>
 <rect x="707.7" y="420" width="252.3" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5"/>
 <text x="721.7" y="443" font-weight="600">auto-instrumentation</text>
-<text x="721.7" y="461" fill="var(--muted)">traces (R1.4); R1.5–R1.8 next</text>
+<text x="721.7" y="461" fill="var(--muted)">orders-api, worker traces (R1.4)</text>
 <line x1="567.5" y1="478" x2="567.5" y2="496" stroke="currentColor" stroke-width="1.4" marker-end="url(#ah1)"/>
 <text x="24" y="531" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600" fill="var(--muted)">STORES</text>
 <rect x="175.0" y="498" width="185.8" height="56" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
@@ -159,12 +159,13 @@ a { color: var(--remote); }
 <text x="189.0" y="599" font-weight="600">Grafana 12.4</text>
 <text x="189.0" y="617" fill="var(--muted)">dashboard; a datasource for every store</text>
 <text x="24" y="660" fill="var(--muted)">Every arrow between layers is a hop through Envoy; no component shares a network with another, only with Envoy.</text>
-<text x="24" y="682" fill="var(--host)" font-weight="600">The services send traces since R1.4; their logs, MQ context and RED metrics are R1.5–R1.8.</text>
+<text x="24" y="682" fill="var(--host)" font-weight="600">orders-api and worker send traces since R1.4 (tcp-svc runs instrumented, nothing to trace); logs, MQ context, RED metrics: R1.5–R1.8.</text>
           </g>
         </svg>
       </div>
       <figcaption>Every hop between layers goes through Envoy. The stores (Tempo, VictoriaTraces, VictoriaMetrics,
-        VictoriaLogs) came with R1.2; the services' traces with R1.4.</figcaption>
+        VictoriaLogs) came with R1.2; orders-api's and the worker's traces with R1.4 (tcp-svc runs instrumented,
+        but nothing in it has an instrumentation, so it sends no span).</figcaption>
     </figure>
   </section>
 
@@ -412,8 +413,8 @@ a { color: var(--remote); }
             <text x="44" y="83" font-weight="600">telemetrygen v0.162</text>
             <text x="44" y="101" fill="var(--muted)">synthetic spans (phase6)</text>
             <rect x="30" y="136" width="200" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5"/>
-            <text x="44" y="159" font-weight="600">orders-api · worker · tcp-svc</text>
-            <text x="44" y="177" fill="var(--muted)">OTel SDK, traces (R1.4)</text>
+            <text x="44" y="159" font-weight="600">orders-api · worker</text>
+            <text x="44" y="177" fill="var(--muted)">traces (R1.4); tcp-svc: none</text>
             <rect x="30" y="212" width="200" height="56" rx="8" fill="var(--host-wash)" stroke="var(--host)" stroke-width="1.5" stroke-dasharray="5 4"/>
             <text x="44" y="235" font-weight="600">Envoy mesh spans</text>
             <text x="44" y="253" fill="var(--muted)">R1.6</text>
@@ -476,7 +477,8 @@ a { color: var(--remote); }
       </div>
       <figcaption>Built and checked: telemetrygen → Envoy → collector → Envoy → the four stores, Prometheus scraping
         through Envoy and remote-writing every sample through Envoy to VictoriaMetrics, Grafana reading every store
-        through Envoy, and the services' traces (R1.4). Still sprint 2: Envoy's
+        through Envoy, and orders-api's and the worker's traces (R1.4; tcp-svc runs instrumented but sends no
+        span). Still sprint 2: Envoy's
         spans.</figcaption>
     </figure>
   </section>
