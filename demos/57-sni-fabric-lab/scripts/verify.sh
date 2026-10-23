@@ -10,7 +10,8 @@
 #            four stores ready and isolated, equal healthy metric jobs, MQ gauge preservation,
 #            Grafana's datasources, and one run of traces (same ids and span count), metrics and logs;
 #            the three services run under opentelemetry-instrument, one order's trace in Tempo has
-#            server, client and database spans, and their resources name service, version, environment
+#            server, client and database spans, and their resources name service, version, environment;
+#            the worker's processing joins the order's trace across MQ, a requeued attempt too
 #   phase5   failures: 50% chaos, Postgres restart, MQ stop and start, tcp-svc stop and start.
 #            It stops and restarts containers on purpose, so it is never part of the default.
 #   (no argument)  phase1 phase2 phase3. Phase 4 (metrics) is checked by tests/dashboard_*.py.
@@ -475,6 +476,113 @@ resource_verdict() {  # resource_verdict <resource_summary output>
   fi
 }
 
+# R1.5: the order's trace continues through IBM MQ. In the requested trace only: the worker's
+# "process" spans whose parent is an orders-api "send" span under the order's server span (whose
+# parent is the check's own span) are first attempts; a worker "send" to the same queue under an
+# attempt is a requeue, and a "process" span whose parent is a requeue is a later attempt. A status
+# update counts as ok (HTTP 200) for the attempt that is its nearest worker "process" ancestor, so
+# a later attempt's update cannot count for the first. Old and stable status-code names both count.
+# Given the order's id, every process span and the order's send must name it, and a status update
+# counts only for that order and only under the worker's PUT: a context leaked from another message
+# cannot pass for this order's processing.
+mq_trace_summary() {  # mq_trace_summary <Tempo JSON> <trace id, 32 hex> <the check's parent span id, 16 hex> [order id]
+  python3 -c 'import base64, json, sys
+from urllib.parse import urlsplit
+
+def encoded(hex_value, length):
+    try:
+        return base64.b64encode(bytes.fromhex(hex_value)).decode() if len(hex_value) == length else "-"
+    except ValueError:
+        return "-"
+
+expected_trace = encoded(sys.argv[1], 32)
+expected_parent = encoded(sys.argv[2], 16)
+expected_order = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else None
+try:
+    resources = json.loads(sys.stdin.read() or "{}").get("trace", {}).get("resourceSpans", [])
+except ValueError:
+    resources = []
+spans, traces = {}, set()
+for resource in resources:
+    service = {a["key"]: a["value"].get("stringValue") for a in resource.get("resource", {}).get("attributes", [])}.get("service.name")
+    for scope in resource.get("scopeSpans", []):
+        for span in scope.get("spans", []):
+            traces.add(span.get("traceId"))
+            if span.get("traceId") == expected_trace:
+                attrs = {a["key"]: next(iter(a["value"].values()), None) for a in span.get("attributes", [])}
+                spans[span.get("spanId")] = (service, span.get("kind"), span.get("name"), span.get("parentSpanId"), attrs)
+
+def parent(span_id):
+    return spans[span_id][3] if span_id in spans else None
+
+def nearest(span_id, wanted):  # the closest ancestor of span_id for which wanted(id) holds
+    seen, current = set(), parent(span_id)
+    while current in spans and current not in seen:
+        if wanted(current):
+            return current
+        seen.add(current); current = parent(current)
+    return None
+
+def named(span_id, service, kind, name):
+    return span_id in spans and spans[span_id][:3] == (service, "SPAN_KIND_" + kind, name)
+
+def attr(attrs, *names):  # the first of the names present: old and stable semantic-convention names
+    return next((attrs[n] for n in names if attrs.get(n) is not None), None)
+
+def has_order(span_id):  # the span names the order the check placed
+    return expected_order is None or (span_id in spans and str(spans[span_id][4].get("fabric.order.id")) == expected_order)
+
+def targets_order(attrs):  # the request is the status update of that order
+    raw = attr(attrs, "url.path", "http.target", "url.full", "http.url")
+    return expected_order is None or (bool(raw) and urlsplit(str(raw)).path == f"/orders/{expected_order}/status")
+
+def worker_put(span_id):
+    return span_id in spans and spans[span_id][:2] == ("worker", "SPAN_KIND_CLIENT") \
+        and attr(spans[span_id][4], "http.request.method", "http.method") == "PUT" and targets_order(spans[span_id][4])
+
+process = lambda i: named(i, "worker", "CONSUMER", "process DEV.QUEUE.1") and has_order(i)
+servers = {i for i, (service, kind, name, up, attrs) in spans.items() if service == "orders-api"
+           and kind == "SPAN_KIND_SERVER" and up == expected_parent and attrs.get("http.route") == "/orders"}
+first = {i for i in spans if process(i) and named(parent(i), "orders-api", "PRODUCER", "send DEV.QUEUE.1")
+         and has_order(parent(i)) and nearest(parent(i), lambda a: a in servers)}
+attempts, requeues, later = set(first), set(), set()
+while True:
+    requeues = {i for i in spans if named(i, "worker", "PRODUCER", "send DEV.QUEUE.1") and nearest(i, process) in attempts}
+    found = {i for i in spans if process(i) and parent(i) in requeues}
+    if found <= later:
+        break
+    later |= found; attempts |= found
+ok = [nearest(i, process) for i, (service, kind, name, up, attrs) in spans.items() if service == "orders-api"
+      and kind == "SPAN_KIND_SERVER" and attrs.get("http.route") == "/orders/{order_id}/status"
+      and str(attr(attrs, "http.response.status_code", "http.status_code")) == "200"
+      and targets_order(attrs) and worker_put(up)]
+print("server=%d first=%d first_ok=%d requeued=%d later=%d later_ok=%d traces=%d" % (
+    len(servers), len(first), sum(a in first for a in ok), len(requeues), len(later), sum(a in later for a in ok),
+    len(traces)))' "$2" "$3" "${4:-}" <<<"${1:-}"
+}
+
+worker_join_verdict() {  # worker_join_verdict <the POST's "HTTP <code>" line> <mq_trace_summary output>
+  local status="${1:-}" summary="${2:-}"
+  local want='^server=1 first=[1-9][0-9]* first_ok=[0-9]+ requeued=[0-9]+ later=[0-9]+ later_ok=[0-9]+ traces=1$'
+  # Processed under the order's send span, and the order updated in this trace by some attempt.
+  if [ "${status}" = "HTTP 201" ] && [[ "${summary}" =~ ${want} ]] && [[ ! "${summary}" =~ first_ok=0\ .*later_ok=0 ]]; then
+    pass "otel: the worker's span joins the order's trace" "${summary}"
+  else
+    fail "otel: the worker's span joins the order's trace" "POST ${status:-no answer}; ${summary:-no answer from Tempo}"
+  fi
+}
+
+requeue_join_verdict() {  # requeue_join_verdict <the POST's "HTTP <code>" line> <mq_trace_summary output>
+  local status="${1:-}" summary="${2:-}"
+  # The first attempt failed (that is what requeued it), and a later attempt updated the order.
+  local want='^server=1 first=[1-9][0-9]* first_ok=0 requeued=[1-9][0-9]* later=[1-9][0-9]* later_ok=[1-9][0-9]* traces=1$'
+  if [ "${status}" = "HTTP 201" ] && [[ "${summary}" =~ ${want} ]]; then
+    pass "otel: a requeued event's later attempt joins the trace" "${summary}"
+  else
+    fail "otel: a requeued event's later attempt joins the trace" "POST ${status:-no answer}; ${summary:-no answer from Tempo}"
+  fi
+}
+
 phase6() {
   echo "== Phase 6: OpenTelemetry collector and the telemetry stores"
   # Each telemetrygen trace is a parent and one child span (--child-spans defaults to 1), and
@@ -484,7 +592,7 @@ phase6() {
     isolated collector_networks peers internal entry store network url want i uid run tempo vtraces \
     tempo_list first log_trace_id value tempo_spans vtraces_spans expected_jobs prometheus_jobs \
     victoria_jobs mq_gauges prometheus_mq_samples victoria_mq_samples victoria_mq_gauges \
-    service processes order_trace_id order_parent order_status order_trace summary worker_trace
+    service processes order_trace_id order_parent order_status order_trace summary mq_trace order_id
   local sent=$((traces * 2))
   # <service> <its network> <readiness URL through Envoy> <the answer when ready>
   local stores=(
@@ -667,11 +775,37 @@ phase6() {
   done
   order_trace_verdict "${order_status}" "${summary}"
 
-  # The order's trace holds orders-api's spans; the worker's own polls are traces of their own
-  # until R1.5, so one of them stands for the worker's resource.
-  read -r worker_trace _ <<<"$(tempo_ids worker)"
-  resource_verdict "$(resource_summary "${order_trace}" \
-    "$(store_get "http://tempo.mesh:18080/api/v2/traces/${worker_trace:-none}" 2>/dev/null)" 2>/dev/null)"
+  # R1.5, AC 1: the worker's processing of that order's event, and its status update, in the same trace.
+  order_id="$(json_field 'd["id"]' <<<"${out}" 2>/dev/null)"
+  for i in $(seq 1 20); do
+    mq_trace="$(store_get "http://tempo.mesh:18080/api/v2/traces/${order_trace_id}" 2>/dev/null)"
+    summary="$(mq_trace_summary "${mq_trace}" "${order_trace_id}" "${order_parent}" "${order_id}" 2>/dev/null)"
+    [[ "${summary}" =~ (first|later)_ok=[1-9] ]] && break
+    sleep 3
+  done
+  worker_join_verdict "${order_status}" "${summary}"
+
+  # Since R1.5 the worker makes spans only for the messages it processes, so the order's whole trace,
+  # read again above, stands for both services' resources.
+  resource_verdict "$(resource_summary "${mq_trace}" 2>/dev/null)"
+
+  # R1.5, AC 2: the next 4 status updates fail, one per try of Envoy's (a first try and num_retries: 3
+  # on api.mesh's PUT route, envoy/envoy.yaml), so the order's first attempt fails, the worker puts the
+  # event back, and the next attempt updates it. Chaos is reset whatever happened.
+  set_chaos 0 4
+  order_trace_id="$(uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]')"
+  out="$(api POST /orders -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
+    -H "traceparent: 00-${order_trace_id}-${order_parent}-01" -d '{"item":"flat white","quantity":1}')"
+  order_status="$(tail -1 <<<"${out}")"
+  order_id="$(json_field 'd["id"]' <<<"${out}" 2>/dev/null)"
+  for i in $(seq 1 20); do
+    mq_trace="$(store_get "http://tempo.mesh:18080/api/v2/traces/${order_trace_id}" 2>/dev/null)"
+    summary="$(mq_trace_summary "${mq_trace}" "${order_trace_id}" "${order_parent}" "${order_id}" 2>/dev/null)"
+    [[ "${summary}" =~ later_ok=[1-9] ]] && break
+    sleep 3
+  done
+  set_chaos 0
+  requeue_join_verdict "${order_status}" "${summary}"
 }
 
 new_order() {  # new_order <item>  -> the new order's id
@@ -693,9 +827,9 @@ wait_processed() {  # wait_processed <seconds> <id>...  -> "processed=N of M aft
   echo "processed=${done_count} of $# after ${waited}s"
 }
 
-set_chaos() {  # set_chaos <fail_rate 0..1>
+set_chaos() {  # set_chaos <fail_rate 0..1> [fail_next: the next n status updates fail, default 0]
   api PUT /admin/chaos -H "Authorization: Bearer $(cat "${DEMO_DIR}/secrets/admin-token")" \
-    -H 'Content-Type: application/json' -d "{\"fail_rate\":$1,\"delay_ms\":0}" >/dev/null
+    -H 'Content-Type: application/json' -d "{\"fail_rate\":$1,\"delay_ms\":0,\"fail_next\":${2:-0}}" >/dev/null
 }
 
 wait_healthy() {  # wait_healthy <service> <seconds>

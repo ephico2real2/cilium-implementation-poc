@@ -1,0 +1,125 @@
+# Measured for R1.5 (#98) on the running lab, 2026-10-23 (UTC), each with its command. Every MQ round
+# trip is on DEV.QUEUE.3, which nothing in the lab reads; sections 3 and 4 run R1.5's own
+# app/clients.py and worker.py inside the running orders-api and worker containers (podman exec,
+# opentelemetry-instrument, OTEL_SERVICE_NAME r15-probe-*, MQ_QUEUE=DEV.QUEUE.3), the worker's
+# status updates answered by a fake orders-api (503 once, then 200), so no order was touched.
+
+## 1. How MQ REST v3 returns several user properties (podman exec -i fabric-worker-1 python -)
+browse   200 messages waiting: 0
+--- two headers: put 201
+get      200 'probe r1.5'
+raw      [('ibm-mq-usr', 'other;"a,b";string,traceparent;"00-a8b1f9406f471486a6f21de8aa7b3f60-fe6e8317cba04bb2-01";string')]
+get()    'other;"a,b";string,traceparent;"00-a8b1f9406f471486a6f21de8aa7b3f60-fe6e8317cba04bb2-01";string'
+get_list ['other;"a,b";string,traceparent;"00-a8b1f9406f471486a6f21de8aa7b3f60-fe6e8317cba04bb2-01";string']
+--- comma value: put 201
+get      200 'probe r1.5'
+raw      [('ibm-mq-usr', 'tracestate;"k1=v1,k2=v2";string')]
+get()    'tracestate;"k1=v1,k2=v2";string'
+get_list ['tracestate;"k1=v1,k2=v2";string']
+--- one header, two properties: put 201
+get      200 'probe r1.5'
+raw      [('ibm-mq-usr', 'other;"x";string,traceparent;"00-a8b1f9406f471486a6f21de8aa7b3f60-fe6e8317cba04bb2-01";string')]
+get()    'other;"x";string,traceparent;"00-a8b1f9406f471486a6f21de8aa7b3f60-fe6e8317cba04bb2-01";string'
+get_list ['other;"x";string,traceparent;"00-a8b1f9406f471486a6f21de8aa7b3f60-fe6e8317cba04bb2-01";string']
+browse   200 messages waiting: 0
+
+## 2. Which values MQ accepts, and how it writes them back
+put all  400 {"error": [{
+  "message": "MQWB0302E: The 'ibm-mq-usr' request header cannot be set as 's;\"a;b\";string' is not a valid request header value.",
+put 'q;"a\\"b";string': 201; get 200 ibm-mq-usr ['q;"a\\"b";string']
+put 's;"a;b";string': 400 {"error": [{
+  "message": "MQWB0302E: The 'ibm-mq-us
+put 'b;"a\\\\b";string': 201; get 200 ibm-mq-usr ['b;"a\\\\b";string']
+put 'n;5;int32': 400 {"error": [{
+  "message": "MQWB0302E: The 'ibm-mq-us
+put 'u;abc;string': 400 {"error": [{
+  "message": "MQWB0302E: The 'ibm-mq-us
+put 'traceparent;"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";string': 201; get 200 ibm-mq-usr ['traceparent;"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";string']
+waiting  0
+put 'n;5;int': 400
+put 'b;true;boolean': 201; get 200 ['b;true;boolean']
+put 'l;7;long': 201; get 200 ['l;7;long']
+put 'q;"x\\",y";string': 201; get 200 ['q;"x\\",y";string']
+put 'traceparent;"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";string': 201; get 200 ['traceparent;"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";string']
+all      201 200 ['b;true;boolean,l;7;long,q;"x\\",y";string,traceparent;"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";string']
+waiting  0
+
+## 3. Producer: an order request's send, then a re-send from another trace (fabric-orders-api-1)
+DEV.QUEUE.3 waiting before: 0
+order request traceparent: 00-04b66bf3621c2be4e8d89bbe6479f8a7-e12fd438dbdcc316-03
+first send: (True, '')
+republish request trace: f7d4cb7016622c580ae76f79b0cc6a38
+re-send: (True, '')
+DEV.QUEUE.3 waiting after: 2
+
+## 4. Consumer: the worker gets both, fails the first update once, requeues, processes all (fabric-worker-1)
+{"ts": "2026-10-23T00:09:00+0000", "level": "INFO", "msg": "worker started: http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.3/message -> http://api.mesh:18080"}
+{"ts": "2026-10-23T00:09:00+0000", "level": "WARNING", "msg": "order 0 update failed (503); event put back as attempt 2"}
+{"ts": "2026-10-23T00:09:00+0000", "level": "INFO", "msg": "order 0 processed (event attempt 2)"}
+{"ts": "2026-10-23T00:09:00+0000", "level": "INFO", "msg": "order 0 processed (event attempt 2)"}
+{"ts": "2026-10-23T00:09:00+0000", "level": "INFO", "msg": "worker stopped"}
+fake api /orders/0/status 503 traceparent None
+fake api /orders/0/status 200 traceparent None
+fake api /orders/0/status 200 traceparent None
+DEV.QUEUE.3 waiting after: 0
+
+## 5. The trace in Tempo: one trace, two services, across MQ twice
+$ GET http://tempo.mesh:18080/api/v2/traces/04b66bf3621c2be4e8d89bbe6479f8a7  (2026-10-23T00:09:23Z)
+10 spans, traces ['04b66bf3621c2be4e8d89bbe6479f8a7']
+(parent none, not in this trace)
+     0.00 ms   r15-probe-orders-api  SERVER   probe POST /orders     -     ''                                         {}
+     0.06 ms     r15-probe-orders-api  PRODUCER send DEV.QUEUE.3       -     ''                                         {'messaging.system': 'ibm_mq', 'messaging.destination.name': 'DEV.QUEUE.3', 'messaging.operation.name': 'send', 'messaging.operation.type': 'send', 'fabric.order.id': '0', 'messaging.message.id': 'ID:414d5120514d31202020202020202020945bda6a0d2d0040'}
+     0.32 ms       r15-probe-orders-api  CLIENT   POST                   -     ''                                         {}
+  5885.65 ms       r15-probe-worker      CONSUMER process DEV.QUEUE.3    ERROR 'update failed (attempt 1): 503'           {'messaging.system': 'ibm_mq', 'messaging.destination.name': 'DEV.QUEUE.3', 'messaging.operation.name': 'process', 'messaging.operation.type': 'process', 'messaging.message.id': 'ID:414d5120514d31202020202020202020945bda6a0d2d0040', 'fabric.order.id': '0'}
+  5912.12 ms         r15-probe-worker      PRODUCER send DEV.QUEUE.3       -     ''                                         {'messaging.system': 'ibm_mq', 'messaging.destination.name': 'DEV.QUEUE.3', 'messaging.operation.name': 'send', 'messaging.operation.type': 'send', 'messaging.message.id': 'ID:414d5120514d31202020202020202020945bda6a072a0040'}
+  5912.37 ms           r15-probe-worker      CLIENT   POST                   -     ''                                         {}
+  5949.16 ms           r15-probe-worker      CONSUMER process DEV.QUEUE.3    -     ''                                         {'messaging.system': 'ibm_mq', 'messaging.destination.name': 'DEV.QUEUE.3', 'messaging.operation.name': 'process', 'messaging.operation.type': 'process', 'messaging.message.id': 'ID:414d5120514d31202020202020202020945bda6a072a0040', 'fabric.order.id': '0'}
+    17.39 ms     r15-probe-orders-api  PRODUCER send DEV.QUEUE.3       -     ''                                         {'messaging.system': 'ibm_mq', 'messaging.destination.name': 'DEV.QUEUE.3', 'messaging.operation.name': 'send', 'messaging.operation.type': 'send', 'fabric.order.id': '0', 'messaging.message.id': 'ID:414d5120514d31202020202020202020945bda6a0d450040'} links=[('f7d4cb7016622c580ae76f79b0cc6a38', '4a93994f626f5a2b')]
+    17.63 ms       r15-probe-orders-api  CLIENT   POST                   -     ''                                         {}
+  5937.76 ms       r15-probe-worker      CONSUMER process DEV.QUEUE.3    -     ''                                         {'messaging.system': 'ibm_mq', 'messaging.destination.name': 'DEV.QUEUE.3', 'messaging.operation.name': 'process', 'messaging.operation.type': 'process', 'messaging.message.id': 'ID:414d5120514d31202020202020202020945bda6a0d450040', 'fabric.order.id': '0'}
+
+## 6. The worker's gets make no span (Tempo search, TraceQL)
+$ q={resource.service.name="r15-probe-worker"} start=now-900 (2026-10-23T00:09:32Z)
+2 traces: [('7858d2c5530f0e3885798deb3ae93474', 'GET'), ('4b66bf3621c2be4e8d89bbe6479f8a7', 'probe POST /orders')]
+# (7858... GET is the probe's own browse of DEV.QUEUE.3 after the loop, section 4's last line.)
+$ q={resource.service.name="r15-probe-worker" && name="DELETE"} start=now-900 (2026-10-23T00:09:32Z)
+0 traces: []
+# The republish request's own trace, which the re-send's send span links to (section 5, links=):
+$ GET /api/v2/traces/f7d4cb7016622c580ae76f79b0cc6a38
+1 spans, traces ['f7d4cb7016622c580ae76f79b0cc6a38']
+(parent none, not in this trace)
+     0.00 ms   r15-probe-orders-api  SERVER   probe republish request -     ''                                         {}
+
+## 7. The running worker (R1.4) before: its traces over 10 idle minutes (2026-10-23T00:06:13Z)
+$ q={resource.service.name="worker" && name="DELETE"} start=now-600 limit=1000
+115 traces
+$ q={resource.service.name="worker" && name="PUT"} start=now-600 limit=1000
+0 traces
+$ q={resource.service.name="worker"} start=now-600 limit=1000
+116 traces
+
+## 8. A span that arrives 13 minutes after its trace joins it (a re-send's case)
+$ 2026-10-23T00:21:57Z: a span with parent 00-04b66bf3621c2be4e8d89bbe6479f8a7-e12fd438dbdcc316-03 (the probe's root, put at 2026-10-23T00:09:00Z)
+late span sent
+$ GET http://tempo.mesh:18080/api/v2/traces/04b66bf3621c2be4e8d89bbe6479f8a7 (2026-10-23T00:22:08Z)
+11 spans, traces ['04b66bf3621c2be4e8d89bbe6479f8a7']
+(parent none, not in this trace)
+     0.00 ms   r15-probe-orders-api  SERVER   probe POST /orders     -     ''
+     0.06 ms     r15-probe-orders-api  PRODUCER send DEV.QUEUE.3       -     ''
+     0.32 ms       r15-probe-orders-api  CLIENT   POST                   -     ''
+  5885.65 ms       r15-probe-worker      CONSUMER process DEV.QUEUE.3    ERROR 'update failed (attempt 1): 503
+  5912.12 ms         r15-probe-worker      PRODUCER send DEV.QUEUE.3       -     ''
+  5912.37 ms           r15-probe-worker      CLIENT   POST                   -     ''
+  5949.16 ms           r15-probe-worker      CONSUMER process DEV.QUEUE.3    -     ''
+    17.39 ms     r15-probe-orders-api  PRODUCER send DEV.QUEUE.3       -     ''
+    17.63 ms       r15-probe-orders-api  CLIENT   POST                   -     ''
+  5937.76 ms       r15-probe-worker      CONSUMER process DEV.QUEUE.3    -     ''
+784327.40 ms     r15-probe-orders-api  PRODUCER probe late re-send     -     ''
+
+## 9. After the review: links and error.type on the lab (2026-10-23, orders-api and the worker rebuilt)
+$ PUT /admin/chaos fail_next 4; POST /orders with traceparent 00-ab71cb4bf3da4bc7a1f0c97771d44e2d-...; PUT /admin/chaos fail_next 0
+$ curl http://tempo.mesh:18080/api/v2/traces/ab71cb4bf3da4bc7a1f0c97771d44e2d   (its send and process spans)
+worker     send DEV.QUEUE.1     id=39f00a938fcb1e5d parent=52b940f40bf9b149 links=[] error.type=- UNSET
+worker     process DEV.QUEUE.1  id=52b940f40bf9b149 parent=ed3984b8e44d4776 links=['ed3984b8e44d4776'] error.type=503 ERROR
+worker     process DEV.QUEUE.1  id=9a5a05dd4579f5e6 parent=39f00a938fcb1e5d links=['39f00a938fcb1e5d'] error.type=- UNSET
+orders-api send DEV.QUEUE.1     id=ed3984b8e44d4776 parent=2400a6f704f04a59 links=[] error.type=- UNSET

@@ -136,8 +136,9 @@ VictoriaTraces, fed the same data and compared, so that the choice rests on meas
   - AC 3 and AC 4: Grafana has one Prometheus datasource variable, defaults to uid
     `prometheus`, and every panel follows it. The Perses converter degraded the variable to an
     empty `variables` list and its supplied fixed `prometheus` datasource; its JSON was not
-    hand-edited. On VictoriaMetrics: `31 queries, 0 with errors or warnings, 2 empty` before
-    phase 5 generated the status-update failure series (`output/transcript.txt`).
+    hand-edited. On VictoriaMetrics: `31 queries, 0 with errors or warnings, 0 empty`: since
+    R1.5, phase 6's requeue check creates the status-update failure series before this step, which
+    phase 5 alone did before (`output/transcript.txt`).
   - Phase 6 now requires all 11 healthy metric jobs in both stores, the same positive count of
     fresh MQ recovery-log gauges and the same positive MQ scrape sample count. `run.sh` gates
     parity until every selected rate is comparable and fails a disagreement seen twice; it also recreates any running
@@ -304,7 +305,10 @@ call that created the event, so that one order is one trace.
 | 1 | an order is placed | the worker processes its event | the worker's span has the API span's trace id |
 | 2 | the event is requeued after a failure | it is processed later | the later attempt joins the same trace (a span link or child) |
 
-- **Test:** `phase6` "otel: the worker's span joins the order's trace".
+- **Test:** `phase6` "otel: the worker's span joins the order's trace", and for AC 2 "otel: a
+  requeued event's later attempt joins the trace", which forces one requeue with the chaos
+  switch's `fail_next` (the next n status updates fail); `tests/scripts/test_mq_trace_context.sh`
+  runs the services' code against fakes, with no lab.
 - **Spike first:** does the MQ REST v3 user-property header (`ibm-mq-usr`) carry `traceparent`
   on put and return it on get? Fallback: a `traceparent` field in the event body.
 - **Spike answered (2026-10-22, #107): yes, the header carries it.** From inside the worker,
@@ -313,6 +317,15 @@ call that created the event, so that one order is one trace.
   and its `ibm-mq-usr` response header returned the same property, value and type
   (`tests/spikes/r1-5_mq_traceparent.sh`, recorded in `output/spike-r1-5-mq-traceparent.txt`).
   R1.5 uses the header; the event body stays as it is.
+- **Built (2026-10-23, #98):** orders-api puts the event in a `send DEV.QUEUE.1` span and sends its
+  `traceparent` as an `ibm-mq-usr` user property; the worker processes each message in a
+  `process DEV.QUEUE.1` span whose parent is that context, and every put of its own (requeue,
+  dead letter) is a `send` span the next attempt continues. The order row stores its request's
+  `traceparent`, so a re-send joins the order's trace. Measured: MQ returns all of a message's
+  properties in one header, comma-joined and sorted by name, and refuses a value with `;`, so only
+  `traceparent` is carried. The fresh run: 14 min 49 s, 92 checks, 0 failures; one order is one
+  22-span trace across both services (record: [../reviews/R1.5.md](../reviews/R1.5.md), the
+  mechanism: [../tracing.md](../tracing.md#across-ibm-mq-one-order-one-trace)).
 
 ## R1.6 Envoy's spans on the mesh
 

@@ -12,6 +12,8 @@ opentelemetry-exporter-otlp-proto-http==1.45.1
 opentelemetry-instrumentation-fastapi==0.66b1
 opentelemetry-instrumentation-httpx==0.66b1
 opentelemetry-instrumentation-psycopg==0.66b1
+# Imported by app/clients.py itself (R1.5): the trace API with its W3C propagator.
+opentelemetry-api==1.45.1
 # Needed by opentelemetry-instrumentation; held at the newest release at least two weeks old
 # (ROADMAP, Definition of Done 1): 2.5.1 came out 2026-10-14.
 wrapt==2.5.0

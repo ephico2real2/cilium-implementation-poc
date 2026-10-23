@@ -13,8 +13,7 @@ import types
 import urllib.error
 from pathlib import Path
 
-TRACE, PARENT, WORKER_TRACE = "a" * 32, "b" * 16, "e" * 32
-PUT_ID, STATUS_ID = "d" * 16, "9" * 16
+TRACE, PARENT = "a" * 32, "b" * 16
 
 
 def load(path: str, demo: Path):
@@ -49,22 +48,23 @@ def tempo(*groups: tuple[str, list[dict]]) -> dict:
          "scopeSpans": [{"spans": spans}]} for service, spans in groups]}}
 
 
-ORDER = [span("SERVER", "POST /orders", "1" * 16, PARENT), span("CLIENT", "INSERT", "2" * 16, "1" * 16),
-         span("CLIENT", "POST", "3" * 16, "1" * 16), span("CLIENT", "UPDATE", "4" * 16, "1" * 16),
-         span("CLIENT", "SELECT", "5" * 16, "1" * 16)]
+# The order's trace since R1.5: orders-api's request with its send to MQ, the worker's processing
+# under the send, and orders-api's status update under the worker's PUT.
+API = [span("SERVER", "POST /orders", "1" * 16, PARENT), span("CLIENT", "INSERT", "2" * 16, "1" * 16),
+       span("PRODUCER", "send DEV.QUEUE.1", "6" * 16, "1" * 16), span("CLIENT", "POST", "3" * 16, "6" * 16),
+       span("CLIENT", "UPDATE", "4" * 16, "1" * 16), span("CLIENT", "SELECT", "5" * 16, "1" * 16),
+       span("SERVER", "PUT /orders/{order_id}/status", "9" * 16, "d" * 16), span("CLIENT", "UPDATE", "8" * 16, "9" * 16)]
+WORKER = [span("CONSUMER", "process DEV.QUEUE.1", "c" * 16, "6" * 16),
+          span("CLIENT", "PUT", "d" * 16, "c" * 16, url="http://api.mesh:18080/orders/43/status")]
+ORDER = API + WORKER
 
-
-def worker(status_parent: str) -> dict:
-    return tempo(("worker", [span("CLIENT", "PUT", PUT_ID, "", WORKER_TRACE, "http://api.mesh:18080/orders/43/status")]),
-                 ("orders-api", [span("SERVER", "PUT /orders/{order_id}/status", STATUS_ID, status_parent, WORKER_TRACE),
-                                 span("CLIENT", "UPDATE", "8" * 16, STATUS_ID, WORKER_TRACE)]))
 
 
 class Browser:
-    """Pages that show every expected text, except the dark worker picture when told to fail it."""
+    """Pages that show every expected text, except the dark VictoriaTraces picture when told to fail it."""
 
-    def __init__(self, fail_dark_worker: bool):
-        self.fail_dark_worker = fail_dark_worker
+    def __init__(self, fail_dark: bool):
+        self.fail_dark = fail_dark
 
     def __enter__(self):
         return self
@@ -109,7 +109,7 @@ class Page:
             first = None
 
             def wait_for(self, timeout):
-                if page.browser.fail_dark_worker and WORKER_TRACE in page.url and "theme=dark" in page.url:
+                if page.browser.fail_dark and "victoriatraces" in page.url and "theme=dark" in page.url:
                     raise TimeoutError(text)
 
         locator = Locator()
@@ -117,27 +117,23 @@ class Page:
         return locator
 
 
-def run(path: str, demo: Path, fail_dark_worker: bool):
-    """One whole run against fakes: the first read of the worker's trace has orders-api's server span
-    under another span, the second under the worker's PUT."""
+def run(path: str, demo: Path, fail_dark: bool):
+    """One whole run against fakes: the first read of the order's trace has orders-api's spans only
+    (the worker's not exported yet), the second the whole trace."""
     module = load(path, demo)
     ids = iter([TRACE, PARENT + "0" * 16])
     module.uuid = types.SimpleNamespace(uuid4=lambda: types.SimpleNamespace(hex=next(ids)))
     module.place_order = lambda trace_id, parent: 43
-    reads = {"worker": 0}
+    reads = {"tempo": 0}
 
     def grafana(path, password):
-        if "/api/search" in path:
-            return {"traces": [{"traceID": WORKER_TRACE}]}
         if "victoriatraces" in path:
             return {"data": [{"spans": [{"spanID": base64.b64decode(s["spanId"]).hex()} for s in ORDER]}]}
-        if WORKER_TRACE in path:
-            reads["worker"] += 1
-            return worker("f" * 16 if reads["worker"] == 1 else PUT_ID)
-        return tempo(("orders-api", ORDER))
+        reads["tempo"] += 1
+        return tempo(("orders-api", API)) if reads["tempo"] == 1 else tempo(("orders-api", API), ("worker", WORKER))
 
     module.grafana = grafana
-    module.sync_playwright = lambda: Browser(fail_dark_worker)
+    module.sync_playwright = lambda: Browser(fail_dark)
     out = demo / "shots"
     out.mkdir(exist_ok=True)
     try:
@@ -160,19 +156,22 @@ def main(path: str) -> int:
         (demo / "secrets" / "grafana-admin-password").write_text("password\n")
         module = load(path, demo)
 
-        def whole(spans: list[dict]) -> bool:
-            found = module.tempo_spans(tempo(("orders-api", spans)))
-            server = module.server_span(found, "orders-api", "POST /orders", PARENT)
-            return server is not None and module.has_under(found, server, ["INSERT", "POST", "UPDATE", "SELECT"])
+        def whole(api: list[dict], worker: list[dict] = WORKER) -> bool:
+            return module.whole_order(module.tempo_spans(tempo(("orders-api", api), ("worker", worker))), PARENT)
 
-        check("the whole order trace is taken", whole(ORDER))
+        check("the whole order trace is taken", whole(API))
         check("a server span under another parent is not",
-              not whole([span("SERVER", "POST /orders", "1" * 16, "c" * 16)] + ORDER[1:]))
-        check("a trace missing SELECT is not", not whole(ORDER[:-1]))
+              not whole([span("SERVER", "POST /orders", "1" * 16, "f" * 16)] + API[1:]))
+        check("a trace missing SELECT is not", not whole([s for s in API if s["name"] != "SELECT"]))
         check("SELECT outside the server span does not count",
-              not whole(ORDER[:-1] + [span("CLIENT", "SELECT", "5" * 16, "c" * 16)]))
+              not whole([s for s in API if s["name"] != "SELECT"] + [span("CLIENT", "SELECT", "5" * 16, "f" * 16)]))
         check("an extra library span does not fail a whole trace",
-              whole(ORDER + [span("INTERNAL", "POST /orders http send", "6" * 16, "1" * 16)]))
+              whole(API + [span("INTERNAL", "POST /orders http send", "7" * 16, "1" * 16)]))
+        check("orders-api's spans alone are not the whole trace (R1.5)", not whole(API, []))
+        check("the worker's processing outside the send does not count",
+              not whole(API, [span("CONSUMER", "process DEV.QUEUE.1", "c" * 16, "f" * 16), WORKER[1]]))
+        check("one UPDATE does not stand for both, events_sent and the status",
+              not whole([s for s in API if s["spanId"] != b64("8" * 16)]))
         check("Tempo's empty answer has no server span",
               module.server_span(module.tempo_spans({"trace": {}}), "orders-api", "POST /orders", PARENT) is None)
 
@@ -186,16 +185,16 @@ def main(path: str) -> int:
         except SystemExit as stop:
             check("an HTTP 401 stops with a FAIL line", str(stop).startswith("FAIL"), str(stop))
 
-        module, out, result, reads = run(path, demo, fail_dark_worker=False)
-        line = next((l for l in module.lines if l.startswith("tempo   worker trace")), "")
-        check("the worker trace is taken once its server span is under the PUT",
-              reads["worker"] == 2 and "server=1" in line, f"reads={reads['worker']}")
-        check("a whole run writes the six pictures and the record",
-              result == 0 and len(list(out.glob("trace-*.png"))) == 6 and module.OUT.read_text().startswith("tempo   order trace"))
+        module, out, result, reads = run(path, demo, fail_dark=False)
+        line = next((l for l in module.lines if l.startswith("tempo   order trace")), "")
+        check("the order trace is taken once the worker's spans are in it",
+              reads["tempo"] == 2 and "consumer=1" in line and "producer=1" in line, f"reads={reads['tempo']} {line}")
+        check("a whole run writes the four pictures and the record",
+              result == 0 and len(list(out.glob("trace-*.png"))) == 4 and module.OUT.read_text().startswith("tempo   order trace"))
 
         (out / "trace-order-tempo.light.png").write_bytes(b"OLD")
         module.OUT.write_text("OLD\n")
-        module, out, result, _ = run(path, demo, fail_dark_worker=True)
+        module, out, result, _ = run(path, demo, fail_dark=True)
         check("a run that fails half-way keeps the last pictures and record",
               str(result).startswith("FAIL") and (out / "trace-order-tempo.light.png").read_bytes() == b"OLD"
               and module.OUT.read_text() == "OLD\n", str(result)[:60])

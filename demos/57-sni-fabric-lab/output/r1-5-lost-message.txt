@@ -1,0 +1,64 @@
+# A lost event, read from its order's trace (fresh run 2026-10-23, phase5 'mq down' / 'mq back', order 41)
+
+## 1. The order row
+$ psql: SELECT id, status, events_sent, created_at, last_event_at, processed_at FROM orders WHERE id = 41
+41|processed|2|2026-10-23 00:58:14.603074+00|2026-10-23 01:00:45.446217+00|2026-10-23 01:00:45.457128+00
+
+## 2. orders-api's log for order 41
+$ podman logs fabric-orders-api-1 | grep "order 41"
+{"ts": "2026-10-23T00:58:18+0000", "level": "WARNING", "logger": "orders-api", "msg": "order 41 created; event not sent (http 503); the sweeper will retry"}
+{"ts": "2026-10-23T00:59:29+0000", "level": "INFO", "logger": "orders-api", "msg": "sweeper re-sent order 41: http 503"}
+{"ts": "2026-10-23T00:59:45+0000", "level": "INFO", "logger": "orders-api", "msg": "sweeper re-sent order 41: ok"}
+{"ts": "2026-10-23T01:00:45+0000", "level": "INFO", "logger": "orders-api", "msg": "sweeper re-sent order 41: ok"}
+
+## 3. The worker's log, 00:59:26 to 01:00:46 (its gets and the order's processing)
+$ podman logs fabric-worker-1 (lines from 00:59:26 to 01:00:46)
+2026-10-23T00:59:26+0000 INFO HTTP Request: DELETE http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000 \"HTTP/1.1 503 Service Un
+2026-10-23T00:59:26+0000 WARNING get refused: 503 upstream connect error or disconnect/reset before headers. retried and the latest reset reason: remote connection failure, 
+2026-10-23T00:59:30+0000 INFO HTTP Request: DELETE http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000 \"HTTP/1.1 503 Service Un
+2026-10-23T00:59:30+0000 WARNING get refused: 503 upstream connect error or disconnect/reset before headers. retried and the latest reset reason: remote connection failure, 
+2026-10-23T00:59:43+0000 WARNING get failed (ReadTimeout: timed out); retrying with back-off"}
+2026-10-23T00:59:51+0000 INFO HTTP Request: DELETE http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000 \"HTTP/1.1 204 No Content
+2026-10-23T00:59:56+0000 INFO HTTP Request: DELETE http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000 \"HTTP/1.1 204 No Content
+2026-10-23T01:00:01+0000 INFO HTTP Request: DELETE http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000 \"HTTP/1.1 204 No Content
+2026-10-23T01:00:06+0000 INFO HTTP Request: DELETE http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000 \"HTTP/1.1 204 No Content
+2026-10-23T01:00:11+0000 INFO HTTP Request: DELETE http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000 \"HTTP/1.1 204 No Content
+2026-10-23T01:00:16+0000 INFO HTTP Request: DELETE http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000 \"HTTP/1.1 204 No Content
+2026-10-23T01:00:21+0000 INFO HTTP Request: DELETE http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000 \"HTTP/1.1 204 No Content
+2026-10-23T01:00:26+0000 INFO HTTP Request: DELETE http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000 \"HTTP/1.1 204 No Content
+2026-10-23T01:00:31+0000 INFO HTTP Request: DELETE http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000 \"HTTP/1.1 204 No Content
+2026-10-23T01:00:36+0000 INFO HTTP Request: DELETE http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000 \"HTTP/1.1 204 No Content
+2026-10-23T01:00:41+0000 INFO HTTP Request: DELETE http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000 \"HTTP/1.1 204 No Content
+2026-10-23T01:00:45+0000 INFO HTTP Request: DELETE http://mqrest.mesh:18080/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000 \"HTTP/1.1 200 OK\""}
+2026-10-23T01:00:45+0000 INFO HTTP Request: PUT http://api.mesh:18080/orders/41/status \"HTTP/1.1 200 OK\""}
+2026-10-23T01:00:45+0000 INFO order 41 processed (event attempt 2)"}
+
+## 4. The order's trace in Tempo: its server, send and process spans
+$ curl http://tempo.mesh:18080/api/v2/traces/b6be9dbf3fcb201107c0ad62fe60b747 (from fabric-grafana-1)
+00:58:14.601 orders-api SERVER   POST /orders                   id=40b1c3c332e33a55 parent=- UNSET
+00:58:14.604 orders-api PRODUCER send DEV.QUEUE.1               id=63c7ed9ee40259ae parent=40b1c3c332e33a55 ERROR
+00:59:29.280 orders-api PRODUCER send DEV.QUEUE.1               id=6f6bbe0b3d75b026 parent=40b1c3c332e33a55 ERROR
+00:59:44.805 orders-api PRODUCER send DEV.QUEUE.1               id=6c8ee1a13e6d121d parent=40b1c3c332e33a55 UNSET
+01:00:45.349 orders-api PRODUCER send DEV.QUEUE.1               id=3e9ca9842d72732e parent=40b1c3c332e33a55 UNSET
+01:00:45.452 worker     CONSUMER process DEV.QUEUE.1            id=c6ce568b8a3a8912 parent=3e9ca9842d72732e UNSET
+01:00:45.454 orders-api SERVER   PUT /orders/{order_id}/status  id=7d2619d899d37ae8 parent=50a4ad1f5224d3ba UNSET
+
+## 5. Which get took the third send's message (Envoy's access log, MQ's web log, MQ's counters)
+$ podman logs fabric-envoy-1 | grep DEV.QUEUE.1/message   (requests started 00:59:33 to 00:59:46)
+{"attempts":1,"cluster":"mq_web","duration_ms":10010,"flags":"DC","host":"mqrest.mesh:18080","kind":"http","method":"DELETE","path":"/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000","start":"2026-10-23T00:59:33.671Z","status":0,"upstream":"10.89.7.4:9443"}
+{"attempts":1,"cluster":"mq_web","duration_ms":521,"flags":"-","host":"mqrest.mesh:18080","kind":"http","method":"POST","path":"/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message","start":"2026-10-23T00:59:44.807Z","status":201,"upstream":"10.89.7.4:9443"}
+{"attempts":1,"cluster":"mq_web","duration_ms":5089,"flags":"-","host":"mqrest.mesh:18080","kind":"http","method":"DELETE","path":"/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000","start":"2026-10-23T00:59:46.248Z","status":204,"upstream":"10.89.7.4:9443"}
+$ podman exec fabric-mq-1 grep -E "CWWKO0219I|SRVE0242I|MQWB0327I" .../servers/mqweb/logs/messages.log   (ibm_datetime, message)
+2026-10-23T00:59:32.786+0000 CWWKO0219I: TCP Channel defaultHttpEndpoint-ssl has been started and is now listening for requests on host *  (IPv6) port 9443.
+2026-10-23T00:59:38.906+0000 SRVE0242I: [com.ibm.mq.rest] [/ibmmq/rest] [javax.ws.rs.core.Application]: Initialization successful.
+2026-10-23T00:59:39.827+0000 MQWB0327I: The user that is logged into the REST API is being used for MQ authorization: 'TRUE'
+$ Prometheus query_range, 10 s steps from 00:59:40 to 01:00:10: each counter of QM1
+ibmmq_qmgr_mqput_mqput1_total            39 52 66 79  steps: +13 +14 +13
+ibmmq_qmgr_mqput_mqput1_bytes_total      14868 19824 25210 30166  steps: +4956 +5386 +4956
+ibmmq_qmgr_destructive_get_total         43 56 70 83  steps: +13 +14 +13
+ibmmq_qmgr_destructive_get_bytes_total   16032 20988 26374 31330  steps: +4956 +5386 +4956
+$ the same counters from 01:00:30 to 01:01:10, around the re-send the worker processed at 01:00:45
+ibmmq_qmgr_mqput_mqput1_total            105 118 131 145 158  steps: +13 +13 +14 +13
+ibmmq_qmgr_mqput_mqput1_bytes_total      40078 45034 49990 55376 60332  steps: +4956 +4956 +5386 +4956
+ibmmq_qmgr_destructive_get_total         109 122 135 149 162  steps: +13 +13 +14 +13
+ibmmq_qmgr_destructive_get_bytes_total   41242 46198 51154 56540 61496  steps: +4956 +4956 +5386 +4956

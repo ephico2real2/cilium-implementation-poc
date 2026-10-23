@@ -26,9 +26,12 @@ CREATE TABLE IF NOT EXISTS orders (
     last_event_at    TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS orders_status_created ON orders (status, created_at);
+-- The W3C traceparent of the request that created the order, so that a re-sent event joins that
+-- trace (R1.5). Added this way, a database created before R1.5 gets it too.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS traceparent TEXT;
 """
 
-COLUMNS = "id, item, quantity, status, created_at, processed_at, events_sent, last_event_at"
+COLUMNS = "id, item, quantity, status, created_at, processed_at, events_sent, last_event_at, traceparent"
 
 pool = AsyncConnectionPool(
     conninfo="",

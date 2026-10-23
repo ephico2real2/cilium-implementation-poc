@@ -43,7 +43,7 @@ log = logging.getLogger("orders-api")
 
 # The chaos switch: set from the admin portal, applied to the internal status updates only,
 # so Envoy's retries on the worker's PUTs become visible.
-chaos: dict[str, float] = {"fail_rate": 0.0, "delay_ms": 0}
+chaos: dict[str, float] = {"fail_rate": 0.0, "delay_ms": 0, "fail_next": 0}
 
 
 # ---------------------------------------------------------------- models
@@ -71,6 +71,8 @@ class StatusIn(BaseModel):
 class ChaosIn(BaseModel):
     fail_rate: float = Field(ge=0, le=1)
     delay_ms: int = Field(ge=0, le=5000)
+    # The next n status updates fail whatever the rate: a requeue on demand (phase6 forces one, R1.5).
+    fail_next: int = Field(default=0, ge=0, le=100)
 
 
 # ---------------------------------------------------------------- shared helpers
@@ -154,9 +156,9 @@ async def create_order(body: OrderIn, response: Response,
     Idempotency-Key returns the original order instead of creating a second one."""
     async with db.pool.connection() as conn:
         row = await (await conn.execute(
-            f"INSERT INTO orders (item, quantity, idempotency_key) VALUES (%s, %s, %s) "
+            f"INSERT INTO orders (item, quantity, idempotency_key, traceparent) VALUES (%s, %s, %s, %s) "
             f"ON CONFLICT (idempotency_key) DO NOTHING RETURNING {db.COLUMNS}",
-            (body.item, body.quantity, idempotency_key))).fetchone()
+            (body.item, body.quantity, idempotency_key, clients.current_traceparent()))).fetchone()
         if row is None:
             existing = await (await conn.execute(
                 f"SELECT {db.COLUMNS} FROM orders WHERE idempotency_key = %s", (idempotency_key,))).fetchone()
@@ -316,8 +318,8 @@ async def republish(order_id: int):
 
 @admin.put("/chaos")
 async def set_chaos(body: ChaosIn):
-    chaos.update(fail_rate=body.fail_rate, delay_ms=body.delay_ms)
-    log.warning("chaos set: fail_rate=%.2f delay_ms=%d", body.fail_rate, body.delay_ms)
+    chaos.update(fail_rate=body.fail_rate, delay_ms=body.delay_ms, fail_next=body.fail_next)
+    log.warning("chaos set: fail_rate=%.2f delay_ms=%d fail_next=%d", body.fail_rate, body.delay_ms, body.fail_next)
     return dict(chaos)
 
 
@@ -354,7 +356,8 @@ async def update_status(order_id: int, body: StatusIn):
     if chaos["delay_ms"]:
         CHAOS.labels("delay").inc()
         await asyncio.sleep(chaos["delay_ms"] / 1000)
-    if chaos["fail_rate"] and random.random() < chaos["fail_rate"]:
+    if chaos["fail_next"] or (chaos["fail_rate"] and random.random() < chaos["fail_rate"]):
+        chaos["fail_next"] = max(0, chaos["fail_next"] - 1)
         CHAOS.labels("fail").inc()
         return JSONResponse({"detail": "chaos: injected failure"}, status_code=503)
     async with db.pool.connection() as conn:

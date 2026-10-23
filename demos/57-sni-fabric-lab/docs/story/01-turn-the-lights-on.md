@@ -18,7 +18,8 @@ numbers come from the review records in [../reviews/](../reviews/). The walk's n
 | 1 | E1 CI checks demo 57 on every pull request | done | OB3, Codex and OB1-lite | [E1](../reviews/E1.md) |
 | 1 | R1.10 VictoriaMetrics' own UI from the Mac | done (#93) | the orchestrator; Codex and OB1-lite | [R1.10](../reviews/R1.10.md) |
 | 2 | R1.4 Zero-code auto-instrumentation | done (#114) | designed by Codex and OB1-lite, built from OB1-lite's design; reviewed by Codex and OB3 | [R1.4](../reviews/R1.4.md) |
-| 2 | R1.5–R1.9 One order, one story | not started | — | [BACKLOG](../roadmap/BACKLOG.md) |
+| 2 | R1.5 The trace crosses IBM MQ | done (#98) | designed by Codex and OB1-lite, built from OB1-lite's design | [R1.5](../reviews/R1.5.md) |
+| 2 | R1.6–R1.9 One order, one story | not started | — | [BACKLOG](../roadmap/BACKLOG.md) |
 
 ## Sprint 1: the pipeline and the stores
 
@@ -149,23 +150,23 @@ design and its workflow).
 *The same dashboard on VictoriaMetrics (2026-10-22). Prometheus stays the default; the
 Datasource menu at the top offers VictoriaMetrics beside it.*
 
-`python3 tests/parity.py`, in the fresh run (`output/transcript.txt`, 2026-10-22, evaluated at
-18:51:49 UTC, once every rate was exactly comparable). For a rate the expected value is
+`python3 tests/parity.py`, in the fresh run (`output/transcript.txt`, 2026-10-23, evaluated at
+00:57:36 UTC, once every rate was exactly comparable). For a rate the expected value is
 Prometheus's rate over [310s], which holds the same samples VictoriaMetrics' [5m] rate uses;
 for the rest it is Prometheus's own value. Each is matched to float precision:
 
 | Query | Prometheus series | VictoriaMetrics series | Max difference from the expected value | Verdict |
 |---|---:|---:|---:|---|
 | Each component, now | 11 | 11 | 0 (allowed 1e-09) | PASS |
-| New connections per tenant (per second) | 1 | 1 | 0 (allowed 2.00002e-11) | PASS |
-| Connections reset: unknown or missing SNI (per second) | 1 | 1 | 4.33681e-19 (allowed 3.44828e-12) | PASS |
+| New connections per tenant (per second) | 1 | 1 | 0 (allowed 1.72414e-11) | PASS |
+| Connections reset: unknown or missing SNI (per second) | 1 | 1 | 0 (allowed 0) | PASS |
 | Envoy's retries to orders-api (per second) | 1 | 1 | 0 (allowed 0) | PASS |
-| Orders created, replayed and processed (per second) | 1 | 1 | 0 (allowed 6.89655e-12) | PASS |
+| Orders created, replayed and processed (per second) | 1 | 1 | 0 (allowed 0) | PASS |
 | Events that needed another try (per second) | 1 | 1 | 0 (allowed 0) | PASS |
-| Queue manager: messages put and got (per second) | 1 | 1 | 0 (allowed 1.31667e-09) | PASS |
-| Queue manager: recovery log write latency, now (seconds) | 1 | 1 | 0 (allowed 2.77e-13) | PASS |
-| Postgres: transactions (per second) | 1 | 1 | 4.44089e-16 (allowed 3.51e-09) | PASS |
-| tcp-svc: commands (per second) | 1 | 1 | 0 (allowed 2.33333e-11) | PASS |
+| Queue manager: messages put and got (per second) | 1 | 1 | 0 (allowed 1.31e-09) | PASS |
+| Queue manager: recovery log write latency, now (seconds) | 1 | 1 | 0 (allowed 2.39e-13) | PASS |
+| Postgres: transactions (per second) | 1 | 1 | 4.44089e-16 (allowed 3.46e-09) | PASS |
+| tcp-svc: commands (per second) | 1 | 1 | 0 (allowed 3.44828e-11) | PASS |
 
 Traces: one of the run's traces holds 2 spans in Tempo and 2 in VictoriaTraces (`phase6`).
 
@@ -193,10 +194,22 @@ and in VictoriaTraces: the request, its SQL statements and the event put on IBM 
 status update joins orders-api's server span across Envoy in a trace of its own until R1.5
 carries the trace through MQ.
 
-![Grafana Explore on Tempo: orders-api POST /orders, 32.67 ms, 12 spans, the 23.53 ms POST to MQ the longest.](../screenshots/trace-order-tempo.light.png)
+![Grafana Explore on Tempo: orders-api POST /orders, 32.67 ms, 12 spans, the 23.53 ms POST to MQ the longest.](../screenshots/trace-order-tempo-r1-4.light.png)
 
-*One order's trace in Tempo, 2026-10-22, taken by `tests/trace_capture.py`; the whole of it, and
-what is not traced yet, on [the tracing page](../tracing.md).*
+*One order's trace in Tempo, 2026-10-22, as R1.4 left it, taken by `tests/trace_capture.py`; the
+trace as it is now is in R1.5's section below, and on [the tracing page](../tracing.md).*
+
+## R1.5: one order, one trace
+
+The order's event now carries its trace through IBM MQ, in a user property of the message, and
+the worker continues it. One order is one trace across both services: the request, the event's
+put, the worker's processing, and orders-api's status update. A requeued event's next attempt
+joins it too, and so does a sweeper's re-send.
+
+![Grafana Explore on Tempo: orders-api POST /orders, 64.35 ms, 22 spans, 2 services, the worker's process DEV.QUEUE.1 span in blue under the send to MQ, orders-api's status update under the worker's PUT.](../screenshots/trace-order-tempo.light.png)
+
+*One order's trace in Tempo, 2026-10-23, taken by `tests/trace_capture.py`; how it works, and a
+lost event read from its order's trace, on [the tracing page](../tracing.md#across-ibm-mq-one-order-one-trace).*
 
 ## Found by looking
 

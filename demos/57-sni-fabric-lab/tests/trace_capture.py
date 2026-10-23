@@ -4,15 +4,15 @@ Usage: python tests/trace_capture.py <out-dir>   (from the demo directory, again
 Needs Playwright with Chromium (diagram-kit's environment).
 
 The order goes through Envoy's edge with a W3C traceparent made here, so its trace id is known
-before any store is asked, as phase6 does. Three traces are then read through Grafana's datasource
-proxy, and each must hold the spans the tracing page discusses before any picture is taken:
-  - the order's trace in Tempo: orders-api's POST /orders, whose parent is the span id sent in the
-    traceparent, with INSERT, the POST to MQ, UPDATE and SELECT under it;
-  - the same trace in VictoriaTraces: the same span ids;
-  - the worker's trace for that order: its PUT /orders/<id>/status with orders-api's server span
-    as its child and UPDATE under that (a trace of its own until R1.5 carries the trace through MQ).
+before any store is asked, as phase6 does. The trace is then read through Grafana's datasource
+proxy, and must hold the spans the tracing page discusses before any picture is taken:
+  - in Tempo: orders-api's POST /orders, whose parent is the span id sent in the traceparent, with
+    INSERT, the send to MQ and its POST, UPDATE and SELECT under it, and, since R1.5 carries the
+    trace through MQ, the worker's process span under the send, its PUT, and orders-api's
+    PUT /orders/{order_id}/status with its UPDATE;
+  - in VictoriaTraces: the same span ids.
 Each is then opened in Explore, light and dark, and must show its span count and span names. The
-six pictures replace the previous set only when all six were taken. Prints every span and writes
+four pictures replace the previous set only when all four were taken. Prints every span and writes
 the same lines to output/trace-capture.txt.
 """
 import base64
@@ -25,6 +25,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from collections import Counter
 from pathlib import Path
 
 from playwright.sync_api import Page, sync_playwright
@@ -96,21 +97,32 @@ def server_span(spans: list[dict], service: str, name: str, parent: str) -> dict
 
 
 def has_under(spans: list[dict], root: dict, names: list[str]) -> bool:
-    """Whether each of the names is a span somewhere under root. The server span ends last, but its
-    arrival alone does not prove its children's: the SDK drops a batch whose export failed and sends
-    the next. So the spans this page discusses are required by name; library spans (the ASGI send
-    and receive spans, the pool's checks) are not, so a library adding one does not fail the run."""
+    """Whether each of the names is a span somewhere under root, as many times as it is listed. The
+    server span ends last, but its arrival alone does not prove its children's: the SDK drops a batch
+    whose export failed and sends the next. So the spans this page discusses are required by name;
+    library spans (the ASGI send and receive spans, the pool's checks) are not, so a library adding
+    one does not fail the run."""
     children: dict[str, list[dict]] = {}
     for span in spans:
         children.setdefault(span["parent"], []).append(span)
-    seen, under, todo = {root["id"]}, set(), [root["id"]]
+    seen, under, todo = {root["id"]}, Counter(), [root["id"]]
     while todo:
         for child in children.get(todo.pop(), []):
             if child["id"] not in seen:
                 seen.add(child["id"])
-                under.add(child["name"])
+                under[child["name"]] += 1
                 todo.append(child["id"])
-    return all(name in under for name in names)
+    return all(under[name] >= count for name, count in Counter(names).items())
+
+
+def whole_order(spans: list[dict], parent: str) -> bool:
+    """The order's server span under the given parent, with the page's spans under it: orders-api's
+    INSERT, send and its POST, SELECT, and the worker's process span with its PUT and orders-api's
+    status update under that; two UPDATEs, the events_sent count and the status."""
+    server = server_span(spans, "orders-api", "POST /orders", parent)
+    return server is not None and has_under(spans, server, [
+        "INSERT", "send DEV.QUEUE.1", "POST", "UPDATE", "SELECT", "process DEV.QUEUE.1", "PUT",
+        "PUT /orders/{order_id}/status", "UPDATE"])
 
 
 def wait_for(what: str, read, ready, seconds: int = 90):
@@ -160,16 +172,12 @@ def main(out_dir: Path) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     password = (DEMO / "secrets" / "grafana-admin-password").read_text().strip()
     trace_id, parent = uuid.uuid4().hex, uuid.uuid4().hex[:16]
-    placed_at = int(time.time())
-    order_id = place_order(trace_id, parent)
+    place_order(trace_id, parent)
 
     tempo = "/api/datasources/proxy/uid/tempo"
-    def whole_order(spans: list[dict]) -> bool:
-        server = server_span(spans, "orders-api", "POST /orders", parent)
-        return server is not None and has_under(spans, server, ["INSERT", "POST", "UPDATE", "SELECT"])
-
-    order = wait_for("orders-api's POST /orders under this traceparent, with INSERT, POST, UPDATE and SELECT, in Tempo",
-                     lambda: tempo_spans(grafana(f"{tempo}/api/v2/traces/{trace_id}", password)), whole_order)
+    order = wait_for("orders-api's POST /orders under this traceparent, with the API's and the worker's spans, in Tempo",
+                     lambda: tempo_spans(grafana(f"{tempo}/api/v2/traces/{trace_id}", password)),
+                     lambda spans: whole_order(spans, parent))
     if {s["trace"] for s in order} != {trace_id}:
         raise SystemExit(f"FAIL  the order's trace holds spans of other traces: {sorted({s['trace'] for s in order})}")
     show(f"tempo   order trace {trace_id}", order)
@@ -182,33 +190,13 @@ def main(out_dir: Path) -> int:
                                                   for t in document["data"] for span in t["spans"]} == order_ids)
     say(f"vtraces order trace {trace_id}: the same {len(order_ids)} span ids")
 
-    # The worker reports the order processed with PUT /orders/<id>/status: that call's trace, once
-    # orders-api's half, exported separately, is in it too.
-    query = f'{{resource.service.name="worker" && span.http.url=~".*/orders/{order_id}/status$"}}'
-
-    def worker_trace() -> tuple[str, list[dict]] | None:
-        found = grafana(f"{tempo}/api/search?" + urllib.parse.urlencode(
-            {"q": query, "start": placed_at - 2, "end": int(time.time()) + 60}), password)
-        for match in (found or {}).get("traces", []):
-            worker_id = match["traceID"].rjust(32, "0")
-            spans = tempo_spans(grafana(f"{tempo}/api/v2/traces/{worker_id}", password))
-            puts = [s for s in spans if s["service"] == "worker" and s["kind"] == "CLIENT" and s["name"] == "PUT"]
-            server = server_span(spans, "orders-api", "PUT /orders/{order_id}/status", puts[0]["id"]) if len(puts) == 1 else None
-            if server is not None and has_under(spans, server, ["UPDATE"]):
-                return worker_id, spans
-        return None
-
-    worker_id, worker = wait_for("the worker's PUT with orders-api's server span and its UPDATE under it, in Tempo",
-                                 worker_trace, lambda found: found is not None)
-    show(f"tempo   worker trace {worker_id}", worker)
-
     # Pictures go to a staging directory first: a run that fails half-way leaves the last good set,
     # and the record that matches it, as they were.
     with tempfile.TemporaryDirectory(dir=out_dir) as staged, sync_playwright() as p:
         staging = Path(staged)
         browser = p.chromium.launch()
         for theme in ("light", "dark"):
-            page = browser.new_page(viewport={"width": 1600, "height": 1250}, color_scheme=theme)
+            page = browser.new_page(viewport={"width": 1600, "height": 1640}, color_scheme=theme)
             page.goto(f"{GRAFANA}/login?theme={theme}", wait_until="load")
             page.fill("input[name=user]", "admin")
             page.fill("input[name=password]", password)
@@ -216,13 +204,12 @@ def main(out_dir: Path) -> int:
             page.wait_for_url(lambda url: "/login" not in url, timeout=20000)
             capture(page, out_dir, staging, "trace-order-tempo", theme,
                     explore(theme, "tempo", "tempo", {"queryType": "traceql", "query": trace_id}),
-                    [f"{len(order)} spans", "POST /orders", "INSERT", "UPDATE", "SELECT"])
+                    [f"{len(order)} spans", "POST /orders", "send DEV.QUEUE.1", "process DEV.QUEUE.1",
+                     "PUT /orders/{order_id}/status"])
             capture(page, out_dir, staging, "trace-order-victoriatraces", theme,
                     explore(theme, "victoriatraces", "jaeger", {"queryType": "", "query": trace_id}),
-                    [f"{len(order)} spans", "POST /orders", "INSERT", "UPDATE", "SELECT"])
-            capture(page, out_dir, staging, "trace-worker-tempo", theme,
-                    explore(theme, "tempo", "tempo", {"queryType": "traceql", "query": worker_id}),
-                    [f"{len(worker)} spans", "PUT /orders/{order_id}/status", "UPDATE"])
+                    [f"{len(order)} spans", "POST /orders", "send DEV.QUEUE.1", "process DEV.QUEUE.1",
+                     "PUT /orders/{order_id}/status"])
             page.close()
         browser.close()
         for picture in staging.iterdir():
