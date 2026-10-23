@@ -89,6 +89,8 @@ class FakeMQ:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         queue = request.url.path.split("/queue/")[1].split("/")[0]
         if request.method == "POST":
+            if queue == "DEV.DEAD.LETTER.QUEUE" and '"order_id": 9' in request.content.decode():
+                return httpx.Response(500)  # a dead-letter put that fails: the event is lost, and counted so
             message_id = self.put(queue, request.content.decode(), request.headers.get("ibm-mq-usr", ""))
             return httpx.Response(201, headers={"ibm-mq-md-messageId": message_id})
         if not self.queues.get(queue):
@@ -102,8 +104,9 @@ class FakeMQ:
 
 
 mq = FakeMQ()
-# The status update fails once for order 1, so its event is requeued (attempt 2) and then processed.
-answers = {1: [503]}
+# The status update fails once for order 1, so its event is requeued (attempt 2) and then processed;
+# order 9's last attempt fails, and its dead-letter put too.
+answers = {1: [503], 9: [503]}
 
 
 def fake_api(request: httpx.Request) -> httpx.Response:
@@ -119,6 +122,9 @@ mq.put("DEV.QUEUE.1", '{"type": "order.created", "order_id": 1, "attempt": 1}', 
 mq.put("DEV.QUEUE.1", '{"type": "order.created", "order_id": 2, "attempt": 1}')
 mq.put("DEV.QUEUE.1", '{"type": "order.created", "order_id": 3, "attempt": 1}', 'traceparent;"00-zz-zz-01";string')
 mq.put("DEV.QUEUE.1", "not json", f'traceparent;"{created_tp}";string')
+# A body whose attempt is not a number is unreadable too: dead-lettered, and the loop goes on.
+mq.put("DEV.QUEUE.1", '{"type": "order.created", "order_id": 4, "attempt": "x"}')
+mq.put("DEV.QUEUE.1", '{"type": "order.created", "order_id": 9, "attempt": 5}')
 
 real_client = httpx.Client
 
@@ -141,7 +147,7 @@ processes = [s for s in spans if s.name == "process DEV.QUEUE.1"]
 by_order = {}
 for s in processes:
     by_order.setdefault(s.attributes.get("fabric.order.id"), []).append(s)
-check("five messages processed", len(processes) == 5, [s.attributes.get("fabric.order.id") for s in processes])
+check("seven messages processed", len(processes) == 7, [s.attributes.get("fabric.order.id") for s in processes])
 first, later = by_order.get(1, [None, None])[:2] if len(by_order.get(1, [])) == 2 else (None, None)
 check("the process span is a child of the span that put the message",
       first is not None and first.parent is not None and first.parent.span_id == created.span_id
@@ -155,29 +161,45 @@ check("the later attempt is a child of the requeue, in the same trace (AC2)",
       later is not None and len(requeue) == 1 and later.parent.span_id == requeue[0].context.span_id
       and later.context.trace_id == created.trace_id and later.status.status_code == trace.StatusCode.UNSET)
 check("no traceparent: a trace of its own", len(by_order.get(2, [])) == 1 and by_order[2][0].parent is None)
+check("the process span links to the span that put the message, as the conventions ask",
+      first is not None and [link.context.span_id for link in first.links] == [created.span_id]
+      and later is not None and len(requeue) == 1
+      and [link.context.span_id for link in later.links] == [requeue[0].context.span_id])
+check("no traceparent: no link", len(by_order.get(2, [])) == 1 and not by_order[2][0].links)
+check("a failed attempt carries error.type, a processed one none",
+      first is not None and first.attributes.get("error.type") == "503"
+      and later is not None and "error.type" not in later.attributes)
+lost = by_order.get(9, [])
+check("the last attempt failed and its dead-letter put too: error spans, counted lost",
+      len(lost) == 1 and lost[0].status.status_code == trace.StatusCode.ERROR
+      and any(s.name == "send DEV.DEAD.LETTER.QUEUE" and s.parent.span_id == lost[0].context.span_id
+              and s.attributes.get("error.type") == "500" for s in spans))
 check("a malformed traceparent: a trace of its own, processed",
       len(by_order.get(3, [])) == 1 and by_order[3][0].parent is None
       and by_order[3][0].status.status_code == trace.StatusCode.UNSET)
 unreadable = [s for s in processes if "fabric.order.id" not in s.attributes]
 dead = [s for s in spans if s.name == "send DEV.DEAD.LETTER.QUEUE"]
 check("an unreadable message is an error, its dead-letter put a send span under it",
-      len(unreadable) == 1 and unreadable[0].status.status_code == trace.StatusCode.ERROR and len(dead) == 1
-      and dead[0].parent.span_id == unreadable[0].context.span_id)
+      len(unreadable) == 2 and all(u.status.status_code == trace.StatusCode.ERROR and "error.type" in u.attributes
+                                   for u in unreadable)
+      and sorted(d.parent.span_id for d in dead if d.parent.span_id in {u.context.span_id for u in unreadable})
+      == sorted(u.context.span_id for u in unreadable))
 put_back = mq.queues.get("DEV.DEAD.LETTER.QUEUE", [])
 want = (f'traceparent;"00-{created.trace_id:032x}-{dead[0].context.span_id:016x}-{dead[0].context.trace_flags:02x}";string'
         if dead else None)
-check("the dead-letter message carries its send span's traceparent", len(put_back) == 1 and put_back[0][2] == want,
+check("the dead-letter message carries its send span's traceparent", len(put_back) == 2 and put_back[0][2] == want,
       put_back)
 check("the attributes", first is not None and dict(first.attributes) == {
     "messaging.system": "ibm_mq", "messaging.destination.name": "DEV.QUEUE.1", "messaging.operation.name": "process",
-    "messaging.operation.type": "process", "messaging.message.id": f"ID:{1:048x}", "fabric.order.id": 1},
+    "messaging.operation.type": "process", "messaging.message.id": f"ID:{1:048x}", "fabric.order.id": 1,
+    "error.type": "503"},  # the first attempt, the one that failed
       first and dict(first.attributes))
 methods = sorted({s.attributes.get("http.method", s.attributes.get("http.request.method")) for s in spans
                   if s.kind == trace.SpanKind.CLIENT})
 check("the gets make no span; the puts do", methods == ["POST"], methods)
 outcomes = {result: REGISTRY.get_sample_value("worker_messages_total", {"result": result})
             for result in ("processed", "requeued", "dead_lettered", "lost")}
-check("the outcome counters", outcomes == {"processed": 3, "requeued": 1, "dead_lettered": 1, "lost": 0}, outcomes)
+check("the outcome counters", outcomes == {"processed": 3, "requeued": 1, "dead_lettered": 2, "lost": 1}, outcomes)
 print(f"worker mismatches: {bad}")
 sys.exit(bad)
 PY
@@ -288,6 +310,14 @@ for name, stored in (("no stored traceparent (an order from before R1.5)", None)
     check(f"{name}: the re-send starts a trace of its own", span is not None and span.parent is None
           and len(sent) == 1 and sent[0].headers.get("ibm-mq-usr") == header_of(span))
 
+# An order from before R1.5, republished: no stored context, so the send stays in the request's trace.
+with tracer.start_as_current_span("POST /admin/orders/{order_id}/republish", kind=trace.SpanKind.SERVER) as admin:
+    publish({**order, "traceparent": None})
+span = send_span()
+check("an order from before R1.5, republished: the send continues the request's trace, no link",
+      span is not None and span.parent is not None and span.parent.span_id == admin.get_span_context().span_id
+      and not span.links)
+
 # A caller's tracestate (W3C allows ";" in it, which MQ refuses in a property) is not carried.
 caller = clients.W3C.extract(
     {"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01", "tracestate": "k=a;b"})
@@ -299,8 +329,9 @@ check("a caller's tracestate is not carried",
 
 answer["status"] = 500
 result = publish(order)
-check("MQ's refusal: an error span, the same reason", result == (False, "http 500") and send_span() is not None
-      and send_span().status.status_code == trace.StatusCode.ERROR)
+check("MQ's refusal: an error span with error.type, the same reason", result == (False, "http 500")
+      and send_span() is not None and send_span().status.status_code == trace.StatusCode.ERROR
+      and send_span().attributes.get("error.type") == "500")
 
 # fail_next: the next n status updates fail whatever the rate, then updates go through again (here
 # to the database check, which no database answers).

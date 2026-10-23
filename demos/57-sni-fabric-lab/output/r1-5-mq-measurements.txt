@@ -115,3 +115,11 @@ $ GET http://tempo.mesh:18080/api/v2/traces/04b66bf3621c2be4e8d89bbe6479f8a7 (20
     17.63 ms       r15-probe-orders-api  CLIENT   POST                   -     ''
   5937.76 ms       r15-probe-worker      CONSUMER process DEV.QUEUE.3    -     ''
 784327.40 ms     r15-probe-orders-api  PRODUCER probe late re-send     -     ''
+
+## 9. After the review: links and error.type on the lab (2026-10-23, orders-api and the worker rebuilt)
+$ PUT /admin/chaos fail_next 4; POST /orders with traceparent 00-ab71cb4bf3da4bc7a1f0c97771d44e2d-...; PUT /admin/chaos fail_next 0
+$ curl http://tempo.mesh:18080/api/v2/traces/ab71cb4bf3da4bc7a1f0c97771d44e2d   (its send and process spans)
+worker     send DEV.QUEUE.1     id=39f00a938fcb1e5d parent=52b940f40bf9b149 links=[] error.type=- UNSET
+worker     process DEV.QUEUE.1  id=52b940f40bf9b149 parent=ed3984b8e44d4776 links=['ed3984b8e44d4776'] error.type=503 ERROR
+worker     process DEV.QUEUE.1  id=9a5a05dd4579f5e6 parent=39f00a938fcb1e5d links=['39f00a938fcb1e5d'] error.type=- UNSET
+orders-api send DEV.QUEUE.1     id=ed3984b8e44d4776 parent=2400a6f704f04a59 links=[] error.type=- UNSET

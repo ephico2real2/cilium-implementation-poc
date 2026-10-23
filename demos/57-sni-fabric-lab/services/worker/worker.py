@@ -151,14 +151,24 @@ def main() -> None:
             try:
                 response = mq.post(queue_url(queue), content=json.dumps(event), headers=headers)
             except httpx.HTTPError as exc:
+                # error.type is required on a failed messaging span (the conventions' "recording errors").
+                span.set_attribute("error.type", type(exc).__name__)
                 span.set_status(Status(StatusCode.ERROR, type(exc).__name__))
                 log.warning("put to %s failed: %s", queue, exc)
                 return False
             if response.status_code == 201:
                 span.set_attribute("messaging.message.id", response.headers.get("ibm-mq-md-messageId", ""))
                 return True
+            span.set_attribute("error.type", str(response.status_code))
             span.set_status(Status(StatusCode.ERROR, f"http {response.status_code}"))
             return False
+
+    def dead_letter(event: dict) -> str:
+        """Puts an event on the dead-letter queue; returns the outcome it counted: "dead_lettered", or
+        "lost" if the put failed."""
+        outcome = "dead_lettered" if put(DEAD_LETTER_QUEUE, event) else "lost"
+        MESSAGES.labels(outcome).inc()
+        return outcome
 
     log.info("worker started: %s -> %s", queue_url(QUEUE), API_URL)
     failures = 0
@@ -188,25 +198,29 @@ def main() -> None:
             continue
         failures = 0
 
-        # The parent is the span that put the message; a message without a valid traceparent (put
-        # before R1.5, or by hand) starts a trace of its own.
+        # The parent is the span that put the message, and the span links to it too: the messaging
+        # conventions ask every "process" span to link to its message's creation context, and allow
+        # it as the parent. A message without a valid traceparent (put before R1.5, or by hand)
+        # starts a trace of its own, with no link.
         created_in = W3C.extract(mq_properties(response.headers.get_list("ibm-mq-usr")))
+        creation = trace.get_current_span(created_in).get_span_context()
         with tracer.start_as_current_span(
                 f"process {QUEUE}", context=created_in, kind=SpanKind.CONSUMER,
+                links=[trace.Link(creation)] if creation.is_valid else [],
                 attributes={**messaging(QUEUE, "process"),
                             "messaging.message.id": response.headers.get("ibm-mq-md-messageId", "")}) as span:
             try:
                 event = json.loads(response.text)
                 order_id = int(event["order_id"])
-            except (ValueError, KeyError, TypeError):
-                put(DEAD_LETTER_QUEUE, {"reason": "unreadable", "body": response.text[:500]})
-                MESSAGES.labels("dead_lettered").inc()
+                attempt = int(event.get("attempt", 1))
+            except (ValueError, KeyError, TypeError) as exc:
+                outcome = dead_letter({"reason": "unreadable", "body": response.text[:500]})
+                span.set_attribute("error.type", type(exc).__name__)
                 span.set_status(Status(StatusCode.ERROR, "unreadable"))
-                log.warning("unreadable message dead-lettered: %s", response.text[:160])
+                log.warning("unreadable message %s: %s", outcome.replace("_", "-"), response.text[:160])
                 continue
             span.set_attribute("fabric.order.id", order_id)
 
-            attempt = int(event.get("attempt", 1))
             started = time.perf_counter()
             try:
                 update = api.put(f"{API_URL}/orders/{order_id}/status", json={"status": "processed"})
@@ -220,13 +234,11 @@ def main() -> None:
                 MESSAGES.labels("processed").inc()
                 log.info("order %s processed (event attempt %s)", order_id, attempt)
             elif status == 404:
-                put(DEAD_LETTER_QUEUE, {**event, "reason": "order not found"})
-                MESSAGES.labels("dead_lettered").inc()
-                log.warning("order %s not found; dead-lettered", order_id)
+                outcome = dead_letter({**event, "reason": "order not found"})
+                log.warning("order %s not found; %s", order_id, outcome.replace("_", "-"))
             elif attempt >= MAX_ATTEMPTS:
-                put(DEAD_LETTER_QUEUE, {**event, "reason": f"update failed {attempt} times: {status}"})
-                MESSAGES.labels("dead_lettered").inc()
-                log.warning("order %s dead-lettered after %s attempts (%s)", order_id, attempt, status)
+                outcome = dead_letter({**event, "reason": f"update failed {attempt} times: {status}"})
+                log.warning("order %s %s after %s attempts (%s)", order_id, outcome.replace("_", "-"), attempt, status)
             else:
                 time.sleep(backoff(attempt, cap=5))
                 if put(QUEUE, {**event, "attempt": attempt + 1}):
@@ -236,6 +248,7 @@ def main() -> None:
                     MESSAGES.labels("lost").inc()
                     log.error("order %s: update failed and put-back failed; the API sweeper will resend", order_id)
             if status != 200:
+                span.set_attribute("error.type", str(status))
                 span.set_status(Status(StatusCode.ERROR, f"update failed (attempt {attempt}): {status}"))
     log.info("worker stopped")
 

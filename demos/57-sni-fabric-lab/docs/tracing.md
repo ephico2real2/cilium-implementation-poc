@@ -143,7 +143,8 @@ datasource:
 The event is a JSON body on `DEV.QUEUE.1`, put and got through MQ's REST API, and no
 instrumentation carries trace context through it. Until R1.5 the order and its processing were
 two traces: the worker's status update, with orders-api's handling of it, was a trace of its own
-(8 spans for order 53 in `output/trace-capture.txt`), and so was each of its long-polling gets.
+(8 spans for order 53, in R1.4's capture, [reviews/115-tracing-page.md](reviews/115-tracing-page.md)),
+and so was each of its long-polling gets.
 
 Since R1.5 both services carry the context themselves, in the MQ user property the spike measured
 (`output/spike-r1-5-mq-traceparent.txt`): the header `ibm-mq-usr: traceparent;"<traceparent>";string`
@@ -153,10 +154,11 @@ on the put, returned on the get. The event body stays as it is.
 |---|---|---|
 | `services/orders-api/app/clients.py`, `publish_order_event` | puts the event in a `send DEV.QUEUE.1` span (kind producer) and sends that span's W3C `traceparent` in `ibm-mq-usr`, made by OpenTelemetry's `TraceContextTextMapPropagator` | the semantic conventions' creation context: whoever gets the message continues from the span that sent it |
 | `app/main.py`, `create_order`; `app/db.py` | stores the order request's `traceparent` on the order row, in the column `orders.traceparent` (`ALTER TABLE … ADD COLUMN IF NOT EXISTS`, so a database from before R1.5 gets it too) | the sweeper and the admin's republish send the event again later, from traces of their own |
-| `publish_order_event`, for a re-send | when the order's stored trace is not the current one, the send span's parent is the stored context, with a link to the span that re-sent it (the republish request; the sweeper has no span, so no link); an order without a stored context starts a trace of its own | a link points one way, from the new span to the old: a re-send that only linked to the order would not show from the order's trace |
-| `services/worker/worker.py`, the main loop | reads the get's `ibm-mq-usr` headers with httpx's `get_list` and parses them with `mq_properties`, extracts the context with the same propagator, and processes the message in a `process DEV.QUEUE.1` span (kind consumer) whose parent is that context; a message without a valid `traceparent` starts a trace of its own | AC 1: the worker's span has the order's trace id; a malformed property never stops the loop |
+| `publish_order_event`, for a re-send | when the order's stored trace is not the current one, the send span's parent is the stored context, with a link to the span that re-sent it (the republish request; the sweeper has no span, so no link); for an order without a stored context (one created before R1.5), the send continues the current trace: the republish request's, or for the sweeper a trace of its own | a link points one way, from the new span to the old: a re-send that only linked to the order would not show from the order's trace |
+| `services/worker/worker.py`, the main loop | reads the get's `ibm-mq-usr` headers with httpx's `get_list` and parses them with `mq_properties`, extracts the context with the same propagator, and processes the message in a `process DEV.QUEUE.1` span (kind consumer) whose parent is that context and which links to it, as the conventions ask of every `process` span; a message without a valid `traceparent` starts a trace of its own, with no link | AC 1: the worker's span has the order's trace id; a malformed property never stops the loop |
 | `worker.py`, `put` | every put of the worker's own (the requeue, the dead-letter puts) is a `send <queue>` span whose `traceparent` the message carries | AC 2: an event put back after a failed attempt is processed later as a child of that requeue, in the same trace |
-| `worker.py`, the main loop | the get runs under `suppress_http_instrumentation()` | an empty long poll every `GET_WAIT_MS` (5000) was a trace of its own: 115 in 10 idle minutes, every one of the worker's traces (`output/r1-5-mq-measurements.txt`, section 7) |
+| `worker.py`, the main loop | the get runs under `suppress_http_instrumentation()` | an empty long poll every `GET_WAIT_MS` (5000) was a trace of its own: 115 in 10 idle minutes, every one of the worker's traces (`output/r1-5-mq-measurements.txt`, section 7). The conventions ask for a `receive` span on a pull like this one; the lab leaves it out on purpose, and a failed get is counted in `worker_get_errors_total` and logged instead |
+| `worker.py`, `dead_letter` | counts a dead-letter put as `dead_lettered` only when MQ took it, and as `lost` when the put failed | the counter said `dead_lettered` whatever the put's answer |
 
 `mq_properties` splits the header the way MQ was measured to write it, not the way the spike's
 issue expected: MQ returns every property of a message in one `ibm-mq-usr` header, sorted by name
@@ -182,6 +184,7 @@ the lab's own:
 | `messaging.operation.name`, `messaging.operation.type` | `send` or `process` | the span names are `{operation} {queue}`, as the conventions name them |
 | `messaging.message.id` | MQ's `ibm-mq-md-messageId`, on a put that answered 201 and on every get | the message itself, as MQ names it |
 | `fabric.order.id` | the order's id, on orders-api's send and the worker's process span | to find an order's spans by its id; no convention covers a business id, and a custom attribute takes a namespace of its own, the lab's |
+| `error.type` | on a failed span only: the HTTP status (`503`, `500`) or the exception's name (`ReadTimeout`, `ValueError`) | required by the conventions when a messaging operation fails, and absent when it succeeds |
 
 R1.5's own code, run on the lab before it was built into the images (each service's new file
 inside its running container, on `DEV.QUEUE.3`, with the worker's status updates answered by a
@@ -228,11 +231,18 @@ order's trace held four sends under its request:
 
 The first two sends failed while MQ was down and starting (HTTP 503 in orders-api's log). The
 third succeeded at 00:59:44 and has no `process` span under it: the worker never handled that
-message. Its log says why: at 00:59:43 a get it had started while MQ was still starting hit its
-10-second read timeout (`get failed (ReadTimeout: timed out)`), and its gets from 00:59:51 to
-01:00:41 all answered 204. A REST get is destructive and not transactional, so a get the worker
-gave up on can still complete inside MQ and take a message with it; the worker is the only reader
-of `DEV.QUEUE.1`. The sweeper's next round, a minute later, sent the event again, and the worker
+message. The worker's log and Envoy's say why (sections 3 and 5 of the record). The worker sent a
+get at 00:59:33.671, a second after MQ's REST listener opened and five seconds before the REST
+application finished starting, and gave up at its 10-second read timeout (`get failed
+(ReadTimeout: timed out)`; Envoy logged the request with `"duration_ms":10010,"flags":"DC"`, its
+client gone). MQ's web log puts the REST application's start at 00:59:38.906 and its first
+authorisation at 00:59:39.827, with that get the only request in flight, so its 5-second wait was
+still open when the event arrived at 00:59:44.8; the worker's next get, at 00:59:46, and every one
+to 01:00:41 answered 204. In the same 10 seconds MQ's counters show one put and one destructive
+get more than its steady traffic, each 430 bytes more: the signature the event's re-send left at
+01:00:45, which the worker did process. A REST get is destructive
+and not transactional, so the abandoned get took the message for a client that was gone; the
+worker is the only consumer of `DEV.QUEUE.1` (orders-api only browses it). The sweeper's next round, a minute later, sent the event again, and the worker
 processed it within 103 ms: the `phase5` check "mq back" passed after 69 s instead of R1.4's 9 s.
 Before R1.5 the request, the sweeper's three re-sends and the processing would have been five
 unconnected traces; now the order's own trace shows that one event reached MQ and was never processed.

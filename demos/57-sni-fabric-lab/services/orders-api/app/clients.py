@@ -71,6 +71,8 @@ async def publish_order_event(order: dict[str, Any]) -> tuple[bool, str]:
             response = await mesh.post(url, content=json.dumps(event),
                                        auth=(settings.mq_user, settings.mq_password), headers=headers)
         except httpx.HTTPError as exc:
+            # error.type is required on a failed messaging span (the conventions' "recording errors").
+            span.set_attribute("error.type", type(exc).__name__)
             span.set_status(Status(StatusCode.ERROR, type(exc).__name__))
             MQ_PUBLISH.labels("error", type(exc).__name__).inc()
             return False, type(exc).__name__
@@ -78,6 +80,7 @@ async def publish_order_event(order: dict[str, Any]) -> tuple[bool, str]:
             span.set_attribute("messaging.message.id", response.headers.get("ibm-mq-md-messageId", ""))
             MQ_PUBLISH.labels("ok", "").inc()
             return True, ""
+        span.set_attribute("error.type", str(response.status_code))
         span.set_status(Status(StatusCode.ERROR, f"http {response.status_code}"))
         MQ_PUBLISH.labels("error", f"http {response.status_code}").inc()
         log.warning("MQ put refused: %s %s", response.status_code, response.text[:200])

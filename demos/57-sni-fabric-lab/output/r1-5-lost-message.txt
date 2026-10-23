@@ -42,3 +42,23 @@ $ curl http://tempo.mesh:18080/api/v2/traces/b6be9dbf3fcb201107c0ad62fe60b747 (f
 01:00:45.349 orders-api PRODUCER send DEV.QUEUE.1               id=3e9ca9842d72732e parent=40b1c3c332e33a55 UNSET
 01:00:45.452 worker     CONSUMER process DEV.QUEUE.1            id=c6ce568b8a3a8912 parent=3e9ca9842d72732e UNSET
 01:00:45.454 orders-api SERVER   PUT /orders/{order_id}/status  id=7d2619d899d37ae8 parent=50a4ad1f5224d3ba UNSET
+
+## 5. Which get took the third send's message (Envoy's access log, MQ's web log, MQ's counters)
+$ podman logs fabric-envoy-1 | grep DEV.QUEUE.1/message   (requests started 00:59:33 to 00:59:46)
+{"attempts":1,"cluster":"mq_web","duration_ms":10010,"flags":"DC","host":"mqrest.mesh:18080","kind":"http","method":"DELETE","path":"/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000","start":"2026-10-23T00:59:33.671Z","status":0,"upstream":"10.89.7.4:9443"}
+{"attempts":1,"cluster":"mq_web","duration_ms":521,"flags":"-","host":"mqrest.mesh:18080","kind":"http","method":"POST","path":"/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message","start":"2026-10-23T00:59:44.807Z","status":201,"upstream":"10.89.7.4:9443"}
+{"attempts":1,"cluster":"mq_web","duration_ms":5089,"flags":"-","host":"mqrest.mesh:18080","kind":"http","method":"DELETE","path":"/ibmmq/rest/v3/messaging/qmgr/QM1/queue/DEV.QUEUE.1/message?wait=5000","start":"2026-10-23T00:59:46.248Z","status":204,"upstream":"10.89.7.4:9443"}
+$ podman exec fabric-mq-1 grep -E "CWWKO0219I|SRVE0242I|MQWB0327I" .../servers/mqweb/logs/messages.log   (ibm_datetime, message)
+2026-10-23T00:59:32.786+0000 CWWKO0219I: TCP Channel defaultHttpEndpoint-ssl has been started and is now listening for requests on host *  (IPv6) port 9443.
+2026-10-23T00:59:38.906+0000 SRVE0242I: [com.ibm.mq.rest] [/ibmmq/rest] [javax.ws.rs.core.Application]: Initialization successful.
+2026-10-23T00:59:39.827+0000 MQWB0327I: The user that is logged into the REST API is being used for MQ authorization: 'TRUE'
+$ Prometheus query_range, 10 s steps from 00:59:40 to 01:00:10: each counter of QM1
+ibmmq_qmgr_mqput_mqput1_total            39 52 66 79  steps: +13 +14 +13
+ibmmq_qmgr_mqput_mqput1_bytes_total      14868 19824 25210 30166  steps: +4956 +5386 +4956
+ibmmq_qmgr_destructive_get_total         43 56 70 83  steps: +13 +14 +13
+ibmmq_qmgr_destructive_get_bytes_total   16032 20988 26374 31330  steps: +4956 +5386 +4956
+$ the same counters from 01:00:30 to 01:01:10, around the re-send the worker processed at 01:00:45
+ibmmq_qmgr_mqput_mqput1_total            105 118 131 145 158  steps: +13 +13 +14 +13
+ibmmq_qmgr_mqput_mqput1_bytes_total      40078 45034 49990 55376 60332  steps: +4956 +4956 +5386 +4956
+ibmmq_qmgr_destructive_get_total         109 122 135 149 162  steps: +13 +13 +14 +13
+ibmmq_qmgr_destructive_get_bytes_total   41242 46198 51154 56540 61496  steps: +4956 +4956 +5386 +4956
