@@ -157,7 +157,7 @@ on the put, returned on the get. The event body stays as it is.
 | `publish_order_event`, for a re-send | when the order's stored trace is not the current one, the send span's parent is the stored context, with a link to the span that re-sent it (the republish request; the sweeper has no span, so no link); for an order without a stored context (one created before R1.5), the send continues the current trace: the republish request's, or for the sweeper a trace of its own | a link points one way, from the new span to the old: a re-send that only linked to the order would not show from the order's trace |
 | `services/worker/worker.py`, the main loop | reads the get's `ibm-mq-usr` headers with httpx's `get_list` and parses them with `mq_properties`, extracts the context with the same propagator, and processes the message in a `process DEV.QUEUE.1` span (kind consumer) whose parent is that context and which links to it, as the conventions ask of every `process` span; a message without a valid `traceparent` starts a trace of its own, with no link | AC 1: the worker's span has the order's trace id; a malformed property never stops the loop |
 | `worker.py`, `put` | every put of the worker's own (the requeue, the dead-letter puts) is a `send <queue>` span whose `traceparent` the message carries | AC 2: an event put back after a failed attempt is processed later as a child of that requeue, in the same trace |
-| `worker.py`, the main loop | the get runs under `suppress_http_instrumentation()` | an empty long poll every `GET_WAIT_MS` (5000) was a trace of its own: 115 in 10 idle minutes, every one of the worker's traces (`output/r1-5-mq-measurements.txt`, section 7). The conventions ask for a `receive` span on a pull like this one; the lab leaves it out on purpose, and a failed get is counted in `worker_get_errors_total` and logged instead |
+| `worker.py`, the main loop | the get runs under `suppress_http_instrumentation()` | an empty long poll every `GET_WAIT_MS` (5000) was a trace of its own: 115 of the worker's 116 traces in 10 idle minutes (`output/r1-5-mq-measurements.txt`, section 7). The conventions ask for a `receive` span on a pull like this one; the lab leaves it out on purpose, and a failed get is counted in `worker_get_errors_total` and logged instead |
 | `worker.py`, `dead_letter` | counts a dead-letter put as `dead_lettered` only when MQ took it, and as `lost` when the put failed | the counter said `dead_lettered` whatever the put's answer |
 
 `mq_properties` splits the header the way MQ was measured to write it, not the way the spike's
@@ -238,9 +238,10 @@ application finished starting, and gave up at its 10-second read timeout (`get f
 client gone). MQ's web log puts the REST application's start at 00:59:38.906 and its first
 authorisation at 00:59:39.827, with that get the only request in flight, so its 5-second wait was
 still open when the event arrived at 00:59:44.8; the worker's next get, at 00:59:46, and every one
-to 01:00:41 answered 204. In the same 10 seconds MQ's counters show one put and one destructive
-get more than its steady traffic, each 430 bytes more: the signature the event's re-send left at
-01:00:45, which the worker did process. A REST get is destructive
+to 01:00:41 answered 204. MQ's counters show one put and one destructive get more than its steady
+traffic, each 430 bytes more, in the scrape step after the event (00:59:48 to 00:59:58): MQ
+publishes its statistics late, and the re-send at 01:00:45, which the worker did process, left the
+same signature one step after it too. A REST get is destructive
 and not transactional, so the abandoned get took the message for a client that was gone; the
 worker is the only consumer of `DEV.QUEUE.1` (orders-api only browses it). The sweeper's next round, a minute later, sent the event again, and the worker
 processed it within 103 ms: the `phase5` check "mq back" passed after 69 s instead of R1.4's 9 s.
@@ -268,7 +269,7 @@ unconnected traces; now the order's own trace shows that one event reached MQ an
 
 | Check | What it proves | Result |
 |---|---|---|
-| `otel: a span reaches the collector through Envoy` | telemetrygen sends 10 spans through `otlp.mesh` with no export error, and the collector's accepted-span counter rises by at least 10 (the services' own spans count too, so here it rose by 68) | accepted spans 4199 → 4267 |
+| `otel: a span reaches the collector through Envoy` | telemetrygen sends 10 spans through `otlp.mesh` with no export error, and the collector's accepted-span counter rises by at least 10 (the services' own spans count too, so here it rose by 14) | accepted spans 5235 → 5249 |
 | `otel: the three services run instrumented` | each service's process 1 has the installed hook directory on its `PYTHONPATH`, and its log holds no `Failed to auto initialize OpenTelemetry` | `orders-api:orders-api:instrumented worker:worker:instrumented tcp-svc:tcp-svc:instrumented` |
 | `otel: one order's trace has server, client and database spans` | an order placed with the check's own `traceparent` has, in that trace and under orders-api's server span, orders-api's HTTP and database client spans | `server=1 client=1 database=8 traces=1 spans=22` |
 | `otel: resource has service, version, env=lab` | in the order's whole trace (22 spans here, both services), every orders-api and worker span has a version and `deployment.environment=lab`, and both services appear; a span with no `service.name` counts as missing, and spans of other named services are not checked | `orders-api=dev/lab worker=dev/lab spans=22 missing=0` |
@@ -279,14 +280,16 @@ of the worker's polls.
 
 | Check | What it proves | Result |
 |---|---|---|
-| `otel: the worker's span joins the order's trace` | the order placed for the check above has, in its trace, a worker `process` span whose parent is orders-api's `send` span under the order's server span, and orders-api's status update answering 200 under one of the worker's attempts | `server=1 first=1 first_ok=1 requeued=0 later=0 later_ok=0 traces=1` |
+| `otel: the worker's span joins the order's trace` | the order placed for the check above has, in its trace, a worker `process` span naming that order (`fabric.order.id`) whose parent is orders-api's `send` span for it under the order's server span, and that order's status update answering 200 under the worker's `PUT` in one of its attempts | `server=1 first=1 first_ok=1 requeued=0 later=0 later_ok=0 traces=1` |
 | `otel: a requeued event's later attempt joins the trace` | with the next 4 status updates set to fail (`fail_next`, one per try of Envoy's: a first try and `num_retries: 3`), a second order's first attempt fails, the worker's requeue is a `send` span under it, a later attempt is that send's child, and that attempt's update answers 200, all in the order's trace; chaos is reset afterwards | `server=1 first=1 first_ok=0 requeued=1 later=1 later_ok=1 traces=1` |
 
 `tests/scripts/test_verify_false_pass.sh` feeds the checks the cases R1.4's and R1.5's reviewers
 found would fool them, and wants the right verdict: a service whose hook loaded but failed to
 start, a look-alike path on `PYTHONPATH`, another service's or another trace's spans in the
 order's slots, a resource without `service.name`, a worker span outside the order's send, a
-later attempt's update counted for the first, a dead-letter put taken for a requeue. It guards
+later attempt's update counted for the first, a dead-letter put taken for a requeue, spans naming
+another order (what a context leaked from another message would make), an update with no worker
+`PUT` above it. It guards
 against those known cases, not every possible one, and needs no lab:
 
 ```bash

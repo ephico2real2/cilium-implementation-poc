@@ -354,6 +354,30 @@ summary_case "the server span is another request's (worker)" mq_trace_summary \
   "$(tempo_trace "${server/${check_span}/fedcba9876543210}" "${send}" "${first}" "${put1}" "${ok1}")" "${t}" "${check_span}"
 summary_case "Tempo answered nothing (worker)" mq_trace_summary \
   "server=0 first=0 first_ok=0 requeued=0 later=0 later_ok=0 traces=0" "" "${t}" "${check_span}"
+# Given the order's id (phase6 always gives it), the spans must name that order, and an update counts
+# only as that order's, under the worker's PUT: a context leaked from another message cannot pass.
+o=41; status_url="http.url=http://api.mesh:18080/orders/${o}/status"
+osend="${send/||/|fabric.order.id=${o}|}"; ofirst="${first/||/|fabric.order.id=${o}|}"
+oput1="${put1/http.method=PUT/http.method=PUT,${status_url}}"; ook1="${ok1/http.status_code=200/http.status_code=200,${status_url}}"
+orequeue="${requeue}"; olater="${later/||/|fabric.order.id=${o}|}"
+oput2="${put2/http.method=PUT/http.method=PUT,${status_url}}"; ook2="${ok2/http.status_code=200/http.status_code=200,${status_url}}"
+summary_case "the order's attempt, bound to its id" mq_trace_summary \
+  "server=1 first=1 first_ok=1 requeued=0 later=0 later_ok=0 traces=1" \
+  "$(tempo_trace "${server}" "${osend}" "${ofirst}" "${oput1}" "${ook1}")" "${t}" "${check_span}" "${o}"
+summary_case "a requeue and a later attempt, bound to the id" mq_trace_summary \
+  "server=1 first=1 first_ok=0 requeued=1 later=1 later_ok=1 traces=1" \
+  "$(tempo_trace "${server}" "${osend}" "${ofirst}" "${oput1}" "${ook1/=200/=503}" "${orequeue}" "${olater}" "${oput2}" "${ook2}")" \
+  "${t}" "${check_span}" "${o}"
+summary_case "every span names another order" mq_trace_summary \
+  "server=1 first=0 first_ok=0 requeued=0 later=0 later_ok=0 traces=1" \
+  "$(tempo_trace "${server}" "${osend//=${o}/=999}" "${ofirst//=${o}/=999}" "${oput1//\/${o}\//\/999\/}" "${ook1//\/${o}\//\/999\/}")" \
+  "${t}" "${check_span}" "${o}"
+summary_case "an update with no worker PUT above it" mq_trace_summary \
+  "server=1 first=1 first_ok=0 requeued=0 later=0 later_ok=0 traces=1" \
+  "$(tempo_trace "${server}" "${osend}" "${ofirst}" "${ook1/00000000000000c2/00000000000000c1}")" "${t}" "${check_span}" "${o}"
+summary_case "an update of another order's status" mq_trace_summary \
+  "server=1 first=1 first_ok=0 requeued=0 later=0 later_ok=0 traces=1" \
+  "$(tempo_trace "${server}" "${osend}" "${ofirst}" "${oput1//\/${o}\//\/7\/}" "${ook1//\/${o}\//\/7\/}")" "${t}" "${check_span}" "${o}"
 
 # instrumented_process against a fake PID 1: an environ file stands for /proc/1/environ, a package
 # tree for the image's OpenTelemetry install, a log file for `podman logs`.

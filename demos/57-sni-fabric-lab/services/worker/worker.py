@@ -7,7 +7,8 @@ Loop:
   2. PUT /orders/{id}/status on orders-api (Envoy mesh_http, which retries the idempotent PUT).
   3. If the update still fails, put the event back with attempt + 1; after MAX_ATTEMPTS, put
      it on DEV.DEAD.LETTER.QUEUE. If even the put-back fails, the event is lost here, and the
-     API's sweeper sends it again because the order is still "created".
+     API's sweeper sends it again because the order is still "created"; a dead-letter put that
+     fails is counted lost too.
 
 Tracing (R1.5): each message is processed in a "process" span whose parent is the span that put
 it, read from the message's traceparent user property, so the order is one trace from the API's
@@ -175,7 +176,7 @@ def main() -> None:
     while not stopping:
         try:
             # No span for the get: an empty long poll every GET_WAIT_MS would be a trace of its own
-            # (115 in 10 idle minutes, all of the worker's traces); the processing below is traced.
+            # (115 of the worker's 116 traces in 10 idle minutes); the processing below is traced.
             with suppress_http_instrumentation():
                 response = mq.delete(queue_url(QUEUE), params={"wait": GET_WAIT_MS})
         except httpx.HTTPError as exc:

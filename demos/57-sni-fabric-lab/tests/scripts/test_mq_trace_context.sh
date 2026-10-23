@@ -25,6 +25,7 @@ podman run --rm -i --network none --read-only \
   -e MQ_APP_PASSWORD_FILE=/s/mq-password -e WORKER_TOKEN_FILE=/s/worker-token -e PYTHONDONTWRITEBYTECODE=1 \
   localhost/fabric-worker:dev python - <<'PY' || bad=$((bad + $?))
 import importlib.util
+import json
 import logging
 import sys
 
@@ -89,8 +90,9 @@ class FakeMQ:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         queue = request.url.path.split("/queue/")[1].split("/")[0]
         if request.method == "POST":
-            if queue == "DEV.DEAD.LETTER.QUEUE" and '"order_id": 9' in request.content.decode():
-                return httpx.Response(500)  # a dead-letter put that fails: the event is lost, and counted so
+            if queue == "DEV.DEAD.LETTER.QUEUE" and json.loads(request.content) == {
+                    "type": "order.created", "order_id": 9, "attempt": 5, "reason": "update failed 5 times: 503"}:
+                return httpx.Response(500)  # order 9's dead-letter put fails: the event is lost, and counted so
             message_id = self.put(queue, request.content.decode(), request.headers.get("ibm-mq-usr", ""))
             return httpx.Response(201, headers={"ibm-mq-md-messageId": message_id})
         if not self.queues.get(queue):

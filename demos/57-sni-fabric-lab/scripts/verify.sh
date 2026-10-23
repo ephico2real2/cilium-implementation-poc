@@ -482,8 +482,12 @@ resource_verdict() {  # resource_verdict <resource_summary output>
 # attempt is a requeue, and a "process" span whose parent is a requeue is a later attempt. A status
 # update counts as ok (HTTP 200) for the attempt that is its nearest worker "process" ancestor, so
 # a later attempt's update cannot count for the first. Old and stable status-code names both count.
-mq_trace_summary() {  # mq_trace_summary <Tempo JSON> <trace id, 32 hex> <the check's parent span id, 16 hex>
+# Given the order's id, every process span and the order's send must name it, and a status update
+# counts only for that order and only under the worker's PUT: a context leaked from another message
+# cannot pass for this order's processing.
+mq_trace_summary() {  # mq_trace_summary <Tempo JSON> <trace id, 32 hex> <the check's parent span id, 16 hex> [order id]
   python3 -c 'import base64, json, sys
+from urllib.parse import urlsplit
 
 def encoded(hex_value, length):
     try:
@@ -493,6 +497,7 @@ def encoded(hex_value, length):
 
 expected_trace = encoded(sys.argv[1], 32)
 expected_parent = encoded(sys.argv[2], 16)
+expected_order = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else None
 try:
     resources = json.loads(sys.stdin.read() or "{}").get("trace", {}).get("resourceSpans", [])
 except ValueError:
@@ -521,11 +526,25 @@ def nearest(span_id, wanted):  # the closest ancestor of span_id for which wante
 def named(span_id, service, kind, name):
     return span_id in spans and spans[span_id][:3] == (service, "SPAN_KIND_" + kind, name)
 
-process = lambda i: named(i, "worker", "CONSUMER", "process DEV.QUEUE.1")
+def attr(attrs, *names):  # the first of the names present: old and stable semantic-convention names
+    return next((attrs[n] for n in names if attrs.get(n) is not None), None)
+
+def has_order(span_id):  # the span names the order the check placed
+    return expected_order is None or (span_id in spans and str(spans[span_id][4].get("fabric.order.id")) == expected_order)
+
+def targets_order(attrs):  # the request is the status update of that order
+    raw = attr(attrs, "url.path", "http.target", "url.full", "http.url")
+    return expected_order is None or (bool(raw) and urlsplit(str(raw)).path == f"/orders/{expected_order}/status")
+
+def worker_put(span_id):
+    return span_id in spans and spans[span_id][:2] == ("worker", "SPAN_KIND_CLIENT") \
+        and attr(spans[span_id][4], "http.request.method", "http.method") == "PUT" and targets_order(spans[span_id][4])
+
+process = lambda i: named(i, "worker", "CONSUMER", "process DEV.QUEUE.1") and has_order(i)
 servers = {i for i, (service, kind, name, up, attrs) in spans.items() if service == "orders-api"
            and kind == "SPAN_KIND_SERVER" and up == expected_parent and attrs.get("http.route") == "/orders"}
 first = {i for i in spans if process(i) and named(parent(i), "orders-api", "PRODUCER", "send DEV.QUEUE.1")
-         and nearest(parent(i), lambda a: a in servers)}
+         and has_order(parent(i)) and nearest(parent(i), lambda a: a in servers)}
 attempts, requeues, later = set(first), set(), set()
 while True:
     requeues = {i for i in spans if named(i, "worker", "PRODUCER", "send DEV.QUEUE.1") and nearest(i, process) in attempts}
@@ -535,10 +554,11 @@ while True:
     later |= found; attempts |= found
 ok = [nearest(i, process) for i, (service, kind, name, up, attrs) in spans.items() if service == "orders-api"
       and kind == "SPAN_KIND_SERVER" and attrs.get("http.route") == "/orders/{order_id}/status"
-      and str(attrs.get("http.status_code", attrs.get("http.response.status_code"))) == "200"]
+      and str(attr(attrs, "http.response.status_code", "http.status_code")) == "200"
+      and targets_order(attrs) and worker_put(up)]
 print("server=%d first=%d first_ok=%d requeued=%d later=%d later_ok=%d traces=%d" % (
     len(servers), len(first), sum(a in first for a in ok), len(requeues), len(later), sum(a in later for a in ok),
-    len(traces)))' "$2" "$3" <<<"${1:-}"
+    len(traces)))' "$2" "$3" "${4:-}" <<<"${1:-}"
 }
 
 worker_join_verdict() {  # worker_join_verdict <the POST's "HTTP <code>" line> <mq_trace_summary output>
@@ -572,7 +592,7 @@ phase6() {
     isolated collector_networks peers internal entry store network url want i uid run tempo vtraces \
     tempo_list first log_trace_id value tempo_spans vtraces_spans expected_jobs prometheus_jobs \
     victoria_jobs mq_gauges prometheus_mq_samples victoria_mq_samples victoria_mq_gauges \
-    service processes order_trace_id order_parent order_status order_trace summary mq_trace
+    service processes order_trace_id order_parent order_status order_trace summary mq_trace order_id
   local sent=$((traces * 2))
   # <service> <its network> <readiness URL through Envoy> <the answer when ready>
   local stores=(
@@ -756,9 +776,10 @@ phase6() {
   order_trace_verdict "${order_status}" "${summary}"
 
   # R1.5, AC 1: the worker's processing of that order's event, and its status update, in the same trace.
+  order_id="$(json_field 'd["id"]' <<<"${out}" 2>/dev/null)"
   for i in $(seq 1 20); do
     mq_trace="$(store_get "http://tempo.mesh:18080/api/v2/traces/${order_trace_id}" 2>/dev/null)"
-    summary="$(mq_trace_summary "${mq_trace}" "${order_trace_id}" "${order_parent}" 2>/dev/null)"
+    summary="$(mq_trace_summary "${mq_trace}" "${order_trace_id}" "${order_parent}" "${order_id}" 2>/dev/null)"
     [[ "${summary}" =~ (first|later)_ok=[1-9] ]] && break
     sleep 3
   done
@@ -776,9 +797,10 @@ phase6() {
   out="$(api POST /orders -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
     -H "traceparent: 00-${order_trace_id}-${order_parent}-01" -d '{"item":"flat white","quantity":1}')"
   order_status="$(tail -1 <<<"${out}")"
+  order_id="$(json_field 'd["id"]' <<<"${out}" 2>/dev/null)"
   for i in $(seq 1 20); do
     mq_trace="$(store_get "http://tempo.mesh:18080/api/v2/traces/${order_trace_id}" 2>/dev/null)"
-    summary="$(mq_trace_summary "${mq_trace}" "${order_trace_id}" "${order_parent}" 2>/dev/null)"
+    summary="$(mq_trace_summary "${mq_trace}" "${order_trace_id}" "${order_parent}" "${order_id}" 2>/dev/null)"
     [[ "${summary}" =~ later_ok=[1-9] ]] && break
     sleep 3
   done
