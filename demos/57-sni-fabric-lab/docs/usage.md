@@ -101,10 +101,12 @@ The steps, in order:
 7. Print the memory in use, and the URLs with their logins
 
 Everything is also written to `output/transcript.txt`. It stops at the first failed step.
-Measured on 2026-10-22: 11 min 6 s from nothing, 90 checks, 0 failures. The comparison step
-took 3 min 12 s, nearly all of it waiting: a counter that sat at zero until phases 1-3 (orders created, unknown-SNI resets) is
+Measured on 2026-10-23: 14 min 49 s from nothing, 92 checks, 0 failures. The comparison step
+took 5 min 36 s, nearly all of it waiting: a counter that sat at zero until phases 1-3 (orders created, unknown-SNI resets) is
 exactly comparable only once its last zero sample has left the 310 s window, because Prometheus
-stops extrapolating at a counter's zero point and VictoriaMetrics never extrapolates.
+stops extrapolating at a counter's zero point and VictoriaMetrics never extrapolates. Since R1.5,
+phase 6's requeue check moves two more such counters just before this step (the worker's requeues
+and Envoy's retries on `orders_api_internal`), and they were the last to become comparable.
 
 ### 4.2 `scripts/gen-certs.sh`: the CA and certificates
 
@@ -224,9 +226,10 @@ curl -s --cacert certs/ca/ca.crt -X PUT -H 'Authorization: Bearer fabric-admin' 
 |---|---|---|
 | `fail_rate` | 0 to 1 | Share of the worker's status updates orders-api answers with 503 |
 | `delay_ms` | 0 to 5000 | Delay added to each status update |
+| `fail_next` | 0 to 100, default 0 | The next n status updates fail whatever the rate; `phase6` sets 4 to make the worker requeue an event (R1.5) |
 
 Only the internal status updates are affected, so Envoy's retries show on the dashboard. Set
-both to 0 to stop. The setting lives in orders-api's memory and resets when it restarts.
+both to 0 to stop; a setting without `fail_next` sets it to 0. The setting lives in orders-api's memory and resets when it restarts.
 
 ### 5.4 `scripts/trace_order.py`: follow one order
 
@@ -296,20 +299,20 @@ arrives (their `-search.latencyOffset`).
 ### 5.6 The services' own traces
 
 orders-api, worker and tcp-svc start under `opentelemetry-instrument` (each Dockerfile's `CMD`), and
-the `x-otel-env` block of `compose.yaml` is their whole configuration: no service file changed. They
+the `x-otel-env` block of `compose.yaml` is their whole configuration; the services' own code adds
+only the trace's hand-off through IBM MQ (R1.5, [the tracing page](tracing.md)). They
 send traces only, over OTLP/HTTP to Envoy's `otlp.mesh`, which the collector fans out to Tempo and
 VictoriaTraces. Their metrics stay on Prometheus's scrape and their logs on stdout.
 
 | Service | Instrumented | Its spans |
 |---|---|---|
-| orders-api | FastAPI, httpx, psycopg | a server span per request (both servers), a client span per MQ REST, Prometheus or health call, a client span per SQL statement and per pool check (an empty statement named after the database) |
-| worker | httpx | a client span per MQ REST get (one every 5 s while the queue is empty) and per status update |
+| orders-api | FastAPI, httpx, psycopg | a server span per request (both servers), a client span per MQ REST, Prometheus or health call, a client span per SQL statement and per pool check (an empty statement named after the database); a `send DEV.QUEUE.1` span per event put |
+| worker | httpx | a `process DEV.QUEUE.1` span per message, in the trace of the span that put it, with a client span per status update and a `send` span per requeue or dead-letter put under it; no span for its gets |
 | tcp-svc | nothing | none: no library it uses has an instrumentation, so it exports no span |
 
 Not traced: `/metrics`, `/healthz` and `/readyz` on orders-api (`OTEL_PYTHON_FASTAPI_EXCLUDED_URLS`),
-because Prometheus's scrape and the health check would be a trace every few seconds. Until R1.5,
-the worker's status update and orders-api's handling of it are one trace, and the order's own
-request is another.
+because Prometheus's scrape and the health check would be a trace every few seconds. Since R1.5
+an order is one trace, from its request through MQ to the worker's status update.
 
 To see one order's trace, place the order with a trace id of your own and open that id in
 Grafana's Explore (Tempo):
@@ -339,7 +342,7 @@ scripts/verify.sh phase1 phase5   # several, in that order
 | `phase2` | 20 | Swagger; idempotent orders; validation; the admin token; CORS; Postgres only through `mesh_pg` |
 | `phase3` | 19 | The native MQ client in all three SNI modes; an order from created to processed; every `/metrics` through Envoy; Envoy's verified TLS to the MQ REST API |
 | `phase5` | 7 | 50% chaos, a Postgres restart, MQ stopped and started, tcp-svc stopped and started: everything recovers by itself. **Stops and restarts containers on purpose** |
-| `phase6` | 25 | Five synthetic traces (ten spans) reach the collector through Envoy with no export error; the collector shares only the internal `net-otel` with Envoy; its internal metrics return through `mesh_http`. Each store is ready when read through Envoy, sits on an internal network shared with Envoy alone, and its own metrics return through `mesh_http`. Both metric stores have the same complete set of healthy jobs, the same positive MQ scrape sample count, and the same positive count of fresh MQ recovery-log gauges. Grafana's test of each datasource answers OK. One named run: its five trace ids are the same in Tempo and VictoriaTraces, one trace has exactly two spans in both, its five metric samples are in VictoriaMetrics, and its five log lines (carrying one of those trace ids) are in VictoriaLogs. orders-api, worker and tcp-svc run under `opentelemetry-instrument`; one order placed with the check's own trace context has, in Tempo, its server span with an HTTP and a database client span under it; the orders-api and worker spans carry `service.name`, `service.version` and `deployment.environment=lab` |
+| `phase6` | 27 | Five synthetic traces (ten spans) reach the collector through Envoy with no export error; the collector shares only the internal `net-otel` with Envoy; its internal metrics return through `mesh_http`. Each store is ready when read through Envoy, sits on an internal network shared with Envoy alone, and its own metrics return through `mesh_http`. Both metric stores have the same complete set of healthy jobs, the same positive MQ scrape sample count, and the same positive count of fresh MQ recovery-log gauges. Grafana's test of each datasource answers OK. One named run: its five trace ids are the same in Tempo and VictoriaTraces, one trace has exactly two spans in both, its five metric samples are in VictoriaMetrics, and its five log lines (carrying one of those trace ids) are in VictoriaLogs. orders-api, worker and tcp-svc run under `opentelemetry-instrument`; one order placed with the check's own trace context has, in Tempo, its server span with an HTTP and a database client span under it; the orders-api and worker spans carry `service.name`, `service.version` and `deployment.environment=lab`; the worker's processing of that order's event, and its status update, are in the order's trace, and so is a later attempt after a forced requeue |
 | (none) | 57 | `phase1 phase2 phase3` |
 
 Each check prints `PASS` or `FAIL` with what it saw. Phase 4 (metrics) is checked by the

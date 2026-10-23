@@ -16,10 +16,10 @@
 # container-tests uses podman, because the tests it runs call podman.
 #
 # Not in CI: the checks that need the running lab (scripts/run.sh --fresh builds four images and
-# starts the 16 services, 11 min 6 s recorded on the Mac), which this workflow does not bring up.
+# starts the 16 services, 14 min 49 s recorded on the Mac), which this workflow does not bring up.
 # Each runs on the lab's machine, from the demo directory, once the lab is up:
 #   scripts/verify.sh                          phases 1-3, 57 checks
-#   scripts/verify.sh phase6                   the collector, the four stores and the services' traces, 25 checks
+#   scripts/verify.sh phase6                   the collector, the four stores and the services' traces, 27 checks
 #   scripts/verify.sh phase5                   failure and recovery, 7 checks; stops and restarts containers on purpose
 #   bash tests/r1-2/test_store_routes.sh       the stores' mesh routes (admin and other writes refused) and
 #                                              VictoriaMetrics' whole app on the host
@@ -64,6 +64,10 @@
 #   bash tests/r1-3/test_prometheus_config.sh
 #       docker.io/prom/prometheus:v3.15.0's promtool, two throwaway --rm containers reading the
 #       committed prometheus.yml and a corrupted copy. Local: under 1 s.
+#   bash tests/scripts/test_mq_trace_context.sh services certs/ca/ca.crt
+#       localhost/fabric-worker:dev and localhost/fabric-orders-api:dev built; one --network none
+#       --read-only container of each, as the image's UID, running the given code against fake MQ,
+#       orders-api and database, its spans in memory (R1.5). Local: 2 s.
 #
 # Every action is pinned by the full commit of its release tag (a tag can be moved, a commit
 # cannot), the tag beside it: the newest release at least two weeks old on 2026-10-22.
@@ -296,3 +300,6 @@ jobs:
 
       - name: test_prometheus_config.sh
         run: bash tests/r1-3/test_prometheus_config.sh
+
+      - name: test_mq_trace_context.sh
+        run: bash tests/scripts/test_mq_trace_context.sh services certs/ca/ca.crt

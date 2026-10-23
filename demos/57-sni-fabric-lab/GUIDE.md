@@ -100,12 +100,12 @@ sleep 15; echo "retries after:  $(count)"
 
 ```text
 retries before: 8
-{"fail_rate":0.5,"delay_ms":0}
+{"fail_rate":0.5,"delay_ms":0,"fail_next":0}
     40  GET /tcp/ping -> 200
     40  POST /orders new -> 201
     40  POST /orders replay -> 200
      4  unknown SNI -> reset
-{"fail_rate":0.0,"delay_ms":0}
+{"fail_rate":0.0,"delay_ms":0,"fail_next":0}
 retries after:  43
 ```
 

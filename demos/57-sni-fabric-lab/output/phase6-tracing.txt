@@ -1,15 +1,15 @@
 == Phase 6: OpenTelemetry collector and the telemetry stores
-PASS  otel: a span reaches the collector through Envoy accepted spans 19627 -> 19643 (10 sent)
+PASS  otel: a span reaches the collector through Envoy accepted spans 1987 -> 2001 (10 sent)
 PASS  isolation: the collector shares a network only with Envoy network=fabric_net-otel (internal), peer=fabric-envoy-1
 PASS  metrics: the collector's own metrics through mesh_http 70 samples
 PASS  store: tempo ready, reached only through Envoy ready after 0s; net-tempo (internal) shared with Envoy alone
-PASS  metrics: /metrics/tempo through mesh_http      1717 samples
+PASS  metrics: /metrics/tempo through mesh_http      1447 samples
 PASS  store: victoria-traces ready, reached only through Envoy OK after 0s; net-vtraces (internal) shared with Envoy alone
-PASS  metrics: /metrics/victoria-traces through mesh_http 754 samples
+PASS  metrics: /metrics/victoria-traces through mesh_http 631 samples
 PASS  store: victoria-metrics ready, reached only through Envoy OK after 0s; net-vmetrics (internal) shared with Envoy alone
-PASS  metrics: /metrics/victoria-metrics through mesh_http 1163 samples
+PASS  metrics: /metrics/victoria-metrics through mesh_http 1136 samples
 PASS  store: victoria-logs ready, reached only through Envoy OK after 0s; net-vlogs (internal) shared with Envoy alone
-PASS  metrics: /metrics/victoria-logs through mesh_http 582 samples
+PASS  metrics: /metrics/victoria-logs through mesh_http 566 samples
 PASS  stores: same healthy metric jobs               11 jobs: envoy mq orders-api otel-collector postgres tcp-svc tempo victoria-logs victoria-metrics victoria-traces worker
 PASS  stores: MQ gauge and sample count copied       fresh gauges=1 in both; scrape_samples_scraped=136 in both
 PASS  grafana: datasource prometheus answers OK      status=OK Successfully queried the Prometheus API.
@@ -17,12 +17,14 @@ PASS  grafana: datasource victoriametrics answers OK status=OK Successfully quer
 PASS  grafana: datasource victorialogs answers OK    status=OK Data source is working
 PASS  grafana: datasource tempo answers OK           status=OK Data source is working
 PASS  grafana: datasource victoriatraces answers OK  status=OK Data source is working
-PASS  stores: the same 5 trace ids in Tempo and VictoriaTraces phase6-f8edf885 after 27s, e.g. 67c84a79b412ccaee0c2e426ba5eed39
+PASS  stores: the same 5 trace ids in Tempo and VictoriaTraces phase6-e577cc85 after 27s, e.g. 04856fd72b5966e26530ebc9b91da607
 PASS  stores: one trace has two spans                Tempo=2, VictoriaTraces=2 (parent + child)
 PASS  stores: the run's metrics in VictoriaMetrics   5 of 5 samples after 30s
-PASS  stores: the run's logs in VictoriaLogs         5 lines with trace_id 67c84a79b412ccaee0c2e426ba5eed39 after 3s
+PASS  stores: the run's logs in VictoriaLogs         5 lines with trace_id 04856fd72b5966e26530ebc9b91da607 after 3s
 PASS  otel: the three services run instrumented      orders-api:orders-api:instrumented worker:worker:instrumented tcp-svc:tcp-svc:instrumented
-PASS  otel: one order's trace has server, client and database spans server=1 client=1 database=6 traces=1 spans=12
-PASS  otel: resource has service, version, env=lab   orders-api=dev/lab worker=dev/lab spans=13 missing=0
+PASS  otel: one order's trace has server, client and database spans server=1 client=1 database=8 traces=1 spans=22
+PASS  otel: the worker's span joins the order's trace server=1 first=1 first_ok=1 requeued=0 later=0 later_ok=0 traces=1
+PASS  otel: resource has service, version, env=lab   orders-api=dev/lab worker=dev/lab spans=22 missing=0
+PASS  otel: a requeued event's later attempt joins the trace server=1 first=1 first_ok=0 requeued=1 later=1 later_ok=1 traces=1
 
 failures: 0

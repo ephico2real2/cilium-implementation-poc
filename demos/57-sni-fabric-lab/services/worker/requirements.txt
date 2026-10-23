@@ -6,6 +6,10 @@ opentelemetry-sdk==1.45.1
 opentelemetry-distro==0.66b1
 opentelemetry-exporter-otlp-proto-http==1.45.1
 opentelemetry-instrumentation-httpx==0.66b1
+# Imported by worker.py itself (R1.5): the trace API with its W3C propagator, and
+# suppress_http_instrumentation, which keeps the empty MQ polls out of the traces.
+opentelemetry-api==1.45.1
+opentelemetry-instrumentation==0.66b1
 # Needed by opentelemetry-instrumentation; held at the newest release at least two weeks old
 # (ROADMAP, Definition of Done 1): 2.5.1 came out 2026-10-14.
 wrapt==2.5.0

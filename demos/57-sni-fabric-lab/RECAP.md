@@ -195,8 +195,8 @@ emulation; about two minutes is normal.
 podman compose up -d --build
 ```
 
-Result: every health check passes; Envoy after 0 s, Postgres after 6 s, MQ after 130 s and
-Grafana after 130 s. Watch them with `podman ps --format '{{.Names}} {{.Status}}'` until every one reads
+Result: every health check passes; Envoy after 0 s, Postgres after 6 s, MQ after 143 s and
+Grafana after 143 s. Watch them with `podman ps --format '{{.Names}} {{.Status}}'` until every one reads
 `healthy`; the five without a health check (`otel-collector`, `postgres-exporter`, `tempo`,
 `victoria-traces`, `victoria-logs`) read `Up`.
 
@@ -252,7 +252,7 @@ Rebuild from nothing and run every check, recorded to `output/transcript.txt`:
 scripts/run.sh --fresh
 ```
 
-Result: 11 min 6 s; 90 checks pass, `31 queries, 0 with errors or warnings`, and
+Result: 14 min 49 s; 92 checks pass, `31 queries, 0 with errors or warnings`, and
 `PASS  14 charts in 7 sections; both forms agree on colours, styles, units, legends`.
 
 Then open <https://web.fabric.localtest.me:8443/admin> with the token `fabric-admin`, and

@@ -12,5 +12,6 @@ RUN useradd --uid 10002 --no-create-home --shell /usr/sbin/nologin app
 USER 10002
 EXPOSE 8443 8080
 # opentelemetry-instrument (R1.4) configures OpenTelemetry from the OTEL_* variables compose.yaml
-# sets, instruments FastAPI, httpx and psycopg, then execs the same command: no code change.
+# sets, instruments FastAPI, httpx and psycopg, then execs the same command. app/clients.py adds
+# only what no instrumentation can do: the trace through MQ (R1.5).
 CMD ["opentelemetry-instrument", "python", "-m", "app.main"]

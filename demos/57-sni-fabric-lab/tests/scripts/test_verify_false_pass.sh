@@ -202,17 +202,49 @@ phase6_case "worker without an environment" resource_verdict "${resource}" FAIL 
 phase6_case "environment prod" resource_verdict "${resource}" FAIL "orders-api=dev/prod worker=dev/prod spans=13 missing=0"
 phase6_case "no worker trace" resource_verdict "${resource}" FAIL "orders-api=dev/lab spans=12 missing=0"
 phase6_case "no spans at all" resource_verdict "${resource}" FAIL "spans=0 missing=0"
+# R1.5's verdicts on mq_trace_summary's output.
+joined="otel: the worker.s span joins the order.s trace"
+phase6_case "processed and updated in the order's trace" worker_join_verdict "${joined}" PASS "HTTP 201" \
+  "server=1 first=1 first_ok=1 requeued=0 later=0 later_ok=0 traces=1"
+phase6_case "updated by a later attempt" worker_join_verdict "${joined}" PASS "HTTP 201" \
+  "server=1 first=1 first_ok=0 requeued=1 later=1 later_ok=1 traces=1"
+phase6_case "no process span under the order's send" worker_join_verdict "${joined}" FAIL "HTTP 201" \
+  "server=1 first=0 first_ok=0 requeued=0 later=0 later_ok=0 traces=1"
+phase6_case "processed, never updated in this trace" worker_join_verdict "${joined}" FAIL "HTTP 201" \
+  "server=1 first=1 first_ok=0 requeued=0 later=0 later_ok=0 traces=1"
+phase6_case "spans of two traces" worker_join_verdict "${joined}" FAIL "HTTP 201" \
+  "server=1 first=1 first_ok=1 requeued=0 later=0 later_ok=0 traces=2"
+phase6_case "two server spans" worker_join_verdict "${joined}" FAIL "HTTP 201" \
+  "server=2 first=1 first_ok=1 requeued=0 later=0 later_ok=0 traces=1"
+phase6_case "the order refused" worker_join_verdict "${joined}" FAIL "HTTP 422" \
+  "server=1 first=1 first_ok=1 requeued=0 later=0 later_ok=0 traces=1"
+phase6_case "Tempo never answered (worker)" worker_join_verdict "${joined}" FAIL "HTTP 201" ""
+requeued="otel: a requeued event.s later attempt joins the"
+phase6_case "failed, requeued, updated later" requeue_join_verdict "${requeued}" PASS "HTTP 201" \
+  "server=1 first=1 first_ok=0 requeued=1 later=1 later_ok=1 traces=1"
+phase6_case "never requeued" requeue_join_verdict "${requeued}" FAIL "HTTP 201" \
+  "server=1 first=1 first_ok=1 requeued=0 later=0 later_ok=0 traces=1"
+phase6_case "the later attempt in another trace" requeue_join_verdict "${requeued}" FAIL "HTTP 201" \
+  "server=1 first=1 first_ok=0 requeued=1 later=0 later_ok=0 traces=1"
+phase6_case "the later attempt failed too" requeue_join_verdict "${requeued}" FAIL "HTTP 201" \
+  "server=1 first=1 first_ok=0 requeued=1 later=1 later_ok=0 traces=1"
+phase6_case "a requeue after a first attempt that worked" requeue_join_verdict "${requeued}" FAIL "HTTP 201" \
+  "server=1 first=1 first_ok=1 requeued=1 later=1 later_ok=1 traces=1"
+phase6_case "the requeued order's spans in two traces" requeue_join_verdict "${requeued}" FAIL "HTTP 201" \
+  "server=1 first=1 first_ok=0 requeued=1 later=1 later_ok=1 traces=2"
+phase6_case "Tempo never answered (requeue)" requeue_join_verdict "${requeued}" FAIL "HTTP 201" ""
 
 # The summaries, on JSON shaped as Tempo's /api/v2/traces answers (ids in base64, kinds as
-# SPAN_KIND_*). Spec per span: service|span id|parent id or -|kind|key=value,...|trace id (16 hex,
-# 16 hex, 32 hex). The check's own span is 0123456789abcdef; it is in no document, as in the lab.
+# SPAN_KIND_*). Spec per span: service|span id|parent id or -|kind|key=value,...|trace id[|name]
+# (16 hex, 16 hex, 32 hex; the name defaults to the kind). The check's own span is
+# 0123456789abcdef; it is in no document, as in the lab.
 tempo_trace() {  # tempo_trace <spec>...  -> one Tempo trace document
   python3 -c 'import base64, json, sys
 b64 = lambda h: base64.b64encode(bytes.fromhex(h)).decode()
 resources = {}
 for spec in sys.argv[1:]:
-    service, span_id, parent, kind, attrs, trace = spec.split("|")
-    span = {"traceId": b64(trace), "spanId": b64(span_id), "kind": "SPAN_KIND_" + kind, "name": kind.lower(),
+    service, span_id, parent, kind, attrs, trace, *name = spec.split("|")
+    span = {"traceId": b64(trace), "spanId": b64(span_id), "kind": "SPAN_KIND_" + kind, "name": name[0] if name else kind.lower(),
             "attributes": [{"key": k, "value": {"stringValue": v}} for k, v in (a.split("=", 1) for a in attrs.split(",") if a)]}
     if parent != "-":
         span["parentSpanId"] = b64(parent)
@@ -272,6 +304,56 @@ summary_case "a resource without service.name is missing" resource_summary \
   "$(tempo_trace "${server}")" \
   "$(tempo_trace "worker|00000000000000c1|-|CLIENT|http.method=DELETE|${u}")" \
   "${unnamed}"
+
+# mq_trace_summary: the order's server span, orders-api's send under it, the worker's attempts and
+# the status updates they made. a4 is the send, c1 the first attempt and c3 its update; c4 a requeue,
+# c5 the later attempt and c7 its update.
+q=DEV.QUEUE.1; status_route='http.route=/orders/{order_id}/status'
+send="orders-api|00000000000000a4|00000000000000a1|PRODUCER||${t}|send ${q}"
+first="worker|00000000000000c1|00000000000000a4|CONSUMER||${t}|process ${q}"
+put1="worker|00000000000000c2|00000000000000c1|CLIENT|http.method=PUT|${t}"
+ok1="orders-api|00000000000000c3|00000000000000c2|SERVER|${status_route},http.status_code=200|${t}"
+requeue="worker|00000000000000c4|00000000000000c1|PRODUCER||${t}|send ${q}"
+later="worker|00000000000000c5|00000000000000c4|CONSUMER||${t}|process ${q}"
+put2="worker|00000000000000c6|00000000000000c5|CLIENT|http.method=PUT|${t}"
+ok2="orders-api|00000000000000c7|00000000000000c6|SERVER|${status_route},http.status_code=200|${t}"
+summary_case "the worker's attempt in the order's trace" mq_trace_summary \
+  "server=1 first=1 first_ok=1 requeued=0 later=0 later_ok=0 traces=1" \
+  "$(tempo_trace "${server}" "${send}" "${first}" "${put1}" "${ok1}")" "${t}" "${check_span}"
+summary_case "stable status-code name" mq_trace_summary \
+  "server=1 first=1 first_ok=1 requeued=0 later=0 later_ok=0 traces=1" \
+  "$(tempo_trace "${server}" "${send}" "${first}" "${put1}" "${ok1/http.status_code/http.response.status_code}")" \
+  "${t}" "${check_span}"
+# The later attempt's 200 is under the first attempt too, through the requeue: it counts for the later.
+summary_case "a failed attempt, its requeue, a later attempt" mq_trace_summary \
+  "server=1 first=1 first_ok=0 requeued=1 later=1 later_ok=1 traces=1" \
+  "$(tempo_trace "${server}" "${send}" "${first}" "${put1}" "${ok1/=200/=503}" "${requeue}" "${later}" "${put2}" "${ok2}")" \
+  "${t}" "${check_span}"
+summary_case "the attempt in another trace" mq_trace_summary \
+  "server=1 first=0 first_ok=0 requeued=0 later=0 later_ok=0 traces=2" \
+  "$(tempo_trace "${server}" "${send}" "${first/${t}/${u}}" "${put1/%${t}/${u}}" "${ok1/%${t}/${u}}")" \
+  "${t}" "${check_span}"
+summary_case "an attempt not under a send" mq_trace_summary \
+  "server=1 first=0 first_ok=0 requeued=0 later=0 later_ok=0 traces=1" \
+  "$(tempo_trace "${server}" "${first/00000000000000a4/00000000000000a1}" "${put1}" "${ok1}")" "${t}" "${check_span}"
+summary_case "a send outside the order's server span" mq_trace_summary \
+  "server=1 first=0 first_ok=0 requeued=0 later=0 later_ok=0 traces=1" \
+  "$(tempo_trace "${server}" "${send/00000000000000a1/-}" "${first}" "${put1}" "${ok1}")" "${t}" "${check_span}"
+summary_case "the worker's send under another service's name" mq_trace_summary \
+  "server=1 first=0 first_ok=0 requeued=0 later=0 later_ok=0 traces=1" \
+  "$(tempo_trace "${server}" "${send/orders-api/worker}" "${first}" "${put1}" "${ok1}")" "${t}" "${check_span}"
+summary_case "a dead-letter put is not a requeue" mq_trace_summary \
+  "server=1 first=1 first_ok=0 requeued=0 later=0 later_ok=0 traces=1" \
+  "$(tempo_trace "${server}" "${send}" "${first}" "${put1}" "${ok1/=200/=503}" "${requeue/send ${q}/send DEV.DEAD.LETTER.QUEUE}" \
+      "${later}" "${put2}" "${ok2}")" "${t}" "${check_span}"
+summary_case "an update outside every attempt" mq_trace_summary \
+  "server=1 first=1 first_ok=0 requeued=0 later=0 later_ok=0 traces=1" \
+  "$(tempo_trace "${server}" "${send}" "${first}" "${ok1/00000000000000c2/00000000000000a1}")" "${t}" "${check_span}"
+summary_case "the server span is another request's (worker)" mq_trace_summary \
+  "server=0 first=0 first_ok=0 requeued=0 later=0 later_ok=0 traces=1" \
+  "$(tempo_trace "${server/${check_span}/fedcba9876543210}" "${send}" "${first}" "${put1}" "${ok1}")" "${t}" "${check_span}"
+summary_case "Tempo answered nothing (worker)" mq_trace_summary \
+  "server=0 first=0 first_ok=0 requeued=0 later=0 later_ok=0 traces=0" "" "${t}" "${check_span}"
 
 # instrumented_process against a fake PID 1: an environ file stands for /proc/1/environ, a package
 # tree for the image's OpenTelemetry install, a log file for `podman logs`.

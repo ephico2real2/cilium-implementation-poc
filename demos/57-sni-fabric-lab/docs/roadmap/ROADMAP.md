@@ -159,7 +159,8 @@ that time.
   5. Security unchanged or better: loopback-only ports, own UID, keys and secrets, no company
      identifiers, lab credentials documented.
   6. Docs updated (usage, README record, RECAP, the chapter page), numbers from the transcript;
-     `tests/scripts/test_recap_counts.sh` passes.
+     `tests/scripts/test_recap_counts.sh` passes. An instrumentation change is documented in
+     `docs/tracing.md`: what the code does, its file and function, why, and the measured result.
   7. Reviewed in two passes by two seats that did not write it (Codex and OB3 by default): every
      finding comes with its full fix and a test that fails before and passes after, every
      decision is written in `docs/reviews/`, and the second pass runs on the fixed head. `main`

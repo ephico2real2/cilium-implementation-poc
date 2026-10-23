@@ -12,5 +12,6 @@ RUN useradd --uid 10003 --no-create-home --shell /usr/sbin/nologin app
 USER 10003
 EXPOSE 9100
 # opentelemetry-instrument (R1.4) configures OpenTelemetry from the OTEL_* variables compose.yaml
-# sets, instruments httpx, then execs the same command: no code change.
+# sets, instruments httpx, then execs the same command. worker.py adds only what no instrumentation
+# can do: the trace through MQ (R1.5).
 CMD ["opentelemetry-instrument", "python", "worker.py"]
