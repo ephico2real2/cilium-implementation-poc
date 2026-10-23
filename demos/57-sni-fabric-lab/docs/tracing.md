@@ -263,12 +263,12 @@ unconnected traces; now the order's own trace shows that one event reached MQ an
 
 ## How we know it works
 
-`scripts/verify.sh phase6` checks tracing on every run. Re-run on 2026-10-23 with R1.5 built, in
+`scripts/verify.sh phase6` checks tracing on every run. Re-run on 2026-10-23 with R1.5 and its review fixes built, in
 [`output/phase6-tracing.txt`](../output/phase6-tracing.txt), `failures: 0`:
 
 | Check | What it proves | Result |
 |---|---|---|
-| `otel: a span reaches the collector through Envoy` | telemetrygen sends 10 spans through `otlp.mesh` with no export error, and the collector's accepted-span counter rises by at least 10 (the services' own spans count too, so here it rose by 14) | accepted spans 1987 → 2001 |
+| `otel: a span reaches the collector through Envoy` | telemetrygen sends 10 spans through `otlp.mesh` with no export error, and the collector's accepted-span counter rises by at least 10 (the services' own spans count too, so here it rose by 68) | accepted spans 4199 → 4267 |
 | `otel: the three services run instrumented` | each service's process 1 has the installed hook directory on its `PYTHONPATH`, and its log holds no `Failed to auto initialize OpenTelemetry` | `orders-api:orders-api:instrumented worker:worker:instrumented tcp-svc:tcp-svc:instrumented` |
 | `otel: one order's trace has server, client and database spans` | an order placed with the check's own `traceparent` has, in that trace and under orders-api's server span, orders-api's HTTP and database client spans | `server=1 client=1 database=8 traces=1 spans=22` |
 | `otel: resource has service, version, env=lab` | in the order's whole trace (22 spans here, both services), every orders-api and worker span has a version and `deployment.environment=lab`, and both services appear; a span with no `service.name` counts as missing, and spans of other named services are not checked | `orders-api=dev/lab worker=dev/lab spans=22 missing=0` |
