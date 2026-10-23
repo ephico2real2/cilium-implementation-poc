@@ -77,6 +77,11 @@ Each story is INVEST-sized, with **acceptance criteria (Given / When / Then)**, 
 | R1.7 Structured logs with trace ids | Every log line is JSON with `trace_id` and `span_id`, sent as OTLP logs to VictoriaLogs; from a span in Grafana, "logs for this span" opens the matching lines (spike: Tempo's trace-to-logs with the VictoriaLogs datasource) |
 | R1.8 Metrics ↔ traces | RED metrics per service from Tempo's metrics generator (or the collector's `spanmetrics` connector); exemplars kept by Prometheus (exemplar storage on) link a latency spike to its Tempo trace; VictoriaMetrics correlates by shared labels |
 | R1.9 Telemetry dashboard | A second dashboard via diagram-kit `/dashboard` (inventory first): pipeline health (accepted, refused, dropped), RED per service, log volume by level |
+| R1.11 The observability standard (epic #123) | `docs/observability-standard.md`: layers L0 Envoy, L1 auto, L2 extended auto, L3 business; naming, what never goes in telemetry, a decision tree; the app as the worked example |
+| R1.12 Coverage inventory and guard | Every call, dependency and business operation with its layer and evidence; a CI test fails when one is added uninstrumented |
+| R1.13 Close the gaps | tcp-svc, the API's TCP ping and the other gaps the inventory finds, each at the cheapest layer |
+| R1.14 Baggage to span attributes | `fabric.*` business context set once, copied onto every span by an allow-listed `BaggageSpanProcessor`, across MQ by a measured design |
+| R1.15 The order's business telemetry | The order's life as span events and metrics: the layer-3 pattern R3 and R4 reuse |
 
 ### R2 — Catalog and cart (1–2 sprints)
 
