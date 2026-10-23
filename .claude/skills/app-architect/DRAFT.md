@@ -133,6 +133,11 @@ assumption either way:
      managed service.
    - The least privilege that reads the metric: for IBM MQ, a user allowed to display the queue's status, not the
      application's own user and not a full administrator.
+   - **Test whether the application's identity can read the metric, then give the scaler its own either way.** If
+     the app's identity lacks the rights (measure it: call the endpoint the scaler will call, with the app's
+     credentials), create a separate monitoring identity with only the rights the metric needs. If the app's
+     identity has the rights, still create the separate one: a scaler sharing the app's credentials ties
+     their rotation together and gives the scaler the app's write access.
 3. **Where the secret comes from.**
    - Prefer workload identity or an external secret store (Vault or the cloud's) referenced by a
      `TriggerAuthentication`, over a Kubernetes Secret.
@@ -203,9 +208,13 @@ measured.
 - **The scaler's path to MQ:** in the lab every caller reaches MQ through Envoy (`mqrest.mesh`, plain HTTP inside
   the mesh, with Envoy opening TLS to MQ). The review must decide whether KEDA joins the mesh like any other
   caller, or reaches MQ's TLS port directly with the lab CA as its `ca`.
-- **The scaler's identity:** a new MQ identity with only queue-status rights, held in the secret store. *To
-  measure:* that the worker's `app` user cannot read the admin endpoint. Its credentials must not be reused
-  either way.
+- **The scaler's identity:** measured on 2026-10-23, the worker's `app` user cannot read the endpoint the IBM MQ
+  scaler calls. A `DISPLAY QSTATUS(DEV.QUEUE.1)` through `…/ibmmq/rest/v2/admin/action/qmgr/QM1/mqsc`, through
+  Envoy, answered HTTP 403 with `MQWB0118E: Not authorized to open 'SYSTEM.ADMIN.COMMAND.QUEUE'`, reason code
+  2035. So the scaler needs a separate monitoring user, held in the secret store, with only what that display
+  needs. *To measure when it is built:* the exact MQ web role and object authorities that allow
+  `DISPLAY QSTATUS` on `DEV.QUEUE.1` and refuse everything else, proven by one call that works and one that is
+  refused.
 - **Envoy's routes:** Envoy refuses the admin paths of the other stores today. A scaler's admin read would need a
   route of its own, limited to that one action.
 
