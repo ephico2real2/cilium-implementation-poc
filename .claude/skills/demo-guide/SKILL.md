@@ -97,8 +97,9 @@ table, the address block. Tables over prose.>
 1. **Imperative, present tense, one action per step.** Step titles are verb phrases ("Install kube-vip",
    "Create the two doors"). A step that needs two commands is two steps or one command block with a
    result per command.
-2. **Command, then result.** Every step shows the command as recorded and the result in the same block. The
-   result is the recorded output (one to five lines) — an address, a status, a count — never a paraphrase of it.
+2. **Command, then result.** Every step shows the command as recorded, then its result right after the block: a
+   `Result:` line, or the output in a ```text block, never inside the command's block (rule 12). The result is the
+   recorded output (one to five lines) — an address, a status, a count — never a paraphrase of it.
 3. **Every command is a fenced ```bash block — never inline in a sentence** (the operator, 2026-09-19: *"the
    commands that you use are not formatted with bash format and you add them to paragraphs"*). Inline backticks
    are for names only: a file, an object, an address, a flag. A sentence that contains `kubectl …`, `curl …`,
@@ -121,7 +122,28 @@ table, the address block. Tables over prose.>
    rewritten.
 10. **Headings are fixed.** No H2 outside the template; *Troubleshooting* may be omitted; nothing else may.
 11. **`scripts/mdfmt fix` after writing**, under bash, like every .md here; `tests/guide-structure.py <RECAP.md>`
-    passes (heading order, one H3 per step, a command block and a "Result:" line in every step).
+    passes (heading order, one H3 per step, a command block and a "Result:" line in every step, and rule 12's
+    layout in every bash block).
+12. **Commands laid out the same way in every ```bash, ```sh and ```shell block** (the operator, 2026-10-23: *"the
+    bash commands well formatted now and no bloat"*, *"Proper spacing and inline comment placed right"*). From the
+    [Google Shell Style Guide](https://google.github.io/styleguide/shellguide.html) (comments precede the command)
+    and Google's [code samples](https://developers.google.com/style/code-samples) guide (short lines):
+    - **a. No prompt.** No `$ ` before a command; one command per line; the output goes in a ```text block after
+      the command, never in the same block.
+    - **b. A comment that explains a command sits on its own line, directly above it.**
+    - **c. A trailing comment only when it is short:** all of a block's trailing comments start at the same
+      column, at least two spaces after the longest commented command, and no line passes 120 characters.
+      Otherwise the comment moves above its command.
+    - **d. A long command is wrapped** with ` \` before 120 characters; its continuation lines are indented two
+      spaces.
+    - **e. One blank line between groups of related commands**, none inside a group, none at the start or end of
+      a block, never two in a row.
+    - **f. No bloat:** no `echo` banners, no commented-out commands; a page's variables are set once.
+
+    `tests/guide-structure.py` checks a (the prompt), c, d and e, on every kind of page: a `#` inside quotes or in
+    `${#var}` is not a comment, and a heredoc's body is not read. Each problem is one line,
+    `<file>:<line>: bash block (rule 12): <what>`. b and f, and the rest of a, are for the writer and the
+    reviewer.
 
 ## The other two pages — same discipline
 
@@ -141,8 +163,8 @@ sentence), **Prerequisites** (bullets; the hosts block as a ```bash block if a b
 recorded output in a ```text block; three to five exercises, all read-only — anything that changes the cluster
 says so in its title), **Clean up** (link to the README's).
 
-Both obey rules 3–8 and 11 above. `tests/guide-structure.py --kind readme|guide <file>` checks the H2 order and
-the no-inline-command rule; `--kind recap` (the default) checks the guide.
+Both obey rules 3–8, 11 and 12 above. `tests/guide-structure.py --kind readme|guide <file>` checks the H2 order,
+the no-inline-command rule and rule 12's bash-block layout; `--kind recap` (the default) checks the guide.
 
 ## The process
 
