@@ -12,7 +12,8 @@ Given / When / Then, the test that proves it (a check in a new `scripts/verify.s
 | Sprint | Goal | Stories |
 |---|---|---|
 | 1 | "The pipeline and the stores": every store up behind Envoy, fed by the collector, compared side by side | R1.1 (done), R1.2 (done), R1.3 (done), E1 (done), R1.10 (done) |
-| 2 | "One order, one story": an order's trace, logs and metrics, linked | R1.4, R1.5, R1.6, R1.7, R1.8, R1.9 |
+| 2 | "One order, one story": an order's trace, logs and metrics, linked | R1.4 (done), R1.5 (done), R1.6, R1.7, R1.8, R1.9 |
+| 2–3 | "Observability by design" (epic #123): the instrumentation standard, proven on the app | R1.6, R1.11, R1.12, then R1.7 and R1.8 follow the standard, then R1.13, R1.14, R1.15, and R1.9 last |
 
 **Every story is an enhancement: nothing that works today stops.** Each one carries the
 acceptance criterion "Nothing existing stops" below, on top of its own, and the Definition of
@@ -413,6 +414,103 @@ metrics, built the same way as the first.
 |---|---|---|---|
 | 1 | the new metrics | the dashboard is designed | a metrics inventory comes first and the choices are recorded (diagram-kit `/dashboard`) |
 | 2 | the dashboard | its tests run | every query returns, both forms (Grafana and Perses) agree, captures in both themes show no "No data" |
+
+## Epic: observability by design (#123)
+
+The operator, 2026-10-23: a standard by which every piece of code and every dependency it calls is
+made observable, auto-instrumentation first and extended where it falls short, business logic
+instrumented by our own code, Envoy carrying the trace end to end, and the app as the worked
+example. The refined prompt is in the epic, #123. Its layers: L0 Envoy, L1 auto-instrumentation
+(R1.4), L2 extended auto (configuration, hooks, baggage, collector processors), L3 business
+instrumentation (R1.5's MQ hand-off is the first). R1.6 is its layer 0.
+
+## R1.11 The observability standard (#118)
+
+As an engineer adding code to Fabric Coffee, I want one written standard that says how every piece of code and every dependency is made observable, so that the app is observable end to end by construction, not by luck.
+
+**Deliverable:** `docs/observability-standard.md`, a guide a junior can follow, with Fabric Coffee as the worked example throughout.
+
+The layers, cheapest first; each layer is used before the next is reached for:
+
+| Layer | What it covers | Example in the lab |
+|---|---|---|
+| L0 Envoy | every hop it can see: spans (R1.6), access logs, retries, `x-request-id` | `mesh_http`; the edge passes TLS through, so it is stated as not traced |
+| L1 auto-instrumentation | every library that has an OpenTelemetry instrumentation | FastAPI, httpx, psycopg (R1.4) |
+| L2 extended auto | configuration, request/response hooks, header capture, baggage → attributes, collector processors (`transform`, `attributes`, `spanmetrics`) | excluded URLs (R1.4); baggage (R1.14) |
+| L3 business instrumentation | custom spans, span events, attributes and metrics for business operations and for transports no library covers | the MQ hand-off, `process` span and `fabric.order.id` (R1.5) |
+
+| # | Given | When | Then |
+|---|---|---|---|
+| 1 | the standard | a reader adds a call to a new dependency | its decision tree (auto → extend → custom) names the layer to use and the evidence to record |
+| 2 | the standard | a reader names a span, an attribute or a metric | OpenTelemetry semantic conventions first; anything of our own under `fabric.*`; the reason for each is given |
+| 3 | the standard | a reader asks what must never be in telemetry | secrets, credentials, personal data, and anything in baggage (it travels in every outgoing header) |
+| 4 | the standard | each rule | is illustrated by the lab's own code and a measured trace, with its output file; a diagram (diagram-kit) shows the four layers on Fabric Coffee |
+
+- **Test:** two-family review of the document against the code; every example's evidence file exists (a docs-evidence check in CI).
+- **Depends on:** R1.6 (#99) for layer 0's spans.
+
+## R1.12 The coverage inventory and its guard (#119)
+
+As the person responsible for the lab, I want an inventory of every call and dependency with the layer that makes it observable, and a check that keeps it complete, so that nothing new ships uninstrumented.
+
+| # | Given | When | Then |
+|---|---|---|---|
+| 1 | the app's code and `compose.yaml` | the inventory is read (`docs/observability-coverage.md`) | every inbound endpoint, outbound call (HTTP, SQL, MQ, TCP, Prometheus) and business operation has a row: its layer (R1.11), its evidence (a span name in Tempo, a `verify.sh` check), or "gap" with the story that closes it |
+| 2 | a pull request that adds a Python dependency with an OpenTelemetry instrumentation but does not install that instrumentation | CI runs | a lab-free test fails and names the dependency |
+| 3 | a pull request that adds an Envoy route or cluster, or a service, without a row in the inventory | CI runs | the same test fails and names it |
+| 4 | the inventory | `scripts/verify.sh phase6` runs | each row marked covered has its span in a live trace |
+
+- **Test:** the CI guard (lab-free), with false-pass cases; `phase6` for row 4.
+- **Depends on:** R1.11.
+
+## R1.13 Close the instrumentation gaps (#120)
+
+As someone debugging Fabric Coffee, I want the gaps the inventory finds closed at the cheapest layer, so that every call is in a trace.
+
+Known gaps today (to be confirmed by R1.12's inventory, measured first):
+
+- **tcp-svc** serves raw TCP: no instrumentation covers it, so it makes no span (R1.4).
+- **orders-api's TCP ping** to tcp-svc is a raw TLS socket: no client span.
+- **The admin portal's status calls** in orders-api: traced as HTTP spans, with no business meaning.
+
+| # | Given | When | Then |
+|---|---|---|---|
+| 1 | each gap | it is closed | at the cheapest layer that works (L1 → L2 → L3), with the reason recorded |
+| 2 | a TCP ping from the API | its trace is opened | it holds the API's client span and tcp-svc's server span, joined (context carried in the protocol, or a documented reason why not) |
+| 3 | the inventory | after the story | no row reads "gap" without a story that owns it |
+
+- **Test:** `phase6` checks per closed gap; false-pass cases.
+- **Depends on:** R1.12.
+
+## R1.14 Baggage to span attributes (#121)
+
+As an analyst, I want business context set once at the front door to appear on every span of the request in every service, so that I can slice traces by it without code in each handler.
+
+**Baggage** is the W3C header that carries key–value pairs beside `traceparent`; the **`BaggageSpanProcessor`** (`opentelemetry-processor-baggage`, 0.66b1, 2026-10-06) copies chosen entries onto each span as attributes when it starts.
+
+| # | Given | When | Then |
+|---|---|---|---|
+| 1 | a request with `baggage: fabric.channel=web` | it is traced | every span of every service in its trace carries `fabric.channel=web` |
+| 2 | baggage holding a key outside `fabric.*` | the request is traced | that key is on no span (the processor's allow-list predicate) |
+| 3 | an order's event crossing IBM MQ | the worker processes it | the worker's spans carry the same `fabric.*` entries, by a measured design (MQ refuses a property value with `;`, which baggage allows: R1.5) |
+| 4 | the standard (R1.11) | baggage is read about | it says baggage travels in every outgoing header, so it never holds secrets or personal data |
+
+- **Spike first:** the processor's wiring under `opentelemetry-instrument` (a configurator module, not environment variables alone); carrying baggage across MQ.
+- **Test:** `phase6` "otel: baggage reaches every span of the order"; the allow-list case.
+- **Depends on:** R1.11; R1.5 (done).
+
+## R1.15 The order's business telemetry (#122)
+
+As the shop's owner, I want an order's life (created, event sent, requeued, dead-lettered, processed) recorded as telemetry, so that the business is visible, not only the HTTP calls.
+
+| # | Given | When | Then |
+|---|---|---|---|
+| 1 | an order | it goes through its life | each step is a span event on the span where it happens (`fabric.order.created`, `fabric.order.event_sent`, `fabric.order.requeued`, `fabric.order.dead_lettered`, `fabric.order.processed`), with `fabric.order.id` |
+| 2 | the same steps | metrics are read | a counter per step and the order's end-to-end latency (created → processed) as a histogram, through the collector (R1.8's pattern) |
+| 3 | the standard (R1.11) | it is read | this story is its worked example of layer 3, the pattern R3 and R4 reuse for payments and the funnel |
+
+- **Test:** `phase6` checks for the events in a live order's trace and the metrics in both stores; false-pass cases.
+- **Depends on:** R1.11; R1.8 (metrics through the collector).
 
 ## Release exit test
 
